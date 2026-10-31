@@ -9,7 +9,8 @@ import { buildBuilding } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
 import { surfaceHeight } from '../gen/surface.js';
 
-export const PLINTH = 0.2;          // ground floor sits this far above the graded ground
+import { PLINTH } from '../core/units.js';
+export { PLINTH };
 const CELL = 128, SIDEWALK = 2.5;
 
 // Building-local → settlement-mesh space (metres, world axes, origin at the town centre).

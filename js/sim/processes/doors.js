@@ -31,11 +31,11 @@ export function closeDoor(store, bKey, door) {
 
 // Forcing a lock: the door is broken (stays unlockable) until the owner repairs it,
 // and an incident is recorded for the authorities system that will consume it.
-export function forceDoor(store, sched, planet, s, b, door, t, who) {
+export function forceDoor(store, sched, planet, s, b, door, t, who, witnesses = []) {
   const k = doorKey(b.key, door.id);
   store.patchDelta(k, { broken: true, brokenAt: t, open: true });
   const delayH = 4 + 26 * hash01(planet.universeSeed, [b.n, door.id, Math.floor(t)]);
   store.schedule({ at: t + delayH * planet.dayLength / 24, kind: 'door.repair', target: k, data: { owner: b.owner, settlement: s.key } });
   store.schedule({ at: t + AUTO_CLOSE, kind: 'door.close', target: k });
-  return store.log({ t, type: 'forced_entry', where: k, building: b.key, buildingType: b.type, owner: b.owner, settlement: s.key, settlementName: s.name, by: who.id, byName: who.name, access: door.access, status: 'unresolved' });
+  return store.log({ t, type: 'forced_entry', where: k, building: b.key, buildingType: b.type, owner: b.owner, settlement: s.key, settlementName: s.name, by: who.id, byName: who.name, access: door.access, witnesses, status: 'unresolved' });
 }

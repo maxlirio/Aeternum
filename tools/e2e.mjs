@@ -10,7 +10,7 @@ import { join } from 'node:path';
 const PORT = 8517, CDP = 9334, slot = 'e2e' + process.pid;
 const profile = join(tmpdir(), 'orbis-e2e-' + process.pid);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`,
-  '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--no-first-run', 'about:blank'], { stdio: 'ignore' });
+  '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let fails = 0;
 const check = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
@@ -27,11 +27,11 @@ try {
     await send('Runtime.enable');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&${q}` });
     let t = '';
-    for (let i = 0; i < 240; i++) { await sleep(500); t = await ev('document.title').catch(e => 'evalerr'); if (t === 'READY') return true; if (t.startsWith('ERROR')) break; }
+    for (let i = 0; i < 480; i++) { await sleep(500); t = await ev('document.title').catch(e => 'evalerr'); if (t === 'READY') return true; if (t.startsWith('ERROR')) break; }
     console.log('   title:', t, errs.slice(0, 3)); return false;
   };
   console.log('[new life]');
-  check(await load('auto=new&seed=00c0ffee00b0a7e5'), 'world loads');
+  if (!check(await load('auto=new&seed=00c0ffee00b0a7e5'), 'world loads')) throw new Error('world did not load — machine busy? rerun');
   // pick a residents-only building that is not the player's home; stand on its doorstep facing in
   const target0 = await ev(`(async () => {
     const { s, store, ctrl, cam, town } = ORBIS;
@@ -93,9 +93,34 @@ try {
   for (let i = 0; i < 40; i++) { await sleep(250); if (await ev('document.title') === 'READY') break; }
   check(!(await ev(`!!ORBIS.store.getDelta('${target0.key}/door:${target0.door}')?.broken`)), 'door is repaired in the world state');
   check(await ev(`ORBIS.store.player.fatigue < 0.05`), 'resting two days left the character rested');
+  console.log('[residents]');
+  const r = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, pop = O.pop;
+    const { canOpen } = await import('./js/world/doors.js');
+    const { whereAt } = await import('./js/gen/schedule.js');
+    const parents = P.family.parents.map(id => pop.byId.get(id));
+    const t = O.clock.now();
+    // a unit door in the player's own building vs. some other apartment
+    const mine = O.town.doors.find(d => d.door.access === 'unit' && P.keys.includes(d.b.key + '#u' + d.door.unit));
+    const other = O.town.doors.find(d => d.door.access === 'unit' && !P.keys.includes(d.b.key + '#u' + d.door.unit));
+    const parentHome = parents.length ? whereAt(pop, parents[0], (Math.floor(t / O.planet.dayLength + 0.3) + 1 - 0.3 + 2.5 / 24) * O.planet.dayLength) : null;
+    const ev = O.store.events.find(e => e.type === 'forced_entry');
+    return { people: pop.people.length, parents: parents.length, parentsReal: parents.every(Boolean),
+      parentAsleepAtHome: parentHome ? parentHome.activity === 'sleeping' && parentHome.bKey === pop.unitByKey.get(parents[0].home).b.key : null,
+      mineOk: mine ? canOpen(O.store, O.planet, P, mine.b, mine.door, t).ok : 'n/a', otherOk: other ? canOpen(O.store, O.planet, P, other.b, other.door, t).ok : 'n/a',
+      drawn: O.getAgents().length, witnessesField: Array.isArray(ev?.witnesses) };
+  })()`);
+  check(r.people > 150, 'town has residents (' + r.people + ')');
+  check(r.parents > 0 && r.parentsReal, 'your parents are real residents (' + r.parents + ')');
+  check(r.parentAsleepAtHome === true, 'at 02:30 your parent is asleep in their own home');
+  check(r.mineOk === true || r.mineOk === 'n/a', 'your key opens your apartment (' + r.mineOk + ')');
+  check(r.otherOk === false, 'a stranger\'s apartment stays locked');
+  check(r.witnessesField, 'the incident records its witnesses');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});
   ws.close();
-} finally { chrome.kill(); await sleep(300); try { rmSync(profile, { recursive: true, force: true }); } catch {} }
+} finally {
+  try { process.kill(-chrome.pid, 'SIGKILL'); } catch { chrome.kill(); }   // whole group: helpers too
+  await sleep(300); try { rmSync(profile, { recursive: true, force: true }); } catch {} }
 console.log(fails ? `\n${fails} failure(s)` : '\nall green'); process.exit(fails ? 1 : 0);

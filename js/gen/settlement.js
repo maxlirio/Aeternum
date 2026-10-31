@@ -9,7 +9,7 @@ import { Rng } from '../core/prng.js';
 import { hash01, derive } from '../core/hash.js';
 import { REGION } from '../core/units.js';
 import { rawHeight } from './terrain.js';
-import { placeName, personName, companyName } from './names.js';
+import { placeName, personName, companyName, streetWord, streetSuffix } from './names.js';
 
 export const TYPES = {
   office:   { label: 'Administration', w: [16, 24], d: [14, 18], floors: [3, 5], storeyH: 3.4, access: 'hours', hours: [8, 18], roomArea: 30 },
@@ -225,4 +225,26 @@ function placeLots(s, rng) {
       }
     }
   }
+}
+
+// Street names and house numbers. Every road segment on the same grid line shares a
+// name; numbers run along the line, odd on one side, even on the other. Uses its own
+// derived seed so adding it changed nothing else in the town.
+export function address(s, b) {
+  if (!s.streetNames) {
+    s.streetNames = new Map();
+    for (const r of s.roads) {
+      const alongU = r.a[1] === r.b[1], line = (alongU ? 'u' : 'v') + (alongU ? r.a[1] : r.a[0]).toFixed(1);
+      if (!s.streetNames.has(line)) {
+        const rng = new Rng(derive(s.seed, 'street', [s.streetNames.size]));
+        s.streetNames.set(line, r.arterial ? `${streetWord(rng)} ${rng.pick(['Boulevard', 'Concourse', 'Parade'])}` : `${streetWord(rng)} ${streetSuffix(rng)}`);
+      }
+    }
+  }
+  const r = s.roads[b.road], alongU = r.a[1] === r.b[1];
+  const line = (alongU ? 'u' : 'v') + (alongU ? r.a[1] : r.a[0]).toFixed(1);
+  const along = alongU ? (b.rect[0] + b.rect[2]) / 2 : (b.rect[1] + b.rect[3]) / 2;
+  const side = (alongU ? b.O[1] - r.a[1] : b.O[0] - r.a[0]) > 0 ? 1 : 0;
+  const n = 2 * Math.max(0, Math.round((along + s.R + 20) / 9)) + side + 1;
+  return `${n} ${s.streetNames.get(line)}`;
 }

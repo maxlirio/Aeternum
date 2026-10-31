@@ -14,3 +14,7 @@ export const placeName = rng => rng.chance(0.3)
   : word(rng, 2, 3) + rng.pick(['', '', ' Landing', ' Station', ' Reach', ' Crossing', ' Hold']);
 export const personName = rng => `${word(rng, 1, 2)} ${word(rng, 2, 3)}`;
 export const companyName = rng => `${word(rng, 2, 2)} ${rng.pick(['Logistics', 'Fabrication', 'Holdings', 'Provisions', 'Mining Co.', 'Freight', 'Works', 'Supply', 'Systems'])}`;
+export const givenName = rng => word(rng, 1, 2);
+export const surname = rng => word(rng, 2, 3);
+export const streetSuffix = rng => rng.pick(['Street', 'Street', 'Avenue', 'Way', 'Row', 'Lane', 'Road']);
+export const streetWord = rng => word(rng, 1, 2);

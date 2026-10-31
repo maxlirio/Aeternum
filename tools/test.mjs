@@ -158,6 +158,48 @@ suites.offline = async () => {
   }
 };
 
+suites.people = async () => {
+  const { getPopulation, occupation } = await import('../js/gen/population.js');
+  const { whereAt, dayPlan, dayIndex } = await import('../js/gen/schedule.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  let worst = 0, people = 0, employed = 0, routeFails = 0;
+  for (let n = 0; n < 6; n++) {
+    const p = makePlanet(uni(n), HOMEWORLD), s = getSettlement(p, 0, 0);
+    const t0 = performance.now();
+    const pop = getPopulation(p, s);
+    people += pop.people.length; employed += pop.people.filter(x => x.job).length;
+    check(pop.people.length > 150, `seed ${n}: only ${pop.people.length} residents`);
+    for (const x of pop.people) {
+      const bedOwners = pop.people.filter(y => y.home === x.home && y.bed.anchor === x.bed.anchor && y.bed.slot === x.bed.slot);
+      if (bedOwners.length !== 1) { check(false, `${x.id} shares a bed slot`); break; }
+    }
+    for (const j of pop.jobs) if (j.holder) check(pop.byId.get(j.holder).job === j.id, 'job/holder mismatch');
+    // continuity: over two days, nobody teleports (≤ 2.5 m per simulated second, sampled each 7 s)
+    const D = dayIndex(p, EPOCH) + 1, T = (D - 0.3) * p.dayLength;
+    const sample = pop.people.filter((_, i) => i % 3 === 0);
+    for (const x of sample) {
+      for (const d of [0, 1]) for (const sg of dayPlan(pop, x, D + d).segs) if (sg.type === 'move' && !sg.route) routeFails++;
+      let prev = whereAt(pop, x, T);
+      for (let t = T + 7; t < T + 2 * p.dayLength; t += 7) {
+        const w = whereAt(pop, x, t);
+        const jump = Math.hypot(w.pos[0] - prev.pos[0], w.pos[2] - prev.pos[2]) / 7;
+        if (jump > worst) worst = jump;
+        if (jump > 2.5) { check(false, `${x.name} (${occupation(pop, x)}) jumped ${jump.toFixed(1)} m/s at ${w.activity}/${prev.activity}`); break; }
+        prev = w;
+      }
+    }
+    // at midday on a weekday-ish sample, a good share of workers are at work
+    const noon = T + p.dayLength * (12.3 + 0.3) / 24 - 0.3 * 0;
+    const atWork = pop.people.filter(x => x.job && whereAt(pop, x, (D - 0.3 + 12.5 / 24) * p.dayLength).activity === 'working').length;
+    check(atWork > 0.5 * pop.people.filter(x => x.job).length, `seed ${n}: only ${atWork} at work at noon`);
+    const asleep = pop.people.filter(x => whereAt(pop, x, (D - 0.3 + 2.5 / 24) * p.dayLength).activity === 'sleeping').length;
+    check(asleep === pop.people.length, `seed ${n}: ${pop.people.length - asleep} awake at 2:30`);
+    if (n === 0) console.log(`  seed 0: ${pop.people.length} people in ${pop.households.length} households, ${pop.jobs.length} jobs, built in ${(performance.now() - t0).toFixed(0)} ms`);
+  }
+  check(routeFails === 0, routeFails + ' unroutable trips');
+  console.log(`  ${people} people, ${(employed / people * 100).toFixed(0)}% employed, max speed ${worst.toFixed(2)} m/s`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

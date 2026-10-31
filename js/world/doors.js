@@ -17,14 +17,17 @@ export function doorState(store, planet, b, door, t) {
   return { open: !!d.open, locked, broken: !!d.broken, access: door.access };
 }
 
-export function hasKey(player, b) { return !!player && player.keys.includes(b.key); }
+export function hasKey(player, b, door) {
+  if (!player) return false;
+  return door?.access === 'unit' ? player.keys.includes(`${b.key}#u${door.unit}`) : player.keys.includes(b.key);
+}
 
 // Can this character pass through right now, and if not, why?
 export function canOpen(store, planet, player, b, door, t) {
   const st = doorState(store, planet, b, door, t);
   if (!st.locked) return { ok: true, st };
-  if (hasKey(player, b)) return { ok: true, st, key: true };
+  if (hasKey(player, b, door)) return { ok: true, st, key: true };
   const why = door.access === 'hours' ? 'Closed — opening hours ' + door.hours.join(':00–') + ':00'
-    : door.access === 'residents' ? 'Locked — residents only' : 'Locked — staff only';
+    : door.access === 'residents' ? 'Locked — residents only' : door.access === 'unit' ? 'Locked — private apartment' : 'Locked — staff only';
   return { ok: false, st, why };
 }

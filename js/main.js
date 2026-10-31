@@ -6,9 +6,12 @@ import * as THREE from 'three';
 import { seedHex, seedFromHex, makeSeed } from './core/hash.js';
 import { HOMEWORLD } from './core/address.js';
 import { makePlanet } from './gen/planet.js';
-import { getSettlement } from './gen/settlement.js';
+import { getSettlement, address } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
+import { getPopulation, occupation } from './gen/population.js';
+import { Residents } from './sim/residents.js';
+import { CrowdView } from './render/crowd.js';
 import { doorstep, nearestRoadPoint, buildingToWorld } from './gen/place.js';
 import { WorldStore, GEN_VERSION } from './world/store.js';
 import { IDBBackend } from './world/store-idb.js';
@@ -19,6 +22,7 @@ import { Scheduler, TIER } from './sim/scheduler.js';
 import { registerDoorJobs, openDoor, closeDoor, forceDoor } from './sim/processes/doors.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
+import { whereAt } from './gen/schedule.js';
 import { TerrainStreamer } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
@@ -70,7 +74,8 @@ async function start(fresh) {
   let report = null;
   if (fresh) {
     const serial = store.meta.nextCharacter++;
-    const p = newCharacter(U, planet, s, serial, EPOCH);
+    ui.loading('Finding your family…', 0.02); await tick();
+    const p = newCharacter(U, planet, s, getPopulation(planet, s), serial, EPOCH);
     const home = s.buildings.find(b => b.key === p.home);
     const ds = doorstep(s, home, buildingPlan(planet, s, home));
     p.pos = ds.pos; p.facing = ds.facing;
@@ -131,6 +136,14 @@ async function start(fresh) {
   const cam = new FollowCamera(camera, world, renderer.domElement);
   cam.yaw = ctrl.facing;
   const roomLight = new THREE.PointLight(0xffe2c0, 0, 14, 1.6); scene.add(roomLight);
+  // ---- residents
+  ui.loading('Waking the town…', 0.68); await tick();
+  const pop = getPopulation(planet, s);
+  const residents = new Residents(pop);
+  residents.refresh(clock.now(), ctrl.pos, null);
+  const crowd = new CrowdView(scene);
+  const relation = id => player.family.parents.includes(id) ? 'your parent' : player.family.siblings.includes(id) ? 'your sibling' : null;
+  let agents = [];
 
   // warm up the terrain around the player before revealing the world
   for (let i = 0; terrain.pending || i === 0; i++) {
@@ -152,6 +165,7 @@ async function start(fresh) {
     poolMaterial().opacity = Math.min(1, dark * 1.3) * 0.55;
   };
   sched.add(TIER.NEAR, { update: near });
+  sched.add(TIER.NEAR, { update: () => residents.refresh(clock.now(), ctrl.pos, world.locate(...ctrl.pos)?.b?.key) });
   sched.add(TIER.NEAR, { update: dt => { advanceBody(player, 'idle', dt, planet); store.touchPlayer(); } });
   sched.add(TIER.ACTIVE, { update: dt => doorView.update(dt) });
 
@@ -165,6 +179,7 @@ async function start(fresh) {
     if (e.code === 'KeyE') interact();
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
+    if (e.code === 'KeyC') showCharacter();
     if (e.code === 'KeyT' && e.shiftKey) { clock.advance(planet.dayLength / 24); ui.toast('Skipped one hour <small>(developer time-skip — scheduled events still run in order)</small>'); }
   });
   addEventListener('keyup', e => keys.delete(e.code));
@@ -208,6 +223,12 @@ async function start(fresh) {
       doorView.refresh(store, planet, t);
     } else ui.toast(`${res.why}. <small>Hold F to force it.</small>`, 'warn');
   }
+  async function showCharacter() {
+    if (paused) return;
+    paused = true; keys.clear(); document.exitPointerLock?.();
+    await ui.character(player, pop, planet, s);
+    ui.closePanel(); paused = false;
+  }
   async function openMenu() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -230,13 +251,16 @@ async function start(fresh) {
 
   // ---- screenshot / test hooks (?cam=...)
   const shot = params.get('cam');
-  if (shot) applyShot(shot, { s, planet, ctrl, cam, town, doorView, store, sched, clock, world });
+  if (shot) applyShot(shot, { s, planet, ctrl, cam, town, doorView, store, sched, clock, world, pop });
 
   // ---- loop
   ui.closePanel(); ui.showHud(true);
   if (report && (report.elapsed > 60 || report.events.length)) { paused = true; await ui.away(report, planet); paused = false; }
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
-  if (fresh) ui.toast(`You are <b>${player.name}</b>, ${player.age}, of ${s.name} on ${planet.name}. Your home is behind you — your key opens it.`, '', 9000);
+  if (fresh) {
+    const par = player.family.parents.map(id => pop.byId.get(id));
+    ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you. <small>C — your background.</small>`, '', 11000);
+  }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
   function frame(now) {
@@ -261,9 +285,11 @@ async function start(fresh) {
           ui.showPrompt(`Forcing the lock… <i class="meter"><b style="width:${Math.min(100, forceHold / 1.8 * 100)}%"></b></i>`);
           if (forceHold > 1.8) {
             forceHold = 0;
-            forceDoor(store, sched, planet, s, b, door, t, player);
+            const here = world.locate(...ctrl.pos);
+            const seen = residents.witnesses(t, ctrl.pos, here?.b?.key || null, here?.k ?? null);
+            forceDoor(store, sched, planet, s, b, door, t, player, seen);
             doorView.refresh(store, planet, t);
-            ui.toast(`You broke the lock. <small>An incident was recorded against you. (Authorities and witnesses are not simulated yet.)</small>`, 'bad', 7000);
+            ui.toast(`You broke the lock. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}${seen.length > 3 ? '…' : ''}).` : 'Nobody saw you.'} <small>The incident is recorded; there are no police yet to act on it.</small>`, 'bad', 8000);
           }
         }
       } else forceHold = 0;
@@ -278,6 +304,16 @@ async function start(fresh) {
     avatar.object.rotation.y = ctrl.facing;
     avatar.update(dt, ctrl.speed, ctrl.grounded);
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
+    // residents (ACTIVE tier): positions are a pure function of time
+    agents = residents.agents(t);
+    for (const a of agents) { // people are solid to the player (not the other way round yet)
+      if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
+      const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
+      if (d < 0.6 && d > 1e-4) { ctrl.pos[0] = a.pos[0] + dx / d * 0.6; ctrl.pos[2] = a.pos[2] + dz / d * 0.6; }
+    }
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos) })), dt);
+    const inUse = residents.doorsInUse(agents);
+    doorView.transient = new Set([...inUse].map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot) cam.update(dt, ctrl.pos, toRender);
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
@@ -296,10 +332,21 @@ async function start(fresh) {
       if (di >= 0 && forceHold === 0) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
         const res = canOpen(store, planet, player, b, door, t);
-        const what = door.kind === 'interior' || door.kind === 'core' ? 'door' : `${b.owner}`;
+        const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
         ui.showPrompt(st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
           : res.ok || (door.kind !== 'interior' && insideBuilding(b)) ? `<kbd>E</kbd> Open ${what}${res.key ? ' <small>(your key)</small>' : ''}` : `${res.why} · <kbd>E</kbd> try · hold <kbd>F</kbd> force`);
-      } else if (forceHold === 0) ui.showPrompt(null);
+      } else if (forceHold === 0) {
+        // the person in front of you
+        let best = null, bd = 2.6;
+        for (const a of agents) {
+          const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz);
+          if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.5 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.2) { bd = d; best = a; }
+        }
+        if (best) {
+          const rel = relation(best.id), p = best.person;
+          ui.showPrompt(`<b>${p.name}</b>${rel ? ` — ${rel}` : ''} · ${p.age} · ${occupation(pop, p)} <small>· ${best.activity}</small>`);
+        } else ui.showPrompt(null);
+      }
     }
     ui.updateHud({ planet, s, player, t, located: loc });
     frames++;
@@ -312,7 +359,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save };
+  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
@@ -326,6 +373,25 @@ function applyShot(kind, g) {
     camera.position.set(x, s.h + 170, z); camera.lookAt(s.cx, s.h, s.cz);
   } else if (kind === 'far') {
     camera.position.set(s.cx, s.h + 40, s.cz); camera.lookAt(s.cx + 3000, s.h + 80, s.cz + 1500);
+  } else if (kind === 'people' || kind === 'work' || kind === 'sleep') {
+    // find someone doing the thing, and stand nearby looking at them
+    const t = clock.now();
+    const want = kind === 'people' ? (w => w.moving && !w.bKey && w.pos[1] < s.h + 1) : kind === 'work' ? (w => w.activity === 'working' && w.pose === 'sit') : (w => w.activity === 'sleeping');
+    let pick = null;
+    for (const p of g.pop.people) { const w = whereAt(g.pop, p, t); if (want(w)) { pick = w; break; } }
+    if (pick) {
+      const { world } = g, fx = Math.sin(pick.facing), fz = Math.cos(pick.facing);
+      if (kind === 'people') ctrl.pos = [pick.pos[0] + fx * 7 + fz * 1.5, s.h, pick.pos[2] + fz * 7 - fx * 1.5];
+      else {
+        const floor = world.groundAt(pick.pos[0], pick.pos[2], pick.pos[1] - (pick.pose === 'lie' ? 0.4 : 0)).h;
+        const [x, z] = world.resolve(pick.pos[0] + fx * 1.7 + fz * 0.6, pick.pos[2] + fz * 1.7 - fx * 0.6, floor);
+        ctrl.pos = [x, floor, z];
+      }
+      ctrl.facing = Math.atan2(pick.pos[0] - ctrl.pos[0], pick.pos[2] - ctrl.pos[2]);
+      cam.yaw = ctrl.facing - 0.35; cam.pitch = kind === 'sleep' ? 0.5 : 0.15; cam.dist = kind === 'people' ? 4 : 2.4;
+      const toR = (x, y, z) => [x, y, z];
+      const keep = () => { cam.update(0.05, ctrl.pos, toR); requestAnimationFrame(keep); }; requestAnimationFrame(keep);
+    } else console.warn('no one found for shot', kind);
   } else if (kind === 'street' || kind === 'door' || kind === 'interior' || kind === 'stairs') {
     const pick = kind === 'interior' ? town.doors.find(d => d.b.type === 'office' && d.door.kind === 'exterior')
       : kind === 'stairs' ? town.doors.find(d => d.door.kind === 'core' && d.door.k === 0 && d.b.type === 'hab')

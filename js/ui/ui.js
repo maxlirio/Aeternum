@@ -2,6 +2,7 @@
 // "while you were away" report. Plain DOM, no framework.
 import { ACTIVITIES } from '../sim/processes/character.js';
 import { formatDuration, formatHour, solarHour, dayNumber } from '../sim/clock.js';
+import { address } from '../gen/settlement.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -19,7 +20,7 @@ export class UI {
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
-    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump · E use · hold F force · Esc menu'); this.root.append(this.hint);
+    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump · E use · hold F force · C you · Esc menu'); this.root.append(this.hint);
   }
   panel(html, cls = '') {
     this.closePanel();
@@ -116,6 +117,32 @@ export class UI {
   }
 }
 
+UI.prototype.character = function (player, pop, planet, s) {
+  return new Promise(res => {
+    const person = id => pop.byId.get(id);
+    const line = p => `<li><b>${esc(p.name)}</b>, ${p.age} — ${esc(occupationOf(pop, p))}<br><small>lives at ${esc(homeLabel(pop, p.home))}</small></li>`;
+    const parents = player.family.parents.map(person), sibs = player.family.siblings.map(person);
+    const unit = pop.unitByKey.get(player.homeUnit);
+    const p = this.panel(`<h2>${esc(player.name)}</h2>
+      <p class="lede">${player.age} years old · born in ${esc(s.name)}, ${esc(planet.name)}</p>
+      <p>Lives ${player.withParents ? 'with family' : 'alone'} at ${esc(homeLabel(pop, player.homeUnit))}${unit ? '' : ''}.</p>
+      <p>Occupation: <b>none</b> — looking for work. <small>(Jobs and careers are not simulated for you yet.)</small></p>
+      <h3>Parents</h3><ul class="events">${parents.map(line).join('') || '<li class="none">Not living in town.</li>'}</ul>
+      ${sibs.length ? `<h3>Siblings</h3><ul class="events">${sibs.map(line).join('')}</ul>` : ''}
+      <p class="fine">Fatigue ${Math.round(player.fatigue * 100)}% · Fitness ${Math.round(player.fitness * 100)}%</p>
+      <button data-a="ok" class="primary">Back</button>`, 'char');
+    p.addEventListener('click', e => { if (e.target.dataset.a === 'ok') res(); });
+  });
+};
+function occupationOf(pop, p) {
+  if (p.job) { const j = pop.jobById.get(p.job); return `${j.title}, ${j.employer}`; }
+  return p.age < 18 ? (p.age < 6 ? 'child' : 'student') : p.age >= 67 ? 'retired' : 'unemployed';
+}
+function homeLabel(pop, unitKey) {
+  const u = pop.unitByKey.get(unitKey); if (!u) return 'unknown';
+  return u.b.type === 'house' ? address(pop.s, u.b) : `Apt ${u.id}, ${address(pop.s, u.b)}`;
+}
+
 const TYPE_LABEL = { office: 'Administration', hab: 'Habitation block', store: 'Store', house: 'Dwelling', workshop: 'Workshop', hangar: 'Hangar' };
 function labelFor(loc) {
   const b = loc.b;
@@ -127,7 +154,7 @@ function labelFor(loc) {
 export function describeEvent(e, planet) {
   const when = `<span class="when">day ${dayNumber(planet, e.t)} ${formatHour(solarHour(planet, e.t))}</span>`;
   switch (e.type) {
-    case 'forced_entry': return `${when} Forced entry at a ${esc(TYPE_LABEL[e.buildingType] || 'building')} owned by ${esc(e.owner)}, ${esc(e.settlementName)} — by ${esc(e.byName)}. <em>Unresolved.</em>`;
+    case 'forced_entry': return `${when} Forced entry at a ${esc(TYPE_LABEL[e.buildingType] || 'building')} owned by ${esc(e.owner)}, ${esc(e.settlementName)} — by ${esc(e.byName)}. ${e.witnesses?.length ? `Witnessed by ${e.witnesses.length}.` : 'No witnesses.'} <em>Unresolved.</em>`;
     case 'door_repaired': return `${when} ${esc(e.owner)} had a forced door repaired.`;
     case 'life_began': return `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
     default: return `${when} ${esc(e.type)}`;

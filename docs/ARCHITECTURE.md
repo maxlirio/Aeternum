@@ -63,6 +63,35 @@ the determinism suite fails. When that is intended, bump `GEN_VERSION` in
 Caches (`settlement.js`, `building.js`) are keyed by universe seed and address. They are
 pure memoisation.
 
+## People (`gen/population.js`, `gen/schedule.js`, `gen/paths.js`)
+
+People are generated, not stored.
+
+- **Plans → anchors.** Every furniture *record* publishes logical anchors: sleep (bed,
+  2 slots if double), sit (sofa, chairs, tables), work (desk chair, counter, bench,
+  machine), browse (shelf, rack), plus free standing spots per room. Anchors come from
+  furniture records (kind, footprint, facing), never from meshes. **Rule: gameplay never
+  depends on the shape of a model**, so every visual can be replaced (for example with
+  photoreal art) without touching logic.
+- **Population.** Dwelling units come from plans. Households of 1–6 fit the unit's bed
+  slots, with a shared surname. Jobs are one per work anchor in a workplace (some with
+  two shifts). Employment is assigned by a shuffled match.
+- **Schedules.** `dayPlan(person, day)` is a list of AT segments (at an anchor) and MOVE
+  segments (along a route), seeded by (person, day). Each day starts and ends asleep in
+  bed, so consecutive days join seamlessly. `whereAt(person, t)` is a binary search plus
+  interpolation along a polyline.
+- **Routes.** BFS over the room/door graph, `coreClimb` through the switch-back stair
+  flights, and Dijkstra over the street graph keeping to the right-hand sidewalk. Route
+  points carry `door` refs so views can open doors for people passing through.
+- **Tiers** (`sim/residents.js`):
+  - DORMANT: nobody is evaluated.
+  - NEAR (1 Hz): everyone is evaluated to pick the drawn set (up to 96 within 110 m;
+    people indoors only within 45 m unless in the player's building), and tomorrow's plans
+    are prepared during the last hours of the day.
+  - ACTIVE (per frame): the drawn set is evaluated.
+- **The character** is added by the save (`player.family` references generated people),
+  not by altering generation.
+
 ## Persistence (`world/`)
 
 `WorldStore` keeps a working copy in memory. A backend persists the dirty records:
@@ -125,4 +154,6 @@ axis-aligned in their own frame, so every test is circle-versus-box. The control
 handles step-up, stair ramps, slab ceilings and a slope limit on raw terrain. The
 camera boom shortens against the same collision world. `avatar.js` is the integration
 point for ADVENTURER: anything returning `{ object, update(dt, speed, grounded), setOpacity }`
-works.
+works. The crowd (`render/crowd.js`) poses one template rig per person and copies part
+transforms into instanced meshes. Replacing the body art means replacing `buildRig` /
+`applyPose`, or swapping the crowd view for skinned meshes with LOD.

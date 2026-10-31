@@ -16,6 +16,7 @@ export class DoorView {
     this.anim = new Float32Array(doors.length);   // 0 closed .. 1 open
     this.target = new Float32Array(doors.length);
     this.lockState = new Array(doors.length).fill(null);
+    this.transient = new Set();                  // held open by someone walking through
     this.m = new THREE.Matrix4(); this.v = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
     this.m.identity();
     for (let i = 0; i < doors.length; i++) { this.place(i); this.mesh.setColorAt(i, COL.normal); }
@@ -60,10 +61,10 @@ export class DoorView {
   update(dt) {
     let moved = false;
     for (let i = 0; i < this.doors.length; i++) {
-      const d = this.target[i] - this.anim[i];
+      const d = (this.transient.has(i) ? 1 : this.target[i]) - this.anim[i];
       if (d === 0) continue;
       const step = dt * (this.doors[i].door.kind === 'hangar' ? 0.25 : 2.2);
-      this.anim[i] = Math.abs(d) <= step ? this.target[i] : this.anim[i] + Math.sign(d) * step;
+      this.anim[i] = Math.abs(d) <= step ? this.anim[i] + d : this.anim[i] + Math.sign(d) * step;
       this.place(i); moved = true;
     }
     if (moved) this.mesh.instanceMatrix.needsUpdate = true;

@@ -10,7 +10,7 @@ export const SAVE_VERSION = 1;
 // Bump whenever generation output changes for the same seed. Saves only hold deltas
 // against generated content, so a save made under another generator version may point
 // at things that no longer exist; the game warns instead of silently misapplying them.
-export const GEN_VERSION = 1;
+export const GEN_VERSION = 2;   // 2: apartments + furniture anchors
 
 export class WorldStore {
   constructor(backend) {

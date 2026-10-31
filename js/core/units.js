@@ -5,3 +5,4 @@ export const MAX_LOD = 7;           // coarsest chunk = 64 * 2^7 = 8192 m
 export const REGION = 3072;         // settlement region cell edge
 export const FLOOR_H = 3.2;         // storey height
 export const DAY = 86400;
+export const PLINTH = 0.2;         // ground floor surface above the graded ground

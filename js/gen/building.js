@@ -39,6 +39,7 @@ function generatePlan(planet, s, b) {
   const lane = k => (k % 2 === 0 ? [xc + INT_T / 2, xc + INT_T / 2 + 1.5] : [w - EXT_T - 1.5, w - EXT_T]);
   const arrival = k => (k === 0 ? 'front' : (k - 1) % 2 === 0 ? 'back' : 'front'); // landing you stand on at floor k
 
+  plan.core = hasCore ? { xc, zl0, zl1 } : null;
   const addDoor = (door) => { door.id = plan.doors.length; plan.doors.push(door); return door; };
 
   // ---- slabs (k = 0 ground .. F roof) and stair flights
@@ -130,7 +131,9 @@ function generatePlan(planet, s, b) {
     if (hasCore) {
       const zc = arrival(k) === 'front' ? EXT_T + LANDING / 2 : d - EXT_T - LANDING / 2;
       const room = rooms.find(r => Math.abs(r.rect[2] - mainX1) < 0.01 && r.rect[1] <= zc - 0.6 && r.rect[3] >= zc + 0.6);
-      const door = addDoor({ k, kind: 'core', rooms: [room ? room.i : -1, 'core'], access: 'open', x: xc, z: zc, axis: 'z', width: DOOR_W, height: DOOR_H });
+      // in habitation blocks each upper floor is one apartment and this is its front door
+      const apt = b.type === 'hab' && k >= 1;
+      const door = addDoor({ k, kind: 'core', rooms: [room ? room.i : -1, 'core'], access: apt ? 'unit' : 'open', unit: apt ? k : undefined, x: xc, z: zc, axis: 'z', width: DOOR_W, height: DOOR_H });
       if (room) room.doors.push(door.id);
       plan.walls.find(wl => wl.k === k && wl.side === 'core').openings.push(opening(door, xc, EXT_T, 'z'));
     }
@@ -155,7 +158,21 @@ function generatePlan(planet, s, b) {
   }
 
   // ---- room purposes and restricted rooms
-  for (const fr of floorRooms) for (const r of fr.rooms) r.purpose = purposeFor(b.type, r, rng, r === entryRoom);
+  // Dwelling units: a house is one unit; a habitation block has shared ground-floor
+  // rooms and one apartment per upper floor (its door is the stair-core door).
+  plan.units = [];
+  if (b.type === 'house') plan.units.push({ id: 0, rooms: plan.rooms.slice() });
+  if (b.type === 'hab') for (let k = 1; k < F; k++) plan.units.push({ id: k, rooms: plan.rooms.filter(r => r.k === k) });
+  for (const u of plan.units) for (const r of u.rooms) r.unit = u.id;
+  for (const fr of floorRooms) for (const r of fr.rooms) {
+    if (r.unit !== undefined) continue;
+    r.purpose = b.type === 'hab' ? (r === entryRoom ? 'lobby' : 'utility') : purposeFor(b.type, r, rng, r === entryRoom);
+  }
+  for (const u of plan.units) {   // biggest room is the living room, then a kitchen, the rest bedrooms
+    const byArea = u.rooms.slice().sort((a, c) => area(c) - area(a));
+    if (byArea.length === 1) byArea[0].purpose = 'studio';
+    else byArea.forEach((r, i) => { r.purpose = i === 0 ? 'living' : i === 1 && byArea.length >= 3 ? 'kitchen' : 'bedroom'; });
+  }
   if (b.type === 'office' || b.type === 'workshop' || b.type === 'store') {
     for (const r of plan.rooms) {
       if (r === entryRoom || r.doors.length !== 1) continue;
@@ -174,6 +191,7 @@ function generatePlan(planet, s, b) {
 
   // ---- furniture
   for (const r of plan.rooms) furnish(plan, r, rng, H);
+  plan.anchors = anchorsFor(plan, rng);
   return plan;
 }
 
@@ -196,6 +214,8 @@ function attachOpening(plan, wallBase, door) {
   }
   throw new Error('door has no wall: ' + plan.key + ' #' + door.id);
 }
+
+const area = r => (r.rect[2] - r.rect[0]) * (r.rect[3] - r.rect[1]);
 
 function purposeFor(type, room, rng, isEntry) {
   const [x0, z0, x1, z1] = room.rect, area = (x1 - x0) * (z1 - z0);
@@ -239,6 +259,8 @@ function placeWindows(plan, b, wl, rng, xc, hasCore) {
 // ---- furniture
 const WALL_PROPS = {
   living: [['sofa', 2.0, 0.9, 0.8], ['cabinet', 1.2, 0.45, 1.8]],
+  studio: [['bed', 2.1, 1.5, 0.55], ['counter', 1.8, 0.65, 0.92], ['locker', 0.9, 0.55, 2.0]],
+  utility: [['machine', 0.7, 0.7, 0.95], ['machine', 0.7, 0.7, 0.95], ['rack', 2.0, 0.6, 2.0]],
   bedroom: [['bed', 2.1, 1.5, 0.55], ['locker', 0.9, 0.55, 2.0]],
   kitchen: [['counter', 2.6, 0.65, 0.92], ['fridge', 0.8, 0.7, 1.9]],
   lobby: [['bench', 1.8, 0.5, 0.45], ['planter', 0.7, 0.7, 1.1]],
@@ -251,7 +273,7 @@ const WALL_PROPS = {
   hangar: [['crate', 1.6, 1.6, 1.4], ['crate', 1.2, 1.2, 1.0], ['rack', 3.0, 0.9, 2.6], ['machine', 2.2, 1.6, 2.0]],
 };
 const CENTRE_PROPS = {
-  living: [['table', 1.2, 0.8, 0.45]], kitchen: [['table', 1.4, 0.9, 0.75]],
+  living: [['table', 1.2, 0.8, 0.45]], kitchen: [['table', 1.4, 0.9, 0.75]], studio: [['table', 1.0, 0.8, 0.75]],
   office: [['desk', 1.5, 0.75, 0.75]], meeting: [['table', 3.0, 1.2, 0.75]],
   shopfloor: [['shelf', 2.4, 0.9, 1.5]], 'shopfloor-workshop': [['bench', 2.4, 1.0, 0.95]],
   hangar: [['crate', 1.6, 1.6, 1.4]], reception: [['planter', 0.8, 0.8, 1.0]],
@@ -322,4 +344,54 @@ export function roomGraph(plan) {
   }
   for (const r of plan.rooms) if (!adj.has(`${r.k}:${r.i}`)) adj.set(`${r.k}:${r.i}`, []);
   return adj;
+}
+
+// ---- anchors: logical places where a person sleeps, sits, works or browses.
+// Derived from furniture RECORDS (kind, footprint, facing), never from meshes, so the
+// furniture art can be replaced freely. Building-local; facing is an angle a with
+// direction (sin a, cos a) in (x, z).
+//   { kind: 'sleep'|'sit'|'work'|'stand'|'browse', pose: 'lie'|'sit'|'stand',
+//     k, room, x, y, z, facing, prop, slots }
+const FRONT = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+function anchorsFor(plan, rng) {
+  const out = [];
+  const roomOf = (k, x, z) => plan.rooms.find(r => r.k === k && x > r.rect[0] + 0.15 && x < r.rect[2] - 0.15 && z > r.rect[1] + 0.15 && z < r.rect[3] - 0.15);
+  const blocked = (k, x, z, self) => plan.props.some((p, i) => i !== self && p.k === k && !p.soft && x > p.x0 - 0.2 && x < p.x1 + 0.2 && z > p.z0 - 0.2 && z < p.z1 + 0.2);
+  const add = (a, self) => {
+    const r = roomOf(a.k, a.x, a.z);
+    if (!r || (a.pose !== 'lie' && a.pose !== 'sit' && blocked(a.k, a.x, a.z, self))) return;
+    out.push({ ...a, room: r.i, purpose: r.purpose, unit: r.unit, restricted: !!r.restricted });
+  };
+  const ang = (dx, dz) => Math.atan2(dx, dz);
+  plan.props.forEach((p, i) => {
+    const cx = (p.x0 + p.x1) / 2, cz = (p.z0 + p.z1) / 2, y = p.y, F0 = FRONT[p.face];
+    const dx = p.x1 - p.x0, dz = p.z1 - p.z0;
+    const depth = F0[0] ? dx : dz;
+    const front = (d) => [cx + F0[0] * (depth / 2 + d), cz + F0[1] * (depth / 2 + d)];
+    switch (p.kind) {
+      case 'bed': // head at the headboard end (+x of the prop's own frame), facing toward the foot
+        add({ kind: 'sleep', pose: 'lie', k: p.k, x: cx, y: y + p.h, z: cz, facing: Math.atan2(F0[1], -F0[0]), prop: i, slots: Math.min(dx, dz) >= 1.4 ? 2 : 1 }, i); break;
+      case 'sofa': { const [x, z] = front(-depth * 0.35); add({ kind: 'sit', pose: 'sit', k: p.k, x, y, z, facing: ang(F0[0], F0[1]), prop: i, slots: 2 }, i); break; }
+      case 'chair': { // faces the desk/table it was placed for
+        const host = plan.props.find(q => q.k === p.k && (q.kind === 'desk' || q.kind === 'table') && Math.abs((q.x0 + q.x1) / 2 - cx) + Math.abs((q.z0 + q.z1) / 2 - cz) < 2.5);
+        const fx = host ? (host.x0 + host.x1) / 2 - cx : 0, fz = host ? (host.z0 + host.z1) / 2 - cz : 1;
+        add({ kind: host?.kind === 'desk' ? 'work' : 'sit', pose: 'sit', k: p.k, x: cx, y, z: cz, facing: ang(fx, fz), prop: i, slots: 1 }, i); break; }
+      case 'table': if (!plan.props.some(q => q.kind === 'chair' && Math.abs((q.x0 + q.x1) / 2 - cx) + Math.abs((q.z0 + q.z1) / 2 - cz) < 2.5)) {
+        for (const sgn of [-1, 1]) { const long = dx >= dz; const x = cx + (long ? 0 : sgn * (dx / 2 + 0.45)), z = cz + (long ? sgn * (dz / 2 + 0.45) : 0);
+          add({ kind: 'sit', pose: 'sit', k: p.k, x, y, z, facing: ang(cx - x, cz - z), prop: i, slots: 1 }, i); } }
+        break;
+      case 'counter': case 'bench': case 'machine': { const [x, z] = front(0.45); add({ kind: 'work', pose: 'stand', k: p.k, x, y, z, facing: ang(-F0[0], -F0[1]), prop: i, slots: 1 }, i); break; }
+      case 'shelf': case 'rack': { const [x, z] = front(0.55); add({ kind: 'browse', pose: 'stand', k: p.k, x, y, z, facing: ang(-F0[0], -F0[1]), prop: i, slots: 1 }, i); break; }
+    }
+  });
+  // free standing spots in every room (for idling, waiting, errands)
+  for (const r of plan.rooms) {
+    let n = 0;
+    for (let tries = 0; tries < 12 && n < 2; tries++) {
+      const x = r.rect[0] + 0.7 + rng.next() * Math.max(0, r.rect[2] - r.rect[0] - 1.4), z = r.rect[1] + 0.7 + rng.next() * Math.max(0, r.rect[3] - r.rect[1] - 1.4);
+      if (blocked(r.k, x, z, -1)) continue;
+      add({ kind: 'stand', pose: 'stand', k: r.k, x, y: r.k * plan.H, z, facing: rng.range(0, Math.PI * 2), prop: -1, slots: 2 }, -1); n++;
+    }
+  }
+  return out;
 }

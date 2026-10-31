@@ -11,7 +11,7 @@ const PORT = 8517, CDP = 9333;
 const SHOTS = {
   aerial: 'cam=aerial&hour=15', far: 'cam=far&hour=9', street: 'cam=street&hour=10', door: 'cam=door&hour=16',
   interior: 'cam=interior&hour=13', stairs: 'cam=stairs&hour=13', night: 'cam=aerial&hour=22', dusk: 'cam=street&hour=19',
-  play: 'hour=11',
+  play: 'hour=11', people: 'cam=people&hour=17.3', work: 'cam=work&hour=11', sleep: 'cam=sleep&hour=2.5',
 };
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 const seed = process.env.SEED || '00c0ffee00b0a7e5';
@@ -20,7 +20,7 @@ const profile = join(tmpdir(), 'orbis-shots-' + process.pid);
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1600,900',
   '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank',
-], { stdio: ['ignore', 'ignore', 'pipe'] });
+], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 let stderr = ''; chrome.stderr.on('data', d => { stderr += d; });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {
@@ -62,7 +62,7 @@ try {
     await fetch(`http://127.0.0.1:${CDP}/json/close/${target.id}`);
   }
 } finally {
-  chrome.kill();
+  try { process.kill(-chrome.pid, 'SIGKILL'); } catch { chrome.kill(); }   // whole group: helpers too
   await sleep(300);
   try { rmSync(profile, { recursive: true, force: true }); } catch {}
   if (process.env.DEBUG) console.log(stderr.slice(-2000));

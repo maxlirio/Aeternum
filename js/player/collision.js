@@ -4,7 +4,7 @@
 // building-local coordinates. No three.js here.
 import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
-import { PLINTH } from '../render/settlement-mesh.js';
+import { PLINTH } from '../core/units.js';
 
 export const STEP = 0.5;
 const GRID = 16;

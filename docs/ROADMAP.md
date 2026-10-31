@@ -3,14 +3,10 @@
 Each step builds on the milestone 1 contracts: addresses, deltas, events, tiers, and
 the rule that results must not depend on how time is sliced.
 
-1. **Character origin.** A birth record generated from the town's own data (parents'
-   home and jobs, schooling), nationality from the planet's polity, starting money.
-   Death leaves the character in the event log, and the next life gets the next serial
-   in the same universe.
-2. **Residents (tier 0/1).** Each home's occupants are generated from the building seed,
-   with jobs taken from the town's workplaces and day schedules. Nearby residents are
-   simulated as walking agents (they need ADVENTURER bodies). Distant ones are
-   schedule lookups, a closed-form function of time.
+1. ~~Character origin~~ and ~~residents~~ are done (milestone 2). Still to add here:
+   nationality from a polity, starting money, death and the next life.
+2. **Local avoidance.** Residents step around the player and each other, then rejoin
+   their route. This is purely a view-side offset, so the schedules stay closed-form.
 3. **Law and authority.** Each settlement gets a polity with laws. `forced_entry` and
    trespass events are resolved by witnesses (resident schedules) and patrols. Results:
    fines, a record, reputation.
