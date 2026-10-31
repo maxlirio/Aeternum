@@ -69,12 +69,12 @@ export class SkySystem {
     const sunCol = new THREE.Color().setRGB(1, 0.93 - 0.35 * low, 0.85 - 0.6 * low);
     const lightDir = el > -0.05 ? dir : new THREE.Vector3(-dir.x, Math.abs(dir.y) + 0.4, -dir.z).normalize();
     this.sun.color.copy(el > -0.05 ? sunCol : new THREE.Color(0.55, 0.65, 0.9));
-    this.sun.intensity = el > -0.05 ? 4.6 * THREE.MathUtils.smoothstep(el, -0.05, 0.12) : 0.12;
+    this.sun.intensity = el > -0.05 ? 4.6 * THREE.MathUtils.smoothstep(el, -0.05, 0.12) : 0.45;
     const snap = 70 * 2 / 4096;
     const fx = Math.round(focus.x / snap) * snap, fz = Math.round(focus.z / snap) * snap;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
-    this.ambient.intensity = 0.05 + 0.25 * (1 - day);
+    this.ambient.intensity = 0.05 + 0.55 * (1 - day);
     this.starMat.opacity = 1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0);
     this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
     // fog: horizon colour by day, deep blue by night

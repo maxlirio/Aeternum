@@ -30,10 +30,17 @@ export function createPlaceholderAvatar() {
   for (const L of [legL, legR]) { const boot = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.08, 0.24), pad); boot.position.set(0, -0.5, 0.04); boot.castShadow = true; L.lower.add(boot); }
   const armL = limb(torso, 0.25, 0.52, 0.055, 0.22, 0.045, 0.22, suit, suit), armR = limb(torso, -0.25, 0.52, 0.055, 0.22, 0.045, 0.22, suit, suit);
   for (const A of [armL, armR]) { const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), skin); hand.position.y = -0.36; A.lower.add(hand); }
-  let phase = 0, blend = 0;
+  let phase = 0, blend = 0, opacity = 1;
+  const mats = [suit, pad, skin, accent];
   return {
     object: root,
     isPlaceholder: true,
+    // fades the body out when the camera is pressed against it in tight rooms
+    setOpacity(o) {
+      if (Math.abs(o - opacity) < 0.01) return;
+      opacity = o; root.visible = o > 0.02;
+      for (const m of mats) { m.transparent = o < 0.99; m.opacity = o; m.depthWrite = o >= 0.99; }
+    },
     update(dt, speed, grounded) {
       const k = Math.min(1, speed / 5.4);
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);

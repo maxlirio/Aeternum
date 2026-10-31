@@ -8,7 +8,7 @@ import { lerp, smoothstep } from '../core/noise.js';
 
 export function plateauWeight(s, u, v) {
   const r = Math.hypot(u, v);
-  return 1 - smoothstep(s.R + 15, s.R + 120, r);
+  return 1 - smoothstep(s.R + 15, s.R + 200, r);
 }
 
 function outRoadProfile(planet, s, o, t, len) {

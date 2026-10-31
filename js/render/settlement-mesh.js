@@ -129,10 +129,27 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}) {
     poleMesh.setMatrixAt(i, m4); headMesh.setMatrixAt(i, m4);
   });
   poleMesh.castShadow = true;
-  group.add(poleMesh, headMesh);
+  // pools of lamplight on the street: additive decals, faded in at night (lamp material
+  // intensity drives them via poolMaterial.opacity in main.js)
+  const poolMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(16, 16).rotateX(-Math.PI / 2).translate(0, 0.08, 1.3), poolMaterial(), lamps.length);
+  for (let i = 0; i < lamps.length; i++) { headMesh.getMatrixAt(i, m4); poolMesh.setMatrixAt(i, m4); }
+  poolMesh.renderOrder = 1;
+  group.add(poleMesh, headMesh, poolMesh);
 
   onProgress(1);
   return { group, doors, lamps: lamps.length };
+}
+
+let pool = null;
+export function poolMaterial() {
+  if (pool) return pool;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,214,160,1)'); grd.addColorStop(0.35, 'rgba(255,200,140,0.45)'); grd.addColorStop(1, 'rgba(255,190,120,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  pool = new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false, polygonOffset: true, polygonOffsetFactor: -4 });
+  return pool;
 }
 
 function mergeSimple(geos) {

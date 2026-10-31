@@ -54,6 +54,23 @@ try {
   await key('KeyW', 'keydown'); await sleep(2500); await key('KeyW', 'keyup'); await sleep(300);
   const inside = await ev(`ORBIS.world.locate(...ORBIS.ctrl.pos)?.b?.key || null`);
   check(inside === target0.key, 'walked inside through the forced door (' + inside + ')');
+  // climb the stairs: stand in the core at the ground-floor landing, walk up the flight
+  const climb = await ev(`(async () => {
+    const { s, ctrl, cam, planet } = ORBIS;
+    const { buildingToWorld } = await import('./js/gen/place.js');
+    const b = __t.b, core = __t.plan.doors.find(d => d.kind === 'core' && d.k === 0);
+    const p = buildingToWorld(s, b, core.x + 0.9, 0, core.z);
+    ctrl.pos = p; ctrl.vel = [0, 0, 0];
+    cam.yaw = Math.atan2(b.ez[0] * s.cos - b.ez[1] * s.sin, b.ez[0] * s.sin + b.ez[1] * s.cos);
+    return __t.plan.H;
+  })()`);
+  await sleep(400);
+  await key('KeyW', 'keydown'); await sleep(5000); await key('KeyW', 'keyup'); await sleep(300);
+  const up = await ev(`(() => { const l = ORBIS.world.locate(...ORBIS.ctrl.pos); return { k: l?.k, y: ORBIS.ctrl.pos[1] - ORBIS.world.base }; })()`);
+  check(up.k === 1 && Math.abs(up.y - climb) < 0.05, `walked up the stairs to floor 2 (floor index ${up.k}, height ${up.y?.toFixed(2)} m)`);
+  // back down into the entrance room for the rest of the test
+  await ev(`(async () => { const { s, ctrl } = ORBIS; const { buildingToWorld } = await import('./js/gen/place.js'); const d = __t.plan.doors[__t.plan.entrance]; ctrl.pos = buildingToWorld(s, __t.b, d.x, 0, 2.0); ctrl.vel = [0,0,0]; })()`);
+  await sleep(300);
   const posBefore = await ev(`ORBIS.ctrl.pos.map(v => +v.toFixed(2))`);
   await ev(`ORBIS.save()`);
   console.log('[reload: continue]');

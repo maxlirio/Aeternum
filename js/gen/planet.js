@@ -6,9 +6,9 @@ import { planetName } from './names.js';
 
 const CLIMATES = [
   // ground palettes are linear-ish sRGB; render converts.
-  { id: 'temperate', grass: [0.29, 0.34, 0.17], dry: [0.47, 0.42, 0.28], rock: [0.40, 0.38, 0.35], sand: [0.66, 0.60, 0.46], snow: 0.92, treeline: 900, moistBias: 0.15 },
-  { id: 'steppe',    grass: [0.43, 0.41, 0.24], dry: [0.56, 0.47, 0.31], rock: [0.45, 0.40, 0.35], sand: [0.70, 0.62, 0.47], snow: 0.90, treeline: 1100, moistBias: -0.15 },
-  { id: 'highland',  grass: [0.33, 0.36, 0.25], dry: [0.44, 0.40, 0.33], rock: [0.36, 0.36, 0.37], sand: [0.58, 0.55, 0.47], snow: 0.95, treeline: 650, moistBias: 0.0 },
+  { id: 'temperate', grass: [0.20, 0.27, 0.10], dry: [0.40, 0.34, 0.20], rock: [0.27, 0.25, 0.23], sand: [0.58, 0.52, 0.38], snow: 0.92, treeline: 900, moistBias: 0.15 },
+  { id: 'steppe',    grass: [0.33, 0.32, 0.16], dry: [0.50, 0.40, 0.25], rock: [0.34, 0.29, 0.25], sand: [0.64, 0.55, 0.40], snow: 0.90, treeline: 1100, moistBias: -0.15 },
+  { id: 'highland',  grass: [0.23, 0.27, 0.16], dry: [0.37, 0.33, 0.25], rock: [0.25, 0.25, 0.26], sand: [0.52, 0.49, 0.41], snow: 0.95, treeline: 650, moistBias: 0.0 },
 ];
 
 export function makePlanet(universeSeed, address) {

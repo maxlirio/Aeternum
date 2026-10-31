@@ -10,7 +10,7 @@ import { getSettlement } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { doorstep, nearestRoadPoint, buildingToWorld } from './gen/place.js';
-import { WorldStore } from './world/store.js';
+import { WorldStore, GEN_VERSION } from './world/store.js';
 import { IDBBackend } from './world/store-idb.js';
 import { MemoryBackend } from './world/store-mem.js';
 import { canOpen, doorState } from './world/doors.js';
@@ -21,7 +21,7 @@ import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { TerrainStreamer } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
-import { buildSettlementMesh } from './render/settlement-mesh.js';
+import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
 import { DoorView } from './render/doors.js';
 import { materials, occupancy, WINDOW_TYPES } from './render/materials.js';
 import { CollisionWorld } from './player/collision.js';
@@ -149,6 +149,7 @@ async function start(fresh) {
       office: within([8, 18], h) ? 0.85 : 0.06, store: within([7, 21], h) ? 0.95 : 0.1, workshop: within([6, 16], h) ? 0.7 : 0.05, hangar: 0.3 };
     WINDOW_TYPES.forEach((k, i) => { occupancy.value[i] = occ[k] * Math.min(1, dark * 1.15); });
     materials().lamp.emissiveIntensity = dark * 6;
+    poolMaterial().opacity = Math.min(1, dark * 1.3) * 0.55;
   };
   sched.add(TIER.NEAR, { update: near });
   sched.add(TIER.NEAR, { update: dt => { advanceBody(player, 'idle', dt, planet); store.touchPlayer(); } });
@@ -234,7 +235,8 @@ async function start(fresh) {
   // ---- loop
   ui.closePanel(); ui.showHud(true);
   if (report && (report.elapsed > 60 || report.events.length)) { paused = true; await ui.away(report, planet); paused = false; }
-  else if (fresh) ui.toast(`You are <b>${player.name}</b>, ${player.age}, of ${s.name} on ${planet.name}. Your home is behind you — your key opens it.`, '', 9000);
+  if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
+  if (fresh) ui.toast(`You are <b>${player.name}</b>, ${player.age}, of ${s.name} on ${planet.name}. Your home is behind you — your key opens it.`, '', 9000);
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
   function frame(now) {
@@ -275,6 +277,7 @@ async function start(fresh) {
     avatar.object.position.set(rp[0], rp[1], rp[2]);
     avatar.object.rotation.y = ctrl.facing;
     avatar.update(dt, ctrl.speed, ctrl.grounded);
+    avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     if (!shot) cam.update(dt, ctrl.pos, toRender);
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
@@ -286,7 +289,7 @@ async function start(fresh) {
     if (loc?.room) {
       const r = loc.room.rect, c = buildingToWorld(s, loc.b, (r[0] + r[2]) / 2, (loc.k + 1) * loc.plan.H - 0.5, (r[1] + r[3]) / 2);
       const lp = toRender(...c); roomLight.position.set(lp[0], lp[1], lp[2]);
-      roomLight.intensity = 9;
+      roomLight.intensity = 6 + 10 * (1 - (sky.state.day ?? 1));
     } else roomLight.intensity = 0;
     if (!paused) {
       const di = nearestDoor();
@@ -337,6 +340,11 @@ function applyShot(kind, g) {
     } else if (kind === 'door') {
       const ds = doorstep(s, b, plan);
       ctrl.pos = ds.pos; ctrl.facing = ds.facing; cam.yaw = ds.facing + 0.35; cam.pitch = 0.1; cam.dist = 4;
+    } else if (kind === 'stairs') {
+      const dr = pick.door;
+      const p = buildingToWorld(s, b, dr.x + 0.9, 0, dr.z - 0.2);
+      ctrl.pos = p; ctrl.facing = Math.atan2(b.ez[0] * s.cos - b.ez[1] * s.sin, b.ez[0] * s.sin + b.ez[1] * s.cos);
+      cam.yaw = ctrl.facing; cam.pitch = 0.05; cam.dist = 2.5;
     } else {
       const room = plan.rooms.find(r => r.k === pick.door.k && r.i === pick.door.rooms[0]);
       const r = room.rect;

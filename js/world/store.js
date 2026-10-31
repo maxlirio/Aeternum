@@ -7,6 +7,10 @@
 // so loading it whole is fine for now; ROADMAP covers sharding by region later.
 
 export const SAVE_VERSION = 1;
+// Bump whenever generation output changes for the same seed. Saves only hold deltas
+// against generated content, so a save made under another generator version may point
+// at things that no longer exist; the game warns instead of silently misapplying them.
+export const GEN_VERSION = 1;
 
 export class WorldStore {
   constructor(backend) {
@@ -30,7 +34,7 @@ export class WorldStore {
   }
 
   create(universeHex, gameTime, realTime) {
-    this.meta = { version: SAVE_VERSION, universe: universeHex, created: realTime, gameTime, realTime, nextEvent: 1, nextJob: 1 };
+    this.meta = { version: SAVE_VERSION, gen: GEN_VERSION, universe: universeHex, created: realTime, gameTime, realTime, nextEvent: 1, nextJob: 1 };
     this.deltas.clear(); this.events = []; this.jobs = []; this.player = null;
     this.dirty.meta = true; this.dirty.player = true; this.dirty.jobsChanged = true; this.dirty.wipe = true;
   }

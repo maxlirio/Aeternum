@@ -31,7 +31,10 @@ export function chunkData(planet, lod, i, j) {
     const moist = moisture(planet, wx, wz);
     let c = mix3(C.dry, C.grass, smoothstep(0.25, 0.75, moist));
     c = mix3(c, C.sand, 1 - smoothstep(sea + 1.5, sea + 6, h));
-    c = mix3(c, C.rock, smoothstep(0.78, 0.62, ny) + smoothstep(C.treeline, C.treeline + 350, h) * 0.6);
+    // rock shows on steep ground and high up, banded by strata
+    const band = 0.85 + 0.3 * planet.noise.detail.n(h / 23, wx / 4000);
+    const rock = [C.rock[0] * band, C.rock[1] * band, C.rock[2] * band];
+    c = mix3(c, rock, smoothstep(0.82, 0.6, ny) + smoothstep(C.treeline, C.treeline + 350, h) * 0.6);
     const snow = smoothstep(C.treeline + 250, C.treeline + 500, h) * smoothstep(0.6, 0.8, ny);
     c = mix3(c, [C.snow, C.snow, C.snow * 1.02], snow);
     c = mix3(c, [0.40, 0.37, 0.32], TOWN[k] * 0.85);

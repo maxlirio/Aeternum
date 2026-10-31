@@ -34,7 +34,7 @@ function glassMaterial() {
         int wi = int(floor(vLit)); float th = fract(vLit); float occ = 0.0;
         for (int i = 0; i < 6; i++) if (i == wi) occ = uOcc[i];
         float on = step(th, occ);
-        totalEmissiveRadiance += on * mix(vec3(1.0, 0.72, 0.42), vec3(0.75, 0.86, 1.0), step(0.83, th)) * 2.2;
+        totalEmissiveRadiance += on * mix(vec3(1.0, 0.66, 0.36), vec3(0.62, 0.78, 1.0), step(0.83, th)) * (0.55 + 0.5 * fract(th * 7.3));
         diffuseColor.rgb *= 1.0 - on * 0.7;`);
   };
   return m;
