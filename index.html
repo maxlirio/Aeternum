@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ORBIS</title>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+} }
+</script>
+<style>
+  :root { --ink: #e8ecef; --dim: #9aa6b0; --panel: rgba(12, 16, 20, 0.82); --line: rgba(255,255,255,0.12); --accent: #e0a24a; --bad: #e0675a; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e11; color: var(--ink); font: 14px/1.45 "Inter", system-ui, -apple-system, sans-serif; }
+  canvas { display: block; }
+  #ui { position: fixed; inset: 0; pointer-events: none; }
+  .hidden { display: none !important; }
+  .hud .where, .hud .clock, .hud .stats { position: absolute; padding: 10px 14px; background: linear-gradient(rgba(10,13,16,0.55), rgba(10,13,16,0.35)); border: 1px solid var(--line); border-radius: 6px; backdrop-filter: blur(4px); }
+  .hud .where { top: 16px; left: 16px; max-width: 60vw; } .hud .place { font-weight: 600; letter-spacing: 0.02em; }
+  .hud .sub { color: var(--dim); font-size: 12px; }
+  .hud .clock { top: 16px; right: 16px; text-align: right; } .hud .time { font: 600 20px/1.1 ui-monospace, Menlo, monospace; }
+  .hud .stats { bottom: 16px; left: 16px; width: 190px; } .hud .who { font-weight: 600; margin-bottom: 4px; }
+  .bar { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--dim); } .bar span { width: 46px; }
+  .bar i { flex: 1; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden; } .bar b { display: block; height: 100%; background: var(--ink); }
+  .debug { position: absolute; bottom: 16px; right: 16px; font: 11px ui-monospace, Menlo, monospace; color: var(--dim); background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; }
+  .prompt { position: absolute; left: 50%; bottom: 22%; transform: translateX(-50%); padding: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+  kbd { display: inline-block; min-width: 1.4em; padding: 0 5px; margin: 0 2px; border: 1px solid rgba(255,255,255,0.35); border-radius: 3px; font: 600 12px/1.5 ui-monospace, Menlo, monospace; text-align: center; }
+  small { color: var(--dim); }
+  .meter { display: inline-block; width: 120px; height: 5px; margin-left: 8px; background: rgba(255,255,255,0.15); vertical-align: middle; } .meter b { display: block; height: 100%; background: var(--bad); }
+  .toasts { position: absolute; top: 90px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; width: min(560px, calc(100vw - 32px)); }
+  .toast { padding: 9px 14px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ink); border-radius: 6px; transition: opacity .5s; }
+  .toast.warn { border-left-color: var(--accent); } .toast.bad { border-left-color: var(--bad); } .toast.out { opacity: 0; }
+  .hint { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); color: var(--dim); font-size: 12px; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+  .panel { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(6,8,10,0.55); pointer-events: auto; padding: 16px; }
+  .panel.title { background: radial-gradient(ellipse at 50% 30%, #1c2630 0%, #0b0e11 70%); }
+  .card { width: min(460px, 100%); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 26px 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  h1 { margin: 0 0 4px; font-size: 34px; letter-spacing: 0.3em; font-weight: 300; } h2 { margin: 0 0 8px; font-weight: 500; } h3 { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); }
+  .lede { color: var(--ink); } .fine { color: var(--dim); font-size: 12px; } .save { color: var(--accent); }
+  button { display: block; width: 100%; margin: 8px 0; padding: 10px 14px; background: rgba(255,255,255,0.06); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; font: inherit; text-align: left; cursor: pointer; }
+  button:hover { background: rgba(255,255,255,0.12); } button.primary { background: var(--ink); color: #0b0e11; border-color: var(--ink); font-weight: 600; } button.ghost { background: none; text-align: center; }
+  button small { display: block; } button * { pointer-events: none; }
+  .progress { height: 3px; background: rgba(255,255,255,0.1); margin-top: 12px; } .progress b { display: block; height: 100%; width: 0; background: var(--ink); transition: width .2s; }
+  .panel.loading .card { text-align: center; }
+  ul.events { list-style: none; padding: 0; margin: 0; max-height: 40vh; overflow: auto; } ul.events li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+  .when { color: var(--dim); font: 11px ui-monospace, Menlo, monospace; margin-right: 6px; } li.none { color: var(--dim); }
+  pre { white-space: pre-wrap; font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="ui"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
