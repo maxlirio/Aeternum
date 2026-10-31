@@ -20,7 +20,10 @@ import { canOpen, doorState } from './world/doors.js';
 import { GameClock, EPOCH, solarHour, within, dayNumber, formatHour } from './sim/clock.js';
 import { Scheduler, TIER } from './sim/scheduler.js';
 import { registerDoorJobs, openDoor, closeDoor, forceDoor } from './sim/processes/doors.js';
-import { registerLawJobs, lodgeIncident } from './sim/processes/law.js';
+import { registerLawJobs, lodgeIncident, arrest, payFines, finesOwed, PAY_DAYS } from './sim/processes/law.js';
+import { Pursuit } from './sim/pursuit.js';
+import { holdingCell } from './gen/custody.js';
+import { doorKey } from './world/doors.js';
 import { registerWorkJobs, applyFor, leaveJob, attend, onShiftNow } from './sim/processes/work.js';
 import { vacancies, openings, titleOf } from './gen/careers.js';
 import { startingSkills } from './gen/character.js';
@@ -78,8 +81,8 @@ async function start(fresh) {
   const pop = getPopulation(planet, s), polity = getPolity(planet, s);
   const ctx = { store, sched, planet, s, pop, polity };
   ctx.doorstepOf = bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; };
-  { const pl = store.player; // saves from before careers existed
-    if (pl) { pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; } }
+  { const pl = store.player; // saves from before careers / fines existed
+    if (pl) { pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; pl.fines ??= []; pl.warrant ??= null; pl.custody ??= null; } }
 
   let report = null;
   if (fresh) {
@@ -154,6 +157,26 @@ async function start(fresh) {
   const crowd = new CrowdView(scene);
   const relation = id => player.family.parents.includes(id) ? 'your parent' : player.family.siblings.includes(id) ? 'your sibling' : null;
   let agents = [];
+  // ---- arrest in person: a warrant served while you're here sends an officer for you
+  let pursuit = null;
+  const isOfficer = p => !!(p?.job && pop.jobById.get(p.job).security);
+  const startPursuit = (officer, why) => {
+    if (pursuit || player.custody || !officer) return;
+    pursuit = new Pursuit(pop, officer, clock.now(), why);
+    ui.toast(`<b>${officer.name}</b> of ${polity.securityName} is coming to arrest you — ${why}. <small>Stand still to go quietly, or run.</small>`, 'bad', 10000);
+  };
+  const nearestOfficerOnDuty = t => {
+    let best = null, bd = Infinity;
+    for (const p of pop.people) {
+      if (!isOfficer(p)) continue;
+      const w = whereAt(pop, p, t);
+      if (!['on duty', 'on patrol'].includes(w.activity)) continue;
+      const d = Math.hypot(w.pos[0] - ctrl.pos[0], w.pos[2] - ctrl.pos[2]);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  };
+  ctx.onServe = t => startPursuit(nearestOfficerOnDuty(t), player.warrant?.reason || 'a warrant');
 
   // warm up the terrain around the player before revealing the world
   for (let i = 0; terrain.pending || i === 0; i++) {
@@ -179,7 +202,7 @@ async function start(fresh) {
   let seenEvents = store.events.length;
   sched.add(TIER.NEAR, { update: () => {
     for (const e of store.events.slice(seenEvents)) {
-      if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}.`, 'bad', 9000);
+      if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}. Pay at their office within ${PAY_DAYS} days.`, 'bad', 9000);
       if (e.type === 'case_opened') ui.toast(`${e.reporter} reported a break-in to ${e.authority}.`, 'warn', 6000);
       if (e.type === 'case_cold') ui.toast(`${e.authority} closed a break-in case unsolved.`, '', 6000);
       if (e.who !== player.id) continue;
@@ -189,10 +212,21 @@ async function start(fresh) {
       if (e.type === 'shift_missed') ui.toast(`You missed your shift at ${e.employer}${e.missed > 1 ? ` — ${e.missed} in a row` : ''}.${e.pay ? ` Paid ${e.pay} cr for the time you were there.` : ''}`, 'warn', 8000);
       if (e.type === 'promoted') ui.toast(`Promoted: <b>${e.title}</b> — ${e.wage} cr/h.`, '', 9000);
       if (e.type === 'dismissed') ui.toast(`${e.employer} let you go — ${e.why}.`, 'bad', 10000);
+      if (e.type === 'warrant' && !pursuit) ui.toast(`${e.authority} has issued a warrant for you — ${e.reason}.`, 'bad', 9000);
+      if (e.type === 'released') ui.toast(`You're free to go. The cell door is open.`, '', 8000);
     }
     seenEvents = store.events.length;
   } });
   sched.add(TIER.NEAR, { update: () => residents.refresh(clock.now(), ctrl.pos, world.locate(...ctrl.pos)?.b?.key) });
+  sched.add(TIER.NEAR, { update: () => { // a patrolling or on-duty officer who sees a wanted person acts on it
+    if (!player.warrant || pursuit || player.custody) return;
+    const here = world.locate(...ctrl.pos), space = here?.b ? here.b.key + ':' + here.k : 'out';
+    for (const a of agents) {
+      if (!isOfficer(a.person) || !['on duty', 'on patrol'].includes(a.activity)) continue;
+      const d = Math.hypot(a.pos[0] - ctrl.pos[0], a.pos[2] - ctrl.pos[2]);
+      if (d < 20 && (a.bKey ? a.bKey + ':' + a.k : 'out') === space) { startPursuit(a.person, 'you are wanted'); break; }
+    }
+  } });
   let atWork = false, shiftNoticed = null;
   sched.add(TIER.NEAR, { update: dt => { // shift attendance: being inside the workplace while the shift runs
     const t = clock.now();
@@ -273,9 +307,10 @@ async function start(fresh) {
       if (here?.key === polity.security) listing = { title: `Job board — ${polity.name}`, note: 'Every opening posted in town this week. Postings change weekly.', jobs: vacancies(pop, store, t) };
       else if (here && pop.jobs.some(j => j.b === here.key)) listing = { title: `Openings at ${here.owner}`, note: 'What this workplace is hiring for this week.', jobs: openings(pop, store, here.key, t) };
       const sec = pop.buildingByKey.get(polity.security);
-      const r = await ui.work({ player, pop, planet, s, polity, t, listing, boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
+      const r = await ui.work({ player, pop, planet, s, polity, t, listing, civic: here?.key === polity.security, boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
       if (r.a === 'ok') break;
       if (r.a === 'resign') leaveJob(ctx, t, 'resigned', 'resigned');
+      if (r.a === 'pay') { const res = payFines(ctx, t); ui.toast(res.ok ? `Paid ${res.total} cr.${res.cleared ? ' The warrant is withdrawn.' : ''}` : res.why, res.ok ? '' : 'warn', 7000); }
       if (r.a === 'apply') {
         const res = applyFor(ctx, pop.jobById.get(r.job), t);
         ui.toast(res.ok ? `Application in. ${res.reviewer} will look at it — you'll hear by ${formatHour(solarHour(planet, res.at))}${res.at - t > planet.dayLength / 2 ? ' tomorrow' : ''}.` : res.why, res.ok ? '' : 'warn', 7000);
@@ -334,7 +369,8 @@ async function start(fresh) {
       const di = keys.has('KeyF') ? nearestDoor() : -1;
       if (di >= 0) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
-        if (st.locked && !st.broken) {
+        if (st.held) ui.showPrompt('A reinforced cell door — it won\'t give.');
+        else if (st.locked && !st.broken) {
           forceHold += dt;
           ui.showPrompt(`Forcing the lock… <i class="meter"><b style="width:${Math.min(100, forceHold / 1.8 * 100)}%"></b></i>`);
           if (forceHold > 1.8) {
@@ -344,7 +380,7 @@ async function start(fresh) {
             const inc = forceDoor(store, sched, planet, s, b, door, t, player, seen);
             lodgeIncident(ctx, inc);
             const cop = seen.find(w => { const q = pop.byId.get(w.id); return q?.job && pop.jobById.get(q.job).security; });
-            if (cop) ui.toast(`<b>${cop.name}</b> of ${polity.securityName} saw that.`, 'bad', 7000);
+            if (cop) startPursuit(pop.byId.get(cop.id), 'you were seen breaking in');
             doorView.refresh(store, planet, t);
             ui.toast(`You broke the lock. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}${seen.length > 3 ? '…' : ''}).` : 'Nobody saw you.'}`, 'bad', 8000);
           }
@@ -363,6 +399,20 @@ async function start(fresh) {
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
+    if (pursuit) {
+      const ev = paused ? null : pursuit.update(t, dt, { pos: ctrl.pos, speed: ctrl.speed }, world, s);
+      if (ev === 'chase') ui.toast(`You ran. <b>${pursuit.person.name}</b> is chasing you.`, 'bad', 6000);
+      if (ev === 'caught') {
+        const cell = arrest(ctx, t, { resisted: pursuit.resisted, by: pursuit.person.name });
+        ctrl.pos = cell.pos.slice(); ctrl.vel = [0, 0, 0];
+        const e = store.events.at(-1);
+        ui.toast(`<b>${pursuit.person.name}</b> arrested you.${e.paid ? ` ${e.paid} cr in fines taken from your account.` : ''} You're held in the cell for ${e.hours} planet-hour${e.hours === 1 ? '' : 's'}${pursuit.resisted ? ' — longer, for running' : ''}.`, 'bad', 12000);
+        doorView.refresh(store, planet, t);
+      }
+      if (ev === 'lost') ui.toast(`You lost <b>${pursuit.person.name}</b>. The warrant stands.`, 'warn', 8000);
+      if (ev === 'done') pursuit = null;
+      if (pursuit) agents = agents.filter(a => a.id !== pursuit.person.id).concat(pursuit.agent());
+    }
     for (const a of agents) { // people are solid to the player (not the other way round yet)
       if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
       const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
@@ -372,8 +422,8 @@ async function start(fresh) {
       }
     }
     crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })), dt);
-    const inUse = residents.doorsInUse(agents);
-    doorView.transient = new Set([...inUse].map(k => doorIndex.get(k)).filter(i => i !== undefined));
+    const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
+    doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot) cam.update(dt, ctrl.pos, toRender);
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
@@ -393,7 +443,7 @@ async function start(fresh) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
         const res = canOpen(store, planet, player, b, door, t);
         const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
-        ui.showPrompt(st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
+        ui.showPrompt(st.held ? `Holding cell — locked until your release${player.custody ? ' at ' + formatHour(solarHour(planet, player.custody.until)) : ''}` : st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
           : res.ok || (door.kind !== 'interior' && insideBuilding(b)) ? `<kbd>E</kbd> Open ${what}${res.key ? ' <small>(your key)</small>' : ''}` : `${res.why} · <kbd>E</kbd> try · hold <kbd>F</kbd> force`);
       } else if (forceHold === 0) {
         // the person in front of you
@@ -408,7 +458,7 @@ async function start(fresh) {
         } else ui.showPrompt(null);
       }
     }
-    ui.updateHud({ planet, s, player, t, located: loc, atWork });
+    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity) });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;
@@ -419,7 +469,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork };
+  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity) };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

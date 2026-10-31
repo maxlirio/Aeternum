@@ -6,8 +6,9 @@ the rule that results must not depend on how time is sliced.
 1. ~~Character origin~~ and ~~residents~~ are done (milestone 2). Still to add here:
    nationality from a polity, starting money, death and the next life.
 2. ~~Local avoidance~~ and ~~law (reports, investigation, fines, record)~~ are done
-   (milestone 3). Next for law: officers responding in person, arrest, paying fines off,
-   trespass and theft as offences.
+   (milestone 3); ~~officers responding in person, arrest, custody, paying fines~~
+   (milestone 5). Next for law: trespass and theft as offences, backup and searching,
+   courts and longer sentences, debt collection.
 3. **Law and authority** (original plan, for reference): Each settlement gets a polity with laws. `forced_entry` and
    trespass events are resolved by witnesses (resident schedules) and patrols. Results:
    fines, a record, reputation.

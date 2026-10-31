@@ -2,7 +2,7 @@
 // they were gone is computed from the elapsed time — due jobs run in order, the body
 // advances in closed form. Nothing ticks for the missing hours.
 import { advanceBody } from './processes/character.js';
-import { onShiftNow } from './processes/work.js';
+import { onShiftNow, inCustody } from './processes/work.js';
 
 export function catchUp(ctx, tFrom, tTo, activity) {
   const { store, sched, planet } = ctx;
@@ -33,8 +33,9 @@ export function catchUp(ctx, tFrom, tTo, activity) {
   const jobs = sched.runDue(tTo, ctx);
   ctx.offline = null;
   // the shift still under way when you return keeps the part of it you already worked
-  if (activity === 'work' && p.shift) p.shift.present += Math.max(0, Math.min(p.shift.t1, tTo) - Math.max(p.shift.t0, tFrom));
-  if (activity === 'work') { // where the routine leaves you: at work mid-shift, otherwise home
+  if (activity === 'work' && p.shift) { const a = Math.max(p.shift.t0, tFrom), b = Math.min(p.shift.t1, tTo); if (b > a) p.shift.present += b - a - inCustody(p, a, b); }
+  if (p.custody) report.notes.push(`You are being held in the cell at ${ctx.polity.securityName}.`);
+  else if (activity === 'work') { // where the routine leaves you: at work mid-shift, otherwise home
     const at = p.job && onShiftNow(p, tTo) ? ctx.doorstepOf?.(p.job.b) : ctx.homeDoorstep;
     if (at) p.pos = at.slice();
     report.notes.push(p.job ? (onShiftNow(p, tTo) ? `You're at work, mid-shift at ${p.job.employer}.` : 'You kept to your routine.') : 'You kept to your routine until you lost the job.');

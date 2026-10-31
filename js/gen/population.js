@@ -13,6 +13,7 @@ import { derive, hashStr } from '../core/hash.js';
 import { buildingPlan } from './building.js';
 import { givenName, surname } from './names.js';
 import { getPolity } from './polity.js';
+import { holdingCell } from './custody.js';
 
 const JOB = {
   office: { work: { title: 'Clerk', hours: [[8, 17]] }, head: 'Office manager' },
@@ -84,12 +85,13 @@ function generate(planet, s) {
   }
 
   // ---- jobs (one per work anchor in a workplace; some anchors run two shifts)
-  const securityHQ = getPolity(planet, s).security;
+  const polity = getPolity(planet, s), securityHQ = polity.security, cellRoom = holdingCell(planet, s, polity)?.room.i;
   for (const b of s.buildings) {
     const J = JOB[b.type];
     if (!J) continue;
     const plan = buildingPlan(planet, s, b);
-    const work = plan.anchors.map((a, i) => ({ a, i })).filter(({ a }) => a.kind === 'work');
+    // (the holding cell in the security office is nobody's office)
+    const work = plan.anchors.map((a, i) => ({ a, i })).filter(({ a }) => a.kind === 'work' && !(b.key === securityHQ && a.room === cellRoom));
     work.forEach(({ a, i }, n) => {
       const prop = plan.props[a.prop];
       if (b.key === securityHQ) { // the security office runs day and evening shifts, mostly on patrol

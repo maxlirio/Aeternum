@@ -190,6 +190,42 @@ try {
     for (let i = 0; i < 40; i++) { await sleep(250); if (await ev('document.title') === 'READY') break; }
     check(await ev(`ORBIS.store.player.credits`) > c0, 'and the wages are in your credits');
   }
+  console.log('[arrest]');
+  const arr = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, { solarHour } = await import('./js/sim/clock.js');
+    const { issueWarrant } = await import('./js/sim/processes/law.js');
+    const { doorstep } = await import('./js/gen/place.js'); const { buildingPlan } = await import('./js/gen/building.js');
+    const h = solarHour(O.planet, O.clock.now()); O.clock.advance(((10.5 - h + 24) % 24) / 24 * O.planet.dayLength);
+    const hq = O.pop.buildingByKey.get(O.polity.security), ds = doorstep(O.s, hq, buildingPlan(O.planet, O.s, hq));
+    O.ctrl.pos = ds.pos.slice(); O.ctrl.vel = [0, 0, 0];
+    await new Promise(r => setTimeout(r, 1500));
+    const t = O.clock.now(); issueWarrant(O.ctx, t, 'a test warrant'); O.ctx.onServe(t);
+    const who = O.getPursuit()?.person.name;
+    for (let i = 0; i < 300 && !P.custody; i++) await new Promise(r => setTimeout(r, 500));
+    const loc = O.world.locate(...O.ctrl.pos);
+    return { who, custody: !!P.custody, inCell: loc?.room?.i === O.cell.room.i && loc?.b?.key === O.cell.b.key, hud: document.querySelector('.hud .law').textContent,
+      arrested: O.store.events.filter(e => e.type === 'arrested').length, warrant: !!P.warrant };
+  })()`);
+  check(arr.who, 'a warrant in game sends an officer (' + arr.who + ')');
+  check(arr.custody && arr.inCell && !arr.warrant, 'standing still, you are arrested and put in the cell');
+  check(/In custody/.test(arr.hud), 'HUD shows custody (' + arr.hud + ')');
+  if (arr.custody) {
+    await key('KeyW', 'keydown'); await sleep(2500); await key('KeyW', 'keyup');
+    check(await ev(`ORBIS.world.locate(...ORBIS.ctrl.pos)?.room?.i === ORBIS.cell.room.i`), 'you can\'t walk out of the cell');
+    const rel = await ev(`(async () => { const O = ORBIS, P = O.store.player; O.clock.advance(P.custody.until + 5 - O.clock.now()); await new Promise(r => setTimeout(r, 2000));
+      return { free: !P.custody, released: O.store.events.some(e => e.type === 'released'), held: O.cell.doors.some(d => O.store.getDelta(O.cell.b.key + '/door:' + d.id)?.held) }; })()`);
+    check(rel.free && rel.released && !rel.held, 'released when the sentence is up; the cell door unlocks');
+  }
+  const pay = await ev(`(async () => { const O = ORBIS, P = O.store.player, { buildingToWorld } = await import('./js/gen/place.js'); const { buildingPlan } = await import('./js/gen/building.js');
+    P.fines = [{ incident: -1, amount: 120, offence: 'Test', t: O.clock.now(), due: O.clock.now() + 1e5 }]; P.credits = Math.max(P.credits, 500); const c0 = P.credits;
+    const hq = O.pop.buildingByKey.get(O.polity.security), pl = buildingPlan(O.planet, O.s, hq), d = pl.doors[pl.entrance];
+    O.ctrl.pos = buildingToWorld(O.s, hq, d.x, 0, d.z + 2); await new Promise(r => setTimeout(r, 400));
+    O.showWork(); await new Promise(r => setTimeout(r, 400));
+    const b = document.querySelector('.panel.work button[data-a=pay]'); if (!b) return { none: true };
+    b.click(); await new Promise(r => setTimeout(r, 400));
+    document.querySelector('.panel.work button[data-a=ok]')?.click();
+    return { paid: c0 - P.credits, left: P.fines.length }; })()`);
+  check(pay.paid === 120 && pay.left === 0, 'fines are paid at the civic office (' + JSON.stringify(pay) + ')');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

@@ -106,6 +106,22 @@ how well the witness knows the character. `law.investigate` runs 1–2 days late
 `law.charge` applies the fine to the character and their record, and logs `fined`.
 Every random choice is a hash, so results don't depend on how time was stepped.
 
+### Fines, warrants, arrest (`sim/processes/law.js`, `sim/pursuit.js`, `gen/custody.js`)
+
+`applyCharge` adds an owed fine (`player.fines`) and a `law.due` job. An unpaid fine, or an
+officer witness, calls `issueWarrant`, which schedules `law.serve`. If the player is away
+(`ctx.offline`), serving is `arrest()` at once. In game it calls `ctx.onServe`, which starts a
+`Pursuit`, and reschedules itself 6 h later in case the pursuit fails. A `Pursuit` is the
+only NPC behaviour off the closed-form schedule. It is ACTIVE-tier and render-side,
+routed by `tripPoints` over the same logical graphs residents use. Being caught calls
+`arrest()`, which:
+- charges any proven-but-unsettled cases;
+- takes the fines from credits;
+- marks the holding cell's doors `held` (a delta `doorState` honours);
+- schedules `law.release`.
+
+Custody intervals are kept (`custodyLog`) so offline work never counts time spent in the cell.
+
 ## Work (`gen/careers.js`, `sim/processes/work.js`)
 
 Roles are a data table (skill, minimum, fitness, clean record, wage). An opening is a

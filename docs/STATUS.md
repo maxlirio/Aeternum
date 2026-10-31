@@ -1,4 +1,4 @@
-# Status — milestone 4 (residents, character origin, law, work)
+# Status — milestone 5 (residents, character origin, law and arrest, work)
 
 Each line says what is actually implemented and how it was checked.
 
@@ -26,7 +26,10 @@ Each line says what is actually implemented and how it was checked.
 | **Character origin**: you are the adult child of a real resident household (same surname). You live with your parents or alone in a vacant unit, with keys to both homes. Press C for your background (parents' and siblings' jobs and addresses) | `e2e` (parents exist and sleep in their own home at 02:30; your key opens your apartment, a stranger's doesn't) |
 | Street names and house numbers | in-game |
 | **Local authority**: every town has a polity (name, strictness, fine table, report and evidence rates) and a security office in the administration building nearest the centre, staffed on two shifts. Officers alternate desk time with patrol stops | `test.mjs people` (at least 2 security staff), `test.mjs law`; screenshot `patrol` |
-| **Law process**: witnesses report with some probability after a delay; people who know you (family 100%, neighbours 80%, strangers 35%) identify you; an officer who sees it cites you within minutes; unwitnessed break-ins are discovered by the next resident or worker to arrive; investigations solve the case or close it cold; fines come out of your credits and go on your record | `test.mjs law` (also one 4-day jump equals half-hour steps), `e2e` (two days away: case reported/discovered, record matches fines) |
+| **Law process**: witnesses report with some probability after a delay; people who know you (family 100%, neighbours 80%, strangers 35%) identify you; an officer who sees it cites you within minutes; unwitnessed break-ins are discovered by the next resident or worker to arrive; investigations solve the case or close it cold; fines go on your record and are owed, payable within 3 days | `test.mjs law` (also one 8-day jump equals half-hour steps), `e2e` (two days away: case reported/discovered, record matches fines) |
+| **Warrants and arrest**: an unpaid fine past its due date, or being seen breaking in by an officer, issues a warrant. In game, the nearest on-duty officer walks to you along the room/door and street graphs (they carry keys); officers on patrol who see a wanted person within 20 m act on it too. Stand still and you go quietly; run and it becomes a chase (4.9 m/s, so a fit runner can get away; out of sight 45 m for 15 s and you've lost them, and the warrant stands). While you're away, the warrant is simply served wherever you are | `test.mjs pursuit` (still → arrested quietly; 3.6 m/s → caught, counts as evading; 6.2 m/s → lost; officer never faster than a run), `test.mjs law`, `e2e` (warrant → officer comes → arrested) |
+| **Custody**: arrest takes all owed fines from your credits (into debt if need be), adds *Evading arrest* to the record if you ran, and holds you in the security office's holding cell for 1–8 planet-hours. The cell is a ground-floor room picked from the plan; its doors lock (no key or force opens them) until a scheduled release. Time in custody doesn't count as work | `test.mjs law` (released after each sentence, cell unlocked), `test.mjs careers` (a shift in custody is missed), `e2e` (held in the cell, can't walk out, released on time); screenshot `arrest`/`cell` |
+| **Paying fines**: J inside the security office shows what you owe; paying in full clears the fines and withdraws any warrant they caused | `test.mjs law`, `e2e` |
 | **Credits**: starting savings; shown in the HUD; can go negative (debt) | `e2e` |
 | **Openings**: each workplace posts 0–2 of its unfilled positions a week (the same ones for anyone who asks that week), plus its head if it has none. The town job board in the civic office lists all of them; inside any workplace J lists that workplace's own | `test.mjs careers` (30 towns × 4 weeks: openings every week, about 22 per town, none already held) |
 | **Applying and hiring**: requirements are skill levels (administration, trade, technical), fitness, and for security a clean record. The application is read when the workplace head is next actually at work (their schedule says when) and decided by a hash of you and the job. Turn-downs state their reason. Knowing the head (family, neighbours) helps | `test.mjs careers` (unqualified: refused with the requirement; qualified: hired), `e2e` (job board, apply, hired) |
@@ -46,10 +49,14 @@ Each line says what is actually implemented and how it was checked.
   changes will be deltas over the generated population.
 - **Window lights** still follow occupancy-by-hour rules rather than who is actually
   home.
-- **Law has no physical response yet.** Officers don't come to find you, there is no
-  arrest, jail, court or bounty, and fines can't be paid off or disputed. Debt has no
-  effect. Only forced entry is a crime so far; trespassing in staff rooms you walked
-  into, or theft, aren't.
+- **Arrest is a walk-up, not a struggle.** There is no restraint, cuffs, escort or
+  animation: within reach, you're simply in the cell. Officers don't call for backup,
+  block exits or search buildings; one officer comes, and they give up after 5 minutes.
+- **No courts, bail, appeals or bounties.** Sentences are short holds, not prison.
+- **Debt has no effect.** Only forced entry is a crime; trespassing in staff rooms you
+  walked into, theft, and assault aren't.
+- **The holding cell is an ordinary office room** with its furniture; nobody is given a
+  desk there.
 - **Work has no tasks.** Being on shift means being inside the building; there is no
   activity at the desk or bench, and your performance is only attendance.
 - **Nobody competes with you for openings**, and residents never change jobs. The

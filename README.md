@@ -3,10 +3,10 @@
 A persistent, procedurally generated science-fiction universe, played in third person.
 You are one ordinary person living in it.
 
-**Milestone 4** (this build): one planet surface and one generated settlement with enterable
+**Milestone 5** (this build): one planet surface and one generated settlement with enterable
 buildings, about 320 residents living scheduled daily lives (who step around you), a character
-born into a real family in that town, a local authority whose officers patrol and whose cases
-end in fines on your record, jobs you can apply for and work (paid by the hours you actually
+born into a real family in that town, a local authority whose officers patrol, fine you, and come to arrest
+you if you don't pay (stand still or run), jobs you can apply for and work (paid by the hours you actually
 show up), persistent changes, and time that keeps passing while you're away.
 
 ## Run it
@@ -18,14 +18,14 @@ python3 tools/serve.py 8517        # then open http://127.0.0.1:8517
 The app is buildless: plain ES modules plus three.js r165 from a CDN. No install step.
 
 **Controls:** click to capture the mouse · WASD move · Shift run · Space jump · E open/close ·
-hold F to force a lock · J work (job board in the civic office) · C your background · Esc menu (leave, backup, restore, world log) · F3 stats ·
+hold F to force a lock · J work / civic office (job board, pay fines) · C your background · Esc menu (leave, backup, restore, world log) · F3 stats ·
 Shift+T skip one hour (developer).
 
 ## Tests
 
 ```sh
-node tools/test.mjs      # determinism, settlement + floor-plan invariants (200 seeds), seams, persistence, offline, people, law, careers
-node tools/e2e.mjs       # real browser + real IndexedDB: force a door, climb stairs, reload, 2 days away, get a job, work 3 days away
+node tools/test.mjs      # determinism, settlement + floor-plan invariants (200 seeds), seams, persistence, offline, people, law, careers, pursuit
+node tools/e2e.mjs       # real browser + real IndexedDB: force a door, climb stairs, reload, 2 days away, get a job, work 3 days away, arrested and released, pay a fine
 node tools/shots.mjs     # headless screenshots → out/shots/*.png (aerial, street, door, interior, stairs, night, people, work, sleep…)
 ```
 

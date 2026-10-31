@@ -71,6 +71,8 @@ export function attend(ctx, t, dt, bKey) {
   if (b > a) { sh.present += b - a; ctx.store.touchPlayer(); }
   return t >= sh.t0 && t < sh.t1;
 }
+// Seconds of [a, b] spent in a holding cell — you can't keep your routine from there.
+export const inCustody = (pl, a, b) => (pl.custodyLog || []).reduce((n, c) => n + Math.max(0, Math.min(b, c.to) - Math.max(a, c.from)), 0);
 export const onShiftNow = (pl, t) => !!(pl.shift && t >= pl.shift.t0 && t < pl.shift.t1);
 
 export function registerWorkJobs(sched) {
@@ -97,7 +99,7 @@ export function registerWorkJobs(sched) {
     const { t0, t1 } = job.data, len = t1 - t0;
     let present = pl.shift?.t0 === t0 ? pl.shift.present : 0;
     const off = ctx.offline;
-    if (off && off.activity === 'work') present += Math.max(0, Math.min(t1, off.tTo) - Math.max(t0, off.tFrom));
+    if (off && off.activity === 'work') { const a = Math.max(t0, off.tFrom), b = Math.min(t1, off.tTo); if (b > a) present += b - a - inCustody(pl, a, b); }
     present = Math.min(len, present);
     const h = planetHours(planet, present), frac = present / len;
     const pay = Math.round(pj.wage * h);

@@ -18,7 +18,7 @@ export class UI {
       <div class="stats"><div class="who"></div>
         <div class="bar"><span>Fatigue</span><i><b class="fatigue"></b></i></div>
         <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div>
-        <div class="credits"></div><div class="job"></div></div>
+        <div class="credits"></div><div class="job"></div><div class="law"></div></div>
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
@@ -55,7 +55,7 @@ export class UI {
   updateHud(g) {
     const { planet, s, player, t, located } = g;
     const h = solarHour(planet, t);
-    $('.place', this.hud).textContent = located ? (located.b ? labelFor(located) : s.name) : s.name;
+    $('.place', this.hud).textContent = located ? (located.b ? labelFor(located, g.cell) : s.name) : s.name;
     $('.where .sub', this.hud).textContent = located?.b ? `${s.name} · ${planet.name}` : `${planet.name}`;
     $('.time', this.hud).textContent = formatHour(h);
     $('.clock .sub', this.hud).textContent = `Day ${dayNumber(planet, t)} · ${(planet.dayLength / 3600).toFixed(1)} h day`;
@@ -63,6 +63,9 @@ export class UI {
     $('.fatigue', this.hud).style.width = Math.round(player.fatigue * 100) + '%';
     $('.fitness', this.hud).style.width = Math.round(player.fitness * 100) + '%';
     const cr = $('.credits', this.hud); cr.textContent = `${player.credits ?? 0} cr`; cr.classList.toggle('debt', (player.credits ?? 0) < 0);
+    const lw = $('.law', this.hud), owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
+    lw.innerHTML = player.custody ? `<b class="late">In custody</b> until ${formatHour(solarHour(planet, player.custody.until))}`
+      : player.warrant ? `<b class="late">Wanted</b> — ${esc(player.warrant.reason)}` : owed ? `Owes ${owed} cr in fines` : '';
     const jb = $('.job', this.hud), pj = player.job, sh = player.shift;
     if (!pj) jb.textContent = 'Unemployed';
     else if (sh && t >= sh.t0 && t < sh.t1) jb.innerHTML = `${esc(titleOf(pj))} · <b class="${g.atWork ? 'on' : 'late'}">${g.atWork ? 'on shift' : 'shift started — not at work'}</b> until ${formatHour(solarHour(planet, sh.t1))}`;
@@ -140,6 +143,8 @@ UI.prototype.character = function (player, pop, planet, s, polity) {
       <h3>Parents</h3><ul class="events">${parents.map(line).join('') || '<li class="none">Not living in town.</li>'}</ul>
       ${sibs.length ? `<h3>Siblings</h3><ul class="events">${sibs.map(line).join('')}</ul>` : ''}
       <p>Credits: <b>${player.credits ?? 0} cr</b>${(player.credits ?? 0) < 0 ? ' <small>(in debt)</small>' : ''}</p>
+      ${(player.fines || []).length ? `<p>Fines owed: <b>${player.fines.reduce((n, f) => n + f.amount, 0)} cr</b> — pay at the ${esc(polity.securityName)} office (J there).</p>` : ''}
+      ${player.warrant ? `<p class="late">Wanted: ${esc(player.warrant.reason)}.</p>` : ''}
       <h3>Record — ${esc(polity?.name || '')}</h3><ul class="events">${(player.record || []).map(r => `<li><span class="when">day ${dayNumber(planet, r.t)}</span> ${esc(r.offence)} — fined ${r.fine} cr</li>`).join('') || '<li class="none">Clean.</li>'}</ul>
       <p class="fine">Fatigue ${Math.round(player.fatigue * 100)}% · Fitness ${Math.round(player.fitness * 100)}%</p>
       <button data-a="ok" class="primary">Back</button>`, 'char');
@@ -156,8 +161,9 @@ function homeLabel(pop, unitKey) {
 }
 
 const TYPE_LABEL = { office: 'Administration', hab: 'Habitation block', store: 'Store', house: 'Dwelling', workshop: 'Workshop', hangar: 'Hangar' };
-function labelFor(loc) {
+function labelFor(loc, cell) {
   const b = loc.b;
+  if (cell && b.key === cell.b.key && loc.k === 0 && loc.room?.i === cell.room.i) return `${b.owner} · holding cell`;
   if (loc.roof) return `Roof — ${TYPE_LABEL[b.type]}`;
   const room = loc.room?.purpose ? ` · ${loc.room.purpose.replace('shopfloor-workshop', 'workshop floor').replace('shopfloor', 'shop floor')}` : '';
   return `${TYPE_LABEL[b.type]} — ${b.owner}${loc.plan?.F > 1 ? ` · floor ${loc.k + 1}` : ''}${room}`;
@@ -179,6 +185,10 @@ export function describeEvent(e, planet) {
     case 'promoted': return `${when} Promoted to ${esc(e.title.toLowerCase())} at ${esc(e.employer)} — now ${e.wage} cr/h.`;
     case 'dismissed': return `${when} ${esc(e.employer)} let ${esc(e.whoName)} go — ${esc(e.why)}.`;
     case 'resigned': return `${when} ${esc(e.whoName)} left the job at ${esc(e.employer)}.`;
+    case 'warrant': return `${when} ${esc(e.authority)} issued a warrant for ${esc(e.whoName)} — ${esc(e.reason)}.`;
+    case 'arrested': return `${when} ${e.by ? esc(e.by) + ' of ' : ''}${esc(e.authority)} arrested ${esc(e.whoName)}${e.resisted ? ' after a chase' : ''}. ${e.paid ? `${e.paid} cr in fines taken; ` : ''}held ${e.hours} h.`;
+    case 'released': return `${when} ${esc(e.whoName)} was released from the ${esc(e.authority)} cell.`;
+    case 'fines_paid': return `${when} ${esc(e.whoName)} paid ${e.amount} cr in fines${e.cleared ? '; the warrant was withdrawn' : ''}.`;
     case 'life_began': return `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
     default: return `${when} ${esc(e.type)}`;
   }
@@ -192,7 +202,7 @@ function shiftSummary(events) {
 
 // The work panel: your job, your applications, and whatever openings are posted here.
 //   listing: { title, note, jobs } or null when there's no board where you stand
-UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boardAt }) {
+UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boardAt, civic }) {
   return new Promise(res => {
     const pj = player.job, sh = player.shift;
     const hours = h => `${formatHour(h[0])}–${formatHour(h[1])}`;
@@ -215,7 +225,11 @@ UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boar
       }).join('') || '<li class="none">Nothing posted this week.</li>';
       board = `<h3>${esc(listing.title)}</h3><p class="fine">${esc(listing.note)}</p><ul class="events jobs">${rows}</ul>`;
     } else board = `<p class="fine">Openings are posted on the job board at ${esc(boardAt)}; each workplace also lists its own — ask inside one.</p>`;
-    const p = this.panel(`<h2>Work</h2>${mine}${pend}${board}<button data-a="ok" class="primary">Back</button>`, 'work');
+    const owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
+    const fines = civic && (owed || player.warrant) ? `<h3>Fines — ${esc(polity.securityName)}</h3><ul class="events">${(player.fines || []).map(f => `<li>${esc(f.offence)} — ${f.amount} cr <small>due day ${dayNumber(planet, f.due)}</small></li>`).join('')}</ul>
+      ${player.warrant ? `<p class="late">There is a warrant for you (${esc(player.warrant.reason)}). Paying in full here withdraws it.</p>` : ''}
+      <button data-a="pay" ${owed && (player.credits ?? 0) >= owed ? '' : 'disabled'}>Pay ${owed} cr${(player.credits ?? 0) < owed ? ` — you have ${player.credits} cr` : ''}</button>` : '';
+    const p = this.panel(`<h2>${civic ? 'Civic office' : 'Work'}</h2>${fines}${mine}${pend}${board}<button data-a="ok" class="primary">Back</button>`, 'work');
     p.addEventListener('click', e => {
       const btn = e.target.closest('button'); if (!btn) return;
       const a = btn.dataset.a;

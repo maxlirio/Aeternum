@@ -209,10 +209,12 @@ suites.law = async () => {
   const { MemoryBackend } = await import('../js/world/store-mem.js');
   const { Scheduler } = await import('../js/sim/scheduler.js');
   const { registerDoorJobs, forceDoor } = await import('../js/sim/processes/doors.js');
-  const { registerLawJobs, lodgeIncident } = await import('../js/sim/processes/law.js');
+  const { registerLawJobs, lodgeIncident, payFines, issueWarrant, PAY_DAYS } = await import('../js/sim/processes/law.js');
   const { getPopulation } = await import('../js/gen/population.js');
   const { getPolity } = await import('../js/gen/polity.js');
   const { newCharacter } = await import('../js/gen/character.js');
+  const { holdingCell } = await import('../js/gen/custody.js');
+  const { doorKey } = await import('../js/world/doors.js');
   const { EPOCH } = await import('../js/sim/clock.js');
   const U = uni(7), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
   check(polity.security && pop.people.some(x => x.job && pop.jobById.get(x.job).security), 'town has a staffed security office');
@@ -220,7 +222,7 @@ suites.law = async () => {
     const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
     const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; st.setPlayer(pl);
     const sc = new Scheduler(st); registerDoorJobs(sc); registerLawJobs(sc);
-    return { st, sc, ctx: { store: st, sched: sc, planet: p, s, pop, polity } };
+    return { st, sc, ctx: { store: st, sched: sc, planet: p, s, pop, polity, doorstepOf: () => [9, 9, 9] } };
   };
   const shops = s.buildings.filter(b => b.type === 'store');
   const officer = pop.people.find(x => x.job && pop.jobById.get(x.job).security);
@@ -231,7 +233,8 @@ suites.law = async () => {
     const e1 = crime(shops[0], EPOCH + 100, [{ id: officer.id, name: officer.name, dist: 5 }]);
     const e2 = crime(shops[1], EPOCH + 200, []);
     const e3 = crime(shops[2], EPOCH + 300, [{ id: stranger.id, name: stranger.name, dist: 8 }]);
-    const T = EPOCH + 4 * p.dayLength;
+    const T = EPOCH + 8 * p.dayLength;
+    ctx.offline = { tFrom: EPOCH + 300, tTo: T, activity: 'idle' };          // the player is away the whole time
     if (steps) for (let t = EPOCH; t <= T; t += 1800) sc.runDue(t, ctx); else sc.runDue(T, ctx);
     return { st, e1, e2, e3, credits0 };
   };
@@ -242,11 +245,32 @@ suites.law = async () => {
   check(A.st.events.some(e => e.type === 'break_in_discovered' && e.incident === A.e2.id), 'an unwitnessed break-in is discovered by someone who works there');
   const c2 = A.st.getDelta('case/' + A.e2.id);
   check(c2 && (c2.status === 'cold' || c2.status === 'closed'), 'the unwitnessed case is resolved one way or the other (' + c2?.status + ')');
-  check(A.st.player.credits === A.credits0 - fined.reduce((n, e) => n + e.amount, 0), 'fines come out of your credits');
+  const arrests = A.st.events.filter(e => e.type === 'arrested');
+  check(A.st.events.some(e => e.type === 'warrant' && /seen by/.test(e.reason)), 'an officer who saw it issues a warrant at once');
+  check(arrests.length >= 1 && arrests[0].t - A.e1.t < 7 * 3600, 'away, the warrant is served within hours');
+  check(fined.every(e => e.due - e.t === PAY_DAYS * p.dayLength), 'fines are owed, due in ' + PAY_DAYS + ' days');
+  check(A.st.player.credits === A.credits0 - arrests.reduce((n, e) => n + e.paid, 0), 'arrest takes the fines owed from your credits');
+  check(arrests.reduce((n, e) => n + e.paid, 0) + A.st.player.fines.reduce((n, f) => n + f.amount, 0) === fined.reduce((n, e) => n + e.amount, 0), 'every fine is either paid at an arrest or still owed');
   check(A.st.player.record.length === fined.length, 'each fine is on your record');
+  check(!A.st.player.custody && A.st.events.filter(e => e.type === 'released').length === arrests.length, 'released after each sentence');
+  const cell = holdingCell(p, s, polity);
+  check(cell && cell.doors.every(d => !A.st.getDelta(doorKey(cell.b.key, d.id))?.held), 'the cell door is unlocked again');
+  check(!pop.people.some(x => x.job && pop.jobById.get(x.job).b === cell.b.key && pop.jobById.get(x.job).anchor !== undefined && buildingPlan(p, s, cell.b).anchors[pop.jobById.get(x.job).anchor].room === cell.room.i), 'nobody works in the holding cell');
   check(JSON.stringify(A.st.events) === JSON.stringify(B.st.events) && JSON.stringify([...A.st.deltas]) === JSON.stringify([...B.st.deltas]) && A.st.player.credits === B.st.player.credits,
     'law outcomes: one jump == half-hour steps');
-  console.log(`  ${polity.name}: ${fined.length}/3 crimes fined, case 2 ${c2?.status}, case 3 ${A.st.getDelta('case/' + A.e3.id)?.status || 'never reported'}`);
+  // paying at the office: clears fines and the warrant they caused; needs the money
+  { const C = setup(), pl = C.st.player;
+    const ev = forceDoor(C.st, C.sc, p, s, shops[3], buildingPlan(p, s, shops[3]).doors[buildingPlan(p, s, shops[3]).entrance], EPOCH + 10, pl, [{ id: officer.id, name: officer.name, dist: 3 }]);
+    lodgeIncident(C.ctx, ev);
+    C.sc.runDue(EPOCH + 600, C.ctx);                           // in game (no ctx.offline): owed, wanted, not yet arrested
+    const owed = pl.fines.reduce((n, f) => n + f.amount, 0);
+    check(owed > 0 && pl.warrant && !pl.custody, 'in game: fine owed and a warrant out, no abstract arrest');
+    pl.credits = owed - 1; check(!payFines(C.ctx, EPOCH + 700).ok, "can't pay without the money");
+    pl.credits = owed + 50; const r = payFines(C.ctx, EPOCH + 700);
+    check(r.ok && pl.credits === 50 && !pl.fines.length && !pl.warrant, 'paying clears the fines and withdraws the warrant');
+    C.sc.runDue(EPOCH + 10 * p.dayLength, C.ctx);
+    check(!C.st.events.some(e => e.type === 'arrested' || (e.type === 'warrant' && e.t > EPOCH + 700)), 'nothing further happens once paid'); }
+  console.log(`  ${polity.name}: ${fined.length}/3 crimes fined, ${arrests.length} arrest(s) (${arrests.map(e => e.hours + ' h').join(', ')}), case 2 ${c2?.status}, case 3 ${A.st.getDelta('case/' + A.e3.id)?.status || 'never reported'}`);
 };
 
 suites.careers = async () => {
@@ -329,6 +353,11 @@ suites.careers = async () => {
     A.sc.runDue(sh.t1, A.ctx);
     const last = A.st.events.at(-1);
     check(last.type === 'shift_worked' && Math.abs(last.frac - 0.5) < 0.01, 'half a shift present online = half pay (' + last.frac + ')');
+    // in a cell during a shift you can't keep your routine
+    { const sh2 = pl.shift; pl.custodyLog = [{ from: sh2.t0, to: sh2.t1 }];
+      catchUp(A.ctx, sh2.t0 - 10, sh2.t1 + 10, 'work');
+      const e = A.st.events.filter(x => x.type.startsWith('shift_')).at(-1);
+      check(e.type === 'shift_missed' && e.pay === 0, 'a shift spent in custody is not worked'); pl.custodyLog = []; }
     // stop going: dismissed after three missed shifts, key returned
     catchUp(A.ctx, sh.t1, sh.t1 + 6 * p.dayLength, 'rest');
     check(A.st.events.some(e => e.type === 'dismissed') && !pl.job, 'missing shifts gets you dismissed');
@@ -336,6 +365,47 @@ suites.careers = async () => {
     check(pl.career.length === 1 && pl.career[0].why === 'dismissed', 'career history records it');
   }
   console.log(`  ${clerk.title} at ${clerk.employer}: ${W.A.st.events.filter(e => e.type === 'shift_worked').length} shifts, +${W.pl.credits - W.c0} cr`);
+};
+
+suites.pursuit = async () => {
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Pursuit } = await import('../js/sim/pursuit.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { whereAt } = await import('../js/gen/schedule.js');
+  const { tripPoints } = await import('../js/gen/paths.js');
+  const { doorstep } = await import('../js/gen/place.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
+  const world = new CollisionWorld(p, s, () => true);
+  const t0 = EPOCH + p.dayLength * (10.2 - 7.2) / 24;           // mid-morning: day shift on
+  const officer = pop.people.find(x => x.job && pop.jobById.get(x.job).security && ['on duty', 'on patrol'].includes(whereAt(pop, x, t0).activity));
+  if (!check(officer, 'an officer on duty mid-morning')) return;
+  const hq = pop.buildingByKey.get(polity.security);
+  // the player's path: from near the HQ to a far building, along the streets
+  const far = s.buildings.slice().sort((a, b) => Math.hypot(b.O[0] - hq.O[0], b.O[1] - hq.O[1]) - Math.hypot(a.O[0] - hq.O[0], a.O[1] - hq.O[1]))[0];
+  const ds = doorstep(s, hq, buildingPlan(p, s, hq));
+  const path = (() => { const plan = buildingPlan(p, s, far), q = tripPoints(p, s, { street: s.toLocal(ds.pos[0], ds.pos[2]), road: hq.road }, { b: far, plan, spot: { k: 0, room: plan.doors[plan.entrance].rooms[0], x: plan.doors[plan.entrance].x, z: 2 } }); return q.filter(v => v[1] < s.h + 0.5); })();
+  const along = d => { let acc = 0; for (let i = 1; i < path.length; i++) { const l = Math.hypot(path[i][0] - path[i - 1][0], path[i][2] - path[i - 1][2]); if (acc + l >= d) { const f = (d - acc) / l; return [path[i - 1][0] + (path[i][0] - path[i - 1][0]) * f, s.h, path[i - 1][2] + (path[i][2] - path[i - 1][2]) * f]; } acc += l; } return path.at(-1).slice(); };
+  const run = (speed, head = 0) => {
+    const P = new Pursuit(pop, officer, t0, 'test');
+    let t = t0, d = 0, ev = null, jump = 0, prev = P.pos.slice(), chased = false;
+    for (let i = 0; i < 20 * 400 && !['caught', 'lost'].includes(ev); i++) {
+      // the player waits by the doorstep until the officer is within 8 m, then (maybe) runs
+      const near = Math.hypot(P.pos[0] - along(d)[0], P.pos[2] - along(d)[2]) < 8;
+      if (speed && (near || d > 0)) d += speed * 0.05;
+      ev = P.update(t, 0.05, { pos: along(d), speed: speed && d > 0 ? speed : 0 }, world, s);
+      if (ev === 'chase') chased = true;
+      jump = Math.max(jump, Math.hypot(P.pos[0] - prev[0], P.pos[2] - prev[2]) / 0.05); prev = P.pos.slice(); t += 0.05;
+    }
+    return { ev, secs: t - t0, jump, chased, resisted: P.resisted, ran: d };
+  };
+  const still = run(0), fast = run(6.2), slow = run(3.6);
+  check(still.ev === 'caught' && !still.resisted, `standing still: arrested quietly (${still.ev} after ${still.secs.toFixed(0)} s)`);
+  check(fast.ev === 'lost' && fast.chased, `running at 6.2 m/s: chased, then lost (${fast.ev}, ran ${fast.ran.toFixed(0)} m)`);
+  check(slow.ev === 'caught' && slow.resisted, `running at 3.6 m/s: caught, and it counts as running (${slow.ev})`);
+  check(Math.max(still.jump, fast.jump, slow.jump) < 6, 'the officer never moves faster than a run (' + Math.max(still.jump, fast.jump, slow.jump).toFixed(1) + ' m/s)');
+  console.log(`  ${officer.name}: quiet arrest in ${still.secs.toFixed(0)} s; caught a slow runner in ${slow.secs.toFixed(0)} s; lost a fast one after ${fast.ran.toFixed(0)} m`);
 };
 
 const want = process.argv.slice(2);

@@ -30,7 +30,7 @@ export function newCharacter(universeSeed, planet, s, pop, serial, t) {
     family: { household: hh.id, parents: parents.map(m => m.id), siblings: siblings.map(m => m.id) },
     job: null, applications: [], career: [],
     skills: startingSkills(universeSeed, serial, age),
-    credits: Math.round(rng.range(250, 2200) / 10) * 10, record: [],
+    credits: Math.round(rng.range(250, 2200) / 10) * 10, record: [], fines: [], warrant: null, custody: null,
     fatigue: 0.15 + rng.next() * 0.2, fitness: 0.2 + rng.next() * 0.3,
     pos: null, facing: 0, activity: null, created: t,
   };
