@@ -5,6 +5,7 @@
 // Geometry is laid out in a settlement-local frame (u, v) in metres, rotated by the
 // settlement's grid angle; roads and buildings are axis-aligned in that frame, which
 // keeps every overlap test an exact AABB test.
+import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { hash01, derive } from '../core/hash.js';
 import { REGION } from '../core/units.js';
@@ -40,6 +41,7 @@ export function getSettlement(planet, rx, rz) {
   if (cache.has(ck)) return cache.get(ck);
   const s = regionHasSettlement(planet, rx, rz) ? generate(planet, rx, rz) : null;
   cache.set(ck, s);
+  if (s) getPolity(planet, s);            // seats the local authority (names the civic office's owner)
   return s;
 }
 

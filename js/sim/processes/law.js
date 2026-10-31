@@ -6,14 +6,15 @@
 import { hash01, hashStr } from '../../core/hash.js';
 import { dayIndex, dayPlan } from '../../gen/schedule.js';
 import { offenceFor } from '../../gen/polity.js';
+import { leaveJob } from './work.js';
 
 const MIN = 60, HOUR = 3600;
 const caseKey = id => `case/${id}`;
 const roll = (ctx, ...parts) => hash01(ctx.planet.universeSeed, parts.map(p => typeof p === 'number' ? p : hashStr(7, String(p))));
 
-// Earliest time after t when someone who lives or works in the building is in it.
-export function firstPresence(pop, bKey, t) {
-  const who = pop.people.filter(p => p.homeB === bKey || (p.job && pop.jobById.get(p.job).b === bKey));
+// Earliest time after t when someone who lives or works in the building (or one of
+// `who`) is in it.
+export function firstPresence(pop, bKey, t, who = pop.people.filter(p => p.homeB === bKey || (p.job && pop.jobById.get(p.job).b === bKey))) {
   let best = Infinity, by = null;
   const D0 = dayIndex(pop.planet, t);
   for (const p of who) for (let D = D0; D <= D0 + 2; D++) {
@@ -41,7 +42,7 @@ export function lodgeIncident(ctx, inc) {
   }
 }
 
-function knowsYou(ctx, witnessId, player) {
+export function knowsYou(ctx, witnessId, player) {
   if (!player) return 0.35;
   const p = ctx.pop.byId.get(witnessId);
   if (player.family?.parents.includes(witnessId) || player.family?.siblings.includes(witnessId)) return 1;
@@ -109,5 +110,8 @@ export function registerLawJobs(sched) {
       ctx.store.touchPlayer();
     }
     ctx.store.log({ t: job.at, type: 'fined', incident: inc.id, who: inc.by, whoName: inc.byName, offence: law.label, amount: law.fine, currency: ctx.polity.currency, authority: ctx.polity.securityName });
+    // employers hear about it: robbing your own workplace, or any conviction while in security, costs you the job
+    const pj = pl?.id === inc.by ? pl.job : null;
+    if (pj && (inc.owner === pj.employer || pj.employer === 'Civic Security')) leaveJob(ctx, job.at, pj.employer === 'Civic Security' ? 'a criminal conviction' : `breaking into ${inc.owner}'s premises`, 'dismissed');
   });
 }

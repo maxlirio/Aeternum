@@ -27,6 +27,9 @@ export function getPolity(planet, s) {
     reportRate: rng.range(0.45, 0.8),        // chance a civilian witness reports
     evidenceRate: rng.range(0.08, 0.25),     // chance an unwitnessed case gets solved
   };
+  // the civic office belongs to the authority, not to whichever company the generator named
+  const hq = s.buildings.find(b => b.key === polity.security);
+  if (hq) hq.owner = polity.name;
   cache.set(ck, polity);
   return polity;
 }

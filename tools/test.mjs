@@ -188,10 +188,11 @@ suites.people = async () => {
         prev = w;
       }
     }
-    // at midday on a weekday-ish sample, a good share of workers are at work
-    const noon = T + p.dayLength * (12.3 + 0.3) / 24 - 0.3 * 0;
-    const atWork = pop.people.filter(x => x.job && ['working', 'on duty', 'on patrol'].includes(whereAt(pop, x, (D - 0.3 + 12.5 / 24) * p.dayLength).activity)).length;
-    check(atWork > 0.5 * pop.people.filter(x => x.job).length, `seed ${n}: only ${atWork} at work at noon`);
+    // at 12:30, people whose shift covers it and who aren't on a day off are at work
+    const tn = (D - 0.3 + 12.5 / 24) * p.dayLength;
+    const due = pop.people.filter(x => { if (!x.job || x.offDays.includes(D % 7)) return false; const h = pop.jobById.get(x.job).hours; return h[0] <= 12 && h[1] >= 13.5; });
+    const atWork = due.filter(x => ['working', 'on duty', 'on patrol'].includes(whereAt(pop, x, tn).activity)).length;
+    check(atWork >= 0.85 * due.length, `seed ${n}: only ${atWork}/${due.length} on-shift workers at work at 12:30`);
     const asleep = pop.people.filter(x => whereAt(pop, x, (D - 0.3 + 2.5 / 24) * p.dayLength).activity === 'sleeping').length;
     check(asleep === pop.people.length, `seed ${n}: ${pop.people.length - asleep} awake at 2:30`);
     const officers = pop.people.filter(x => x.job && pop.jobById.get(x.job).security).length;
@@ -246,6 +247,95 @@ suites.law = async () => {
   check(JSON.stringify(A.st.events) === JSON.stringify(B.st.events) && JSON.stringify([...A.st.deltas]) === JSON.stringify([...B.st.deltas]) && A.st.player.credits === B.st.player.credits,
     'law outcomes: one jump == half-hour steps');
   console.log(`  ${polity.name}: ${fined.length}/3 crimes fined, case 2 ${c2?.status}, case 3 ${A.st.getDelta('case/' + A.e3.id)?.status || 'never reported'}`);
+};
+
+suites.careers = async () => {
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { registerDoorJobs } = await import('../js/sim/processes/doors.js');
+  const { registerLawJobs } = await import('../js/sim/processes/law.js');
+  const { registerWorkJobs, applyFor, leaveJob, attend } = await import('../js/sim/processes/work.js');
+  const { vacancies, openings, shiftOn, roleFor, assess } = await import('../js/gen/careers.js');
+  const { catchUp } = await import('../js/sim/offline.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const { dayIndex } = await import('../js/gen/schedule.js');
+  // every town posts some openings each week, none of them already held
+  let weeksWithout = 0, total = 0, unstaffed = 0, places = 0;
+  for (let n = 0; n < 30; n++) {
+    const p = makePlanet(uni(n), HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), none = { getDelta: () => null };
+    for (let w = 0; w < 4; w++) {
+      const v = vacancies(pop, none, EPOCH + w * 7 * p.dayLength);
+      total += v.length; if (!v.length) weeksWithout++;
+      check(v.every(j => !j.holder && roleFor(j)), `seed ${n}: listed job already held`);
+    }
+    places += new Set(pop.jobs.map(j => j.b)).size;
+    unstaffed += pop.s.buildings.filter(b => pop.jobs.some(j => j.b === b.key)).filter(b => !pop.jobs.some(j => j.b === b.key && j.holder)).length;
+  }
+  check(weeksWithout === 0, weeksWithout + ' town-weeks with no openings');
+  check(unstaffed <= 0.02 * places, `${unstaffed}/${places} workplaces with nobody working`);
+  console.log(`  ${(total / 120).toFixed(1)} openings per town-week, ${unstaffed}/${places} workplaces unstaffed (towns short of adults)`);
+
+  const U = uni(3), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
+  const setup = skills => {
+    const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+    const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; if (skills) pl.skills = skills; st.setPlayer(pl);
+    const sc = new Scheduler(st); registerDoorJobs(sc); registerLawJobs(sc); registerWorkJobs(sc);
+    return { st, sc, ctx: { store: st, sched: sc, planet: p, s, pop, polity, homeDoorstep: [1, 2, 3], doorstepOf: () => [4, 5, 6] } };
+  };
+  const clerk = vacancies(pop, { getDelta: () => null }, EPOCH).find(j => j.title === 'Clerk') || vacancies(pop, { getDelta: () => null }, EPOCH)[0];
+  // unqualified: turned down with the reason, deterministically
+  { const A = setup({ admin: 0.05, trade: 0.05, tech: 0.05 });
+    check(assess(pop, polity, A.st.player, clerk).chance === 0, 'no skill → no chance');
+    const r = applyFor(A.ctx, clerk, EPOCH + 60); check(r.ok, 'application accepted for review');
+    check(!applyFor(A.ctx, clerk, EPOCH + 120).ok, 'cannot apply twice');
+    A.sc.runDue(EPOCH + 2 * p.dayLength, A.ctx);
+    const ev = A.st.events.find(e => e.type === 'application_rejected');
+    check(ev && /needs/.test(ev.why), 'rejected, with the requirement as the reason: ' + ev?.why);
+    check(ev && ev.t >= r.at - 1, 'decided when the reviewer gets to it'); }
+  // qualified: hired, keys, shifts; a working week offline pays, and slicing does not matter
+  const week = (steps) => {
+    const A = setup({ admin: 0.95, trade: 0.95, tech: 0.95 }); A.st.player.fitness = 0.9;
+    applyFor(A.ctx, clerk, EPOCH + 60);
+    A.sc.runDue(EPOCH + 2 * p.dayLength, A.ctx);
+    const pl = A.st.player, hiredAt = EPOCH + 2 * p.dayLength;
+    if (!pl.job) return { A, pl };
+    const c0 = pl.credits, T = hiredAt + 7 * p.dayLength;
+    if (steps) { let t = hiredAt; while (t < T) { const nx = Math.min(T, t + 7777); pl.activity = 'work'; catchUp(A.ctx, t, nx, 'work'); t = nx; } }
+    else catchUp(A.ctx, hiredAt, T, 'work');
+    return { A, pl, c0, hiredAt, T };
+  };
+  const W = week(false), V = week(true);
+  check(W.pl.job?.id === clerk.id, 'a qualified applicant is hired (' + (W.A.st.events.find(e => e.type === 'application_rejected')?.why || '') + ')');
+  if (W.pl.job) {
+    check(W.pl.keys.includes(clerk.b), 'staff key for the workplace');
+    check(W.A.st.getDelta('job/' + clerk.id)?.holder === W.pl.id, 'the position is a delta, no longer listed');
+    check(!vacancies(pop, W.A.st, EPOCH).some(j => j.id === clerk.id), 'not listed once taken');
+    const worked = W.A.st.events.filter(e => e.type === 'shift_worked' && e.t > W.hiredAt);
+    let expect = 0; for (let D = dayIndex(p, W.hiredAt) - 1; D <= dayIndex(p, W.T); D++) { const sh = shiftOn(p, W.pl.job, D); if (sh && sh.t0 >= W.hiredAt && sh.t1 <= W.T) expect++; }
+    check(worked.length === expect && expect >= 4, `worked every shift in the week (${worked.length}/${expect})`);
+    check(W.pl.credits - W.c0 === W.A.st.events.filter(e => e.type.startsWith('shift_') && e.t > W.hiredAt).reduce((n, e) => n + e.pay, 0) && W.pl.credits > W.c0, 'wages paid into credits: +' + (W.pl.credits - W.c0) + ' vs ' + JSON.stringify(W.A.st.events.filter(e => e.t > W.hiredAt).map(e => [e.type, e.pay, e.frac])));
+    check(JSON.stringify(W.A.st.events) === JSON.stringify(V.A.st.events) && W.pl.credits === V.pl.credits && JSON.stringify(W.pl.skills) === JSON.stringify(V.pl.skills),
+      'a working week: one jump == 2-hour slices');
+    // online attendance: present for half a shift → paid for half
+    const A = W.A, pl = A.st.player;
+    A.sc.runDue(pl.shift.t1, A.ctx);              // settle the shift the week ended in; start clean
+    const sh = pl.shift;
+    for (let t = sh.t0; t < (sh.t0 + sh.t1) / 2; t += 1) attend(A.ctx, t + 1, 1, pl.job.b);
+    attend(A.ctx, sh.t1, 5, 'elsewhere');
+    A.sc.runDue(sh.t1, A.ctx);
+    const last = A.st.events.at(-1);
+    check(last.type === 'shift_worked' && Math.abs(last.frac - 0.5) < 0.01, 'half a shift present online = half pay (' + last.frac + ')');
+    // stop going: dismissed after three missed shifts, key returned
+    catchUp(A.ctx, sh.t1, sh.t1 + 6 * p.dayLength, 'rest');
+    check(A.st.events.some(e => e.type === 'dismissed') && !pl.job, 'missing shifts gets you dismissed');
+    check(!pl.keys.includes(clerk.b) && A.st.getDelta('job/' + clerk.id)?.holder === null, 'key returned, position open again');
+    check(pl.career.length === 1 && pl.career[0].why === 'dismissed', 'career history records it');
+  }
+  console.log(`  ${clerk.title} at ${clerk.employer}: ${W.A.st.events.filter(e => e.type === 'shift_worked').length} shifts, +${W.pl.credits - W.c0} cr`);
 };
 
 const want = process.argv.slice(2);

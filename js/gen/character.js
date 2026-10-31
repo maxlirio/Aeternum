@@ -28,9 +28,19 @@ export function newCharacter(universeSeed, planet, s, pop, serial, t) {
     home: unit.b.key, homeUnit: unit.key, withParents,
     keys: [unit.b.key, unit.key, parentsUnit.b.key, parentsUnit.key].filter((k, i, a) => a.indexOf(k) === i),
     family: { household: hh.id, parents: parents.map(m => m.id), siblings: siblings.map(m => m.id) },
-    occupation: null,                 // careers are not simulated yet (see docs/STATUS.md)
+    job: null, applications: [], career: [],
+    skills: startingSkills(universeSeed, serial, age),
     credits: Math.round(rng.range(250, 2200) / 10) * 10, record: [],
     fatigue: 0.15 + rng.next() * 0.2, fitness: 0.2 + rng.next() * 0.3,
     pos: null, facing: 0, activity: null, created: t,
   };
+}
+
+// What schooling and odd jobs left you with: one thing you're decent at, the rest a little.
+export function startingSkills(universeSeed, serial, age) {
+  const rng = new Rng(derive(universeSeed, 'skills', [serial]));
+  const keys = ['admin', 'trade', 'tech'], best = rng.pick(keys), years = Math.min(1, (age - 18) / 20);
+  const out = {};
+  for (const k of keys) out[k] = Math.round((k === best ? rng.range(0.28, 0.5) : rng.range(0.03, 0.22)) * (0.8 + 0.4 * years) * 100) / 100;
+  return out;
 }

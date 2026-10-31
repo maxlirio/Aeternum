@@ -2,6 +2,7 @@
 // they were gone is computed from the elapsed time — due jobs run in order, the body
 // advances in closed form. Nothing ticks for the missing hours.
 import { advanceBody } from './processes/character.js';
+import { onShiftNow } from './processes/work.js';
 
 export function catchUp(ctx, tFrom, tTo, activity) {
   const { store, sched, planet } = ctx;
@@ -23,8 +24,22 @@ export function catchUp(ctx, tFrom, tTo, activity) {
       p.pos = ctx.nearestRoadPoint(p.pos[0] + (hx - p.pos[0]) * f, p.pos[2] + (hz - p.pos[2]) * f);
       report.notes.push(`Still on the way home — ${Math.round(dist * (1 - f))} m to go.`);
     }
+  } else if (activity === 'work' && p.job) {
+    advanceBody(p, 'routine', report.elapsed, planet);
   } else advanceBody(p, activity === 'rest' ? 'rest' : activity === 'train' ? 'train' : 'idle', report.elapsed, planet);
+  // shifts that end during the absence are settled against it (sim/processes/work.js)
+  ctx.offline = { tFrom, tTo, activity };
+  const credits0 = p.credits;
   const jobs = sched.runDue(tTo, ctx);
+  ctx.offline = null;
+  // the shift still under way when you return keeps the part of it you already worked
+  if (activity === 'work' && p.shift) p.shift.present += Math.max(0, Math.min(p.shift.t1, tTo) - Math.max(p.shift.t0, tFrom));
+  if (activity === 'work') { // where the routine leaves you: at work mid-shift, otherwise home
+    const at = p.job && onShiftNow(p, tTo) ? ctx.doorstepOf?.(p.job.b) : ctx.homeDoorstep;
+    if (at) p.pos = at.slice();
+    report.notes.push(p.job ? (onShiftNow(p, tTo) ? `You're at work, mid-shift at ${p.job.employer}.` : 'You kept to your routine.') : 'You kept to your routine until you lost the job.');
+  }
+  report.earned = p.credits - credits0;
   p.activity = null;
   store.touchPlayer();
   report.body = { fatigue: [before.fatigue, p.fatigue], fitness: [before.fitness, p.fitness] };

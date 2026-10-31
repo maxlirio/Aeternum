@@ -106,6 +106,25 @@ how well the witness knows the character. `law.investigate` runs 1–2 days late
 `law.charge` applies the fine to the character and their record, and logs `fined`.
 Every random choice is a hash, so results don't depend on how time was stepped.
 
+## Work (`gen/careers.js`, `sim/processes/work.js`)
+
+Roles are a data table (skill, minimum, fitness, clean record, wage). An opening is a
+generated job with no holder and no `job/<id>` delta, sampled per workplace per week by
+hash. `applyFor` schedules `work.review` at the workplace head's next presence in the
+building (found from their day plans, as the law code does for discovery). The decision is a hash
+of (job, player, application number) against `assess()`.
+
+Hiring writes `job/<id> = { holder }` and starts a chain of `work.shift` jobs, one per
+shift, each scheduled at the shift's end. Settlement sums two kinds of presence:
+- `player.shift.present`, seconds accumulated online by `attend()` while the player is
+  inside the workplace (NEAR tier);
+- the overlap of the shift with an absence spent on the `work` activity (`ctx.offline`,
+  set by `catchUp`). A shift still under way on return keeps its offline part.
+
+Both are sums over time, so settling doesn't depend on slicing. The settlement pays,
+trains the job's skill (closed form), counts missed shifts (three in a row means
+dismissal), and checks promotion. `law.charge` can dismiss you as well.
+
 ## Persistence (`world/`)
 
 `WorldStore` keeps a working copy in memory. A backend persists the dirty records:

@@ -11,9 +11,10 @@ the rule that results must not depend on how time is sliced.
 3. **Law and authority** (original plan, for reference): Each settlement gets a polity with laws. `forced_entry` and
    trespass events are resolved by witnesses (resident schedules) and patrols. Results:
    fines, a record, reputation.
-4. **Work and careers.** Job listings come from workplaces. Applications are judged on
-   qualifications, then hiring, shifts and promotions. Offline "continue assignment"
-   becomes a real activity.
+4. ~~**Work and careers**~~ is done (milestone 4): openings, applications judged on
+   skills, hiring, shifts paid by attendance, promotion, dismissal, and offline "keep
+   your routine". Next for work: tasks at the workstation, residents competing for and
+   changing jobs, a labour market with wages that vary, contracts and self-employment.
 5. **More towns built in 3D, and streaming.** Settlement meshes stream like terrain.
    The delta store is sharded by region.
 6. **Planet as a sphere.** Cube-sphere terrain on the existing `surface:face,i,j,lod`

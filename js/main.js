@@ -17,10 +17,13 @@ import { WorldStore, GEN_VERSION } from './world/store.js';
 import { IDBBackend } from './world/store-idb.js';
 import { MemoryBackend } from './world/store-mem.js';
 import { canOpen, doorState } from './world/doors.js';
-import { GameClock, EPOCH, solarHour, within } from './sim/clock.js';
+import { GameClock, EPOCH, solarHour, within, dayNumber, formatHour } from './sim/clock.js';
 import { Scheduler, TIER } from './sim/scheduler.js';
 import { registerDoorJobs, openDoor, closeDoor, forceDoor } from './sim/processes/doors.js';
 import { registerLawJobs, lodgeIncident } from './sim/processes/law.js';
+import { registerWorkJobs, applyFor, leaveJob, attend, onShiftNow } from './sim/processes/work.js';
+import { vacancies, openings, titleOf } from './gen/careers.js';
+import { startingSkills } from './gen/character.js';
 import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
@@ -70,10 +73,13 @@ async function start(fresh) {
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, HOMEWORLD);
   const s = getSettlement(planet, 0, 0);
-  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched);
+  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched);
   ui.loading('Counting the townsfolk…', 0.01); await tick();
   const pop = getPopulation(planet, s), polity = getPolity(planet, s);
   const ctx = { store, sched, planet, s, pop, polity };
+  ctx.doorstepOf = bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; };
+  { const pl = store.player; // saves from before careers existed
+    if (pl) { pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; } }
 
   let report = null;
   if (fresh) {
@@ -176,10 +182,24 @@ async function start(fresh) {
       if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}.`, 'bad', 9000);
       if (e.type === 'case_opened') ui.toast(`${e.reporter} reported a break-in to ${e.authority}.`, 'warn', 6000);
       if (e.type === 'case_cold') ui.toast(`${e.authority} closed a break-in case unsolved.`, '', 6000);
+      if (e.who !== player.id) continue;
+      if (e.type === 'hired') ui.toast(`<b>${e.employer}</b> hired you as ${e.title.toLowerCase()}. ${player.shift ? `First shift: day ${dayNumber(planet, player.shift.t0)}, ${formatHour(solarHour(planet, player.shift.t0))}.` : ''} <small>J — details</small>`, '', 10000);
+      if (e.type === 'application_rejected') ui.toast(`${e.employer} turned you down — ${e.why}.`, 'warn', 9000);
+      if (e.type === 'shift_worked') ui.toast(`Shift over at ${e.employer}: paid <b>${e.pay} cr</b>.`, '', 6000);
+      if (e.type === 'shift_missed') ui.toast(`You missed your shift at ${e.employer}${e.missed > 1 ? ` — ${e.missed} in a row` : ''}.${e.pay ? ` Paid ${e.pay} cr for the time you were there.` : ''}`, 'warn', 8000);
+      if (e.type === 'promoted') ui.toast(`Promoted: <b>${e.title}</b> — ${e.wage} cr/h.`, '', 9000);
+      if (e.type === 'dismissed') ui.toast(`${e.employer} let you go — ${e.why}.`, 'bad', 10000);
     }
     seenEvents = store.events.length;
   } });
   sched.add(TIER.NEAR, { update: () => residents.refresh(clock.now(), ctrl.pos, world.locate(...ctrl.pos)?.b?.key) });
+  let atWork = false, shiftNoticed = null;
+  sched.add(TIER.NEAR, { update: dt => { // shift attendance: being inside the workplace while the shift runs
+    const t = clock.now();
+    atWork = attend(ctx, t, dt, world.locate(...ctrl.pos)?.b?.key || null);
+    if (onShiftNow(player, t) && !atWork && shiftNoticed !== player.shift.t0) { shiftNoticed = player.shift.t0; ui.toast(`Your shift at <b>${player.job.employer}</b> has started (${address(s, pop.buildingByKey.get(player.job.b))}).`, 'warn', 8000); }
+    if (atWork) shiftNoticed = player.shift.t0;
+  } });
   sched.add(TIER.NEAR, { update: dt => { advanceBody(player, 'idle', dt, planet); store.touchPlayer(); } });
   sched.add(TIER.ACTIVE, { update: dt => doorView.update(dt) });
 
@@ -194,6 +214,7 @@ async function start(fresh) {
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
     if (e.code === 'KeyC') showCharacter();
+    if (e.code === 'KeyJ') showWork();
     if (e.code === 'KeyT' && e.shiftKey) { clock.advance(planet.dayLength / 24); ui.toast('Skipped one hour <small>(developer time-skip — scheduled events still run in order)</small>'); }
   });
   addEventListener('keyup', e => keys.delete(e.code));
@@ -241,6 +262,25 @@ async function start(fresh) {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
     await ui.character(player, pop, planet, s, polity);
+    ui.closePanel(); paused = false;
+  }
+  async function showWork() {
+    if (paused) return;
+    paused = true; keys.clear(); document.exitPointerLock?.();
+    for (;;) {
+      const t = clock.now(), here = world.locate(...ctrl.pos)?.b || null;
+      let listing = null;
+      if (here?.key === polity.security) listing = { title: `Job board — ${polity.name}`, note: 'Every opening posted in town this week. Postings change weekly.', jobs: vacancies(pop, store, t) };
+      else if (here && pop.jobs.some(j => j.b === here.key)) listing = { title: `Openings at ${here.owner}`, note: 'What this workplace is hiring for this week.', jobs: openings(pop, store, here.key, t) };
+      const sec = pop.buildingByKey.get(polity.security);
+      const r = await ui.work({ player, pop, planet, s, polity, t, listing, boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
+      if (r.a === 'ok') break;
+      if (r.a === 'resign') leaveJob(ctx, t, 'resigned', 'resigned');
+      if (r.a === 'apply') {
+        const res = applyFor(ctx, pop.jobById.get(r.job), t);
+        ui.toast(res.ok ? `Application in. ${res.reviewer} will look at it — you'll hear by ${formatHour(solarHour(planet, res.at))}${res.at - t > planet.dayLength / 2 ? ' tomorrow' : ''}.` : res.why, res.ok ? '' : 'warn', 7000);
+      }
+    }
     ui.closePanel(); paused = false;
   }
   async function openMenu() {
@@ -306,7 +346,7 @@ async function start(fresh) {
             const cop = seen.find(w => { const q = pop.byId.get(w.id); return q?.job && pop.jobById.get(q.job).security; });
             if (cop) ui.toast(`<b>${cop.name}</b> of ${polity.securityName} saw that.`, 'bad', 7000);
             doorView.refresh(store, planet, t);
-            ui.toast(`You broke the lock. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}${seen.length > 3 ? '…' : ''}).` : 'Nobody saw you.'} <small>The incident is recorded; there are no police yet to act on it.</small>`, 'bad', 8000);
+            ui.toast(`You broke the lock. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}${seen.length > 3 ? '…' : ''}).` : 'Nobody saw you.'}`, 'bad', 8000);
           }
         }
       } else forceHold = 0;
@@ -326,7 +366,10 @@ async function start(fresh) {
     for (const a of agents) { // people are solid to the player (not the other way round yet)
       if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
       const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
-      if (d < 0.6 && d > 1e-4) { ctrl.pos[0] = a.pos[0] + dx / d * 0.6; ctrl.pos[2] = a.pos[2] + dz / d * 0.6; }
+      if (d < 0.6) { // exactly on top of each other: step back the way they came
+        const ux = d > 1e-4 ? dx / d : -Math.sin(a.facing), uz = d > 1e-4 ? dz / d : -Math.cos(a.facing);
+        ctrl.pos[0] = a.pos[0] + ux * 0.6; ctrl.pos[2] = a.pos[2] + uz * 0.6;
+      }
     }
     crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })), dt);
     const inUse = residents.doorsInUse(agents);
@@ -365,7 +408,7 @@ async function start(fresh) {
         } else ui.showPrompt(null);
       }
     }
-    ui.updateHud({ planet, s, player, t, located: loc });
+    ui.updateHud({ planet, s, player, t, located: loc, atWork });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;
@@ -376,7 +419,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents };
+  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

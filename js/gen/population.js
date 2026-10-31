@@ -103,11 +103,23 @@ function generate(planet, s) {
 
   // ---- employment: working-age adults, in a shuffled order, take open jobs
   const candidates = rng.shuffle(pop.people.filter(p => p.age >= 18 && p.age <= 66));
-  const open = rng.shuffle(pop.jobs.filter(j => !j.security)).concat(rng.shuffle(pop.jobs.filter(j => j.security)));
+  // taken from the end: security first, then each workplace's head, then everyone else
+  const isHead = j => j.title === JOB[j.bType]?.head;
+  // a town keeps a security force in proportion to its size (chief + officers); spare posts stay open
+  const chief = j => j.title === 'Security chief', sec = pop.jobs.filter(j => j.security);
+  const force = sec.filter(j => !chief(j)).slice(0, Math.max(2, Math.round(candidates.length * 0.07)) - 2).concat(sec.filter(chief));
+  // ordinary jobs are filled a desk per workplace at a time, so a short-handed town still staffs every place
+  const nth = new Map(), spread = rng.shuffle(pop.jobs.filter(j => !j.security && !isHead(j)))
+    .map(j => { const r = nth.get(j.b) || 0; nth.set(j.b, r + 1); return [j, r]; }).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  const open = spread.concat(rng.shuffle(pop.jobs.filter(j => !j.security && isHead(j))), force);
   for (const p of candidates) {
     if (!open.length) break;
     if (!rng.chance(p.age < 22 ? 0.6 : 0.85)) continue;
-    const j = open.pop(); j.holder = p.id; p.job = j.id;
+    // running a place takes some years: a young candidate takes the next ordinary job instead
+    let k = open.length - 1;
+    if (p.age < 30) while (k >= 0 && (isHead(open[k]) || open[k].title === 'Security chief')) k--;
+    if (k < 0) continue;
+    const [j] = open.splice(k, 1); j.holder = p.id; p.job = j.id;
   }
   pop.jobById = new Map(pop.jobs.map(j => [j.id, j]));
   pop.buildingByKey = new Map(s.buildings.map(b => [b.key, b]));

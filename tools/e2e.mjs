@@ -107,9 +107,10 @@ try {
     const O = ORBIS, t0 = O.clock.now();
     const { whereAt } = await import('./js/gen/schedule.js');
     let target = null, tt = t0;
-    for (let k = 0; k < 400 && !target; k++, tt += 60) for (const p of O.pop.people) { const w = whereAt(O.pop, p, tt); if (w.moving && w.pos[1] < O.s.h + 1 && w.seg.t1 - tt > 40) { target = p; break; } }
+    for (let k = 0; k < 400 && !target; k++) { for (const p of O.pop.people) { const w = whereAt(O.pop, p, tt); if (w.moving && w.pos[1] < O.s.h + 1 && w.seg.t1 - tt > 40) { target = p; break; } } if (!target) tt += 60; }
     if (!target) return { none: true };
-    O.clock.advance(tt - t0);
+    const sel = whereAt(O.pop, target, tt), selSeg = [sel.seg.t0 - tt, sel.seg.t1 - tt].map(v => v.toFixed(0)).join('..');
+    O.clock.advance(tt - O.clock.now());              // the search itself takes real seconds
     await new Promise(r => setTimeout(r, 1200));                      // let NEAR pick them up
     const w = whereAt(O.pop, target, O.clock.now() + 2.5);             // where they'll be in 2.5 s
     O.ctrl.pos = [w.pos[0], O.s.h, w.pos[2]]; O.ctrl.vel = [0, 0, 0];
@@ -120,10 +121,11 @@ try {
       const d = Math.hypot(a.pos[0] - O.ctrl.pos[0], a.pos[2] - O.ctrl.pos[2]); minD = Math.min(minD, d);
       if (last) moved += Math.hypot(a.pos[0] - last[0], a.pos[2] - last[2]); last = a.pos;
     }
-    return { minD, moved };
+    const a = O.getAgents().find(a => a.id === target.id), raw = whereAt(O.pop, target, O.clock.now());
+    return { minD, moved, state: a ? [a.activity, a.moving, a.pose, +(O.residents.lag.get(a.id) || 0).toFixed(1), raw.moving, raw.activity, (raw.seg.t1 - O.clock.now()).toFixed(0), 'sel', selSeg, 'now-tt', (O.clock.now() - tt).toFixed(1)].join(' ') : 'absent' };
   })()`);
   if (av.none) console.log('  (no walker found to test avoidance)');
-  else { check(av.minD > 0.45, 'a walker never passes through you (closest ' + av.minD.toFixed(2) + ' m)'); check(av.moved > 0.5, 'and keeps going around you (' + av.moved.toFixed(1) + ' m)'); }
+  else { check(av.minD > 0.45, 'a walker never passes through you (closest ' + av.minD.toFixed(2) + ' m)'); check(av.moved > 0.5, 'and keeps going around you (' + av.moved.toFixed(1) + ' m; ' + av.state + ')'); }
   console.log('[residents]');
   const r = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, pop = O.pop;
@@ -147,6 +149,47 @@ try {
   check(r.mineOk === true || r.mineOk === 'n/a', 'your key opens your apartment (' + r.mineOk + ')');
   check(r.otherOk === false, 'a stranger\'s apartment stays locked');
   check(r.witnessesField, 'the incident records its witnesses');
+  console.log('[work]');
+  const goInside = async bKey => ev(`(async () => { const O = ORBIS; const { buildingToWorld } = await import('./js/gen/place.js'); const { buildingPlan } = await import('./js/gen/building.js');
+    const b = O.pop.buildingByKey.get('${bKey}'), plan = buildingPlan(O.planet, O.s, b), d = plan.doors[plan.entrance];
+    O.ctrl.pos = buildingToWorld(O.s, b, d.x, 0, d.z + 2.0); O.ctrl.vel = [0, 0, 0]; await new Promise(r => setTimeout(r, 300));
+    return O.world.locate(...O.ctrl.pos)?.b?.key || null; })()`);
+  await ev(`(() => { const P = ORBIS.store.player; P.skills = { admin: 0.9, trade: 0.9, tech: 0.9 }; P.fitness = 0.9; return 1; })()`);
+  const sec = await ev(`ORBIS.polity.security`);
+  check(await goInside(sec) === sec, 'standing inside the civic office');
+  await key('KeyJ', 'keydown'); await key('KeyJ', 'keyup'); await sleep(400);
+  const board = await ev(`(() => { const p = document.querySelector('.panel.work'); return p ? { text: p.textContent, apply: p.querySelectorAll('button[data-a=apply]:not([disabled])').length } : null; })()`);
+  check(board && /Job board/.test(board.text) && board.apply > 0, 'J opens the town job board with openings (' + board?.apply + ')');
+  // apply to three places: even a strong candidate is sometimes passed over
+  await ev(`(async () => { const done = new Set();
+    for (let k = 0; k < 3; k++) {
+      const r = [...document.querySelectorAll('.panel.work .jobs li')].find(li => /strong candidate/.test(li.textContent) && !done.has(li.querySelector('b').nextSibling.textContent.split(',')[0]));
+      if (!r) break; done.add(r.querySelector('b').nextSibling.textContent.split(',')[0]); r.querySelector('button').click(); await new Promise(q => setTimeout(q, 150));
+    } return done.size; })()`);
+  await sleep(400);
+  check((await ev(`document.querySelector('.toasts').textContent`)).includes('Application in'), 'applying files an application');
+  await ev(`document.querySelector('.panel.work button[data-a=ok]').click(), 1`); await sleep(200);
+  const hired = await ev(`(async () => { const O = ORBIS; for (let i = 0; i < 80 && !O.store.player.job; i++) { O.clock.advance(O.planet.dayLength / 24); await new Promise(r => setTimeout(r, 60)); }
+    const P = O.store.player; for (let i = 0; i < 30 && P.applications.some(a => a.status === 'pending'); i++) { O.clock.advance(O.planet.dayLength / 24); await new Promise(r => setTimeout(r, 60)); }
+    return P.job ? { b: P.job.b, title: P.job.title } : P.applications.map(a => a.why || a.status).join('; '); })()`);
+  check(hired?.b, 'hired after the manager reviews it (' + JSON.stringify(hired) + ')');
+  if (hired?.b) {
+    check((await ev(`document.querySelector('.hud .job').textContent`)).includes(hired.title), 'HUD shows the job');
+    await ev(`(async () => { const O = ORBIS, sh = O.store.player.shift; O.clock.advance(sh.t0 + 120 - O.clock.now()); await new Promise(r => setTimeout(r, 300)); return 1; })()`);
+    check(await goInside(hired.b) === hired.b, 'standing inside the workplace');
+    await sleep(3500);
+    const at = await ev(`({ present: ORBIS.store.player.shift.present, hud: document.querySelector('.hud .job').textContent })`);
+    check(at.present >= 2 && /on shift/.test(at.hud), `attendance counts while you are there (${at.present.toFixed(1)} s, "${at.hud}")`);
+    const c0 = await ev(`ORBIS.store.player.credits`);
+    await ev(`(async () => { const s = ORBIS.store; await ORBIS.save(); s.player.activity = 'work'; s.meta.realTime -= 3 * ORBIS.planet.dayLength * 1000; s.touchPlayer(); s.dirty.meta = true; await s.flush(); })()`);
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&auto=continue` });
+    let rep = '';
+    for (let i = 0; i < 120 && !rep; i++) { await sleep(500); rep = await ev(`document.querySelector('.panel.away')?.textContent || ''`).catch(() => ''); }
+    check(/Worked \d+ shifts? at .* earned \d+ cr/.test(rep), 'three days of routine: the away report sums the shifts (' + (rep.match(/Worked[^.]*/)?.[0] || rep.slice(0, 80)) + ')');
+    await ev(`document.querySelector('.panel.away button').click(), 1`);
+    for (let i = 0; i < 40; i++) { await sleep(250); if (await ev('document.title') === 'READY') break; }
+    check(await ev(`ORBIS.store.player.credits`) > c0, 'and the wages are in your credits');
+  }
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});
