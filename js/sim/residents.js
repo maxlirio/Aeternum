@@ -8,7 +8,7 @@ import { whereAt, dayIndex, dayPlan } from '../gen/schedule.js';
 const DRAW_R = 110, MAX_DRAWN = 96;
 
 export class Residents {
-  constructor(pop) { this.pop = pop; this.near = []; this.warmFor = null; this.warmI = 0; }
+  constructor(pop) { this.pop = pop; this.near = []; this.warmFor = null; this.warmI = 0; this.lag = new Map(); this.side = new Map(); }
 
   // NEAR tier: pick the people worth drawing around the player.
   refresh(t, pos, playerBuilding) {
@@ -31,9 +31,43 @@ export class Residents {
     }
   }
 
-  // ACTIVE tier: current state of the drawn set.
-  agents(t) {
-    return this.near.map(p => { const w = whereAt(this.pop, p, t); return { id: p.id, person: p, ...w, age: p.age }; });
+  // ACTIVE tier: current state of the drawn set, with local avoidance.
+  // Avoidance is a VIEW-side deviation from the closed-form schedule: a walker may side-
+  // step (lateral offset) or pause (time lag) for the player or other people, then
+  // catches up by walking a little faster. The schedule itself never changes, so
+  // offline time, witnesses and distant people are unaffected.
+  agents(t, dt = 0, player = null, world = null) {
+    const list = this.near.map(p => {
+      const lag = this.lag.get(p.id) || 0;
+      return { id: p.id, person: p, ...whereAt(this.pop, p, t - lag), age: p.age };
+    });
+    if (!dt) return list;
+    for (const a of list) {
+      if (!a.moving) { this.lag.delete(a.id); this.side.delete(a.id); continue; }
+      const fx = Math.sin(a.facing), fz = Math.cos(a.facing), rx = fz, rz = -fx;    // forward, right
+      let want = 0, block = false;
+      const consider = (ox, oy, oz, r) => {
+        if (Math.abs(oy - a.pos[1]) > 1.2) return;
+        const dx = ox - a.pos[0], dz = oz - a.pos[2], ahead = dx * fx + dz * fz, lat = dx * rx + dz * rz;
+        if (ahead < 0 || ahead > 2.6 || Math.abs(lat) > r + 0.45) return;
+        want += (lat > 0 ? -1 : 1) * (r + 0.5 - Math.abs(lat));                  // step away from it
+        if (ahead < 0.9 && Math.abs(lat) < r) block = true;
+      };
+      if (player) consider(player[0], player[1], player[2], 0.45);
+      for (const b of list) if (b !== a && (!b.moving || b.facing !== a.facing)) consider(b.pos[0], b.pos[1], b.pos[2], 0.35);
+      want = Math.max(-0.9, Math.min(0.9, want * 1.6));
+      let side = this.side.get(a.id) || 0;
+      side += (want - side) * Math.min(1, dt * 3);
+      // never sidestep into a wall
+      if (world) while (Math.abs(side) > 0.05 && world.solidAt(a.pos[0] + rx * side, a.pos[1] + 1, a.pos[2] + rz * side, 0.25)) side *= 0.5;
+      const lag = this.lag.get(a.id) || 0;
+      const blocked = block && Math.abs(side - want) > 0.3 || (block && Math.abs(want) < 0.2);
+      this.lag.set(a.id, Math.min(30, blocked ? lag + dt : Math.max(0, lag - dt * 0.3)));
+      this.side.set(a.id, side);
+      a.pos = [a.pos[0] + rx * side, a.pos[1], a.pos[2] + rz * side];
+      if (blocked) { a.moving = false; a.pose = 'stand'; }
+    }
+    return list;
   }
 
   // Doors a walking resident is passing through right now (they have the key).

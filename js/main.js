@@ -20,6 +20,8 @@ import { canOpen, doorState } from './world/doors.js';
 import { GameClock, EPOCH, solarHour, within } from './sim/clock.js';
 import { Scheduler, TIER } from './sim/scheduler.js';
 import { registerDoorJobs, openDoor, closeDoor, forceDoor } from './sim/processes/doors.js';
+import { registerLawJobs, lodgeIncident } from './sim/processes/law.js';
+import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
@@ -68,8 +70,10 @@ async function start(fresh) {
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, HOMEWORLD);
   const s = getSettlement(planet, 0, 0);
-  const sched = new Scheduler(store); registerDoorJobs(sched);
-  const ctx = { store, sched, planet };
+  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched);
+  ui.loading('Counting the townsfolk…', 0.01); await tick();
+  const pop = getPopulation(planet, s), polity = getPolity(planet, s);
+  const ctx = { store, sched, planet, s, pop, polity };
 
   let report = null;
   if (fresh) {
@@ -129,6 +133,7 @@ async function start(fresh) {
   water.position.y = planet.seaLevel; scene.add(water);
 
   const player = store.player;
+  player.credits ??= 500; player.record ??= [];        // saves from before money existed
   const ctrl = new Controller(world, player.pos);
   ctrl.facing = player.facing || 0;
   const avatar = createPlaceholderAvatar();
@@ -138,7 +143,6 @@ async function start(fresh) {
   const roomLight = new THREE.PointLight(0xffe2c0, 0, 14, 1.6); scene.add(roomLight);
   // ---- residents
   ui.loading('Waking the town…', 0.68); await tick();
-  const pop = getPopulation(planet, s);
   const residents = new Residents(pop);
   residents.refresh(clock.now(), ctrl.pos, null);
   const crowd = new CrowdView(scene);
@@ -165,6 +169,16 @@ async function start(fresh) {
     poolMaterial().opacity = Math.min(1, dark * 1.3) * 0.55;
   };
   sched.add(TIER.NEAR, { update: near });
+  // tell the player when the world does something to them
+  let seenEvents = store.events.length;
+  sched.add(TIER.NEAR, { update: () => {
+    for (const e of store.events.slice(seenEvents)) {
+      if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}.`, 'bad', 9000);
+      if (e.type === 'case_opened') ui.toast(`${e.reporter} reported a break-in to ${e.authority}.`, 'warn', 6000);
+      if (e.type === 'case_cold') ui.toast(`${e.authority} closed a break-in case unsolved.`, '', 6000);
+    }
+    seenEvents = store.events.length;
+  } });
   sched.add(TIER.NEAR, { update: () => residents.refresh(clock.now(), ctrl.pos, world.locate(...ctrl.pos)?.b?.key) });
   sched.add(TIER.NEAR, { update: dt => { advanceBody(player, 'idle', dt, planet); store.touchPlayer(); } });
   sched.add(TIER.ACTIVE, { update: dt => doorView.update(dt) });
@@ -226,7 +240,7 @@ async function start(fresh) {
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
-    await ui.character(player, pop, planet, s);
+    await ui.character(player, pop, planet, s, polity);
     ui.closePanel(); paused = false;
   }
   async function openMenu() {
@@ -287,7 +301,10 @@ async function start(fresh) {
             forceHold = 0;
             const here = world.locate(...ctrl.pos);
             const seen = residents.witnesses(t, ctrl.pos, here?.b?.key || null, here?.k ?? null);
-            forceDoor(store, sched, planet, s, b, door, t, player, seen);
+            const inc = forceDoor(store, sched, planet, s, b, door, t, player, seen);
+            lodgeIncident(ctx, inc);
+            const cop = seen.find(w => { const q = pop.byId.get(w.id); return q?.job && pop.jobById.get(q.job).security; });
+            if (cop) ui.toast(`<b>${cop.name}</b> of ${polity.securityName} saw that.`, 'bad', 7000);
             doorView.refresh(store, planet, t);
             ui.toast(`You broke the lock. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}${seen.length > 3 ? '…' : ''}).` : 'Nobody saw you.'} <small>The incident is recorded; there are no police yet to act on it.</small>`, 'bad', 8000);
           }
@@ -305,13 +322,13 @@ async function start(fresh) {
     avatar.update(dt, ctrl.speed, ctrl.grounded);
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
-    agents = residents.agents(t);
+    agents = residents.agents(t, dt, ctrl.pos, world);
     for (const a of agents) { // people are solid to the player (not the other way round yet)
       if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
       const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
       if (d < 0.6 && d > 1e-4) { ctrl.pos[0] = a.pos[0] + dx / d * 0.6; ctrl.pos[2] = a.pos[2] + dz / d * 0.6; }
     }
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos) })), dt);
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })), dt);
     const inUse = residents.doorsInUse(agents);
     doorView.transient = new Set([...inUse].map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot) cam.update(dt, ctrl.pos, toRender);
@@ -373,15 +390,15 @@ function applyShot(kind, g) {
     camera.position.set(x, s.h + 170, z); camera.lookAt(s.cx, s.h, s.cz);
   } else if (kind === 'far') {
     camera.position.set(s.cx, s.h + 40, s.cz); camera.lookAt(s.cx + 3000, s.h + 80, s.cz + 1500);
-  } else if (kind === 'people' || kind === 'work' || kind === 'sleep') {
+  } else if (kind === 'people' || kind === 'work' || kind === 'sleep' || kind === 'patrol') {
     // find someone doing the thing, and stand nearby looking at them
     const t = clock.now();
-    const want = kind === 'people' ? (w => w.moving && !w.bKey && w.pos[1] < s.h + 1) : kind === 'work' ? (w => w.activity === 'working' && w.pose === 'sit') : (w => w.activity === 'sleeping');
+    const want = kind === 'patrol' ? (w => w.activity === 'on patrol' && !w.moving) : kind === 'people' ? (w => w.moving && !w.bKey && w.pos[1] < s.h + 1) : kind === 'work' ? (w => w.activity === 'working' && w.pose === 'sit') : (w => w.activity === 'sleeping');
     let pick = null;
     for (const p of g.pop.people) { const w = whereAt(g.pop, p, t); if (want(w)) { pick = w; break; } }
     if (pick) {
       const { world } = g, fx = Math.sin(pick.facing), fz = Math.cos(pick.facing);
-      if (kind === 'people') ctrl.pos = [pick.pos[0] + fx * 7 + fz * 1.5, s.h, pick.pos[2] + fz * 7 - fx * 1.5];
+      if (kind === 'people' || kind === 'patrol') ctrl.pos = [pick.pos[0] + fx * (kind === 'patrol' ? 4 : 7) + fz * 1.5, s.h, pick.pos[2] + fz * 7 - fx * 1.5];
       else {
         const floor = world.groundAt(pick.pos[0], pick.pos[2], pick.pos[1] - (pick.pose === 'lie' ? 0.4 : 0)).h;
         const [x, z] = world.resolve(pick.pos[0] + fx * 1.7 + fz * 0.6, pick.pos[2] + fz * 1.7 - fx * 0.6, floor);

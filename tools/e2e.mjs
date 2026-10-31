@@ -13,7 +13,7 @@ const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chro
   '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let fails = 0;
-const check = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
+const check = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; return c; };
 try {
   for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${CDP}/json/version`); break; } catch { await sleep(200); } }
   const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: 'PUT' })).json();
@@ -93,6 +93,37 @@ try {
   for (let i = 0; i < 40; i++) { await sleep(250); if (await ev('document.title') === 'READY') break; }
   check(!(await ev(`!!ORBIS.store.getDelta('${target0.key}/door:${target0.door}')?.broken`)), 'door is repaired in the world state');
   check(await ev(`ORBIS.store.player.fatigue < 0.05`), 'resting two days left the character rested');
+  console.log('[law]');
+  const law = await ev(`(() => { const O = ORBIS, inc = O.store.events.find(e => e.type === 'forced_entry');
+    return { handled: O.store.events.some(e => (e.type === 'case_opened' || e.type === 'break_in_discovered') && e.incident === inc.id),
+      hud: document.querySelector('.credits')?.textContent || '', credits: O.store.player.credits, record: O.store.player.record.length,
+      fines: O.store.events.filter(e => e.type === 'fined').reduce((n, e) => n + e.amount, 0) }; })()`);
+  check(law.handled, 'two days later the break-in has been reported or discovered');
+  check(/-?\d+ cr/.test(law.hud), 'credits shown in the HUD (' + law.hud + ')');
+  check(law.record === (law.fines ? 1 : 0), 'record matches fines (' + law.record + ' entries, ' + law.fines + ' cr)');
+  console.log('[avoidance]');
+  // stand in the path of someone walking outdoors and watch them for 4 s
+  const av = await ev(`(async () => {
+    const O = ORBIS, t0 = O.clock.now();
+    const { whereAt } = await import('./js/gen/schedule.js');
+    let target = null, tt = t0;
+    for (let k = 0; k < 400 && !target; k++, tt += 60) for (const p of O.pop.people) { const w = whereAt(O.pop, p, tt); if (w.moving && w.pos[1] < O.s.h + 1 && w.seg.t1 - tt > 40) { target = p; break; } }
+    if (!target) return { none: true };
+    O.clock.advance(tt - t0);
+    await new Promise(r => setTimeout(r, 1200));                      // let NEAR pick them up
+    const w = whereAt(O.pop, target, O.clock.now() + 2.5);             // where they'll be in 2.5 s
+    O.ctrl.pos = [w.pos[0], O.s.h, w.pos[2]]; O.ctrl.vel = [0, 0, 0];
+    let minD = 99, moved = 0, last = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      const a = O.getAgents().find(a => a.id === target.id); if (!a) continue;
+      const d = Math.hypot(a.pos[0] - O.ctrl.pos[0], a.pos[2] - O.ctrl.pos[2]); minD = Math.min(minD, d);
+      if (last) moved += Math.hypot(a.pos[0] - last[0], a.pos[2] - last[2]); last = a.pos;
+    }
+    return { minD, moved };
+  })()`);
+  if (av.none) console.log('  (no walker found to test avoidance)');
+  else { check(av.minD > 0.45, 'a walker never passes through you (closest ' + av.minD.toFixed(2) + ' m)'); check(av.moved > 0.5, 'and keeps going around you (' + av.moved.toFixed(1) + ' m)'); }
   console.log('[residents]');
   const r = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, pop = O.pop;

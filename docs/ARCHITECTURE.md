@@ -92,6 +92,20 @@ People are generated, not stored.
 - **The character** is added by the save (`player.family` references generated people),
   not by altering generation.
 
+## Law (`gen/polity.js`, `sim/processes/law.js`)
+
+The polity is generated: laws are a data table, plus the security office and its rates.
+A `forced_entry` incident is lodged by scheduling jobs:
+- `law.report`, one per witness who decides to report (hash of incident and witness);
+  officers always report.
+- or `law.discover`, at the first time someone who lives or works there is in the
+  building, found by scanning their day plans.
+
+A case is a delta (`case/<incident id>`) going open → closed or cold. Identification uses
+how well the witness knows the character. `law.investigate` runs 1–2 days later.
+`law.charge` applies the fine to the character and their record, and logs `fined`.
+Every random choice is a hash, so results don't depend on how time was stepped.
+
 ## Persistence (`world/`)
 
 `WorldStore` keeps a working copy in memory. A backend persists the dirty records:

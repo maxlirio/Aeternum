@@ -16,7 +16,8 @@ export class UI {
       <div class="clock"><div class="time"></div><div class="sub"></div></div>
       <div class="stats"><div class="who"></div>
         <div class="bar"><span>Fatigue</span><i><b class="fatigue"></b></i></div>
-        <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div></div>
+        <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div>
+        <div class="credits"></div></div>
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
@@ -60,6 +61,7 @@ export class UI {
     $('.who', this.hud).textContent = `${player.name}, ${player.age}`;
     $('.fatigue', this.hud).style.width = Math.round(player.fatigue * 100) + '%';
     $('.fitness', this.hud).style.width = Math.round(player.fitness * 100) + '%';
+    const cr = $('.credits', this.hud); cr.textContent = `${player.credits ?? 0} cr`; cr.classList.toggle('debt', (player.credits ?? 0) < 0);
   }
   debug(text) { const d = $('.debug', this.hud); d.textContent = text; }
   toggleDebug() { $('.debug', this.hud).classList.toggle('hidden'); }
@@ -117,7 +119,7 @@ export class UI {
   }
 }
 
-UI.prototype.character = function (player, pop, planet, s) {
+UI.prototype.character = function (player, pop, planet, s, polity) {
   return new Promise(res => {
     const person = id => pop.byId.get(id);
     const line = p => `<li><b>${esc(p.name)}</b>, ${p.age} — ${esc(occupationOf(pop, p))}<br><small>lives at ${esc(homeLabel(pop, p.home))}</small></li>`;
@@ -129,6 +131,8 @@ UI.prototype.character = function (player, pop, planet, s) {
       <p>Occupation: <b>none</b> — looking for work. <small>(Jobs and careers are not simulated for you yet.)</small></p>
       <h3>Parents</h3><ul class="events">${parents.map(line).join('') || '<li class="none">Not living in town.</li>'}</ul>
       ${sibs.length ? `<h3>Siblings</h3><ul class="events">${sibs.map(line).join('')}</ul>` : ''}
+      <p>Credits: <b>${player.credits ?? 0} cr</b>${(player.credits ?? 0) < 0 ? ' <small>(in debt)</small>' : ''}</p>
+      <h3>Record — ${esc(polity?.name || '')}</h3><ul class="events">${(player.record || []).map(r => `<li><span class="when">day ${dayNumber(planet, r.t)}</span> ${esc(r.offence)} — fined ${r.fine} cr</li>`).join('') || '<li class="none">Clean.</li>'}</ul>
       <p class="fine">Fatigue ${Math.round(player.fatigue * 100)}% · Fitness ${Math.round(player.fitness * 100)}%</p>
       <button data-a="ok" class="primary">Back</button>`, 'char');
     p.addEventListener('click', e => { if (e.target.dataset.a === 'ok') res(); });
@@ -156,6 +160,10 @@ export function describeEvent(e, planet) {
   switch (e.type) {
     case 'forced_entry': return `${when} Forced entry at a ${esc(TYPE_LABEL[e.buildingType] || 'building')} owned by ${esc(e.owner)}, ${esc(e.settlementName)} — by ${esc(e.byName)}. ${e.witnesses?.length ? `Witnessed by ${e.witnesses.length}.` : 'No witnesses.'} <em>Unresolved.</em>`;
     case 'door_repaired': return `${when} ${esc(e.owner)} had a forced door repaired.`;
+    case 'case_opened': return `${when} ${esc(e.reporter)} reported a break-in at ${esc(e.owner)}'s to ${esc(e.authority)}.`;
+    case 'break_in_discovered': return `${when} ${esc(e.by)} found the door at ${esc(e.owner)}'s forced.`;
+    case 'case_cold': return `${when} ${esc(e.authority)} closed the ${esc(e.owner)} break-in case unsolved.`;
+    case 'fined': return `${when} ${esc(e.authority)} fined ${esc(e.whoName)} ${e.amount} ${esc(e.currency)} — ${esc(e.offence.toLowerCase())}.`;
     case 'life_began': return `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
     default: return `${when} ${esc(e.type)}`;
   }

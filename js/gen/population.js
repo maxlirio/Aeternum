@@ -12,6 +12,7 @@ import { Rng } from '../core/prng.js';
 import { derive, hashStr } from '../core/hash.js';
 import { buildingPlan } from './building.js';
 import { givenName, surname } from './names.js';
+import { getPolity } from './polity.js';
 
 const JOB = {
   office: { work: { title: 'Clerk', hours: [[8, 17]] }, head: 'Office manager' },
@@ -83,6 +84,7 @@ function generate(planet, s) {
   }
 
   // ---- jobs (one per work anchor in a workplace; some anchors run two shifts)
+  const securityHQ = getPolity(planet, s).security;
   for (const b of s.buildings) {
     const J = JOB[b.type];
     if (!J) continue;
@@ -90,6 +92,10 @@ function generate(planet, s) {
     const work = plan.anchors.map((a, i) => ({ a, i })).filter(({ a }) => a.kind === 'work');
     work.forEach(({ a, i }, n) => {
       const prop = plan.props[a.prop];
+      if (b.key === securityHQ) { // the security office runs day and evening shifts, mostly on patrol
+        for (const hours of [[6, 14], [14, 22]]) pop.jobs.push({ id: `${b.key}/job${pop.jobs.length}`, b: b.key, bType: b.type, employer: 'Civic Security', anchor: i, title: n === 0 ? 'Security chief' : 'Security officer', hours, holder: null, security: true, patrol: n !== 0 });
+        return;
+      }
       const title = n === 0 ? J.head : prop?.kind === 'machine' && J.machine ? J.machine : J.work.title;
       for (const hours of J.work.hours) pop.jobs.push({ id: `${b.key}/job${pop.jobs.length}`, b: b.key, bType: b.type, employer: b.owner, anchor: i, title, hours, holder: null });
     });
@@ -97,7 +103,7 @@ function generate(planet, s) {
 
   // ---- employment: working-age adults, in a shuffled order, take open jobs
   const candidates = rng.shuffle(pop.people.filter(p => p.age >= 18 && p.age <= 66));
-  const open = rng.shuffle(pop.jobs.slice());
+  const open = rng.shuffle(pop.jobs.filter(j => !j.security)).concat(rng.shuffle(pop.jobs.filter(j => j.security)));
   for (const p of candidates) {
     if (!open.length) break;
     if (!rng.chance(p.age < 22 ? 0.6 : 0.85)) continue;

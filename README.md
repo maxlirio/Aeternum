@@ -3,9 +3,10 @@
 A persistent, procedurally generated science-fiction universe, played in third person.
 You are one ordinary person living in it.
 
-**Milestone 2** (this build): one planet surface and one generated settlement with enterable
-buildings, about 320 residents living scheduled daily lives, a character born into a real
-family in that town, persistent changes, and time that keeps passing while you're away.
+**Milestone 3** (this build): one planet surface and one generated settlement with enterable
+buildings, about 320 residents living scheduled daily lives (who step around you), a character
+born into a real family in that town, a local authority whose officers patrol and whose cases
+end in fines on your record, persistent changes, and time that keeps passing while you're away.
 
 ## Run it
 
@@ -22,7 +23,7 @@ Shift+T skip one hour (developer).
 ## Tests
 
 ```sh
-node tools/test.mjs      # determinism, settlement + floor-plan invariants (200 seeds), seams, persistence, offline, people
+node tools/test.mjs      # determinism, settlement + floor-plan invariants (200 seeds), seams, persistence, offline, people, law
 node tools/e2e.mjs       # real browser + real IndexedDB: force a door, climb stairs, reload, 2 days away
 node tools/shots.mjs     # headless screenshots → out/shots/*.png (aerial, street, door, interior, stairs, night, people, work, sleep…)
 ```

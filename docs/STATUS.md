@@ -1,4 +1,4 @@
-# Status — milestone 2 (residents + character origin)
+# Status — milestone 3 (residents, character origin, law)
 
 Each line says what is actually implemented and how it was checked.
 
@@ -25,24 +25,28 @@ Each line says what is actually implemented and how it was checked.
 | **Witnesses**: forcing a lock records everyone awake within sight (same floor of the same building, or outdoors nearby) in the incident | `e2e` |
 | **Character origin**: you are the adult child of a real resident household (same surname). You live with your parents or alone in a vacant unit, with keys to both homes. Press C for your background (parents' and siblings' jobs and addresses) | `e2e` (parents exist and sleep in their own home at 02:30; your key opens your apartment, a stranger's doesn't) |
 | Street names and house numbers | in-game |
+| **Local authority**: every town has a polity (name, strictness, fine table, report and evidence rates) and a security office in the administration building nearest the centre, staffed on two shifts. Officers alternate desk time with patrol stops | `test.mjs people` (at least 2 security staff), `test.mjs law`; screenshot `patrol` |
+| **Law process**: witnesses report with some probability after a delay; people who know you (family 100%, neighbours 80%, strangers 35%) identify you; an officer who sees it cites you within minutes; unwitnessed break-ins are discovered by the next resident or worker to arrive; investigations solve the case or close it cold; fines come out of your credits and go on your record | `test.mjs law` (also one 4-day jump equals half-hour steps), `e2e` (two days away: case reported/discovered, record matches fines) |
+| **Credits**: starting savings; shown in the HUD; can go negative (debt) | `e2e` |
+| **Avoidance**: walkers sidestep or briefly wait for you and each other, never stepping into walls, then catch up with their schedule | `e2e` (a walker keeps at least 0.6 m from you and gets around) |
 
 ## Placeholders and limits (honest list)
 
 - **The player body is a primitive placeholder** with a procedural walk. ADVENTURER
   models will replace it behind `avatar.js`.
-- **Residents follow their routes exactly.** They don't avoid the player or each other,
-  and their door-to-door paths can clip furniture. The player is pushed out of them; they
-  are not pushed by the player.
+- **Residents' door-to-door paths can clip furniture.** Avoidance only affects walkers;
+  standing or seated people never move aside.
 - **Residents can't be talked to.** Looking at someone shows their name, age, job,
   current activity and whether they're family.
 - **Residents never change.** Nobody is born, dies, moves house or changes job yet. Such
   changes will be deltas over the generated population.
 - **Window lights** still follow occupancy-by-hour rules rather than who is actually
   home.
-- **Incidents have no consequences yet.** Witnesses are recorded, but there are no police
-  or law to act on them. The in-game message says so.
-- **You have no job, money or skills** beyond fitness/fatigue. `occupation` is always
-  `null`.
+- **Law has no physical response yet.** Officers don't come to find you, there is no
+  arrest, jail, court or bounty, and fines can't be paid off or disputed. Debt has no
+  effect. Only forced entry is a crime so far; trespassing in staff rooms you walked
+  into, or theft, aren't.
+- **You have no job and no way to earn credits.** `occupation` is always `null`.
 - **No school building type**, so children spend weekdays at home.
 - **Training only raises a fitness number**, which has a small effect on move speed.
 - **One settlement is built in 3D.** Other regions generate their towns (and grade the

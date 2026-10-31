@@ -41,7 +41,7 @@ export class CrowdView {
   update(agents, dt) {
     const n = Math.min(MAX, agents.length), rig = this.rig;
     for (let i = 0; i < n; i++) {
-      const a = agents[i], L = this.look(a.id);
+      const a = agents[i], L = a.uniform ? { ...this.look(a.id), suit: 0x1f2a3c, pad: 0x14181e, accent: 0xd9b53a } : this.look(a.id);
       let ph = this.gait.get(a.id) || 0;
       if (a.moving) ph += dt * (2.2 + 1.3 * 1.15);
       this.gait.set(a.id, ph);

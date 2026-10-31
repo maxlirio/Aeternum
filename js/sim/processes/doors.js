@@ -37,5 +37,5 @@ export function forceDoor(store, sched, planet, s, b, door, t, who, witnesses = 
   const delayH = 4 + 26 * hash01(planet.universeSeed, [b.n, door.id, Math.floor(t)]);
   store.schedule({ at: t + delayH * planet.dayLength / 24, kind: 'door.repair', target: k, data: { owner: b.owner, settlement: s.key } });
   store.schedule({ at: t + AUTO_CLOSE, kind: 'door.close', target: k });
-  return store.log({ t, type: 'forced_entry', where: k, building: b.key, buildingType: b.type, owner: b.owner, settlement: s.key, settlementName: s.name, by: who.id, byName: who.name, access: door.access, witnesses, status: 'unresolved' });
+  return store.log({ t, type: 'forced_entry', where: k, building: b.key, buildingType: b.type, owner: b.owner, settlement: s.key, settlementName: s.name, by: who.id, byName: who.name, access: door.access, doorKind: door.kind, witnesses, status: 'unresolved' });
 }

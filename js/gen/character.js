@@ -29,6 +29,7 @@ export function newCharacter(universeSeed, planet, s, pop, serial, t) {
     keys: [unit.b.key, unit.key, parentsUnit.b.key, parentsUnit.key].filter((k, i, a) => a.indexOf(k) === i),
     family: { household: hh.id, parents: parents.map(m => m.id), siblings: siblings.map(m => m.id) },
     occupation: null,                 // careers are not simulated yet (see docs/STATUS.md)
+    credits: Math.round(rng.range(250, 2200) / 10) * 10, record: [],
     fatigue: 0.15 + rng.next() * 0.2, fitness: 0.2 + rng.next() * 0.3,
     pos: null, facing: 0, activity: null, created: t,
   };

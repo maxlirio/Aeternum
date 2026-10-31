@@ -84,6 +84,14 @@ function buildDay(pop, p, D) {
     stay(here, t + rng.range(0.08, 0.35) * HR, 'out for a walk');
   };
 
+  const beat = () => { // patrol stop: any junction in town
+    const node = rng.pick(pop.s.nodes), ni = pop.s.nodes.indexOf(node);
+    const road = pop.s.roads.findIndex(r => r.na === ni || r.nb === ni);
+    if (road < 0) return;
+    const r = pop.s.roads[road], off = r.w / 2 + 1.4, uv = r.a[1] === r.b[1] ? [node.u, node.v - off] : [node.u - off, node.v];
+    const [x, z] = pop.s.toWorld(uv[0], uv[1]);
+    if (go({ street: uv, road, pos: [x, pop.s.h + 0.05, z], facing: rng.range(0, 6.28), pose: 'stand' }, 'on patrol')) stay(here, t + rng.range(0.05, 0.15) * HR, 'on patrol');
+  };
   const job = p.job ? pop.jobById.get(p.job) : null;
   const working = job && !p.offDays.includes(D % 7);
   const child = p.age < 16, old = p.age >= 67;
@@ -98,7 +106,17 @@ function buildDay(pop, p, D) {
     const lounge = homeSpot(['sit', 'living']);
     const leaveBy = at(job.hours[0]) - 0.35 * HR;
     if (lounge && t < leaveBy - 0.3 * HR && go(lounge, 'at home')) stay(lounge, Math.max(t, leaveBy - 0.05 * HR), 'at home');
-    if (go(workPlace, 'commuting')) { stay(workPlace, Math.max(t, at(job.hours[1])), 'working'); }
+    if (go(workPlace, 'commuting')) {
+      if (job.patrol) { // officers alternate desk time with walking a beat through town
+        const end = at(job.hours[1]);
+        while (t < end - 0.6 * HR) {
+          stay(workPlace, Math.min(end, t + rng.range(0.4, 0.9) * HR), 'on duty');
+          for (let k = 0; k < 3 && t < end - 0.4 * HR; k++) beat();
+          if (t < end - 0.2 * HR) go(workPlace, 'on patrol');
+        }
+        stay(workPlace, Math.max(t, end), 'on duty');
+      } else stay(workPlace, Math.max(t, at(job.hours[1])), 'working');
+    }
     if (rng.chance(0.35)) errand();
     // free afternoon/evening before dinner
     for (let i = 0; i < 4 && t < at(17.6); i++) {

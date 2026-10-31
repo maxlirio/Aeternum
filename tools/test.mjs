@@ -190,14 +190,62 @@ suites.people = async () => {
     }
     // at midday on a weekday-ish sample, a good share of workers are at work
     const noon = T + p.dayLength * (12.3 + 0.3) / 24 - 0.3 * 0;
-    const atWork = pop.people.filter(x => x.job && whereAt(pop, x, (D - 0.3 + 12.5 / 24) * p.dayLength).activity === 'working').length;
+    const atWork = pop.people.filter(x => x.job && ['working', 'on duty', 'on patrol'].includes(whereAt(pop, x, (D - 0.3 + 12.5 / 24) * p.dayLength).activity)).length;
     check(atWork > 0.5 * pop.people.filter(x => x.job).length, `seed ${n}: only ${atWork} at work at noon`);
     const asleep = pop.people.filter(x => whereAt(pop, x, (D - 0.3 + 2.5 / 24) * p.dayLength).activity === 'sleeping').length;
     check(asleep === pop.people.length, `seed ${n}: ${pop.people.length - asleep} awake at 2:30`);
+    const officers = pop.people.filter(x => x.job && pop.jobById.get(x.job).security).length;
+    check(officers >= 2, `seed ${n}: only ${officers} security staff`);
+    if (n === 0) console.log(`  seed 0: ${officers} security staff,`);
     if (n === 0) console.log(`  seed 0: ${pop.people.length} people in ${pop.households.length} households, ${pop.jobs.length} jobs, built in ${(performance.now() - t0).toFixed(0)} ms`);
   }
   check(routeFails === 0, routeFails + ' unroutable trips');
   console.log(`  ${people} people, ${(employed / people * 100).toFixed(0)}% employed, max speed ${worst.toFixed(2)} m/s`);
+};
+
+suites.law = async () => {
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { registerDoorJobs, forceDoor } = await import('../js/sim/processes/doors.js');
+  const { registerLawJobs, lodgeIncident } = await import('../js/sim/processes/law.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(7), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
+  check(polity.security && pop.people.some(x => x.job && pop.jobById.get(x.job).security), 'town has a staffed security office');
+  const setup = () => {
+    const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+    const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; st.setPlayer(pl);
+    const sc = new Scheduler(st); registerDoorJobs(sc); registerLawJobs(sc);
+    return { st, sc, ctx: { store: st, sched: sc, planet: p, s, pop, polity } };
+  };
+  const shops = s.buildings.filter(b => b.type === 'store');
+  const officer = pop.people.find(x => x.job && pop.jobById.get(x.job).security);
+  const stranger = pop.people.find(x => x.age > 30 && x.home !== undefined);
+  const scenario = (A, steps) => {
+    const { st, sc, ctx } = A, credits0 = st.player.credits;
+    const crime = (b, t, wit) => { const pl = buildingPlan(p, s, b); const ev = forceDoor(st, sc, p, s, b, pl.doors[pl.entrance], t, st.player, wit); lodgeIncident(ctx, ev); return ev; };
+    const e1 = crime(shops[0], EPOCH + 100, [{ id: officer.id, name: officer.name, dist: 5 }]);
+    const e2 = crime(shops[1], EPOCH + 200, []);
+    const e3 = crime(shops[2], EPOCH + 300, [{ id: stranger.id, name: stranger.name, dist: 8 }]);
+    const T = EPOCH + 4 * p.dayLength;
+    if (steps) for (let t = EPOCH; t <= T; t += 1800) sc.runDue(t, ctx); else sc.runDue(T, ctx);
+    return { st, e1, e2, e3, credits0 };
+  };
+  const A = scenario(setup(), false), B = scenario(setup(), true);
+  const fined = A.st.events.filter(e => e.type === 'fined');
+  check(fined.some(e => e.incident === A.e1.id), 'an officer who saw it gets you fined');
+  check(fined.find(e => e.incident === A.e1.id)?.t - A.e1.t < 600, 'caught in the act: fined within minutes');
+  check(A.st.events.some(e => e.type === 'break_in_discovered' && e.incident === A.e2.id), 'an unwitnessed break-in is discovered by someone who works there');
+  const c2 = A.st.getDelta('case/' + A.e2.id);
+  check(c2 && (c2.status === 'cold' || c2.status === 'closed'), 'the unwitnessed case is resolved one way or the other (' + c2?.status + ')');
+  check(A.st.player.credits === A.credits0 - fined.reduce((n, e) => n + e.amount, 0), 'fines come out of your credits');
+  check(A.st.player.record.length === fined.length, 'each fine is on your record');
+  check(JSON.stringify(A.st.events) === JSON.stringify(B.st.events) && JSON.stringify([...A.st.deltas]) === JSON.stringify([...B.st.deltas]) && A.st.player.credits === B.st.player.credits,
+    'law outcomes: one jump == half-hour steps');
+  console.log(`  ${polity.name}: ${fined.length}/3 crimes fined, case 2 ${c2?.status}, case 3 ${A.st.getDelta('case/' + A.e3.id)?.status || 'never reported'}`);
 };
 
 const want = process.argv.slice(2);
