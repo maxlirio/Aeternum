@@ -22,13 +22,13 @@ export function buildingFrame(s, b) {
   return [[o[0], s.h + PLINTH, o[2]], rot(b.ex), rot(b.ez)];
 }
 
-export async function buildSettlementMesh(planet, s, onProgress = () => {}) {
+export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null) {
   const M = materials();
   const group = new THREE.Group();
   group.name = 'settlement:' + s.name;
   group.position.set(s.cx, 0, s.cz);
   const cells = new Map();
-  const cellFor = (u, v) => { const k = Math.floor(u / CELL) + ',' + Math.floor(v / CELL); if (!cells.has(k)) cells.set(k, new MeshBuilder()); return cells.get(k); };
+  const cellFor = (u, v) => { const k = Math.floor(u / CELL) + ',' + Math.floor(v / CELL); if (!cells.has(k)) { const mb = new MeshBuilder(); if (propView) mb.propSink = (pr, fr, len, dep, rng) => propView.add(pr, fr, len, dep, rng); cells.set(k, mb); } return cells.get(k); };
   const rotFrame = () => [[0, 0, 0], [s.cos, 0, s.sin], [-s.sin, 0, s.cos]];
 
   // ---- streets (flat plateau: exact heights)
@@ -118,6 +118,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}) {
     if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
   }
   for (const mb of cells.values()) group.add(...mb.build());
+  if (propView) group.add(propView.build());
 
   // ---- streetlights (instanced)
   const lamps = [];

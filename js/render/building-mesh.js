@@ -175,7 +175,9 @@ function buildProp(mb, M, pr, rng) {
   for (const c of corners) { const s = c[0] * ex[0] + c[1] * ex[1] + c[0] * ez[0] + c[1] * ez[1]; if (s < best - 1e-9) { best = s; o = c; } }
   const len = Math.abs((pr.x1 - pr.x0) * ex[0] + (pr.z1 - pr.z0) * ex[1]);
   const dep = Math.abs((pr.x1 - pr.x0) * ez[0] + (pr.z1 - pr.z0) * ez[1]);
-  mb.setFrame(...subFrame(mb, [o[0], pr.y, o[1]], ex, ez));
+  const fr = subFrame(mb, [o[0], pr.y, o[1]], ex, ez);
+  if (mb.propSink?.(pr, fr, len, dep, rng)) return;           // drawn from the asset library instead (render/props.js)
+  mb.setFrame(...fr);
   const h = pr.h, B = (m, x0, y0, z0, x1, y1, z1, c = WHITE) => mb.box(m, x0, y0, z0, x1, y1, z1, c);
   const fab = rng.pick(FABRIC), legs = (m, top, inset = 0.05, s = 0.05) => {
     for (const [lx, lz] of [[inset, inset], [len - inset - s, inset], [inset, dep - inset - s], [len - inset - s, dep - inset - s]]) B(m, lx, 0, lz, lx + s, top, lz + s, [0.4, 0.4, 0.42]);

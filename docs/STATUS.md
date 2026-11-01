@@ -59,6 +59,10 @@ Each line says what is actually implemented and how it was checked.
   friendships and reputation aren't tracked.
 - **Residents have no skills**, so anyone can take any opening they're old enough for;
   only you are judged on requirements.
+- **Photoreal art has only begun**: furniture and fixtures (33 variants) are built assets
+  with PBR surfaces. Buildings, streets, terrain, lamps and people are still the earlier
+  code-drawn look. Furniture is only drawn within 26 m (interiors further off look empty
+  through windows).
 - **Window lights** still follow occupancy-by-hour rules rather than who is actually
   home.
 - **Arrest is a walk-up, not a struggle.** There is no restraint, cuffs, escort or

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ORBIS asset booth</title>
+<!-- Each asset on its own, under a neutral studio light and the game's tone mapping.
+     ?v=<variant> shows one, close; no ?v shows every variant on a grid.
+     Used by tools/shots.mjs (booth) to look at assets before trusting them in game. -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+} }
+</script>
+<style>html, body { margin: 0; background: #20242a; overflow: hidden; } canvas { display: block; } #l { position: fixed; left: 0; top: 0; color: #ccd; font: 12px system-ui; }</style>
+</head>
+<body><div id="l"></div>
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { loadPropLibrary, PropView } from '../js/render/props.js';
+
+const q = new URLSearchParams(location.search), one = q.get('v');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.background = new THREE.Color(0x2a2f36);
+const sun = new THREE.DirectionalLight(0xfff2e0, 2.2); sun.position.set(4, 7, 5); sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12 }); sun.shadow.bias = -0.0004;
+scene.add(sun);
+const lib = await loadPropLibrary('../assets/', renderer.capabilities.getMaxAnisotropy());
+const floorMat = lib.surface('concrete');
+const names = [...lib.variants.keys()].filter(n => !one || n === one);
+const view = new PropView(lib, 1e6), cols = Math.ceil(Math.sqrt(names.length));
+let rng = { s: 7, next() { this.s = (this.s * 16807) % 2147483647; return this.s / 2147483647; } };
+names.forEach((n, i) => {
+  const v = lib.variants.get(n), [L, D, H] = v.dims;
+  const gx = one ? -L / 2 : (i % cols) * 3.6 - cols * 1.8, gz = one ? -D / 2 : Math.floor(i / cols) * 3.6 - cols * 1.8;
+  view.add({ kind: v.kind, h: H }, [[gx, 0, gz], [1, 0, 0], [0, 0, 1]], L, D, rng);
+});
+scene.add(view.build()); view.update(0, 0, 0);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80).rotateX(-Math.PI / 2), floorMat); floor.receiveShadow = true; scene.add(floor);
+const wall = new THREE.Mesh(new THREE.PlaneGeometry(80, 10), lib.surface('paint')); wall.position.set(0, 5, one ? lib.variants.get(one).dims[1] / 2 + 0.02 : -40); wall.rotation.y = Math.PI; wall.receiveShadow = true; scene.add(wall);
+const cam = new THREE.PerspectiveCamera(one ? 40 : 45, innerWidth / innerHeight, 0.05, 200);
+if (one) { const [L, D, H] = lib.variants.get(one).dims, r = Math.max(L, H, D) * 1.5 + 0.6; cam.position.set(-r * 0.55, H * 0.6 + r * 0.35, -r * 0.95); cam.lookAt(0, H * 0.45, 0); }
+else { cam.position.set(0, cols * 3.2, -cols * 4.2); cam.lookAt(0, 0, 0); }
+// front of a prop is -z in the booth (prop z = 0 is its front): the camera stands in front
+document.getElementById('l').textContent = names.join('  ');
+renderer.render(scene, cam);
+setTimeout(() => { renderer.render(scene, cam); document.title = 'READY'; }, 1500);
+</script>
+</body>
+</html>

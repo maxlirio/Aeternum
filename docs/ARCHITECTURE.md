@@ -167,6 +167,26 @@ stepping. It costs about 2.5 ms per day for a town of 350, so a year away is abo
 `openings()` is stable within a week: postings are the posts free when the week began
 (`takenAt` and `vacatedAt` say which), minus those filled since.
 
+## Assets (`tools/assets/build.py`, `assets/`, `render/props.js`)
+
+Art is generated in code, headless in Blender 5.1
+(`Blender -b --factory-startup -P tools/assets/build.py -- [textures] [props] [--only names]`):
+- `assets/materials/<name>_{c,n,orm}.webp` and `index.json` (tile size in metres): tileable
+  PBR surfaces (wood, fabric, paint, metal, laminate, stone, plastic, rubber, concrete,
+  soil, leaf, cardboard). They're made from spectral (FFT) noise, so they tile exactly.
+  The normal maps use the OpenGL convention; ORM packs AO, roughness and metalness.
+- `assets/props.glb`: one mesh per furniture variant, one for every prop size the floor
+  plans use. Parts are bevelled boxes, cylinders, inflated cushions and draped covers.
+  Material slots carry library names only, and UVs are box-projected in metres. A
+  `tint` slot is the item's own colour (upholstery or paint), set per instance.
+
+`render/props.js` binds slots to shared materials and fits a variant to each logical prop
+box (the same frame `building-mesh.js` uses: x along, y up, z from the front). It draws
+the props within 26 m of the player as instances, refreshed at the NEAR tier. Gameplay
+and collision still read only the logical box. `?boxprops` falls back to the old box
+furniture. `tools/booth.html` shows assets on their own (`node tools/shots.mjs booth`,
+`booth:<variant>`).
+
 ## Persistence (`world/`)
 
 `WorldStore` keeps a working copy in memory. A backend persists the dirty records:

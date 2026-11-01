@@ -37,6 +37,7 @@ import { TerrainStreamer } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
 import { DoorView } from './render/doors.js';
+import { loadPropLibrary, PropView } from './render/props.js';
 import { materials, occupancy, WINDOW_TYPES } from './render/materials.js';
 import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
@@ -137,7 +138,10 @@ async function start(fresh) {
 
   const sky = new SkySystem(renderer, scene, planet);
   const terrain = new TerrainStreamer(planet, root);
-  const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f));
+  // furniture from the built asset library; the box furniture remains the fallback if it can't load
+  const propLib = params.has('boxprops') ? null : await loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
+  const propView = propLib ? new PropView(propLib) : null;
+  const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
@@ -224,6 +228,7 @@ async function start(fresh) {
     }
     seenEvents = store.events.length;
   } });
+  if (propView) sched.add(TIER.NEAR, { update: () => propView.update(ctrl.pos[0] - s.cx, ctrl.pos[1], ctrl.pos[2] - s.cz) });
   sched.add(TIER.NEAR, { update: () => residents.refresh(clock.now(), ctrl.pos, world.locate(...ctrl.pos)?.b?.key) });
   sched.add(TIER.NEAR, { update: () => { // a patrolling or on-duty officer who sees a wanted person acts on it
     if (!player.warrant || pursuit || player.custody) return;
@@ -490,7 +495,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

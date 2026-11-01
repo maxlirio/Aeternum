@@ -52,9 +52,11 @@ SCRIPTS.ladder = `const O = ORBIS; const P = O.ctrl.pos; const l = O.ladders.sli
     O.cam.yaw = l.facing + 2.4; O.cam.pitch = 0.1; O.cam.dist = 5; await new Promise(r => setTimeout(r, 600));`;
 SCRIPTS.roof = SCRIPTS.ladder.replace('4500', '20000').replace('l.facing + 2.4', 'l.facing + 3.1').replace('O.cam.pitch = 0.1', 'O.cam.pitch = 0.35');
 SHOTS.ladder = 'hour=15'; SHOTS.roof = 'hour=15';
+SHOTS.peoplebox = SHOTS.people + '&boxprops'; SHOTS.interiorbox = SHOTS.interior + '&boxprops';
 SHOTS.road = 'hour=10&road=0'; SHOTS.road1 = 'hour=10&road=1';
 SHOTS.jobs = 'hour=11'; SHOTS.shift = 'hour=11'; SHOTS.arrest = 'hour=10.5'; SHOTS.cell = 'hour=10.5';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
+for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';
 mkdirSync('out/shots', { recursive: true });
 const profile = join(tmpdir(), 'orbis-shots-' + process.pid);
@@ -82,7 +84,9 @@ try {
     const send = (method, params = {}) => new Promise(r => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
     await send('Runtime.enable'); await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
-    const url = `http://127.0.0.1:${PORT}/?store=mem&auto=new&seed=${seed}&${SHOTS[name]}`;
+    // booth[:variant] → the asset booth (tools/booth.html): every variant on a grid, or one up close
+    const url = name.startsWith('booth') ? `http://127.0.0.1:${PORT}/tools/booth.html${name.includes(':') ? '?v=' + name.split(':')[1] : ''}`
+      : `http://127.0.0.1:${PORT}/?store=mem&auto=new&seed=${seed}&${SHOTS[name]}`;
     const t0 = Date.now();
     await send('Page.navigate', { url });
     let ready = false;
@@ -97,7 +101,7 @@ try {
     await sleep(2500);
     const info = await send('Runtime.evaluate', { expression: 'JSON.stringify({ r: window.ORBIS?.renderer?.info?.render, ui: document.querySelector(".debug")?.textContent })' });
     const shot = await send('Page.captureScreenshot', { format: 'png' });
-    writeFileSync(`out/shots/${name}.png`, Buffer.from(shot.result.data, 'base64'));
+    writeFileSync(`out/shots/${name.replace(':', '-')}.png`, Buffer.from(shot.result.data, 'base64'));
     console.log(`${name}: ${ready ? 'ok' : 'NOT READY'} ${((Date.now() - t0) / 1000).toFixed(1)}s ${info.result?.result?.value || ''}`);
     for (const l of logs.slice(0, 12)) console.log('   ', l);
     ws.close();

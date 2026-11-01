@@ -1,0 +1,38 @@
+{
+ "wood": {
+  "tile": 1.2
+ },
+ "fabric": {
+  "tile": 0.45
+ },
+ "paint": {
+  "tile": 1.0
+ },
+ "metal": {
+  "tile": 0.6
+ },
+ "laminate": {
+  "tile": 1.0
+ },
+ "stone": {
+  "tile": 1.0
+ },
+ "plastic": {
+  "tile": 0.5
+ },
+ "rubber": {
+  "tile": 0.3
+ },
+ "concrete": {
+  "tile": 2.0
+ },
+ "soil": {
+  "tile": 0.5
+ },
+ "leaf": {
+  "tile": 0.3
+ },
+ "cardboard": {
+  "tile": 0.6
+ }
+}
