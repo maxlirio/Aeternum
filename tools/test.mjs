@@ -77,6 +77,27 @@ suites.settlements = () => {
   console.log(`  ${towns} towns, ${buildings} buildings, max rooms/building ${maxRooms}`);
 };
 
+suites.roads = async () => {
+  // roads out of town are routed around steep ground: the graded surface along every
+  // road stays within the grade limit, and roads stay inside their region
+  const { outRoutes, MAX_GRADE } = await import('../js/gen/highways.js');
+  const { surfaceHeight } = await import('../js/gen/surface.js');
+  const { REGION } = await import('../js/core/units.js');
+  let worst = 0, total = 0, n = 0;
+  for (let k = 0; k < 24; k++) {
+    const p = makePlanet(uni(k), HOMEWORLD), s = getSettlement(p, 0, 0);
+    for (const r of outRoutes(p, s)) {
+      const hs = r.pts.map(([x, z]) => surfaceHeight(p, x, z));
+      for (let i = 3; i < hs.length - 14; i++) worst = Math.max(worst, Math.abs(hs[i] - hs[i - 3]) / 12);
+      check(r.pts.every(([x, z]) => x > s.rx * REGION + 30 && z > s.rz * REGION + 30 && x < (s.rx + 1) * REGION - 30 && z < (s.rz + 1) * REGION - 30), `seed ${k}: road ${r.id} leaves its region`);
+      check(r.length > 600, `seed ${k}: road ${r.id} only ${r.length} m`);
+      total += r.length; n++;
+    }
+  }
+  check(worst <= MAX_GRADE + 0.005, `steepest graded road ${(worst * 100).toFixed(1)}% (limit ${MAX_GRADE * 100}%)`);
+  console.log(`  ${n} roads, average ${(total / n).toFixed(0)} m, steepest ${(worst * 100).toFixed(1)}%`);
+};
+
 suites.seams = () => {
   // Neighbouring chunks sample the ground at identical coordinates → identical edges.
   const p = makePlanet(uni(3), HOMEWORLD);

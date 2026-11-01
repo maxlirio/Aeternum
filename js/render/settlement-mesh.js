@@ -2,6 +2,7 @@
 // (shell + interior + furniture), streetlights and door leaves. Static geometry is
 // merged per material per 128 m cell so the town costs tens of draw calls, not
 // thousands, while frustum culling still works by cell.
+import { outRoutes } from '../gen/highways.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { materials } from './materials.js';
@@ -65,14 +66,23 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}) {
       flat(M.pavers, Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), y + 0.05);
     }
   }
-  // roads out of town drape over the graded profile
-  for (const o of s.outRoads) {
-    const dir = Math.sign(o.b[0] - o.a[0]), hw = o.w / 2, len = Math.abs(o.b[0] - o.a[0]);
-    const pt = (t, side) => { const u = o.a[0] + dir * t, v = side * hw; const [x, z] = s.toWorld(u, v); return [u, surfaceHeight(planet, x, z) + 0.06, v]; };
-    for (let t = 0; t < len; t += 4) {
-      const a = pt(t, -1), b = pt(t, 1), c2 = pt(t + 4, 1), d2 = pt(t + 4, -1);
-      const corners = dir > 0 ? [b, c2, d2, a] : [a, d2, c2, b];
-      gb.quad(M.asphalt, corners.map(p => [p[0], p[1], p[2]]), [0, 1, 0], corners.map(p => [p[0], -p[2]]), [1, 1, 1]);
+  // roads out of town: a ribbon along each routed centreline, draped over the graded ground
+  for (const r of outRoutes(planet, s)) {
+    const hw = r.w / 2, P = r.pts;
+    const edge = i => {
+      const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
+      const nx = -dz / L, nz = dx / L;
+      return [-1, 1].map(side => { const x = P[i][0] + nx * side * hw, z = P[i][1] + nz * side * hw, [u, v] = s.toLocal(x, z); return [u, surfaceHeight(planet, x, z) + 0.12, v]; });
+    };
+    let prev = edge(0), along = 0;
+    for (let i = 1; i < P.length - 6; i++) {
+      const cur = edge(i), next = along + 4;
+      const quad = [prev[0], prev[1], cur[1], cur[0]];
+      // wind each quad upward whichever way the road turns
+      const [p0, p1, p2] = quad, cross = (p1[0] - p0[0]) * (p2[2] - p0[2]) - (p1[2] - p0[2]) * (p2[0] - p0[0]);
+      const q = cross < 0 ? quad : [quad[0], quad[3], quad[2], quad[1]];
+      gb.quad(M.asphalt, q, [0, 1, 0], q.map(p => [p[0], -p[2]]), [1, 1, 1]);
+      prev = cur; along = next;
     }
   }
   // building forecourts and landing pads
