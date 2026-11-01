@@ -9,7 +9,9 @@ import { makePlanet } from './gen/planet.js';
 import { getSettlement, address } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
-import { getPopulation, occupation } from './gen/population.js';
+import { occupation } from './gen/population.js';
+import { livePopulation, refreshLife } from './world/town.js';
+import { registerLifeJobs, scheduleLife, LIFE_EVENTS } from './sim/processes/life.js';
 import { Residents } from './sim/residents.js';
 import { CrowdView } from './render/crowd.js';
 import { doorstep, nearestRoadPoint, buildingToWorld } from './gen/place.js';
@@ -40,7 +42,7 @@ import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
-import { UI } from './ui/ui.js';
+import { UI, describeEvent } from './ui/ui.js';
 
 const params = new URLSearchParams(location.search);
 const ui = new UI();
@@ -76,23 +78,26 @@ async function start(fresh) {
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, HOMEWORLD);
   const s = getSettlement(planet, 0, 0);
-  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched);
+  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched);
   ui.loading('Counting the townsfolk…', 0.01); await tick();
-  const pop = getPopulation(planet, s), polity = getPolity(planet, s);
+  // the town as it stands now: generated residents with their lives since laid over them
+  const pop = livePopulation(planet, s, store, store.meta.gameTime), polity = getPolity(planet, s);
   const ctx = { store, sched, planet, s, pop, polity };
   ctx.doorstepOf = bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; };
   { const pl = store.player; // saves from before careers / fines existed
     if (pl) { pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; pl.fines ??= []; pl.warrant ??= null; pl.custody ??= null; } }
 
+  if (store.player) scheduleLife(store, planet, s, store.meta.gameTime);   // saves from before residents' lives moved on
   let report = null;
   if (fresh) {
     const serial = store.meta.nextCharacter++;
     ui.loading('Finding your family…', 0.02); await tick();
-    const p = newCharacter(U, planet, s, getPopulation(planet, s), serial, EPOCH);
+    const p = newCharacter(U, planet, s, pop, serial, EPOCH);
     const home = s.buildings.find(b => b.key === p.home);
     const ds = doorstep(s, home, buildingPlan(planet, s, home));
     p.pos = ds.pos; p.facing = ds.facing;
     store.setPlayer(p);
+    refreshLife(pop, store, EPOCH); scheduleLife(store, planet, s, EPOCH);
     store.log({ t: EPOCH, type: 'life_began', name: p.name, place: s.name, character: p.id });
     await store.flush();
   } else {
@@ -205,6 +210,7 @@ async function start(fresh) {
       if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}. Pay at their office within ${PAY_DAYS} days.`, 'bad', 9000);
       if (e.type === 'case_opened') ui.toast(`${e.reporter} reported a break-in to ${e.authority}.`, 'warn', 6000);
       if (e.type === 'case_cold') ui.toast(`${e.authority} closed a break-in case unsolved.`, '', 6000);
+      if (LIFE_EVENTS.includes(e.type) && e.rel) ui.toast(describeEvent(e, planet).replace(/<span class="when">.*?<\/span>\s*/, ''), e.type === 'died' ? 'bad' : '', 10000);
       if (e.who !== player.id) continue;
       if (e.type === 'hired') ui.toast(`<b>${e.employer}</b> hired you as ${e.title.toLowerCase()}. ${player.shift ? `First shift: day ${dayNumber(planet, player.shift.t0)}, ${formatHour(solarHour(planet, player.shift.t0))}.` : ''} <small>J — details</small>`, '', 10000);
       if (e.type === 'application_rejected') ui.toast(`${e.employer} turned you down — ${e.why}.`, 'warn', 9000);
@@ -307,7 +313,7 @@ async function start(fresh) {
       if (here?.key === polity.security) listing = { title: `Job board — ${polity.name}`, note: 'Every opening posted in town this week. Postings change weekly.', jobs: vacancies(pop, store, t) };
       else if (here && pop.jobs.some(j => j.b === here.key)) listing = { title: `Openings at ${here.owner}`, note: 'What this workplace is hiring for this week.', jobs: openings(pop, store, here.key, t) };
       const sec = pop.buildingByKey.get(polity.security);
-      const r = await ui.work({ player, pop, planet, s, polity, t, listing, civic: here?.key === polity.security, boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
+      const r = await ui.work({ player, pop, planet, s, polity, t, listing, civic: here?.key === polity.security, register: store.events.filter(e => LIFE_EVENTS.includes(e.type)), boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
       if (r.a === 'ok') break;
       if (r.a === 'resign') leaveJob(ctx, t, 'resigned', 'resigned');
       if (r.a === 'pay') { const res = payFines(ctx, t); ui.toast(res.ok ? `Paid ${res.total} cr.${res.cleared ? ' The warrant is withdrawn.' : ''}` : res.why, res.ok ? '' : 'warn', 7000); }
@@ -469,7 +475,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity) };
+  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

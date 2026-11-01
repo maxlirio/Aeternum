@@ -9,6 +9,10 @@ the rule that results must not depend on how time is sliced.
    (milestone 3); ~~officers responding in person, arrest, custody, paying fines~~
    (milestone 5). Next for law: trespass and theft as offences, backup and searching,
    courts and longer sentences, debt collection.
+   ~~Residents' lives changing over time~~ is done (milestone 6): deaths, births, moves,
+   newcomers, job changes and competition for openings, all as deltas. Next for people:
+   your own ageing and death leading to the next life, relationships and reputation,
+   resident skills, and visible moves and funerals instead of overnight swaps.
 3. **Law and authority** (original plan, for reference): Each settlement gets a polity with laws. `forced_entry` and
    trespass events are resolved by witnesses (resident schedules) and patrols. Results:
    fines, a record, reputation.

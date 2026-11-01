@@ -33,18 +33,26 @@ export const wageOf = (job, rank = 0) => Math.round(roleFor(job).wage * Math.pow
 // Openings: a workplace doesn't advertise every empty desk. Each week it posts up to
 // two of its unfilled positions (more often none) — the same ones for everyone who
 // asks that week, and a fresh set the next. A running place with no head always looks
-// for one. Positions the player holds are deltas (job/<id>) and never listed.
+// for one. Who holds a post is generated, then overridden by deltas (job/<id>: the
+// player, or a resident hired or gone since — sim/processes/life.js).
 export const WEEK = 7;
 export const weekOf = (planet, t) => Math.floor(dayIndex(planet, t) / WEEK);
 export function openings(pop, store, bKey, t) {
-  const W = weekOf(pop.planet, t), seed = pop.planet.universeSeed;
-  const free = pop.jobs.filter(j => j.b === bKey && !j.holder && roleFor(j) && !store.getDelta(`job/${j.id}`)?.holder);
-  if (!free.length) return [];
-  const head = free.find(j => ROLES[j.title].senior);
-  const rest = free.filter(j => !ROLES[j.title].senior)
+  const W = weekOf(pop.planet, t), seed = pop.planet.universeSeed, ws = dayStart(pop.planet, W * WEEK);
+  // the week's postings are the posts that were free when the week began: one filled since
+  // keeps its place on the list (and is struck off), one that fell vacant waits for next week
+  const freeAtStart = pop.jobs.filter(j => j.b === bKey && roleFor(j)).filter(j => {
+    const d = store.getDelta(j.dk || (j.dk = `job/${j.id}`)), h = d && 'holder' in d ? d.holder : j.holder;
+    if (d?.vacatedAt >= ws) return false;
+    return !h || d?.takenAt >= ws;
+  });
+  if (!freeAtStart.length) return [];
+  const head = freeAtStart.find(j => ROLES[j.title].senior);
+  const rest = freeAtStart.filter(j => !ROLES[j.title].senior)
     .map(j => [j, hash01(seed, [hashStr(3, j.id), W])]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
   const r = hash01(seed, [hashStr(5, bKey), W]), n = r < 0.6 ? 0 : r < 0.9 ? 1 : 2;
-  return [...(head ? [head] : []), ...rest.slice(0, n)];
+  const isFree = j => { const d = store.getDelta(j.dk); return !(d && 'holder' in d ? d.holder : j.holder); };
+  return [...(head ? [head] : []), ...rest.slice(0, n)].filter(isFree);
 }
 export function vacancies(pop, store, t, filter = () => true) {
   return pop.s.buildings.filter(b => pop.jobs.some(j => j.b === b.key)).flatMap(b => openings(pop, store, b.key, t)).filter(filter);

@@ -408,6 +408,89 @@ suites.pursuit = async () => {
   console.log(`  ${officer.name}: quiet arrest in ${still.secs.toFixed(0)} s; caught a slow runner in ${slow.secs.toFixed(0)} s; lost a fast one after ${fast.ran.toFixed(0)} m`);
 };
 
+suites.life = async () => {
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { registerWorkJobs, applyFor } = await import('../js/sim/processes/work.js');
+  const { registerLifeJobs, scheduleLife } = await import('../js/sim/processes/life.js');
+  const { livePopulation, refreshLife, bedSlots, lifeKey } = await import('../js/world/town.js');
+  const { vacancies, weekOf } = await import('../js/gen/careers.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { whereAt } = await import('../js/gen/schedule.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(5), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), polity = getPolity(p, s);
+  const setup = () => {
+    const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+    const pop = livePopulation(p, s, st, EPOCH);
+    const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; st.setPlayer(pl); refreshLife(pop, st, EPOCH);
+    const sc = new Scheduler(st); registerWorkJobs(sc); registerLifeJobs(sc); scheduleLife(st, p, s, EPOCH);
+    return { st, sc, pop, pl, ctx: { store: st, sched: sc, planet: p, s, pop, polity } };
+  };
+  const YEAR = p.yearLength, days = YEAR / p.dayLength;
+  // ten years, one jump
+  const A = setup(), n0 = A.pop.people.length, hh0 = A.pop.households.length, gen = getPopulation(p, s);
+  const sizes = []; let at4 = null;
+  for (let y = 1; y <= 10; y++) { A.sc.runDue(EPOCH + y * YEAR, A.ctx); sizes.push(A.pop.people.length); if (y === 4) at4 = { life: digest(A.st.getDelta(lifeKey(s))), ev: digest(A.st.events.map(e => [e.t, e.type, e.who])) }; }
+  const kinds = {};
+  for (const e of A.st.events) kinds[e.type] = (kinds[e.type] || 0) + 1;
+  for (const k of ['died', 'born', 'resident_hired', 'resident_quit', 'resident_retired', 'left_home', 'household_moved', 'household_left', 'household_arrived'])
+    check(kinds[k] > 0, `ten years with no "${k}"`);
+  check(Math.min(...sizes) > 0.7 * n0 && Math.max(...sizes) < 1.35 * n0, `population stays a town: ${n0} → ${sizes.join(', ')}`);
+  check(gen.people.length === n0 && gen.people.every(x => !x.gone), 'the generated population is untouched');
+  // invariants on the town as it now stands
+  const pop = A.pop, units = new Map();
+  for (const h of pop.households) { check(!units.has(h.unit), `two households in ${h.unit}`); units.set(h.unit, h.id); check(h.members.length > 0, 'empty household ' + h.id); }
+  const seenIn = new Set();
+  for (const h of pop.households) for (const id of h.members) { check(!seenIn.has(id), id + ' in two households'); seenIn.add(id); }
+  check(pop.people.every(x => seenIn.has(x.id)) && seenIn.size === pop.people.length, 'everyone in town belongs to exactly one household');
+  let beds = 0;
+  for (const h of pop.households) { const u = pop.unitByKey.get(h.unit); check(h.members.length + (u.player ? 1 : 0) <= bedSlots(u).length + (u.player ? 1 : 0), `${h.unit}: more people than beds`); beds += bedSlots(u).length; }
+  const holders = pop.jobs.filter(j => j.holder && j.holder !== A.pl.id).map(j => j.holder);
+  check(new Set(holders).size === holders.length, 'nobody holds two jobs');
+  check(holders.every(id => pop.byId.get(id) && !pop.byId.get(id).gone), 'every job holder still lives in town');
+  check(pop.people.every(x => !x.job || (x.age >= 18 && x.age < 67)), 'workers are 18–66');
+  const old = gen.people.find(x => !pop.byId.get(x.id).gone);
+  check(old && pop.byId.get(old.id).age >= old.age + 9, `people age: ${old?.age} → ${pop.byId.get(old?.id)?.age}`);
+  let bad = 0; for (const x of pop.people.slice(0, 120)) { const w = whereAt(pop, x, EPOCH + 10 * YEAR + 0.5 * p.dayLength); if (!w || !w.pos.every(Number.isFinite)) bad++; }
+  check(bad === 0, `${bad} residents with no place in the day`);
+  const added = pop.people.filter(x => /\/n\d+$/.test(x.id)).length;
+  console.log(`  10 years: ${n0} → ${pop.people.length} people (${added} born or arrived), ${hh0} → ${pop.households.length} households; ` + Object.entries(kinds).filter(([k]) => !/shift|life_began/.test(k)).map(([k, v]) => `${k} ${v}`).join(', '));
+  // the same years lived in 61 uneven slices end identically
+  const B = setup();
+  for (let i = 1; i <= 61; i++) B.sc.runDue(EPOCH + 4 * YEAR * Math.pow(i / 61, 1.7), B.ctx);
+  check(digest(B.st.getDelta(lifeKey(s))) === at4.life, 'four years in yearly jumps == in 61 uneven slices (lives)');
+  check(digest(B.st.events.map(e => [e.t, e.type, e.who])) === at4.ev, 'same events either way');
+  // a save reloads to the same town
+  const C = new WorldStore(new MemoryBackend()); await C.importJSON(A.st.exportJSON());
+  const popC = livePopulation(p, s, C, EPOCH + 10 * YEAR);
+  check(digest(popC.people.map(x => [x.id, x.home, x.job, x.age])) === digest(pop.people.map(x => [x.id, x.home, x.job, x.age])), 'reloaded save gives the same people, homes and jobs');
+  // residents compete for the postings: a job you applied for can go to someone else first
+  const D = setup(); let lost = null;
+  for (let d = 0; d < 400 && !lost; d++) {
+    const t0 = EPOCH + d * p.dayLength + 0.1;
+    const post = vacancies(D.pop, D.st, t0).find(j => !D.st.player.applications.some(a => a.job === j.id));
+    D.st.player.skills = { admin: 0.99, trade: 0.99, tech: 0.99 }; D.st.player.fitness = 0.99; D.st.player.applications = []; D.st.player.job = null;
+    if (post) applyFor(D.ctx, post, t0);
+    D.sc.runDue(t0 + p.dayLength, D.ctx);
+    lost = D.st.events.find(e => e.type === 'application_rejected' && /filled/.test(e.why));
+  }
+  check(lost, 'a resident took a posted job before the player\'s application was read');
+  if (lost) { const e = D.st.events.find(x => x.type === 'resident_hired' && x.title === lost.title && x.employer === lost.employer && x.t <= lost.t); check(e, 'and the hire is in the log: ' + (e ? e.whoName : 'missing')); }
+  // a week's postings are stable: taking one strikes it off without another taking its place
+  const E = setup(); let stable = true;
+  for (let d = 0; d < 120; d++) {
+    const t = EPOCH + d * p.dayLength + 1, before = vacancies(E.pop, E.st, t).map(j => j.id);
+    E.sc.runDue(t + p.dayLength - 2, E.ctx);
+    const after = vacancies(E.pop, E.st, t + p.dayLength - 2).map(j => j.id);
+    const sameWeek = weekOf(p, t) === weekOf(p, t + p.dayLength - 2);
+    if (sameWeek && after.some(id => !before.includes(id))) stable = false;
+  }
+  check(stable, 'nothing appears on a week\'s board mid-week');
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

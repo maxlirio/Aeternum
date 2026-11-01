@@ -1,4 +1,4 @@
-# Status — milestone 5 (residents, character origin, law and arrest, work)
+# Status — milestone 6 (residents whose lives move on, character origin, law and arrest, work)
 
 Each line says what is actually implemented and how it was checked.
 
@@ -35,6 +35,9 @@ Each line says what is actually implemented and how it was checked.
 | **Applying and hiring**: requirements are skill levels (administration, trade, technical), fitness, and for security a clean record. The application is read when the workplace head is next actually at work (their schedule says when) and decided by a hash of you and the job. Turn-downs state their reason. Knowing the head (family, neighbours) helps | `test.mjs careers` (unqualified: refused with the requirement; qualified: hired), `e2e` (job board, apply, hired) |
 | **Shifts and pay**: a held job is a chain of shift jobs. Each is settled at its end from the time you were really inside the workplace (online), or its overlap with an absence spent on *Keep your routine* (offline). Pay is wage × hours present. Two days off a week; staff key to the workplace while employed. Skill grows with hours worked; promotion to senior and lead after enough good shifts and skill; three missed shifts in a row and you're let go; convictions for robbing your employer (or any, in security) also cost you the job | `test.mjs careers` (a week of routine: every shift worked and paid; one jump = 2-hour slices; half a shift present = half pay; missing shifts → dismissed, key returned, position reopened), `e2e` (attendance counts in the building, 3 days away: away report sums the shifts, credits rise) |
 | **Workforce**: security force sized to the town (about 7% of working adults; spare posts are openings), workplace heads are 30 or older and hired first, ordinary jobs are filled one desk per workplace at a time | `test.mjs careers` (under 2% of workplaces unstaffed, all in towns with too few adults) |
+| **Lives move on**: once a planet day, at midnight, every resident and household rolls against yearly rates: deaths by age (Gompertz: 0.2%/yr at 30, 2.4% at 60, 14% at 80), births to couples aged 20–44 with a spare bed, retirement at 67, quitting (~10%/yr), grown children leaving home (into an empty home, or out of town), households moving within town or leaving it, newcomers moving into empty homes. Ages count up from birthdays spread through the planet year. Everything is a delta over the generated town (`life/<town>`, `job/<id>`); the town at the epoch is never rewritten | `test.mjs life` (10 years: population stays 70–135% of the start, every event kind happens, one household per home, nobody in two households or two jobs, no job holder who has left, workers 18–66, everyone still has a place in the day; 4 years in yearly jumps == 61 uneven slices; a reloaded save gives the same people, homes and jobs) |
+| **Residents compete for jobs**: unemployed adults (88% of them are looking) take openings from the same weekly postings you see. A post you applied for can be filled before your application is read ("the position was filled"). A week's board is fixed at its start: a post taken mid-week is struck off and nothing new appears until the next week | `test.mjs life`; `test.mjs careers` |
+| **Town register and news**: the civic office (J) lists the latest births, deaths, moves and hires. Changes touching people you know (family, people you live with, coworkers, neighbours) get a toast and are listed in the away report; the rest are counted ("2 deaths · 1 birth · 39 people found work…"). Your family in C shows who has died or moved away | `e2e` (120 days: the town changes, only people still in town are drawn, register shown, reload gives the same homes); screenshots `register`, `family`, `kin` |
 | **Avoidance**: walkers sidestep or briefly wait for you and each other, never stepping into walls, then catch up with their schedule | `e2e` (a walker keeps at least 0.6 m from you and gets around) |
 
 ## Placeholders and limits (honest list)
@@ -45,8 +48,15 @@ Each line says what is actually implemented and how it was checked.
   standing or seated people never move aside.
 - **Residents can't be talked to.** Looking at someone shows their name, age, job,
   current activity and whether they're family.
-- **Residents never change.** Nobody is born, dies, moves house or changes job yet. Such
-  changes will be deltas over the generated population.
+- **Life changes happen at midnight.** A household that moves vanishes from its old beds
+  and appears in the new ones overnight; there's no removal van, funeral or walk across
+  town. Asking where someone was at a past time uses who they are now.
+- **Rates are realistic, so change is slow**: a town of ~350 sees a few deaths, births and
+  moves and a dozen job changes in a month of real time.
+- **You don't age**, and your parents and siblings aren't the only people you know;
+  friendships and reputation aren't tracked.
+- **Residents have no skills**, so anyone can take any opening they're old enough for;
+  only you are judged on requirements.
 - **Window lights** still follow occupancy-by-hour rules rather than who is actually
   home.
 - **Arrest is a walk-up, not a struggle.** There is no restraint, cuffs, escort or
@@ -59,8 +69,9 @@ Each line says what is actually implemented and how it was checked.
   desk there.
 - **Work has no tasks.** Being on shift means being inside the building; there is no
   activity at the desk or bench, and your performance is only attendance.
-- **Nobody competes with you for openings**, and residents never change jobs. The
-  weekly postings are a deterministic sample, not a labour market.
+- **Postings are still a weekly sample** (0–2 per workplace), not a labour market with
+  wages that respond to supply. The town has more posts than adults, so openings never
+  dry up (about 20–27 a week after 8 simulated years).
 - **No self-employment, contracts, or starting your own business.** Wages don't vary
   between employers.
 - **No school building type**, so children spend weekdays at home.

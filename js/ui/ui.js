@@ -4,6 +4,7 @@ import { ACTIVITIES } from '../sim/processes/character.js';
 import { formatDuration, formatHour, solarHour, dayNumber } from '../sim/clock.js';
 import { address } from '../gen/settlement.js';
 import { SKILLS, titleOf, roleFor, wageOf, assess } from '../gen/careers.js';
+import { LIFE_EVENTS } from '../sim/processes/life.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -108,13 +109,13 @@ export class UI {
   away(r, planet) {
     return new Promise(res => {
       const pct = v => Math.round(v * 100) + '%';
-      const evs = r.events.filter(e => e.type !== 'shift_worked').map(e => `<li>${describeEvent(e, planet)}</li>`).join('') || '<li class="none">Nothing you know of changed in town.</li>';
+      const evs = r.events.filter(e => e.type !== 'shift_worked' && (!LIFE_EVENTS.includes(e.type) || e.rel)).map(e => `<li>${describeEvent(e, planet)}</li>`).join('') || '<li class="none">Nothing that touches you changed in town.</li>';
       const p = this.panel(`<h2>While you were away</h2>
         <p class="lede">${formatDuration(r.elapsed)} passed${r.activity && r.activity !== 'idle' ? ` · ${esc(ACTIVITIES[r.activity]?.label || r.activity)}` : ''}.</p>
         ${r.notes.map(n => `<p>${esc(n)}</p>`).join('')}
         ${shiftSummary(r.events)}
         <p>Fatigue ${pct(r.body.fatigue[0])} → ${pct(r.body.fatigue[1])} · Fitness ${pct(r.body.fitness[0])} → ${pct(r.body.fitness[1])}</p>
-        <h3>In town</h3><ul class="events">${evs}</ul>
+        <h3>In town</h3><ul class="events">${evs}</ul>${townSummary(r.events)}
         <button data-a="ok" class="primary">Carry on</button>`, 'away');
       p.addEventListener('click', e => { if (e.target.dataset.a === 'ok') { this.closePanel(); res(); } });
     });
@@ -131,7 +132,8 @@ export class UI {
 UI.prototype.character = function (player, pop, planet, s, polity) {
   return new Promise(res => {
     const person = id => pop.byId.get(id);
-    const line = p => `<li><b>${esc(p.name)}</b>, ${p.age} — ${esc(occupationOf(pop, p))}<br><small>lives at ${esc(homeLabel(pop, p.home))}</small></li>`;
+    const line = p => p.gone ? `<li><b>${esc(p.name)}</b> — ${p.gone.why === 'died' ? `died day ${dayNumber(planet, p.gone.t)}, aged ${p.age}` : `${esc(p.gone.why)}, day ${dayNumber(planet, p.gone.t)}`}</li>`
+      : `<li><b>${esc(p.name)}</b>, ${p.age} — ${esc(occupationOf(pop, p))}<br><small>lives at ${esc(homeLabel(pop, p.home))}</small></li>`;
     const parents = player.family.parents.map(person), sibs = player.family.siblings.map(person);
     const unit = pop.unitByKey.get(player.homeUnit);
     const p = this.panel(`<h2>${esc(player.name)}</h2>
@@ -169,8 +171,10 @@ function labelFor(loc, cell) {
   return `${TYPE_LABEL[b.type]} — ${b.owner}${loc.plan?.F > 1 ? ` · floor ${loc.k + 1}` : ''}${room}`;
 }
 
+const who = e => `${esc(e.whoName)}${e.rel ? ` (${esc(e.rel)})` : ''}`;
 export function describeEvent(e, planet) {
-  const when = `<span class="when">day ${dayNumber(planet, e.t)} ${formatHour(solarHour(planet, e.t))}</span>`;
+  // lives change overnight (sim/processes/life.js): those are dated by the day, not a clock time
+  const when = LIFE_EVENTS.includes(e.type) ? `<span class="when">day ${dayNumber(planet, e.t)}</span>` : `<span class="when">day ${dayNumber(planet, e.t)} ${formatHour(solarHour(planet, e.t))}</span>`;
   switch (e.type) {
     case 'forced_entry': return `${when} Forced entry at a ${esc(TYPE_LABEL[e.buildingType] || 'building')} owned by ${esc(e.owner)}, ${esc(e.settlementName)} — by ${esc(e.byName)}. ${e.witnesses?.length ? `Witnessed by ${e.witnesses.length}.` : 'No witnesses.'} <em>Unresolved.</em>`;
     case 'door_repaired': return `${when} ${esc(e.owner)} had a forced door repaired.`;
@@ -189,9 +193,30 @@ export function describeEvent(e, planet) {
     case 'arrested': return `${when} ${e.by ? esc(e.by) + ' of ' : ''}${esc(e.authority)} arrested ${esc(e.whoName)}${e.resisted ? ' after a chase' : ''}. ${e.paid ? `${e.paid} cr in fines taken; ` : ''}held ${e.hours} h.`;
     case 'released': return `${when} ${esc(e.whoName)} was released from the ${esc(e.authority)} cell.`;
     case 'fines_paid': return `${when} ${esc(e.whoName)} paid ${e.amount} cr in fines${e.cleared ? '; the warrant was withdrawn' : ''}.`;
+    case 'died': return `${when} ${who(e)} died, aged ${e.age}.`;
+    case 'born': return `${when} ${esc(e.whoName)} was born to ${esc(e.parents.join(' and '))}.`;
+    case 'resident_hired': return `${when} ${who(e)} started work as ${esc(e.title.toLowerCase())} at ${esc(e.employer)}.`;
+    case 'resident_quit': return `${when} ${who(e)} left the job of ${esc(e.title.toLowerCase())} at ${esc(e.employer)}.`;
+    case 'resident_retired': return `${when} ${who(e)} retired from ${esc(e.employer)}.`;
+    case 'left_home': return `${when} ${who(e)} left the family home for a place of their own — ${esc(e.toName)}.`;
+    case 'moved_away': return `${when} ${who(e)} left home, and left town.`;
+    case 'household_moved': return `${when} The ${esc(e.surname)} household${e.rel ? ` (${esc(e.rel)})` : ''} moved to ${esc(e.toName)}.`;
+    case 'household_left': return `${when} The ${esc(e.surname)} household${e.rel ? ` (${esc(e.rel)})` : ''} — ${e.n} ${e.n === 1 ? 'person' : 'people'} — left town.`;
+    case 'household_arrived': return `${when} ${e.rel ? esc(e.rel[0].toUpperCase() + e.rel.slice(1)) + ': the' : 'The'} ${esc(e.surname)} ${e.n === 1 ? 'household' : 'family'} moved into ${esc(e.toName)}, new in town.`;
+    case 'children_left': return `${when} ${e.n === 1 ? 'The child' : `The ${e.n} children`} of the ${esc(e.surname)} household went to live with relatives elsewhere.`;
     case 'life_began': return `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
     default: return `${when} ${esc(e.type)}`;
   }
+}
+
+// The rest of the town's news, counted: "2 deaths · 1 birth · 3 found work · 1 household moved in".
+export function townSummary(events) {
+  const n = k => events.filter(e => (Array.isArray(k) ? k : [k]).includes(e.type) && !e.rel).length;
+  const parts = [[n('died'), 'death', 'deaths'], [n('born'), 'birth', 'births'], [n('resident_hired'), 'person found work', 'people found work'],
+    [n(['resident_quit', 'resident_retired']), 'person left a job', 'people left jobs'], [n('household_arrived'), 'household moved in', 'households moved in'],
+    [n(['household_left', 'moved_away', 'children_left']), 'household left town', 'households left town'], [n(['household_moved', 'left_home']), 'move within town', 'moves within town']]
+    .filter(([c]) => c).map(([c, a, b]) => `${c} ${c === 1 ? a : b}`);
+  return parts.length ? `<p class="fine">Elsewhere in town: ${parts.join(' · ')}. <small>The civic office keeps the town register.</small></p>` : '';
 }
 
 function shiftSummary(events) {
@@ -202,7 +227,7 @@ function shiftSummary(events) {
 
 // The work panel: your job, your applications, and whatever openings are posted here.
 //   listing: { title, note, jobs } or null when there's no board where you stand
-UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boardAt, civic }) {
+UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boardAt, civic, register }) {
   return new Promise(res => {
     const pj = player.job, sh = player.shift;
     const hours = h => `${formatHour(h[0])}–${formatHour(h[1])}`;
@@ -229,7 +254,8 @@ UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boar
     const fines = civic && (owed || player.warrant) ? `<h3>Fines — ${esc(polity.securityName)}</h3><ul class="events">${(player.fines || []).map(f => `<li>${esc(f.offence)} — ${f.amount} cr <small>due day ${dayNumber(planet, f.due)}</small></li>`).join('')}</ul>
       ${player.warrant ? `<p class="late">There is a warrant for you (${esc(player.warrant.reason)}). Paying in full here withdraws it.</p>` : ''}
       <button data-a="pay" ${owed && (player.credits ?? 0) >= owed ? '' : 'disabled'}>Pay ${owed} cr${(player.credits ?? 0) < owed ? ` — you have ${player.credits} cr` : ''}</button>` : '';
-    const p = this.panel(`<h2>${civic ? 'Civic office' : 'Work'}</h2>${fines}${mine}${pend}${board}<button data-a="ok" class="primary">Back</button>`, 'work');
+    const reg = civic && register ? `<h3>Town register</h3><p class="fine">${pop.people.length} residents in ${pop.households.length} households. Newest first.</p><ul class="events">${register.slice(-14).reverse().map(e => `<li>${describeEvent(e, planet)}</li>`).join('') || '<li class="none">Nothing recorded since you arrived.</li>'}</ul>` : '';
+    const p = this.panel(`<h2>${civic ? 'Civic office' : 'Work'}</h2>${fines}${mine}${pend}${board}${reg}<button data-a="ok" class="primary">Back</button>`, 'work');
     p.addEventListener('click', e => {
       const btn = e.target.closest('button'); if (!btn) return;
       const a = btn.dataset.a;

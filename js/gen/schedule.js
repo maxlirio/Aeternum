@@ -30,7 +30,7 @@ const homeAnchors = (pop, p, kinds) => {
 // ---- day plan
 const plans = new Map();
 export function dayPlan(pop, p, D) {
-  const key = p.id + '|' + D;
+  const key = p.id + '|' + (p.rev || '') + '|' + D;   // rev: a live resident's home/job/age (world/town.js)
   let plan = plans.get(key);
   if (plan) return plan;
   if (plans.size > 4000) plans.clear();
@@ -94,7 +94,7 @@ function buildDay(pop, p, D) {
   };
   const job = p.job ? pop.jobById.get(p.job) : null;
   const working = job && !p.offDays.includes(D % 7);
-  const child = p.age < 16, old = p.age >= 67;
+  const child = p.age < 16, old = p.age >= 67, infant = p.age < 5;
   const wake = (child ? 7.2 : old ? 6.8 : working ? Math.max(4.5, job.hours[0] - 1.6) : 7.6) + p.wakeBias * 0.5 + rng.range(-0.3, 0.3);
   const sleep = (child ? 20.5 : old ? 21.6 : 22.6) + p.wakeBias * 0.4 + rng.range(-0.4, 0.5);
 
@@ -129,11 +129,12 @@ function buildDay(pop, p, D) {
     for (let i = 0; i < 6 && t < at(17); i++) {
       const spot = homeSpot(['sit', 'stand', 'browse']);
       if (spot && go(spot, 'at home')) stay(spot, t + rng.range(0.6, 2.2) * HR, 'at home');
+      if (infant) continue;                       // small children stay home
       if (i < n && rng.chance(0.7)) errand();
       else if (rng.chance((child ? 0.35 : 0.3) + 0.25 * p.social)) stroll();
     }
   }
-  if (!child && t < at(19.5) && rng.chance(0.25 + 0.35 * p.social)) stroll();     // evening walk
+  if (!child && !infant && t < at(19.5) && rng.chance(0.25 + 0.35 * p.social)) stroll();     // evening walk
   const dinner = homeSpot(['kitchen']) || homeSpot(['sit']);
   if (dinner && t < at(18.2 + rng.range(-0.4, 0.8))) { if (go(dinner, 'dinner')) stay(dinner, Math.max(t, at(18.3 + rng.range(-0.3, 0.6))), 'cooking'); }
   if (dinner && t < at(sleep) - 0.8 * HR && go(dinner, 'dinner')) stay(dinner, Math.min(at(sleep) - 0.6 * HR, t + rng.range(0.4, 0.8) * HR), 'dinner');

@@ -9,6 +9,7 @@ import { hash01, hashStr } from '../../core/hash.js';
 import { planetHours } from '../clock.js';
 import { roleFor, titleOf, wageOf, headOf, firstShiftAfter, nextShift, assess, PROMOTE, SKILL_TAU, ROLES } from '../../gen/careers.js';
 import { firstPresence, knowsYou } from './law.js';
+import { refreshLife } from '../../world/town.js';
 
 const HOUR = 3600, DAY = 86400;
 export const REAPPLY = 2 * DAY;               // s before you can apply to the same place again
@@ -40,8 +41,9 @@ function takeJob(ctx, job, t) {
   pl.job = { id: job.id, b: job.b, employer: job.employer, title: job.title, hours: job.hours, offDays: [off1, off2], rank: 0, wage: wageOf(job, 0),
     skill: R.skill, since: t, good: 0, missed: 0, shifts: 0, worked: 0, earned: 0 };
   if (!pl.keys.includes(job.b)) { pl.keys = [...pl.keys, job.b]; pl.job.key = true; }   // staff keys, returned when you leave
-  store.patchDelta(`job/${job.id}`, { holder: pl.id, since: t });
+  store.patchDelta(`job/${job.id}`, { holder: pl.id, since: t, takenAt: t, vacatedAt: undefined });
   scheduleShift(ctx, firstShiftAfter(planet, pl.job, t));
+  if (ctx.pop?.base) refreshLife(ctx.pop, store, t);     // the town now sees the post as yours
   store.touchPlayer();
 }
 
@@ -49,10 +51,11 @@ export function leaveJob(ctx, t, why, type = 'resigned') {
   const { store } = ctx, pl = store.player, pj = pl.job;
   if (!pj) return;
   store.cancelJobs(j => j.kind === 'work.shift');
-  store.patchDelta(`job/${pj.id}`, { holder: null, since: undefined });
+  store.patchDelta(`job/${pj.id}`, { holder: null, since: undefined, vacatedAt: t });
   if (pj.key) pl.keys = pl.keys.filter(k => k !== pj.b);
   pl.career = [...(pl.career || []), { title: titleOf(pj), employer: pj.employer, from: pj.since, to: t, shifts: pj.shifts, why: type }];
   pl.job = null; pl.shift = null;
+  if (ctx.pop?.base) refreshLife(ctx.pop, store, t);
   store.log({ t, type, who: pl.id, whoName: pl.name, title: titleOf(pj), employer: pj.employer, why });
   store.touchPlayer();
 }

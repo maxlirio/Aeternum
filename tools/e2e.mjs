@@ -226,6 +226,29 @@ try {
     document.querySelector('.panel.work button[data-a=ok]')?.click();
     return { paid: c0 - P.credits, left: P.fines.length }; })()`);
   check(pay.paid === 120 && pay.left === 0, 'fines are paid at the civic office (' + JSON.stringify(pay) + ')');
+  console.log('[life]');
+  const life = await ev(`(async () => {
+    const O = ORBIS, n0 = O.pop.people.length, ids0 = new Set(O.pop.people.map(p => p.id)), e0 = O.store.events.length;
+    for (let d = 0; d < 120; d++) { O.clock.advance(O.planet.dayLength); await new Promise(r => setTimeout(r, 30)); }
+    await new Promise(r => setTimeout(r, 1500));
+    const evs = O.store.events.slice(e0).map(e => e.type), now = new Set(O.pop.people.map(p => p.id));
+    const drawn = O.getAgents().filter(a => !a.person.job || !O.getPursuit()).map(a => a.id);
+    O.showWork(); await new Promise(r => setTimeout(r, 500));
+    const reg = [...document.querySelectorAll('.panel.work h3')].some(h => h.textContent === 'Town register') ? document.querySelectorAll('.panel.work ul.events')[document.querySelectorAll('.panel.work ul.events').length - 1].children.length : 0;
+    document.querySelector('.panel.work button[data-a=ok]')?.click();
+    return { n0, n: O.pop.people.length, gone: [...ids0].filter(id => !now.has(id)).length, added: [...now].filter(id => !ids0.has(id)).length,
+      life: evs.filter(t => /died|born|resident_|household_|left_home|moved_away/.test(t)).length, drawnGone: drawn.filter(id => !now.has(id)).length, drawn: drawn.length, reg,
+      saved: !!O.store.getDelta('life/' + O.s.key) }; })()`);
+  check(life.life > 0 && (life.gone + life.added) > 0, `120 days pass: the town changes (${life.life} life events, ${life.gone} gone, ${life.added} new, ${life.n0} → ${life.n} residents)`);
+  check(life.drawn > 0 && life.drawnGone === 0, `only people still in town are drawn (${life.drawn} drawn)`);
+  check(life.reg > 0, 'the civic office shows the town register (' + life.reg + ' entries)');
+  check(life.saved, 'lives are saved as a delta over the generated town');
+  {
+    const before = await ev(`(async () => { await ORBIS.save(); return ORBIS.pop.people.map(p => p.id + '@' + p.home).sort().join(); })()`);
+    check(await load('auto=continue'), 'reload after the town changed');
+    const after = await ev(`ORBIS.pop.people.map(p => p.id + '@' + p.home).sort().join()`);
+    check(before === after, 'the same residents live in the same homes after reloading');
+  }
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

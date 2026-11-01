@@ -141,6 +141,32 @@ Both are sums over time, so settling doesn't depend on slicing. The settlement p
 trains the job's skill (closed form), counts missed shifts (three in a row means
 dismissal), and checks promotion. `law.charge` can dismiss you as well.
 
+## Lives over time (`world/town.js`, `sim/processes/life.js`)
+
+`gen/population.js` is the town at the universe's epoch and is never changed.
+`livePopulation(planet, s, store)` returns the town *now*: one object per store that keeps
+its identity (everything holds `ctx.pop`), and `refreshLife()` rewrites its fields in
+place from two kinds of delta:
+- `life/<settlement>`: `{ people: {id: patch | new person}, hh: {id: household}, added, serial, nextHH }`.
+  Households are the source of truth for who lives where. A household has a unit and
+  an ordered member list; beds follow member order, as in generation.
+- `job/<id>`: `{ holder, since, takenAt?, vacatedAt? }`, the same key the player's jobs use.
+  A person's job is whichever job names them as holder.
+
+People who die or leave stay in `byId` with `gone: { t, why }` (for family links and old
+events) but drop out of `people`, which is what schedules, the crowd, law and work walk.
+Ages are counted from a birth time: epoch age plus a hashed birthday for generated
+people, or the stored time for new ones. A person's object is rebuilt only when their
+home, bed, job or age changes, and it carries a `rev` that keys the day-plan cache.
+
+`life.day` runs at each planet midnight while everyone is in bed. Every roll is
+`hash(universe, who, day, what)` against a yearly rate turned into a daily chance, and
+the steps run in a fixed order: deaths, work, births, leaving home, moves, arrivals. A
+day's outcome therefore depends only on the town at that midnight, so catch-up equals
+stepping. It costs about 2.5 ms per day for a town of 350, so a year away is about 1 s.
+`openings()` is stable within a week: postings are the posts free when the week began
+(`takenAt` and `vacatedAt` say which), minus those filled since.
+
 ## Persistence (`world/`)
 
 `WorldStore` keeps a working copy in memory. A backend persists the dirty records:
