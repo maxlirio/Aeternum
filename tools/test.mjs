@@ -512,6 +512,66 @@ suites.life = async () => {
   check(stable, 'nothing appears on a week\'s board mid-week');
 };
 
+suites.climb = async () => {
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Controller } = await import('../js/player/controller.js');
+  const { laddersIn } = await import('../js/gen/climb.js');
+  const { buildingPlan } = await import('../js/gen/building.js');
+  const { buildingToWorld } = await import('../js/gen/place.js');
+  const { surfaceHeight } = await import('../js/gen/surface.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false);
+  const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
+  // ladders: one per non-house building that has a clear spot; up onto the roof and back down
+  const ls = laddersIn(p, s), cands = s.buildings.filter(b => b.type !== 'house').length;
+  check(ls.length >= 0.8 * cands, `${ls.length}/${cands} buildings have a fire ladder`);
+  let up = 0, down = 0;
+  for (const l of ls.slice(0, 12)) {
+    const c = new Controller(world, l.foot); run(c, {}, 0.3);
+    c.grabLadder(l); run(c, { fwd: 1 }, 40);
+    const w = world.locate(...c.pos);
+    if (c.mode === 'walk' && w?.roof && Math.abs(c.pos[1] - l.roof[1]) < 0.3) up++;
+    c.grabLadder(l); run(c, { fwd: -1 }, 40);
+    if (c.mode === 'walk' && Math.abs(c.pos[1] - surfaceHeight(p, c.pos[0], c.pos[2])) < 0.3) down++;
+  }
+  check(up === Math.min(12, ls.length), `climbed onto the roof ${up}/${Math.min(12, ls.length)} times`);
+  check(down === Math.min(12, ls.length), `climbed back down ${down}/${Math.min(12, ls.length)} times`);
+  // pulling yourself onto furniture: walk at a solid prop 0.6–1.2 m high and press Space
+  let tried = 0, onto = 0, jumpedOnly = 0;
+  for (const b of s.buildings) {
+    if (tried >= 10) break;
+    const plan = buildingPlan(p, s, b);
+    for (const pr of plan.props) {
+      if (pr.soft || pr.h < 0.6 || pr.h > 1.2 || pr.y > 0.1 || tried >= 10) continue;
+      const room = plan.rooms.find(r => r.k === 0 && pr.x0 > r.rect[0] + 1.2 && pr.x1 < r.rect[2] - 1.2 && pr.z0 > r.rect[1] + 1.2 && pr.z1 < r.rect[3] - 1.2);
+      if (!room || pr.x1 - pr.x0 < 0.6 || pr.z1 - pr.z0 < 0.6) continue;
+      const cx = (pr.x0 + pr.x1) / 2, start = buildingToWorld(s, b, cx, 0, pr.z0 - 0.75), target = buildingToWorld(s, b, cx, 0, pr.z0 + 0.3);
+      const c = new Controller(world, start); run(c, {}, 0.3);
+      c.facing = Math.atan2(target[0] - start[0], target[2] - start[2]);
+      if (world.ledgeAhead(...c.pos, c.facing) === null) continue;
+      tried++;
+      c.step(1 / 120, { fwd: 1, right: 0, run: false, jump: true, yaw: c.facing }); run(c, { fwd: 0 }, 3);
+      const top = start[1] + pr.y + pr.h;
+      if (Math.abs(c.pos[1] - top) < 0.08) onto++; else jumpedOnly++;
+    }
+  }
+  check(tried >= 5 && onto === tried, `pulled up onto furniture ${onto}/${tried}`);
+  // a slope too steep to walk can be scrambled up, slowly; exhausted, you can't
+  let found = null;
+  for (let k = 0; k < 4000 && !found; k++) {
+    const a = k * 2.39996, r = s.R + 400 + (k % 400) * 3, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r;
+    for (let q = 0; q < 8; q++) { const th = q * Math.PI / 4, dx = Math.sin(th), dz = Math.cos(th), h0 = surfaceHeight(p, x, z), h1 = surfaceHeight(p, x + dx, z + dz), h2 = surfaceHeight(p, x + 6 * dx, z + 6 * dz);
+      if ((h1 - h0) > 1.4 && (h2 - h0) / 6 > 1.3) { found = { x, z, facing: th }; break; } }
+  }
+  check(found, 'found a slope steeper than 52°');
+  if (found) {
+    const climb = tired => { const c = new Controller(world, [found.x, surfaceHeight(p, found.x, found.z), found.z]); c.facing = found.facing; run(c, {}, 0.3); const y0 = c.pos[1]; run(c, { fwd: 1, yaw: found.facing, tired }, 4); return { rise: c.pos[1] - y0, speed: Math.hypot(c.pos[0] - found.x, c.pos[2] - found.z) / 4 }; };
+    const fresh = climb(false), tired = climb(true);
+    check(fresh.rise > 1 && fresh.speed < 1.0, `scrambled up ${fresh.rise.toFixed(1)} m in 4 s (${fresh.speed.toFixed(2)} m/s along the ground)`);
+    check(tired.rise < 0.3, `exhausted: can't climb it (${tired.rise.toFixed(2)} m)`);
+  }
+  console.log(`  ${ls.length} ladders; ${onto} furniture climbs`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

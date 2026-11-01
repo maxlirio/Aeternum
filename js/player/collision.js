@@ -79,6 +79,12 @@ export class CollisionWorld {
           if (h > best) { best = h; where = { b, k: Math.min(sl.k, plan.F - 1), roof: sl.roof }; }
         }
       }
+      // furniture you can stand on (tables, crates, counters) — tops of solid props
+      for (const pr of this.colliders(b).props) {
+        const top = this.base + pr[5];
+        if (top > yFeet + STEP || top <= best) continue;
+        if (lx >= pr[0] && lx <= pr[2] && lz >= pr[1] && lz <= pr[3]) { best = top; where = { b, k: Math.max(0, Math.min(plan.F - 1, Math.floor(pr[4] / plan.H))), prop: true }; }
+      }
       for (const r of plan.ramps) {
         if (lx < r.x0 || lx > r.x1 || lz < r.z0 || lz > r.z1) continue;
         const h = this.base + r.y0 + (r.y1 - r.y0) * (lz - r.z0) / (r.z1 - r.z0);
@@ -136,6 +142,24 @@ export class CollisionWorld {
       if (!moved) break;
     }
     return [x, z];
+  }
+
+  // Something to climb onto just ahead: a surface 0.55–2.2 m above the feet (furniture
+  // top, a terrain step, a low roof) with room to crouch on it. Reads only collision
+  // data (plans, ground), never meshes. → { top, x, z } or null
+  ledgeAhead(x, y, z, facing, reach = 2.2) {
+    const fx = Math.sin(facing), fz = Math.cos(facing);
+    if (this.solidAt(x, y + 1.95, z, 0.05)) return null;             // no room to reach up
+    for (const d of [0.5, 0.75, 1.0]) {
+      const px = x + fx * d, pz = z + fz * d;
+      const top = this.groundAt(px, pz, y + reach - STEP).h, rise = top - y;
+      if (rise < 0.55 || rise > reach) continue;
+      if (this.ceilingAt(px, pz, top) < top + 1.2) continue;
+      let clear = true;
+      for (const hy of [0.2, 0.7, 1.1]) if (this.solidAt(px, top + hy, pz, 0.05)) clear = false;
+      if (clear && this.resolve(px, pz, top + 0.02).every((v, i) => Math.abs(v - [px, pz][i]) < 0.15)) return { top, x: px, z: pz };
+    }
+    return null;
   }
 
   // Is the point inside solid geometry (camera collision)?

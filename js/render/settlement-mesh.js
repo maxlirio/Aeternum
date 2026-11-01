@@ -3,6 +3,7 @@
 // merged per material per 128 m cell so the town costs tens of draw calls, not
 // thousands, while frustum culling still works by cell.
 import { outRoutes } from '../gen/highways.js';
+import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { materials } from './materials.js';
@@ -111,6 +112,8 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}) {
     const cu = (b.rect[0] + b.rect[2]) / 2, cv = (b.rect[1] + b.rect[3]) / 2;
     const frame = buildingFrame(s, b);
     buildBuilding(cellFor(cu, cv), plan, b, frame);
+    const lad = ladderOf(planet, s, b);
+    if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
     for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame });
     if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
   }
@@ -178,4 +181,17 @@ function mergeSimple(geos) {
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   out.setIndex(idx);
   return out;
+}
+
+// A steel fire ladder: two rails, rungs every 0.3 m, stand-off brackets to the wall, and
+// grab-rails that curve over the parapet. Drawn from the logical ladder (gen/climb.js).
+function ladderMesh(mb, L, frame, M) {
+  mb.setFrame(...frame);
+  const x = L.lx, z = L.lz, top = L.y1 + 1.0, hw = 0.24;
+  for (const sx of [-hw, hw]) {
+    mb.box(M.trim, x + sx - 0.025, 0, z - 0.025, x + sx + 0.025, top, z + 0.025, [0.42, 0.44, 0.46]);
+    for (let y = 1.2; y < L.y1; y += 2.4) mb.box(M.trim, x + sx - 0.02, y, z - 0.42, x + sx + 0.02, y + 0.04, z, [0.42, 0.44, 0.46]);   // brackets
+    mb.box(M.trim, x + sx - 0.025, top - 0.05, z - 0.75, x + sx + 0.025, top, z, [0.42, 0.44, 0.46]);                                   // over the parapet
+  }
+  for (let y = 0.3; y < L.y1 + 0.6; y += 0.3) mb.box(M.trim, x - hw, y - 0.016, z - 0.016, x + hw, y + 0.016, z + 0.016, [0.5, 0.52, 0.54]);
 }

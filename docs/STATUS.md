@@ -38,6 +38,8 @@ Each line says what is actually implemented and how it was checked.
 | **Lives move on**: once a planet day, at midnight, every resident and household rolls against yearly rates: deaths by age (Gompertz: 0.2%/yr at 30, 2.4% at 60, 14% at 80), births to couples aged 20–44 with a spare bed, retirement at 67, quitting (~10%/yr), grown children leaving home (into an empty home, or out of town), households moving within town or leaving it, newcomers moving into empty homes. Ages count up from birthdays spread through the planet year. Everything is a delta over the generated town (`life/<town>`, `job/<id>`); the town at the epoch is never rewritten | `test.mjs life` (10 years: population stays 70–135% of the start, every event kind happens, one household per home, nobody in two households or two jobs, no job holder who has left, workers 18–66, everyone still has a place in the day; 4 years in yearly jumps == 61 uneven slices; a reloaded save gives the same people, homes and jobs) |
 | **Residents compete for jobs**: unemployed adults (88% of them are looking) take openings from the same weekly postings you see. A post you applied for can be filled before your application is read ("the position was filled"). A week's board is fixed at its start: a post taken mid-week is struck off and nothing new appears until the next week | `test.mjs life`; `test.mjs careers` |
 | **Town register and news**: the civic office (J) lists the latest births, deaths, moves and hires. Changes touching people you know (family, people you live with, coworkers, neighbours) get a toast and are listed in the away report; the rest are counted ("2 deaths · 1 birth · 39 people found work…"). Your family in C shows who has died or moved away | `e2e` (120 days: the town changes, only people still in town are drawn, register shown, reload gives the same homes); screenshots `register`, `family`, `kin` |
+| **Roads out of town** are routed by a least-cost search that avoids steep ground and water (switchbacks up hillsides), with a vertical profile clamped to 9% and smoothed crests; the ground is cut and filled to it | `test.mjs roads` (24 towns: steepest graded road 9.0%, every road stays in its region); screenshots `road`, `road1` |
+| **Climbing**: steep terrain (over 48°) can be scrambled up slowly unless you're exhausted; Space while walking into something 0.55–2.2 m high (furniture, crates, terrain steps, low roofs) pulls you up onto it; furniture tops can be stood on; every non-house building has a fire ladder on its back wall (E to climb, W/S, Space to let go) that steps you over the parapet onto the roof. Climbing tires you (and trains fitness). All of it reads collision data, never meshes | `test.mjs climb` (12 ladders up to the roof and back down, 10 furniture climbs, scramble up a 52°+ slope, exhausted can't); screenshots `ladder`, `roof` |
 | **Avoidance**: walkers sidestep or briefly wait for you and each other, never stepping into walls, then catch up with their schedule | `e2e` (a walker keeps at least 0.6 m from you and gets around) |
 
 ## Placeholders and limits (honest list)
@@ -80,6 +82,10 @@ Each line says what is actually implemented and how it was checked.
   terrain for them), but only the spawn town gets meshes and colliders.
 - **Planet surface is flat**, with no curvature or orbit. Addresses are ready for a
   cube-sphere.
+- **Deep cuts in mountain towns.** Where no gentle route exists, a road is cut or filled
+  up to ~100 m deep (no tunnels or bridges yet), and roads end about 1–3 km out.
+- **Climbing has no free wall climbing** (sheer building walls need the ladder) and no
+  falls or injuries; the placeholder body has a simple reaching pose.
 - **Town grading is a flat plateau** with a 185 m falloff. It looks terraformed on hilly
   sites.
 - **Terrain detail texture stretches on steep slopes** because it is not triplanar yet.

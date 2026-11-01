@@ -1,7 +1,12 @@
 // Third-person character motion: kinematic capsule with gravity, jumping, step-up,
-// sticking to stairs/ramps on the way down, and a slope limit on raw terrain.
+// sticking to stairs/ramps on the way down, and climbing:
+//   scramble — slopes too steep to walk can still be climbed, slowly, while you're not exhausted
+//   mantle   — Space while walking into something 0.55–2.2 m high pulls you up onto it
+//   ladder   — E at a ladder; W/S to climb, Space to let go; the top steps you onto the roof
+// Every surface comes from the collision world's logical data, never from meshes.
 export const GRAVITY = 9.81;
 const WALK = 1.9, RUN = 5.4, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
+const LADDER = 0.9;                                        // m/s up or down a ladder
 
 export class Controller {
   constructor(world, pos) {
@@ -11,9 +16,23 @@ export class Controller {
     this.grounded = false;
     this.facing = 0;            // radians, 0 = +z
     this.speed = 0;
+    this.mode = 'walk';         // 'walk' | 'mantle' | 'ladder'
+    this.climbing = false;      // exerting: scrambling, mantling or on a ladder (drives fatigue + pose)
   }
-  // input: { fwd, right, run, jump, yaw } — yaw is the camera heading
+
+  // Grab a ladder (gen/climb.js record). From below or from the roof.
+  grabLadder(l) {
+    const fromTop = this.pos[1] > l.foot[1] + 1.5;
+    this.mode = 'ladder'; this.ladder = l; this.vel = [0, 0, 0]; this.facing = l.facing;
+    this.pos = [l.head[0], fromTop ? l.head[1] - 1.2 : Math.max(l.foot[1], this.pos[1]), l.head[2]];
+  }
+  mantleTo(to, dur) { this.mode = 'mantle'; this.mantle = { from: this.pos.slice(), to, t: 0, dur }; this.vel = [0, 0, 0]; }
+
+  // input: { fwd, right, run, jump, yaw, tired } — yaw is the camera heading
   step(dt, input, speedFactor = 1) {
+    this.climbing = false;
+    if (this.mode === 'mantle') return this.stepMantle(dt);
+    if (this.mode === 'ladder') return this.stepLadder(dt, input, speedFactor);
     const w = this.world;
     let [x, y, z] = this.pos;
     // desired horizontal velocity in camera space
@@ -31,21 +50,36 @@ export class Controller {
       let d = want - this.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
       this.facing += d * Math.min(1, 10 * dt);
     }
-    if (this.grounded && input.jump) { this.vel[1] = JUMP; this.grounded = false; }
+    if (this.grounded && input.jump) {
+      // walking into something you could pull yourself onto: climb it instead of jumping
+      const ledge = ml > 0.01 && w.ledgeAhead(x, y, z, this.facing);
+      if (ledge) { this.mantleTo([ledge.x, ledge.top, ledge.z], (0.45 + 0.4 * (ledge.top - y)) / speedFactor); return; }
+      this.vel[1] = JUMP; this.grounded = false;
+    }
     this.vel[1] -= GRAVITY * dt;
 
     // horizontal move + wall resolution
     const g0 = w.groundAt(x, z, y);
     let nx = x + this.vel[0] * dt, nz = z + this.vel[2] * dt;
     [nx, nz] = w.resolve(nx, nz, y);
-    let g1 = w.groundAt(nx, nz, y);
+    let g1 = w.groundAt(nx, nz, y + 1.2);         // (look a little higher: a steep slope rises fast)
     const run = Math.hypot(nx - x, nz - z);
-    // raw-terrain slope limit (building surfaces are always walkable)
-    if (this.grounded && !g1.where && !g0.where && run > 1e-5 && (g1.h - g0.h) / run > MAX_SLOPE) { nx = x; nz = z; g1 = g0; this.vel[0] = this.vel[2] = 0; }
+    // raw terrain too steep to walk: scramble up it slowly, or not at all when exhausted
+    const slope = run > 1e-5 && !g1.where && !g0.where ? (g1.h - g0.h) / run : 0;
+    if (this.grounded && slope > MAX_SLOPE) {
+      if (input.tired) { nx = x; nz = z; g1 = g0; this.vel[0] = this.vel[2] = 0; }
+      else {
+        const f = Math.max(0.08, Math.min(0.5, 0.5 * MAX_SLOPE / slope));
+        nx = x + (nx - x) * f; nz = z + (nz - z) * f;
+        g1 = w.groundAt(nx, nz, y + 1.2);
+        this.climbing = true;
+      }
+    } else if (!g1.where && g1.h > y + 0.6 && this.grounded) g1 = w.groundAt(nx, nz, y);
     x = nx; z = nz;
 
     // vertical
     y += this.vel[1] * dt;
+    if (this.climbing) { y = Math.max(y, g1.h); this.vel[1] = 0; }
     const ceil = w.ceilingAt(x, z, this.pos[1]);
     if (y + 1.8 > ceil && this.vel[1] > 0) { y = ceil - 1.8; this.vel[1] = 0; }
     const g = w.groundAt(x, z, Math.max(y, this.pos[1]));
@@ -55,5 +89,29 @@ export class Controller {
     this.speed = Math.hypot(x - this.pos[0], z - this.pos[2]) / Math.max(dt, 1e-6);
     this.pos = [x, y, z];
     this.where = g.where;
+  }
+
+  // Up first, then over: hands on the edge, pull, swing a knee over.
+  stepMantle(dt) {
+    const m = this.mantle; m.t += dt;
+    const f = Math.min(1, m.t / m.dur), up = Math.min(1, f / 0.65), over = Math.max(0, (f - 0.45) / 0.55);
+    const e = v => v * v * (3 - 2 * v);
+    this.pos = [m.from[0] + (m.to[0] - m.from[0]) * e(over), m.from[1] + (m.to[1] - m.from[1]) * e(up), m.from[2] + (m.to[2] - m.from[2]) * e(over)];
+    this.climbing = true; this.speed = 0; this.grounded = true;
+    if (f >= 1) { this.mode = 'walk'; this.pos = m.to.slice(); this.vel = [0, 0, 0]; this.where = this.world.groundAt(...[m.to[0], m.to[2]], m.to[1]).where; }
+  }
+
+  stepLadder(dt, input, speedFactor) {
+    const l = this.ladder;
+    this.climbing = Math.abs(input.fwd) > 0; this.speed = 0; this.grounded = true; this.facing = l.facing;
+    if (input.jump) {                          // let go: drop off backwards
+      this.mode = 'walk'; this.grounded = false;
+      this.vel = [-Math.sin(l.facing) * 1.5, 0.5, -Math.cos(l.facing) * 1.5]; return;
+    }
+    let y = this.pos[1] + input.fwd * LADDER * speedFactor * dt * (input.tired && input.fwd > 0 ? 0.3 : 1);
+    if (y >= l.head[1] - 0.2 && input.fwd > 0) { this.mantleTo(l.roof.slice(), 1.1 / speedFactor); return; }   // over the parapet onto the roof
+    if (y <= l.foot[1] && input.fwd < 0) { this.mode = 'walk'; y = l.foot[1]; this.pos = [l.foot[0], y, l.foot[2]]; return; }
+    this.pos = [l.head[0], Math.max(l.foot[1], Math.min(l.head[1] - 0.2, y)), l.head[2]];
+    this.where = null;
   }
 }

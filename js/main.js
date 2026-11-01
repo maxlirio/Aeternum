@@ -42,6 +42,7 @@ import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
+import { laddersIn } from './gen/climb.js';
 import { UI, describeEvent } from './ui/ui.js';
 
 const params = new URLSearchParams(location.search);
@@ -285,7 +286,17 @@ async function start(fresh) {
     return best;
   };
   const insideBuilding = b => { const loc = world.locate(...ctrl.pos); return loc?.b === b; };
+  // ladders: at the foot, or on the roof by the top
+  const ladders = laddersIn(planet, s);
+  const nearLadder = () => {
+    if (ctrl.mode !== 'walk') return null;
+    const [x, y, z] = ctrl.pos;
+    return ladders.find(l => (Math.hypot(l.foot[0] - x, l.foot[2] - z) < 1.1 && Math.abs(y - l.foot[1]) < 1.2)
+      || (Math.hypot(l.roof[0] - x, l.roof[2] - z) < 1.3 && Math.abs(y - l.roof[1]) < 0.6)) || null;
+  };
   function interact() {
+    const lad = nearLadder();
+    if (lad) { ctrl.grabLadder(lad); return; }
     const i = nearestDoor(); if (i < 0) return;
     const { b, door } = town.doors[i], t = clock.now();
     const st = doorState(store, planet, b, door, t);
@@ -367,10 +378,11 @@ async function start(fresh) {
       const input = {
         fwd: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
         right: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
-        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw,
+        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92,
       };
       jumpQueued = false;
       for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+      if (ctrl.climbing) advanceBody(player, 'train', dt * 8, planet);     // climbing is hard work (and trains you)
       // force a locked door by holding F
       const di = keys.has('KeyF') ? nearestDoor() : -1;
       if (di >= 0) {
@@ -401,7 +413,8 @@ async function start(fresh) {
     const rp = toRender(...ctrl.pos);
     avatar.object.position.set(rp[0], rp[1], rp[2]);
     avatar.object.rotation.y = ctrl.facing;
-    avatar.update(dt, ctrl.speed, ctrl.grounded);
+    const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' ? { moving: true, lean: 0.5 } : ctrl.climbing ? { moving: true, lean: 0.6 } : null;
+    avatar.update(dt, ctrl.speed, ctrl.grounded, climbPose);
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -444,8 +457,10 @@ async function start(fresh) {
       roomLight.intensity = 6 + 10 * (1 - (sky.state.day ?? 1));
     } else roomLight.intensity = 0;
     if (!paused) {
-      const di = nearestDoor();
-      if (di >= 0 && forceHold === 0) {
+      const di = nearestDoor(), lad = nearLadder();
+      if (ctrl.mode === 'ladder') ui.showPrompt(`<kbd>W</kbd>/<kbd>S</kbd> climb · <kbd>Space</kbd> let go${player.fatigue > 0.92 ? ' <small>— you\'re exhausted</small>' : ''}`);
+      else if (lad && forceHold === 0) ui.showPrompt(`<kbd>E</kbd> ${ctrl.pos[1] > lad.foot[1] + 1.5 ? 'Climb down the ladder' : 'Climb the fire ladder'}`);
+      else if (di >= 0 && forceHold === 0) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
         const res = canOpen(store, planet, player, b, door, t);
         const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
@@ -475,7 +490,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

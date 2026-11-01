@@ -53,6 +53,14 @@ export function applyPose(rig, st) {
     legL.lower.rotation.x = legR.lower.rotation.x = Math.PI / 2;
     armL.upper.rotation.x = armR.upper.rotation.x = -0.5; armL.lower.rotation.x = armR.lower.rotation.x = -0.9;
   }
+  if (st.mode === 'climb') {     // hands reaching up in turn, knees lifting: ladder, ledge, steep slope
+    const a = Math.sin(st.phase), b = Math.cos(st.phase);
+    torso.rotation.x = st.lean; rig.root.rotation.x = 0;
+    armL.upper.rotation.set(-2.5 + 0.45 * a, 0, 0.12); armR.upper.rotation.set(-2.5 - 0.45 * a, 0, -0.12);
+    armL.lower.rotation.x = -0.5 - 0.3 * Math.max(0, b); armR.lower.rotation.x = -0.5 - 0.3 * Math.max(0, -b);
+    legL.upper.rotation.set(-0.5 - 0.5 * Math.max(0, a), 0, 0); legR.upper.rotation.set(-0.5 - 0.5 * Math.max(0, -a), 0, 0);
+    legL.lower.rotation.x = 0.8 + 0.4 * Math.max(0, a); legR.lower.rotation.x = 0.8 + 0.4 * Math.max(0, -a);
+  }
   if (st.mode === 'lie') {
     rig.root.rotation.x = -Math.PI / 2; hips.position.y = 0.95;
     armL.upper.rotation.z = 0.15; armR.upper.rotation.z = -0.15;
@@ -78,10 +86,10 @@ export function createPlaceholderAvatar() {
       opacity = o; rig.root.visible = o > 0.02;
       for (const m of Object.values(mats)) { m.transparent = o < 0.99; m.opacity = o; m.depthWrite = o >= 0.99; }
     },
-    update(dt, speed, grounded) {
+    update(dt, speed, grounded, climb = null) {
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
-      phase += dt * (speed > 0.15 ? 2.2 + speed * 1.15 : 0);
-      applyPose(rig, { mode: grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, speed / 5.4) });
+      phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);
+      applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, speed / 5.4), lean: climb?.lean ?? 0 });
     },
   };
 }
