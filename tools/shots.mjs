@@ -85,7 +85,9 @@ try {
     await send('Runtime.enable'); await send('Network.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
     // booth[:variant] → the asset booth (tools/booth.html): every variant on a grid, or one up close
-    const url = name.startsWith('booth') ? `http://127.0.0.1:${PORT}/tools/booth.html${name.includes(':') ? '?v=' + name.split(':')[1] : ''}`
+    // boothm:<material> → one surface; GALLERY=1 hides the booth's label
+    const bq = name.includes(':') ? (name.startsWith('boothm') ? '?m=' : '?v=') + name.split(':')[1] + (process.env.GALLERY ? '&clean' : '') : '';
+    const url = name.startsWith('booth') ? `http://127.0.0.1:${PORT}/tools/booth.html${bq}`
       : `http://127.0.0.1:${PORT}/?store=mem&auto=new&seed=${seed}&${SHOTS[name]}`;
     const t0 = Date.now();
     await send('Page.navigate', { url });
