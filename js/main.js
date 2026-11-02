@@ -48,6 +48,10 @@ import { SPEEDER } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
+import { SHIP_PRICE } from './gen/ships.js';
+import { shipsIn, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
+import { Flight } from './player/flight.js';
+import { ShipView } from './render/ships.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
 import { ITEMS, buyPrice, sellPrice } from './gen/items.js';
@@ -152,6 +156,7 @@ async function start(fresh) {
   const propLib = params.has('boxprops') ? null : await loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
   const propView = propLib ? new PropView(propLib) : null;
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
+  const shipView = new ShipView(propLib); scene.add(shipView.group);
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const doorView = new DoorView(s, town.doors);
@@ -266,7 +271,7 @@ async function start(fresh) {
   addEventListener('keydown', e => {
     if (paused) return;
     keys.add(e.code);
-    if (e.code === 'Space') jumpQueued = true;
+    if (e.code === 'Space' && !flight) jumpQueued = true;
     if (e.code === 'KeyE') interact();
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
@@ -282,7 +287,10 @@ async function start(fresh) {
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
-    if (ride) { park(store, ride.v, ride.pos, ride.facing); player.pos = ride.dismountSpot(); } else player.pos = ctrl.pos.slice();
+    if (ride) { park(store, ride.v, ride.pos, ride.facing); player.pos = ride.dismountSpot(); }
+    else if (flight) { store.patchDelta(shipKey(flight.ship.id), { flying: true, at: { c: flight.pos.slice(), facing: flight.facing } }); player.piloting = flight.ship.id; player.pos = flight.pos.slice(); }
+    else player.pos = ctrl.pos.slice();
+    if (!flight) player.piloting = null;
     player.facing = ctrl.facing;
     store.meta.gameTime = clock.now(); store.meta.realTime = Date.now();
     store.touchPlayer(); store.dirty.meta = true;
@@ -319,6 +327,9 @@ async function start(fresh) {
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
+    if (flight) { setDown(); return; }
+    const rp = nearRamp();
+    if (rp) { rampFlow(rp); return; }
     if (ctrl.mode === 'seat') { if (ctrl.seat.pose === 'lie') sleepFlow(); else ctrl.standUp(); return; }
     const bike = nearVehicle();
     if (bike) { bikeFlow(bike); return; }
@@ -338,9 +349,9 @@ async function start(fresh) {
   }
 
   // ---- using things (sim/processes/use.js): furniture in reach, ahead of you on your floor
-  const KIND_LABEL = { bed: 'Bed', sofa: 'Sofa', chair: 'Chair', table: 'Table', desk: 'Desk', planter: 'Planter', fridge: 'Fridge' };
+  const KIND_LABEL = { bed: 'Bed', sofa: 'Sofa', chair: 'Chair', table: 'Table', desk: 'Desk', planter: 'Planter', fridge: 'Fridge', console: 'Flight console' };
   const VERB = { sleep: 'Lie down', sit: 'Sit down', open: 'Look inside', cook: 'Cook', buy: 'Browse the shelves', sell: 'Sell things at the till', terminal: 'Use the terminal',
-    fabricate: 'Run the fabricator', assemble: 'Build something', wash: 'Run a wash', water: 'Water the plant' };
+    fabricate: 'Run the fabricator', assemble: 'Build something', wash: 'Run a wash', water: 'Water the plant', fly: 'Take the helm' };
   const labelOf = u => u.box && !['bench', 'counter', 'machine'].includes(u.pr.kind) ? u.box.label : KIND_LABEL[u.pr.kind]
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
@@ -395,6 +406,7 @@ async function start(fresh) {
     if (verb === 'wash') { const r = startWork(ctx, b, u, 'wash', null, t); ui.toast(r.ok ? `The wash will take ${mins(r.until - t)}.` : r.why, r.ok ? '' : 'warn'); return; }
     if (verb === 'cook' || verb === 'fabricate' || verb === 'assemble') return workFlow(b, u, verb);
     if (verb === 'terminal') return terminalFlow(b);
+    if (verb === 'fly') return flyFlow(b);
     if (verb === 'open') return stashFlow(b, u, 'take');
     if (verb === 'buy') return stashFlow(b, u, shopOpen(planet, b, t) ? 'buy' : 'take');
     if (verb === 'sell') return sellFlow(b);
@@ -530,6 +542,80 @@ async function start(fresh) {
     ui.toast(`You hotwired ${esc(v.ownerName)}'s bike. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
     vehicles = vehiclesIn(store, planet, s); mount(vehicles.find(x => x.id === v.id));
   }
+  // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
+  // structure in the collision world, like a building; a flying one is a Flight.
+  let ships = shipsIn(store, planet, s), flight = null, rampHold = 0;
+  const placed = new Map();          // ship id → structure in the collision world
+  const shipById = id => ships.find(x => x.id === id);
+  function syncShips() {
+    ships = shipsIn(store, planet, s);
+    for (const sh of ships) {
+      const want = !sh.flying && !(flight && flight.ship.id === sh.id), have = placed.get(sh.id);
+      const sig = JSON.stringify([sh.at, sh.O]);
+      if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
+      if (want && !placed.has(sh.id)) {
+        const b = structureOf(s, sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)));
+        b.sig = sig; world.addStructure(b); placed.set(sh.id, b);
+      }
+    }
+  }
+  syncShips();
+  sched.add(TIER.NEAR, { update: syncShips });
+  const nearRamp = () => {
+    if (ctrl.mode !== 'walk') return null;
+    for (const [id, b] of placed) {
+      const L = b.plan.layout, mx = (L.ramp.x0 + L.ramp.x1) / 2;
+      const foot = buildingToWorld(s, b, mx, 0, L.ramp.z0 - 0.4), top = buildingToWorld(s, b, mx, L.deck, L.ramp.z1 + 0.6);
+      for (const q of [foot, top]) if (Math.hypot(q[0] - ctrl.pos[0], q[2] - ctrl.pos[2]) < 1.6 && Math.abs(q[1] - ctrl.pos[1]) < 1.2) {
+        const sh = shipById(id); return { sh, b, down: rampDown(sh, planet, clock.now(), player), locked: rampLocked(sh, player), inside: q === top };
+      }
+    }
+    return null;
+  };
+  function rampFlow(rp) {
+    if (shipIsYours(rp.sh, player)) { setRamp(store, rp.sh, !rp.down); syncShips(); ui.toast(rp.down ? 'Ramp up.' : 'Ramp down.'); return; }
+    ui.toast(rp.down ? `The ${esc(rp.sh.name)} — ${esc(rp.sh.ownerName)}${rp.sh.forSale ? `, for sale: ${SHIP_PRICE} cr. Have a look inside.` : '.'}` : 'The ramp is up and locked.', rp.down ? '' : 'warn');
+  }
+  async function flyFlow(b) {
+    const sh = shipById(b.ship.id), t = clock.now(), opts = [];
+    if (shipIsYours(sh, player)) opts.push({ a: 'launch', label: 'Take off', note: 'Space climb · Q descend · W/S thrust · A/D turn · Shift boost · E lands when you\'re down and slow' });
+    else {
+      if (sh.forSale) opts.push({ a: 'buy', label: `Buy the ${sh.name} — ${SHIP_PRICE} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < SHIP_PRICE });
+      opts.push({ a: 'steal', label: 'Override the lockout and take off', note: `It belongs to ${esc(sh.ownerName)}. <b>That's stealing a ship.</b>` });
+    }
+    let pick = null;
+    await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} A short-range shuttle: a cargo hold, a bunk and a galley.`, options: opts }); });
+    if (!pick || pick.a === 'close') return;
+    if (pick.a === 'buy') { const r = buyShip(store, sh, t); ui.toast(r.ok ? `The ${esc(sh.name)} is yours. Sit at the helm again to take off.` : r.why, r.ok ? '' : 'warn'); syncShips(); return; }
+    if (pick.a === 'steal') {
+      const seen = witnessesHere(), inc = stealShip(store, s, sh, t, seen); lodgeIncident(ctx, inc);
+      ui.toast(`You overrode the ${esc(sh.name)}'s lockout. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
+    }
+    takeOff(shipsIn(store, planet, s).find(x => x.id === sh.id));
+  }
+  function takeOff(sh) {
+    const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
+    const { c, facing } = centreOf(s, sh);
+    launch(store, sh); setRamp(store, sh, false);
+    ships = shipsIn(store, planet, s);
+    flight = new Flight(world, planet, shipById(sh.id), c, facing);
+    ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = 30; cam.pitch = 0.25;
+    ui.toast(`<kbd>Space</kbd> climb · <kbd>Q</kbd> descend · <kbd>W</kbd>/<kbd>S</kbd> thrust · <kbd>A</kbd>/<kbd>D</kbd> turn · <kbd>Shift</kbd> boost`, '', 8000);
+  }
+  function setDown() {
+    const why = flight.landingProblem();
+    if (why) { ui.toast(`Can't land: ${why}.`, 'warn', 2500); return; }
+    const sh = flight.ship;
+    land(store, sh, flight.pos, flight.facing); setRamp(store, sh, false);
+    flight = null; cam.dist = camDist; syncShips();
+    const b = placed.get(sh.id), a = b.plan.anchors.find(x => x.kind === 'pilot');
+    ctrl.mode = 'walk'; ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', buildingToWorld(s, b, a.x, b.plan.layout.deck, a.z - 0.8));
+    ui.toast('Landed. Get up, and <kbd>E</kbd> at the top of the ramp to lower it.', '', 6000);
+  }
+  if (player.piloting) { // you were flying when you left: you're still at the helm
+    const sh = shipById(player.piloting);
+    if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; }
+  }
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -602,14 +688,33 @@ async function start(fresh) {
         run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92,
       };
       jumpQueued = false;
-      if (ride) {
+      if (flight) {
+        flight.step(dt, { fwd: input.fwd, right: input.right, up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run });
+        ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;
+        if (flight.impact > 15) { player.fatigue = Math.min(1, player.fatigue + 0.1); ui.toast(`Impact at ${Math.round(flight.impact * 3.6)} km/h.`, 'bad', 3000); }
+        cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * (flight.speed > 5 ? 1.5 : 0));
+      } else if (ride) {
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run });
         ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
         if (ride.impact > 12) { player.fatigue = Math.min(1, player.fatigue + 0.08); ui.toast(`You hit something at ${Math.round(ride.impact * 3.6)} km/h.`, 'bad', 3000); }
         cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
       } else for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+      // force a locked ramp by holding F at it
+      const rq = keys.has('KeyF') && !flight && !ride ? nearRamp() : null;
+      if (rq && rq.locked && !rq.down) {
+        rampHold += dt; ui.showPrompt(`Forcing the ramp lock… <i class="meter"><b style="width:${Math.min(100, rampHold / 4 * 100)}%"></b></i>`);
+        if (rampHold > 4) {
+          rampHold = 0; forceRamp(store, rq.sh); syncShips();
+          const seen = witnessesHere(), t2 = clock.now();
+          const inc = store.log({ t: t2, type: 'forced_entry', where: shipKey(rq.sh.id), building: rq.sh.firmB || rq.sh.id, buildingType: 'hangar', owner: rq.sh.ownerName, settlement: s.key, settlementName: s.name,
+            by: player.id, byName: player.name, access: 'staff', doorKind: 'exterior', witnesses: seen, status: 'unresolved' });
+          lodgeIncident(ctx, inc);
+          const cop = seen.find(w => isOfficer(pop.byId.get(w.id))); if (cop) startPursuit(pop.byId.get(cop.id), 'you were seen breaking into a ship');
+          ui.toast(`You forced the ${esc(rq.sh.name)}'s ramp. ${seen.length ? `<b>${seen.length} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
+        }
+      } else rampHold = 0;
       // hotwire someone's bike by holding F next to it
-      const nv = keys.has('KeyF') && !ride ? nearVehicle() : null;
+      const nv = keys.has('KeyF') && !ride && !flight ? nearVehicle() : null;
       if (nv && !isYours(nv, player) && !nv.forSale) {
         hotwire += dt; ui.showPrompt(`Hotwiring… <i class="meter"><b style="width:${Math.min(100, hotwire / 3 * 100)}%"></b></i>`);
         if (hotwire > 3) { hotwire = 0; hotwired(nv); }
@@ -657,6 +762,13 @@ async function start(fresh) {
       avatar.object.rotation.set(0, ride.facing, 0);
     }
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : null);
+    avatar.object.visible = !flight;
+    shipView.update(ships.map(sh => {
+      if (flight && flight.ship.id === sh.id) return { id: sh.id, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
+      if (sh.flying) return null;
+      const { c, facing } = centreOf(s, sh);
+      return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
+    }).filter(Boolean), dt);
     vehView.update(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : []));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
@@ -676,7 +788,7 @@ async function start(fresh) {
       if (ev === 'done') pursuit = null;
       if (pursuit) agents = agents.filter(a => a.id !== pursuit.person.id).concat(pursuit.agent());
     }
-    for (const a of ride ? [] : agents) { // people are solid to the player (not the other way round yet)
+    for (const a of ride || flight ? [] : agents) { // people are solid to the player (not the other way round yet)
       if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
       const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
       if (d < 0.6) { // exactly on top of each other: step back the way they came
@@ -704,7 +816,11 @@ async function start(fresh) {
       const di = nearestDoor(), lad = nearLadder();
       const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
       const nv = !ride && !ua && hotwire === 0 ? nearVehicle() : null;
-      if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
+      const rpn = !ride && !flight && !ua ? nearRamp() : null;
+      if (flight) { const why = flight.onGround ? flight.landingProblem() : null; ui.showPrompt(`<b>${Math.round(flight.speed * 3.6)} km/h</b> · ${Math.round(flight.altitude())} m up · <kbd>Space</kbd>/<kbd>Q</kbd> climb/descend${flight.onGround ? (why ? ` · can't land: ${why}` : ' · <kbd>E</kbd> land') : ''}`); }
+      else if (rampHold > 0) {}
+      else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${SHIP_PRICE} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
+      else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
       else if (hotwire > 0) {}
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? '<kbd>E</kbd> Ride your speeder' : nv.forSale ? `<kbd>E</kbd> Speeder for sale — ${SPEEDER.price} cr` : `${esc(nv.ownerName)}'s speeder · hold <kbd>F</kbd> hotwire`);
       else if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
@@ -744,7 +860,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

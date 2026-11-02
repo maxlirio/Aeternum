@@ -1,0 +1,35 @@
+{
+  "name": "Shuttle",
+  "note": "Logical layout of the shuttle. Ship frame: x across (0..W), z along the hull (0 = foot of the boarding ramp, D = beyond the nose), y up from the ground under the landing gear. Gameplay reads only this; tools/assets/build.py builds the model to fit it.",
+  "W": 10, "D": 21, "H": 5.4,
+  "deck": 1.6, "ceiling": 4.2,
+  "hull": [2.5, 5.0, 7.5, 18.5],
+  "partitions": [{ "z": 11.0, "door": 1 }, { "z": 15.5, "door": 2 }],
+  "ramp": { "x0": 4.05, "x1": 5.95, "z0": 1.2, "z1": 5.0 },
+  "doors": [
+    { "id": 0, "kind": "ramp", "rooms": [0, "outside"], "x": 5.0, "z": 5.0, "width": 1.9 },
+    { "id": 1, "kind": "hatch", "rooms": [0, 1], "x": 5.0, "z": 11.0, "width": 1.2 },
+    { "id": 2, "kind": "hatch", "rooms": [1, 2], "x": 5.0, "z": 15.5, "width": 1.2 }
+  ],
+  "rooms": [
+    { "i": 0, "purpose": "hold", "label": "cargo hold", "rect": [2.5, 5.0, 7.5, 11.0] },
+    { "i": 1, "purpose": "studio", "label": "cabin", "rect": [2.5, 11.0, 7.5, 15.5] },
+    { "i": 2, "purpose": "cockpit", "label": "cockpit", "rect": [2.5, 15.5, 7.5, 18.5] }
+  ],
+  "props": [
+    { "kind": "crate", "room": 0, "x0": 2.7, "z0": 5.4, "x1": 3.9, "z1": 6.6, "h": 1.0, "face": 1 },
+    { "kind": "crate", "room": 0, "x0": 6.1, "z0": 5.4, "x1": 7.3, "z1": 6.6, "h": 1.0, "face": 3 },
+    { "kind": "rack", "room": 0, "x0": 2.6, "z0": 8.0, "x1": 3.4, "z1": 10.4, "h": 2.2, "face": 1 },
+    { "kind": "rack", "room": 0, "x0": 6.6, "z0": 8.0, "x1": 7.4, "z1": 10.4, "h": 2.2, "face": 3 },
+    { "kind": "bed", "room": 1, "x0": 2.6, "z0": 11.3, "x1": 4.1, "z1": 13.4, "h": 0.55, "face": 1 },
+    { "kind": "counter", "room": 1, "x0": 6.75, "z0": 11.4, "x1": 7.4, "z1": 13.2, "h": 0.92, "face": 3 },
+    { "kind": "locker", "room": 1, "x0": 6.85, "z0": 13.9, "x1": 7.4, "z1": 14.8, "h": 2.0, "face": 3 },
+    { "kind": "console", "room": 2, "x0": 3.3, "z0": 17.6, "x1": 6.7, "z1": 18.3, "h": 1.0, "face": 0 },
+    { "kind": "chair", "room": 2, "x0": 4.75, "z0": 16.6, "x1": 5.25, "z1": 17.1, "h": 0.9, "face": 2, "soft": true }
+  ],
+  "seats": [
+    { "kind": "pilot", "pose": "sit", "prop": 8, "x": 5.0, "z": 16.85, "facing": 0 },
+    { "kind": "sleep", "pose": "lie", "prop": 4, "x": 3.35, "z": 12.35, "facing": 0, "top": 0.55 }
+  ],
+  "engines": [[2.0, 4.6], [8.0, 4.6]]
+}

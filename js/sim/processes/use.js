@@ -44,14 +44,16 @@ const cache = new Map();
 export function usablesOf(planet, s, b) {
   const ck = planet.universeSeed.join(':') + '|' + b.key;
   if (cache.has(ck)) return cache.get(ck);
-  const plan = buildingPlan(planet, s, b), out = [];
+  const plan = b.plan || buildingPlan(planet, s, b), out = [];
   plan.props.forEach((pr, i) => {
     const room = plan.rooms.find(r => r.i === pr.room && r.k === pr.k) || null;
     const box = containerOf(b, room, pr), p = room?.purpose, verbs = [];
     const seats = plan.anchors.filter(a => a.prop === i && (a.pose === 'sit' || a.pose === 'lie'));
     switch (pr.kind) {
       case 'bed': verbs.push('sleep'); break;
-      case 'sofa': case 'chair': case 'table': if (seats.length) verbs.push('sit'); break;
+      case 'chair': if (p === 'cockpit') { verbs.push('fly'); break; } if (seats.length) verbs.push('sit'); break;
+      case 'console': verbs.push('terminal'); break;
+      case 'sofa': case 'table': if (seats.length) verbs.push('sit'); break;
       case 'bench': if (p === 'shopfloor-workshop') verbs.push('assemble'); else verbs.push('sit'); break;
       case 'counter':
         if (p === 'kitchen' || p === 'studio') verbs.push('cook');
@@ -75,6 +77,7 @@ export function usablesOf(planet, s, b) {
 // Whose it is: yours (your home), communal (shared rooms in a habitation block), or
 // someone else's.
 export function ownership(b, room, player) {
+  if (b.type === 'ship') return b.ship.owner === 'you:' + player?.id ? { yours: true } : { owner: b.ship.ownerName };
   if (b.type === 'house') return b.key === player?.home ? { yours: true } : { owner: `the ${b.owner} household` };
   if (b.type === 'hab') {
     if (room?.unit === undefined) return { communal: true, owner: 'the residents' };

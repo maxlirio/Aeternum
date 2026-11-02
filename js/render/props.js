@@ -30,6 +30,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     if (mats.has(name)) return mats.get(name);
     let m;
     if (name === 'screen') m = new THREE.MeshStandardMaterial({ color: 0x0b1118, emissive: 0x5d8fc0, emissiveIntensity: 0.55, roughness: 0.15 });
+    else if (name === 'visor') m = new THREE.MeshStandardMaterial({ color: 0x0b1218, roughness: 0.06, metalness: 0.6 });
     else if (name === 'glow') m = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2.2, roughness: 0.3 });
     else if (name === 'glass') m = new THREE.MeshStandardMaterial({ color: 0xb8d0dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2, depthWrite: false });
     else {

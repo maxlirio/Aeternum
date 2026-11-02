@@ -4,7 +4,7 @@ import { PLINTH } from '../core/units.js';
 export function buildingToWorld(s, b, lx, ly, lz) {
   const u = b.O[0] + b.ex[0] * lx + b.ez[0] * lz, v = b.O[1] + b.ex[1] * lx + b.ez[1] * lz;
   const [x, z] = s.toWorld(u, v);
-  return [x, s.h + PLINTH + ly, z];
+  return [x, (b.base ?? s.h + PLINTH) + ly, z];        // (a landed ship brings its own floor height)
 }
 
 // Just outside a building's entrance, facing it.

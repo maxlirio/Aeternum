@@ -59,7 +59,7 @@ export class UI {
     const { planet, s, player, t, located } = g;
     const h = solarHour(planet, t);
     $('.place', this.hud).textContent = located ? (located.b ? labelFor(located, g.cell) : s.name) : s.name;
-    $('.where .sub', this.hud).textContent = located?.b ? `${s.name} · ${planet.name}` : `${planet.name}`;
+    $('.where .sub', this.hud).textContent = located?.b ? `${located.b.type === 'ship' ? located.b.ship.ownerName === 'you' ? 'your ship' : located.b.ship.ownerName : s.name} · ${planet.name}` : `${planet.name}`;
     $('.time', this.hud).textContent = formatHour(h);
     $('.clock .sub', this.hud).textContent = `Day ${dayNumber(planet, t)} · ${(planet.dayLength / 3600).toFixed(1)} h day`;
     $('.who', this.hud).textContent = `${player.name}, ${player.age}`;
@@ -168,6 +168,7 @@ function homeLabel(pop, unitKey) {
 const TYPE_LABEL = { office: 'Administration', hab: 'Habitation block', store: 'Store', house: 'Dwelling', workshop: 'Workshop', hangar: 'Hangar' };
 function labelFor(loc, cell) {
   const b = loc.b;
+  if (b.type === 'ship') return loc.roof ? `On top of the ${b.ship.name}` : `The ${b.ship.name}${loc.room ? ' · ' + loc.room.label : ''}`;
   if (cell && b.key === cell.b.key && loc.k === 0 && loc.room?.i === cell.room.i) return `${b.owner} · holding cell`;
   if (loc.roof) return `Roof — ${TYPE_LABEL[b.type]}`;
   const room = loc.room?.purpose ? ` · ${loc.room.purpose.replace('shopfloor-workshop', 'workshop floor').replace('shopfloor', 'shop floor')}` : '';

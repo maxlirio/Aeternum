@@ -182,8 +182,8 @@ def build_textures():
         json.dump({k: {'tile': v[1]} for k, v in MATERIALS.items()}, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow']
-# 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor']
+# 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
     def __init__(self): self.bm = bmesh.new(); self.uvl = self.bm.loops.layers.uv.new('UVMap')
@@ -545,16 +545,17 @@ def machine(p, L, D, H, r):
     add_box(p, L - 0.05, 0.4, D * 0.3, L, 0.8, D * 0.7, 'metal', 0.01)                    # side panel
 
 
-def add_loft(part, secs, mat, n=28, cap=True):
-    """A smooth hull through cross-sections (x, cy, ry, cz, rz, e): superellipses of
-    exponent e (2 = ellipse, higher = squarer), centred (cy, cz), radii ry (up) rz (across)."""
+def add_loft(part, secs, mat, n=28, cap=True, axis='x'):
+    """A smooth hull through cross-sections (t, cy, ry, c, r, e): superellipses of exponent
+    e (2 = ellipse, higher = squarer) centred at height cy and at c across, radii ry (up)
+    and r (across). axis 'x': t runs along x and c, r are in z; axis 'z': the other way."""
     bm = bmesh.new(); rings = []
-    for (x, cy, ry, cz, rz, e) in secs:
+    for (t, cy, ry, cz, rz, e) in secs:
         ring = []
         for k in range(n):
             a = 2 * math.pi * k / n; u, v = math.cos(a), math.sin(a)
-            y = cy + ry * math.copysign(abs(v) ** (2 / e), v); z = cz + rz * math.copysign(abs(u) ** (2 / e), u)
-            ring.append(bm.verts.new(P(x, y, z)))
+            y = cy + ry * math.copysign(abs(v) ** (2 / e), v); w = cz + rz * math.copysign(abs(u) ** (2 / e), u)
+            ring.append(bm.verts.new(P(t, y, w) if axis == 'x' else P(w, y, t)))
         rings.append(ring)
     for r0, r1 in zip(rings, rings[1:]):
         for k in range(n): bm.faces.new([r0[k], r0[(k + 1) % n], r1[(k + 1) % n], r1[k]])
@@ -609,6 +610,144 @@ def speeder(p, L, D, H, r):
         vs = [bm.verts.new(P(*v)) for v in [(S(0.05), 0.66, zc + s_ * 0.10), (S(0.20), 0.70, zc + s_ * 0.18), (S(0.16), 0.86, zc + s_ * 0.24), (S(0.02), 0.84, zc + s_ * 0.20)]]
         bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.012); merge(p, bm, 'paint')
 
+# ------------------------------------------------------------------ ships
+# Built to the logical layout (assets/ships/<model>.json) the game reads: the interior
+# walls, deck, ramp and furniture stand exactly where gameplay puts them; the hull is
+# wrapped around that.
+import json
+def place_in(part, builder, L, D, H, pr, deck):
+    """Build a furniture piece in its own frame and set it into the ship where the layout
+    puts it (same frame rule as render/building-mesh.js buildProp)."""
+    F = [(0, -1), (1, 0), (0, 1), (-1, 0)][pr['face']]
+    ez = (-F[0], -F[1]); ex = (ez[1], -ez[0])
+    corners = [(pr['x0'], pr['z0']), (pr['x1'], pr['z0']), (pr['x0'], pr['z1']), (pr['x1'], pr['z1'])]
+    o = min(corners, key=lambda c: c[0] * (ex[0] + ez[0]) + c[1] * (ex[1] + ez[1]))
+    tmp = Part(); builder(tmp, L, D, H, random.Random(pr['kind']))
+    soft = pr['kind'] in ('bed', 'chair', 'sofa')
+    for f in tmp.bm.faces:
+        if f.material_index == SLOTS.index('tint'): f.material_index = SLOTS.index('fabric' if soft else 'paint')
+    for v in tmp.bm.verts:
+        bx, by, bz = v.co; x, y, z = bx, bz, -by                  # back to the prop frame
+        v.co = P(o[0] + ex[0] * x + ez[0] * z, deck + y, o[1] + ex[1] * x + ez[1] * z)
+    m = bpy.data.meshes.new('tmp'); tmp.bm.to_mesh(m); tmp.bm.free(); part.bm.from_mesh(m); bpy.data.meshes.remove(m)
+
+def console(p, L, D, H, r):
+    add_box(p, 0, 0, 0.1, L, H * 0.62, D, 'paint', 0.02, 3)                                    # body
+    bm = bmesh.new()                                                                             # sloped instrument face
+    vs = [bm.verts.new(P(*v)) for v in [(0, H * 0.62, 0.1), (L, H * 0.62, 0.1), (L, H, D * 0.75), (0, H, D * 0.75)]]
+    bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.04); merge(p, bm, 'plastic')
+    for k in range(3):                                                                           # three displays
+        x0 = 0.25 + k * (L - 0.5) / 3; x1 = x0 + (L - 0.5) / 3 - 0.08
+        bm = bmesh.new()
+        vs = [bm.verts.new(P(*v)) for v in [(x0, H * 0.66, 0.16), (x1, H * 0.66, 0.16), (x1, H * 0.97, D * 0.7), (x0, H * 0.97, D * 0.7)]]
+        bm.faces.new(vs); bmesh.ops.translate(bm, verts=bm.verts, vec=(0, 0, 0.022)); merge(p, bm, 'screen')
+    add_box(p, L / 2 - 0.25, H * 0.62, -0.25, L / 2 + 0.25, H * 0.66, 0.12, 'plastic', 0.01)   # control yoke shelf
+    add_cyl(p, L / 2, H * 0.66, -0.2, 0.0, 0.03, 'metal', 12, axis='z')
+    add_box(p, L / 2 - 0.16, H * 0.72, -0.24, L / 2 + 0.16, H * 0.76, -0.2, 'rubber', 0.01)
+
+def shuttle(p, L_, D_, H_, r, model='shuttle'):
+    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json')))
+    hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2
+    # ---- outer hull: open at the stern (the rear bulkhead with the ramp door closes it)
+    secs = [(hz0, 2.92, 1.75, xc, 3.3, 2.8), (8.0, 2.95, 1.95, xc, 3.45, 2.7), (13.0, 2.95, 1.95, xc, 3.45, 2.7), (16.0, 2.9, 1.85, xc, 3.35, 2.8),
+            (18.6, 2.85, 1.65, xc, 3.0, 2.9), (19.6, 2.7, 1.2, xc, 2.3, 2.6), (20.4, 2.5, 0.6, xc, 1.15, 2.3), (20.85, 2.4, 0.08, xc, 0.15, 2)]
+    bm = bmesh.new(); n = 40; rings = []
+    for (z, cy, ry, cx, rx, e) in secs:
+        ring = []
+        for k in range(n):
+            a = 2 * math.pi * k / n; u, v = math.cos(a), math.sin(a)
+            ring.append(bm.verts.new(P(cx + rx * math.copysign(abs(u) ** (2 / e), u), cy + ry * math.copysign(abs(v) ** (2 / e), v), z)))
+        rings.append(ring)
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(n): bm.faces.new([r0[k], r1[k], r1[(k + 1) % n], r0[(k + 1) % n]])
+    c = bm.verts.new(sum((v.co for v in rings[-1]), mathutils.Vector()) / n)
+    for k in range(n): bm.faces.new([rings[-1][k], c, rings[-1][(k + 1) % n]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    for f in bm.faces:                                        # open at the stern, so orient by hand: away from the hull's axis
+        cm = f.calc_center_median(); axis = mathutils.Vector((xc, cm.y, 2.9))
+        if (cm - axis).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, 'tint')
+    # rear bulkhead around the ramp door, flush with the hull's open end
+    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + 2.15
+    z0s, cy0, ry0, rx0, e0 = secs[0][0], secs[0][1], secs[0][2], secs[0][4], secs[0][5]
+    for k in range(70):          # the bulkhead fills the hull's end section, in strips, leaving the door
+        y0_, y1_ = cy0 - ry0 + k * 2 * ry0 / 70, cy0 - ry0 + (k + 1) * 2 * ry0 / 70; ym = (y0_ + y1_) / 2
+        q = 1 - abs((ym - cy0) / ry0) ** e0
+        if q <= 0: continue
+        hw = rx0 * q ** (1 / e0)
+        if deck < ym < dtop:
+            add_box(p, xc - hw, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'paint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'paint', 0)
+        else: add_box(p, xc - hw, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'paint', 0)
+    for x in (dx0 - 0.08, dx1): add_box(p, x, deck, hz0 - 0.18, x + 0.08, dtop, hz0 - 0.05, 'metal', 0.01)   # door frame
+    # cockpit canopy: tinted glass over the nose, above the cockpit
+    add_loft(p, [(15.4, 4.3, 0.3, xc, 1.7, 2.6), (16.6, 4.38, 0.48, xc, 2.5, 2.6), (18.4, 4.05, 0.6, xc, 2.6, 2.6), (19.7, 3.4, 0.5, xc, 1.9, 2.4), (20.55, 2.8, 0.12, xc, 0.8, 2)], 'visor', 32, axis='z')
+    # dark belly, a pale dorsal stripe, twin tail fins
+    add_loft(p, [(hz0 + 0.05, 1.5, 0.32, xc, 2.6, 2.4), (8.0, 1.36, 0.36, xc, 3.0, 2.4), (15.0, 1.38, 0.36, xc, 2.9, 2.4), (18.8, 1.6, 0.3, xc, 2.2, 2.4), (20.2, 2.05, 0.15, xc, 0.9, 2)], 'plastic', 32, axis='z')
+    add_loft(p, [(hz0 + 0.05, 4.62, 0.08, xc, 0.55, 2.2), (9.0, 4.85, 0.1, xc, 0.6, 2.2), (14.8, 4.82, 0.1, xc, 0.55, 2.2), (15.5, 4.7, 0.05, xc, 0.3, 2)], 'paint', 20, axis='z')
+    for s_ in (-1, 1):
+        bm = bmesh.new()
+        q = [(xc + s_ * 1.2, 4.55, hz0 + 0.3), (xc + s_ * 1.0, 4.65, hz0 + 3.4), (xc + s_ * 1.9, 6.1, hz0 + 1.5), (xc + s_ * 2.05, 6.15, hz0 + 0.4)]
+        bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.1); merge(p, bm, 'paint')
+    # wings and engines
+    for s_ in (-1, 1):
+        root = xc + s_ * 3.0; tip = xc + s_ * 5.0
+        bm = bmesh.new()
+        pts = [(root, 2.35, 6.0), (root, 2.35, 13.5), (tip, 2.55, 9.0), (tip, 2.55, 6.4)]
+        top = [bm.verts.new(P(x, y + 0.12, z)) for (x, y, z) in pts]; bot = [bm.verts.new(P(x, y - 0.12, z)) for (x, y, z) in pts]
+        bm.faces.new(top); bm.faces.new(bot[::-1])
+        for k in range(4): bm.faces.new([top[k], bot[k], bot[(k + 1) % 4], top[(k + 1) % 4]])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'paint')
+        ex_ = xc + s_ * 4.2
+        add_loft(p, [(4.4, 2.5, 0.62, ex_, 0.62, 2), (5.0, 2.5, 0.78, ex_, 0.78, 2), (8.0, 2.5, 0.78, ex_, 0.78, 2), (9.4, 2.5, 0.55, ex_, 0.55, 2), (10.0, 2.5, 0.2, ex_, 0.2, 2)], 'paint', 24, axis='z')
+        add_cyl(p, ex_, 2.5, 4.3, 4.42, 0.58, 'glow', 24, axis='z')
+        add_cyl(p, ex_, 2.5, 4.25, 4.45, 0.66, 'metal', 24, axis='z', r2=0.64)
+    # landing gear: four legs with pads
+    for gx in (xc - 2.1, xc + 2.1):
+        for gz in (6.6, 16.2):
+            add_cyl(p, gx, gz, 0.12, 1.5, 0.09, 'metal', 12)
+            add_cyl(p, gx, gz, 0.0, 0.12, 0.38, 'rubber', 20)
+            add_box(p, gx - 0.25, 1.25, gz - 0.25, gx + 0.25, 1.45, gz + 0.25, 'paint', 0.02)
+    # ---- the interior, exactly the layout
+    T = 0.1
+    add_box(p, hx0, deck - 0.2, hz0, hx1, deck, hz1, 'metal', 0.01)                               # deck plate
+    add_box(p, hx0, ceil, hz0, hx1, ceil + 0.12, hz1, 'paint', 0.01)                              # ceiling
+    for z in range(int(hz0) + 1, int(hz1), 2): add_box(p, xc - 0.6, ceil - 0.025, z, xc + 0.6, ceil, z + 0.12, 'glow', 0)   # light strips
+    add_box(p, hx0, deck, hz0, hx0 + T, ceil, hz1, 'paint', 0.01); add_box(p, hx1 - T, deck, hz0, hx1, ceil, hz1, 'paint', 0.01)   # side walls
+    add_box(p, hx0, deck, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)                                 # forward bulkhead…
+    add_box(p, hx0, deck, hz0, dx0, ceil, hz0 + T, 'paint', 0.01); add_box(p, dx1, deck, hz0, hx1, ceil, hz0 + T, 'paint', 0.01)
+    add_box(p, dx0, dtop, hz0, dx1, ceil, hz0 + T, 'paint', 0.01)
+    for part_ in lay['partitions']:
+        dd = lay['doors'][part_['door']]; a0, a1 = dd['x'] - dd['width'] / 2, dd['x'] + dd['width'] / 2; z = part_['z']
+        add_box(p, hx0, deck, z - T / 2, a0, ceil, z + T / 2, 'paint', 0.01); add_box(p, a1, deck, z - T / 2, hx1, ceil, z + T / 2, 'paint', 0.01)
+        add_box(p, a0, deck + 2.1, z - T / 2, a1, ceil, z + T / 2, 'paint', 0.01)
+        for x in (a0 - 0.05, a1): add_box(p, x, deck, z - 0.08, x + 0.05, deck + 2.1, z + 0.08, 'metal', 0.005)
+    for x0 in (hx0 + T, hx1 - T - 0.04):                                                           # wall ribs
+        for z in range(int(hz0) + 1, int(hz1)):
+            add_box(p, x0, deck, z, x0 + 0.04, ceil, z + 0.08, 'metal', 0.004)
+    B = {'bed': (bed, 2.1, 1.5, 0.55), 'counter': (counter, 1.8, 0.65, 0.92), 'locker': (lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 0.9, 0.55, 2.0),
+         'crate': (crate, 1.2, 1.2, 1.0), 'rack': (lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 2.4, 0.8, 2.2), 'chair': (chair, 0.5, 0.5, 0.9), 'console': (console, 3.4, 0.7, 1.0)}
+    for pr in lay['props']:
+        fn, L, D, H = B[pr['kind']]
+        place_in(p, fn, L, D, H, pr, deck)
+
+def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
+    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json')))
+    rp = lay['ramp']; deck = lay['deck']
+    bm = bmesh.new()      # the plate, hinged at the deck edge (z1, deck), resting on the ground at z0
+    t = 0.1
+    q = [(rp['x0'], 0, rp['z0']), (rp['x1'], 0, rp['z0']), (rp['x1'], deck, rp['z1']), (rp['x0'], deck, rp['z1'])]
+    top = [bm.verts.new(P(*v)) for v in q]; bot = [bm.verts.new(P(x, y - t, z + 0.0)) for (x, y, z) in q]
+    bm.faces.new(top); bm.faces.new(bot[::-1])
+    for k in range(4): bm.faces.new([top[k], bot[k], bot[(k + 1) % 4], top[(k + 1) % 4]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'metal')
+    for k in range(9):    # grip ribs
+        f = (k + 0.5) / 9; z = rp['z0'] + (rp['z1'] - rp['z0']) * f; y = deck * f
+        add_box(p, rp['x0'] + 0.1, y, z - 0.02, rp['x1'] - 0.1, y + 0.025, z + 0.02, 'rubber', 0.004)
+    for x in (rp['x0'], rp['x1'] - 0.05):    # side rails
+        bm = bmesh.new()
+        vs = [bm.verts.new(P(*v)) for v in [(x, 0.0, rp['z0']), (x, deck, rp['z1']), (x, deck + 0.18, rp['z1']), (x, 0.18, rp['z0'])]]
+        bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.05); merge(p, bm, 'paint')
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -627,6 +766,7 @@ def variants():
         ('crate', crate, 1.2, 1.2, 1.0), ('crate', crate, 1.0, 1.0, 0.8), ('crate', crate, 1.6, 1.6, 1.4),
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
         ('speeder', speeder, 2.6, 1.0, 1.05),
+        ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]
 

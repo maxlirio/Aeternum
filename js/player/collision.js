@@ -13,16 +13,25 @@ export class CollisionWorld {
   constructor(planet, s, doorPassable) {
     this.planet = planet; this.s = s; this.doorPassable = doorPassable;
     this.base = s.h + PLINTH;
-    this.cols = new Map();       // building n -> collider set
+    this.cols = new Map();       // building n (or structure key) -> collider set
     this.grid = new Map();
-    for (const b of s.buildings) {
-      const [x0, z0, x1, z1] = b.rect;
-      for (let gx = Math.floor((x0 - 1) / GRID); gx <= Math.floor((x1 + 1) / GRID); gx++)
-        for (let gz = Math.floor((z0 - 1) / GRID); gz <= Math.floor((z1 + 1) / GRID); gz++) {
-          const k = gx + ',' + gz; (this.grid.get(k) || this.grid.set(k, []).get(k)).push(b);
-        }
-    }
+    for (const b of s.buildings) this.index(b, true);
   }
+  index(b, add) {
+    const [x0, z0, x1, z1] = b.rect;
+    for (let gx = Math.floor((x0 - 1) / GRID); gx <= Math.floor((x1 + 1) / GRID); gx++)
+      for (let gz = Math.floor((z0 - 1) / GRID); gz <= Math.floor((z1 + 1) / GRID); gz++) {
+        const k = gx + ',' + gz, cell = this.grid.get(k) || this.grid.set(k, []).get(k);
+        if (add) cell.push(b); else { const i = cell.indexOf(b); if (i >= 0) cell.splice(i, 1); }
+      }
+  }
+  // Something building-like that isn't part of the town plan — a landed ship. It brings
+  // its own frame (O, ex, ez, rect in settlement space), floor height (base), plan and
+  // door rule (doorPassable(id)).
+  addStructure(b) { this.index(b, true); }
+  removeStructure(b) { this.index(b, false); }
+  baseOf(b) { return b.base ?? this.base; }
+  passable(b, id) { return b.doorPassable ? b.doorPassable(id) : this.doorPassable(b, id); }
 
   near(x, z) {
     const [u, v] = this.s.toLocal(x, z);
@@ -38,9 +47,9 @@ export class CollisionWorld {
   }
 
   colliders(b) {
-    let c = this.cols.get(b.n);
+    let c = this.cols.get(b.plan ? b.key : b.n);
     if (c) return c;
-    const plan = buildingPlan(this.planet, this.s, b);
+    const plan = b.plan || buildingPlan(this.planet, this.s, b);
     const walls = [];
     for (const wl of plan.walls) {
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;
@@ -58,7 +67,7 @@ export class CollisionWorld {
     }
     const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]);
     c = { b, plan, walls, props };
-    this.cols.set(b.n, c);
+    this.cols.set(b.plan ? b.key : b.n, c);
     return c;
   }
 
@@ -71,23 +80,23 @@ export class CollisionWorld {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, 0.05)) continue;
       const { plan } = this.colliders(b);
-      const ly = yFeet - this.base;
+      const ly = yFeet - this.baseOf(b);
       for (const sl of plan.slabs) {
         if (sl.y > ly + STEP) continue;
         for (const r of sl.rects) if (lx >= r[0] - 0.05 && lx <= r[2] + 0.05 && lz >= r[1] && lz <= r[3]) {
-          const h = this.base + sl.y;
+          const h = this.baseOf(b) + sl.y;
           if (h > best) { best = h; where = { b, k: Math.min(sl.k, plan.F - 1), roof: sl.roof }; }
         }
       }
       // furniture you can stand on (tables, crates, counters) — tops of solid props
       for (const pr of this.colliders(b).props) {
-        const top = this.base + pr[5];
+        const top = this.baseOf(b) + pr[5];
         if (top > yFeet + STEP || top <= best) continue;
         if (lx >= pr[0] && lx <= pr[2] && lz >= pr[1] && lz <= pr[3]) { best = top; where = { b, k: Math.max(0, Math.min(plan.F - 1, Math.floor(pr[4] / plan.H))), prop: true }; }
       }
       for (const r of plan.ramps) {
         if (lx < r.x0 || lx > r.x1 || lz < r.z0 || lz > r.z1) continue;
-        const h = this.base + r.y0 + (r.y1 - r.y0) * (lz - r.z0) / (r.z1 - r.z0);
+        const h = this.baseOf(b) + r.y0 + (r.y1 - r.y0) * (lz - r.z0) / (r.z1 - r.z0);
         if (h <= yFeet + STEP && h > best) { best = h; where = { b, k: r.k, stairs: true }; }
       }
     }
@@ -101,11 +110,11 @@ export class CollisionWorld {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
       const { plan } = this.colliders(b);
-      const ly = yFeet - this.base;
+      const ly = yFeet - this.baseOf(b);
       for (const sl of plan.slabs) {
         const bottom = sl.y - SLAB_T;
         if (bottom < ly + 0.3) continue;
-        for (const r of sl.rects) if (lx >= r[0] && lx <= r[2] && lz >= r[1] && lz <= r[3]) c = Math.min(c, this.base + bottom);
+        for (const r of sl.rects) if (lx >= r[0] && lx <= r[2] && lz >= r[1] && lz <= r[3]) c = Math.min(c, this.baseOf(b) + bottom);
       }
     }
     return c;
@@ -118,10 +127,10 @@ export class CollisionWorld {
       for (const b of this.near(x, z)) {
         let [lx, lz] = this.toB(b, x, z);
         if (!this.inside(b, lx, lz, r + 0.5)) continue;
-        const c = this.colliders(b), ly = yFeet - this.base;
+        const c = this.colliders(b), ly = yFeet - this.baseOf(b);
         const test = (box, isDoor) => {
           if (ly + h <= box[4] || ly + 0.3 >= box[5]) return;
-          if (isDoor && this.doorPassable(b, box[6])) return;
+          if (isDoor && this.passable(b, box[6])) return;
           const nx = Math.max(box[0], Math.min(lx, box[2])), nz = Math.max(box[1], Math.min(lz, box[3]));
           let dx = lx - nx, dz = lz - nz;
           const d2 = dx * dx + dz * dz;
@@ -168,10 +177,10 @@ export class CollisionWorld {
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, pad + 0.5)) continue;
-      const c = this.colliders(b), ly = y - this.base;
+      const c = this.colliders(b), ly = y - this.baseOf(b);
       for (const w of c.walls) {
         if (ly < w[4] - pad || ly > w[5] + pad) continue;
-        if (w[6] >= 0 && this.doorPassable(b, w[6]) && ly < c.plan.doors[w[6]].height + c.plan.doors[w[6]].k * c.plan.H) continue;
+        if (w[6] >= 0 && this.passable(b, w[6]) && ly < c.plan.doors[w[6]].height + c.plan.doors[w[6]].k * c.plan.H) continue;
         if (lx > w[0] - pad && lx < w[2] + pad && lz > w[1] - pad && lz < w[3] + pad) return true;
       }
       if (this.inside(b, lx, lz)) for (const sl of c.plan.slabs) {
@@ -188,7 +197,7 @@ export class CollisionWorld {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
       const { plan } = this.colliders(b);
-      const ly = y - this.base + 0.05;
+      const ly = y - this.baseOf(b) + 0.05;
       if (ly < -0.3 || ly > plan.F * plan.H) return { b, roof: ly >= plan.F * plan.H };
       const k = Math.max(0, Math.min(plan.F - 1, Math.floor(ly / plan.H)));
       const room = plan.rooms.find(r => r.k === k && lx >= r.rect[0] && lx <= r.rect[2] && lz >= r.rect[1] && lz <= r.rect[3]);

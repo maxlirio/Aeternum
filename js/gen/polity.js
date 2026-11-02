@@ -26,6 +26,8 @@ export function getPolity(planet, s) {
       theft_home: { label: 'Theft from a home', fine: Math.round(500 * strict / 10) * 10, record: true },
       theft_business: { label: 'Theft from business premises', fine: Math.round(350 * strict / 10) * 10, record: true },
       shoplifting: { label: 'Shoplifting', fine: Math.round(150 * strict / 10) * 10, record: true },
+      vehicle_theft: { label: 'Stealing a vehicle', fine: Math.round(900 * strict / 10) * 10, record: true },
+      ship_theft: { label: 'Stealing a ship', fine: Math.round(6000 * strict / 10) * 10, record: true },
     },
     reportRate: rng.range(0.45, 0.8),        // chance a civilian witness reports
     evidenceRate: rng.range(0.08, 0.25),     // chance an unwitnessed case gets solved
@@ -38,6 +40,8 @@ export function getPolity(planet, s) {
 }
 
 export function offenceFor(incident) {
+  if (incident.type === 'theft' && incident.ship) return 'ship_theft';
+  if (incident.type === 'theft' && incident.vehicle) return 'vehicle_theft';
   if (incident.type === 'theft') return incident.shop ? 'shoplifting' : incident.buildingType === 'hab' || incident.buildingType === 'house' ? 'theft_home' : 'theft_business';
   if (incident.buildingType === 'hab' || incident.buildingType === 'house') return 'forced_entry_home';
   return incident.access === 'staff' && incident.doorKind === 'interior' ? 'forced_entry_restricted' : 'forced_entry_business';

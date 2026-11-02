@@ -97,8 +97,8 @@ export function containerOf(b, room, pr) {
     case 'rack':
       if (p === 'utility') return { pool: 'utility', restock: false, label: 'Storage rack' };
       if (b.type === 'store') return { pool: 'stockroom', restock: true, label: 'Stock rack' };
-      return { pool: b.type === 'hangar' ? 'hangar' : 'workshop', restock: false, label: 'Parts rack' };
-    case 'crate': return { pool: b.type === 'store' ? 'stockroom' : b.type === 'hangar' ? 'hangar' : 'workshop', restock: b.type === 'store', label: 'Crate' };
+      return { pool: b.type === 'hangar' || b.type === 'ship' ? 'hangar' : 'workshop', restock: false, label: 'Parts rack' };
+    case 'crate': return { pool: b.type === 'store' ? 'stockroom' : b.type === 'hangar' || b.type === 'ship' ? 'hangar' : 'workshop', restock: b.type === 'store', label: 'Crate' };
     case 'bench': return p === 'shopfloor-workshop' ? { pool: 'bench', restock: false, label: 'Workbench drawers' } : null;
   }
   return null;

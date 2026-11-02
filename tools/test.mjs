@@ -749,6 +749,91 @@ suites.vehicles = async () => {
   check(back.pos.join() === '1,2,3' && back.facing === 0.5 && isYours(back, pl2), 'where you left it, after reloading');
 };
 
+suites.ships = async () => {
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Controller } = await import('../js/player/controller.js');
+  const { Flight } = await import('../js/player/flight.js');
+  const { shipsAt, shipPlan, SHIP_PRICE } = await import('../js/gen/ships.js');
+  const S = await import('../js/world/ships.js');
+  const { usablesOf } = await import('../js/sim/processes/use.js');
+  const { buildingToWorld } = await import('../js/gen/place.js');
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(4), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s);
+  const ships = shipsAt(p, s);
+  check(ships.length === s.pads.length && ships.length >= 2 && ships.some(x => x.forSale), `${ships.length} ships on ${s.pads.length} pads, one for sale`);
+  const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+  const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.credits = 20000; st.setPlayer(pl);
+  const world = new CollisionWorld(p, s, () => false);
+  let down = true;
+  const sh = S.shipsIn(st, p, s).find(x => x.forSale), b = S.structureOf(s, sh, id => id !== 0 || down);
+  world.addStructure(b);
+  const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
+  const L = shipPlan().layout, toW = (x, y, z) => buildingToWorld(s, b, x, y, z);
+  const walkTo = (c, x, z, secs = 12) => { for (let t = 0; t < secs; t += 1 / 120) { const w = toW(x, 0, z), d = Math.hypot(w[0] - c.pos[0], w[2] - c.pos[2]); if (d < 0.3) break; const yaw = Math.atan2(w[0] - c.pos[0], w[2] - c.pos[2]); c.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw }); } };
+  // walk up the ramp, through the hold and the cabin, into the cockpit
+  const c = new Controller(world, toW(5, 0, -1.5)); run(c, {}, 0.3);
+  walkTo(c, 5, 6.5); const inHold = world.locate(...c.pos)?.room?.purpose;
+  walkTo(c, 5, 13); walkTo(c, 5, 16.2);
+  const at = world.locate(...c.pos);
+  check(inHold === 'hold' && at?.b === b && at.room?.purpose === 'cockpit', `walked up the ramp into the hold and on to the cockpit (${inHold} → ${at?.room?.purpose})`);
+  check(Math.abs(c.pos[1] - (b.base + L.deck)) < 0.05, 'standing on the deck');
+  // ramp raised: you can't get in
+  down = false;
+  const c2 = new Controller(world, toW(5, 0, -1.5)); run(c2, {}, 0.3); walkTo(c2, 5, 7, 8);
+  check(!world.locate(...c2.pos)?.room, 'ramp up: can\'t get in');
+  down = true;
+  // what you can do aboard
+  const verbs = new Set(usablesOf(p, s, b).flatMap(u => u.verbs));
+  check(['fly', 'sleep', 'open', 'cook', 'terminal'].every(v => verbs.has(v)), 'aboard: ' + [...verbs].join(', '));
+  // fly: lift off, climb, cruise, come down somewhere level and land
+  world.removeStructure(b);
+  const { c: c0, facing } = S.centreOf(s, sh), fl = new Flight(world, p, sh, c0, facing);
+  const fly = (input, secs) => { for (let t = 0; t < secs; t += 1 / 60) fl.step(1 / 60, { fwd: 0, right: 0, up: false, down: false, boost: false, ...input }); };
+  fly({ up: true }, 4); const alt = fl.altitude();
+  check(alt > 30, `lifted off: ${alt.toFixed(0)} m up`);
+  fly({ up: true }, 14); fly({ fwd: 1 }, 25);
+  check(fl.speed > 120, `cruising at ${Math.round(fl.speed * 3.6)} km/h`);
+  const away = Math.hypot(fl.pos[0] - c0[0], fl.pos[2] - c0[2]);
+  check(away > 2000, `${Math.round(away)} m from the pad`);
+  // find level ground ahead and set down on it
+  let spot = null;
+  for (let k = 0; k < 4000 && !spot; k++) { const a = k * 2.39996, r = 50 + k * 4, x = fl.pos[0] + Math.cos(a) * r, z = fl.pos[2] + Math.sin(a) * r; const ft = fl.feet(x, z); if (Math.max(...ft) - Math.min(...ft) < 0.5 && Math.min(...ft) > p.seaLevel + 1) spot = [x, z]; }
+  if (check(spot, 'found level ground')) {
+    fl.pos = [spot[0], fl.pos[1], spot[1]]; fl.vel = [0, 0, 0]; fl.onGround = false;
+    for (let t = 0; t < 300 && !fl.onGround; t += 1 / 60) fl.step(1 / 60, { fwd: 0, right: 0, up: false, down: fl.vel[1] > (fl.altitude() > 40 ? -30 : -3), boost: false });
+    fly({}, 1);
+    check(fl.onGround && fl.landingProblem() === null && fl.impact === 0, `touched down gently, can land (${fl.landingProblem()})`);
+    S.land(st, sh, fl.pos, fl.facing);
+    const sh2 = S.shipsIn(st, p, s).find(x => x.id === sh.id), b2 = S.structureOf(s, sh2, () => true);
+    world.addStructure(b2);
+    const c3 = new Controller(world, buildingToWorld(s, b2, 5, L.deck, 13)); run(c3, {}, 0.3);
+    check(world.locate(...c3.pos)?.room?.purpose === 'studio', 'aboard at the landing site');
+    for (let t = 0; t < 14; t += 1 / 120) { const w = buildingToWorld(s, b2, 5, 0, -3); c3.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.atan2(w[0] - c3.pos[0], w[2] - c3.pos[2]) }); }
+    const out = world.locate(...c3.pos), gnd = world.groundAt(c3.pos[0], c3.pos[2], c3.pos[1]).h;
+    check(!out?.room && Math.abs(c3.pos[1] - gnd) < 0.2, 'walked down the ramp onto the ground');
+  }
+  // a steep hillside: you can't land
+  const fl2 = new Flight(world, p, sh, c0, 0);
+  let slope = null;
+  for (let k = 0; k < 6000 && !slope; k++) { const a = k * 2.39996, r = s.R + 300 + k * 2, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r; const ft = fl2.feet(x, z); if (Math.max(...ft) - Math.min(...ft) > 4) slope = [x, z]; }
+  if (slope) { fl2.pos = [slope[0], 2000, slope[1]]; fl2.vel = [0, 0, 0]; fl2.onGround = false; for (let t = 0; t < 600 && !fl2.onGround; t += 1 / 60) fl2.step(1 / 60, { fwd: 0, right: 0, up: false, down: fl2.vel[1] > (fl2.altitude() > 40 ? -30 : -3), boost: false }); for (let t = 0; t < 1; t += 1 / 60) fl2.step(1 / 60, {}); check(/level/.test(fl2.landingProblem() || ''), 'on a hillside: ' + fl2.landingProblem()); }
+  // owning one: buy it; steal another; it all persists
+  check(S.buyShip(st, sh, EPOCH).ok && pl.credits === 20000 - SHIP_PRICE && S.shipIsYours(S.shipsIn(st, p, s).find(x => x.id === sh.id), pl), `bought the ${sh.name} for ${SHIP_PRICE} cr`);
+  const firm = S.shipsIn(st, p, s).find(x => !x.forSale && !S.shipIsYours(x, pl));
+  check(S.rampLocked(firm, pl), `${firm.ownerName}'s ship is locked to you`);
+  S.forceRamp(st, firm); check(S.rampDown(S.shipsIn(st, p, s).find(x => x.id === firm.id), p, EPOCH + 0.9 * p.dayLength, pl), 'forced ramp stays open');
+  const inc = S.stealShip(st, s, firm, EPOCH + 10, []);
+  const { offenceFor, getPolity } = await import('../js/gen/polity.js');
+  check(offenceFor(inc) === 'ship_theft' && getPolity(p, s).laws.ship_theft.fine >= 3000, `stealing it: ${getPolity(p, s).laws.ship_theft.label}, ${getPolity(p, s).laws.ship_theft.fine} cr`);
+  const R = new WorldStore(new MemoryBackend()); await R.importJSON(st.exportJSON());
+  const back = S.shipsIn(R, p, s).find(x => x.id === sh.id);
+  check(back.at && Math.hypot(back.at.c[0] - fl.pos[0], back.at.c[2] - fl.pos[2]) < 0.01 && S.shipIsYours(back, pl), 'landed where you left it, after reloading');
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

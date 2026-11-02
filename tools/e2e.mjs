@@ -332,6 +332,43 @@ try {
   check(await load('auto=continue'), 'reload');
   const parkedAfter = await ev(`JSON.stringify(ORBIS.getVehicles().find(x => x.id === ${JSON.stringify(bikes.id)}).pos)`);
   check(parkedAfter === JSON.stringify(bikes.pos), 'your bike is where you left it after reloading');
+  console.log('[ships]');
+  const sp = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    const key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    const { buildingToWorld } = await import('./js/gen/place.js'); const { structureOf } = await import('./js/world/ships.js');
+    const out = {}, sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
+    // walk up the ramp from the pad
+    O.ctrl.mode = 'walk'; O.ctrl.pos = W(5, 0, -1); O.ctrl.vel = [0, 0, 0]; await wait(400);
+    const tgt = W(5, 1.6, 16.1); O.ctrl.facing = O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]);
+    key('KeyW', false); for (let i = 0; i < 120 && O.world.locate(...O.ctrl.pos)?.room?.purpose !== 'cockpit'; i++) { O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]); await wait(100); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    out.walkedIn = O.world.locate(...O.ctrl.pos)?.room?.purpose;
+    out.hud = document.querySelector('.hud .place')?.textContent;
+    // the helm: buy it, then take off
+    P.credits = 20000; O.ctrl.pos = W(5, 1.6, 16.1); const c = W(5, 1.6, 18); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); await wait(300);
+    key('KeyE'); await wait(300); key('Digit1'); await wait(300); out.paid = 20000 - P.credits;
+    key('KeyE'); await wait(300); key('Digit1'); await wait(300);
+    out.flying = !!O.getFlight();
+    key('Space', false); await wait(4000); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+    out.alt = Math.round(O.getFlight()?.altitude());
+    key('KeyD', false); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));      // turn on the spot, then come back down on the pad
+    key('KeyE'); await wait(100); out.refusedInAir = !!O.getFlight();
+    // come down: brake, descend, land
+    key('KeyS', false); for (let i = 0; i < 60 && O.getFlight().speed > 2; i++) await wait(100); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyS' }));
+    key('KeyQ', false); for (let i = 0; i < 400 && !O.getFlight().onGround; i++) await wait(100); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' }));
+    await wait(1500); out.why = O.getFlight()?.landingProblem();
+    key('KeyE'); await wait(400);
+    out.landed = !O.getFlight() && O.ctrl.mode === 'seat'; out.at = O.getShips().find(x => x.id === sh.id).at?.c;
+    out.moved = out.at ? Math.round(Math.hypot(out.at[0] - b.O[0] - O.s.cx, 0)) : 0;
+    await O.save(); out.id = sh.id; return out; })()`);
+  check(sp.walkedIn === 'cockpit' && /cockpit/.test(sp.hud || ''), `walked up the ramp into the cockpit (HUD: ${sp.hud})`);
+  check(sp.paid === 9500 && sp.flying, 'bought the ship at the helm and took off');
+  check(sp.alt > 15, `climbed to ${sp.alt} m`);
+  check(sp.refusedInAir, "can't land in mid-air");
+  check(sp.landed && sp.at, `landed (${sp.why ?? 'ok'})`);
+  check(await load('auto=continue'), 'reload');
+  const shipAfter = await ev(`JSON.stringify(ORBIS.getShips().find(x => x.id === ${JSON.stringify(sp.id)}).at?.c)`);
+  check(shipAfter === JSON.stringify(sp.at), 'the ship is where you landed it after reloading');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});
