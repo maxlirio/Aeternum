@@ -54,6 +54,7 @@ import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
 import { FloraView, GrassView } from './render/flora.js';
 import { WeatherView } from './render/weather.js';
+import { makeSea } from './render/water.js';
 import { weatherAt } from './gen/weather.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
@@ -170,9 +171,7 @@ async function start(fresh) {
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
   const world = new CollisionWorld(planet, s, (b, id) => doorView.isPassable(doorIndex.get(b.key + '#' + id)));
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: 0x14303a, roughness: 0.08, metalness: 0.2, transparent: true, opacity: 0.92 }));
-  water.position.y = planet.seaLevel; scene.add(water);
+  const sea = makeSea(planet); scene.add(sea);          // (not 'water': that's the plant-watering action)
 
   const player = store.player;
   player.credits ??= 500; player.record ??= [];        // saves from before money existed
@@ -821,7 +820,7 @@ async function start(fresh) {
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
-    water.position.set(camera.position.x, planet.seaLevel, camera.position.z);
+    sea.update(dt, camera, origin);
     // interior lighting follows the room you are in
     const loc = world.locate(...ctrl.pos);
     if (loc?.room) {

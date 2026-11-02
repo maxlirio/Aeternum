@@ -290,7 +290,10 @@ try {
     // the light switch
     const loc = O.world.locate(...O.ctrl.pos); key('KeyL'); await wait(100);
     out.light = O.store.getDelta('light/' + loc.b.key + '/' + loc.k + ':' + loc.room.i)?.on === false; key('KeyL');
+    // water a plant (the sea mesh once shadowed this action's name)
+    for (const b of O.s.buildings) { const pu = usablesOf(O.planet, O.s, b).find(u => u.verbs.includes('water')); if (pu) { await O.use.useThing({ b, u: pu }); out.watered = O.store.getDelta('use/' + b.key + '/' + pu.i)?.watered > 0; break; } }
     return out; })()`);
+  check(items.watered, 'watered a planter');
   check(items.aim, 'facing the fridge at home targets it');
   check(items.panel && items.closed, 'E opens it; Esc closes it');
   check(items.took > 0 || items.had === 0, `took everything (${items.took} items)`);

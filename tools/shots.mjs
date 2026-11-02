@@ -101,6 +101,12 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.sea = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { surfaceHeight } = await import('./js/gen/surface.js');
+    let best = null; for (let k = 0; k < 20000 && !best; k++) { const a = k * 2.39996, r = 300 + k * 3, x = O.s.cx + Math.cos(a) * r, z = O.s.cz + Math.sin(a) * r;
+      const h = surfaceHeight(O.planet, x, z); if (h > O.planet.seaLevel + 1 && h < O.planet.seaLevel + 4) { for (let q = 0; q < 8; q++) { const th = q * Math.PI / 4; if (surfaceHeight(O.planet, x + Math.sin(th) * 40, z + Math.cos(th) * 40) < O.planet.seaLevel - 3) { best = [x, h, z, th]; break; } } } }
+    if (best) { O.ctrl.pos = [best[0], best[1] + 0.2, best[2]]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = best[3]; O.cam.yaw = best[3]; O.cam.pitch = 0.15; O.cam.dist = 5; }
+    await wait(5000);`;
+SHOTS.sea = 'hour=17';
 SCRIPTS.overcast = SCRIPTS.road; SHOTS.overcast = 'hour=11&road=0&weather=' + encodeURIComponent('{"cloud":0.95,"rain":0.8,"label":"rain"}');
 SCRIPTS.clouds = SCRIPTS.road; SHOTS.clouds = 'hour=16&road=0&weather=' + encodeURIComponent('{"cloud":0.55,"rain":0,"label":"cloudy"}');
 SCRIPTS.abovecloud = SCRIPTS.flying.replace('await wait(5000)', 'await wait(30000)'); SHOTS.abovecloud = 'hour=15&secs=4&weather=' + encodeURIComponent('{"cloud":0.6,"rain":0,"label":"cloudy"}');

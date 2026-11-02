@@ -354,13 +354,18 @@ def mat_hazard(seed):     # yellow/black hazard stripes, chipped
     col = col * (1 - chip[..., None]) + np.array([0.5, 0.5, 0.52])[None, None, :] * chip[..., None]
     return col, normal_from_height(-chip * 0.3, 2.0), np.ones((N, N)), 0.6 + 0.2 * chip, 0.6 * chip
 
+def mat_water(seed):      # open-water ripples: a broad swell spectrum, tileable; only the normal map is used
+    a = spectral(N, 2.6, seed, ax=1.0, ay=1.6); b = spectral(N, 1.6, seed + 1)
+    h = a * 0.8 + b * 0.25
+    return np.full((N, N, 3), 0.1), normal_from_height(h, 9.0), np.ones((N, N)), 0.05 * np.ones((N, N)), 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
-    'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
+    'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
 # ---- foliage atlases (RGBA): a leafy twig and a needle spray, drawn on transparent ground
