@@ -7,7 +7,7 @@ import { onShiftNow, inCustody } from './processes/work.js';
 export function catchUp(ctx, tFrom, tTo, activity) {
   const { store, sched, planet } = ctx;
   const p = store.player;
-  const before = { fatigue: p.fatigue, fitness: p.fitness, pos: p.pos.slice() };
+  const before = { fatigue: p.fatigue, fitness: p.fitness, hunger: p.hunger ?? 0.2, pos: p.pos.slice() };
   const report = { tFrom, tTo, elapsed: tTo - tFrom, activity, notes: [] };
   if (activity === 'travel' && ctx.homeDoorstep) {
     const [hx, hy, hz] = ctx.homeDoorstep;
@@ -15,7 +15,7 @@ export function catchUp(ctx, tFrom, tTo, activity) {
     const travelTime = dist / 1.3;
     if (report.elapsed >= travelTime) {
       advanceBody(p, 'idle', travelTime, planet);
-      advanceBody(p, 'rest', report.elapsed - travelTime, planet);
+      advanceBody(p, 'home', report.elapsed - travelTime, planet);
       p.pos = [hx, hy, hz];
       report.notes.push(`Walked ${Math.round(dist)} m home, then rested.`);
     } else {
@@ -26,7 +26,7 @@ export function catchUp(ctx, tFrom, tTo, activity) {
     }
   } else if (activity === 'work' && p.job) {
     advanceBody(p, 'routine', report.elapsed, planet);
-  } else advanceBody(p, activity === 'rest' ? 'rest' : activity === 'train' ? 'train' : 'idle', report.elapsed, planet);
+  } else advanceBody(p, activity === 'rest' ? 'home' : activity === 'train' ? 'train' : 'idle', report.elapsed, planet);
   // shifts that end during the absence are settled against it (sim/processes/work.js)
   ctx.offline = { tFrom, tTo, activity };
   const credits0 = p.credits;
@@ -43,7 +43,7 @@ export function catchUp(ctx, tFrom, tTo, activity) {
   report.earned = p.credits - credits0;
   p.activity = null;
   store.touchPlayer();
-  report.body = { fatigue: [before.fatigue, p.fatigue], fitness: [before.fitness, p.fitness] };
+  report.body = { fatigue: [before.fatigue, p.fatigue], fitness: [before.fitness, p.fitness], hunger: [before.hunger, p.hunger] };
   report.moved = before.pos.join() !== p.pos.join();
   report.jobsRun = jobs.length;
   report.events = store.eventsBetween(tFrom, tTo);

@@ -45,8 +45,13 @@ import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
 import { laddersIn } from './gen/climb.js';
 import { UI, describeEvent } from './ui/ui.js';
+import './ui/use-ui.js';
+import { ITEMS, buyPrice, sellPrice } from './gen/items.js';
+import { usablesOf, ownership, contents, take, put, buy, sell, consume, startWork, useState, RECIPES, water, thirst, WATER_DAYS,
+  lightOn, toggleLight, reportTheft, registerUseJobs, carryLimit, shopOpen, inventoryOf, giveItem } from './sim/processes/use.js';
 
 const params = new URLSearchParams(location.search);
+const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ui = new UI();
 const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || 'main');
 const store = new WorldStore(backend);
@@ -80,14 +85,14 @@ async function start(fresh) {
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, HOMEWORLD);
   const s = getSettlement(planet, 0, 0);
-  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched);
+  const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched); registerUseJobs(sched);
   ui.loading('Counting the townsfolk…', 0.01); await tick();
   // the town as it stands now: generated residents with their lives since laid over them
   const pop = livePopulation(planet, s, store, store.meta.gameTime), polity = getPolity(planet, s);
   const ctx = { store, sched, planet, s, pop, polity };
   ctx.doorstepOf = bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; };
   { const pl = store.player; // saves from before careers / fines existed
-    if (pl) { pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; pl.fines ??= []; pl.warrant ??= null; pl.custody ??= null; } }
+    if (pl) { pl.inventory ??= []; pl.hunger ??= 0.25; pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; pl.fines ??= []; pl.warrant ??= null; pl.custody ??= null; } }
 
   if (store.player) scheduleLife(store, planet, s, store.meta.gameTime);   // saves from before residents' lives moved on
   let report = null;
@@ -98,6 +103,7 @@ async function start(fresh) {
     const home = s.buildings.find(b => b.key === p.home);
     const ds = doorstep(s, home, buildingPlan(planet, s, home));
     p.pos = ds.pos; p.facing = ds.facing;
+    p.inventory = []; p.hunger = 0.25; giveItem(p, 'ration', 2); giveItem(p, 'water', 1);
     store.setPlayer(p);
     refreshLife(pop, store, EPOCH); scheduleLife(store, planet, s, EPOCH);
     store.log({ t: EPOCH, type: 'life_began', name: p.name, place: s.name, character: p.id });
@@ -246,7 +252,7 @@ async function start(fresh) {
     if (onShiftNow(player, t) && !atWork && shiftNoticed !== player.shift.t0) { shiftNoticed = player.shift.t0; ui.toast(`Your shift at <b>${player.job.employer}</b> has started (${address(s, pop.buildingByKey.get(player.job.b))}).`, 'warn', 8000); }
     if (atWork) shiftNoticed = player.shift.t0;
   } });
-  sched.add(TIER.NEAR, { update: dt => { advanceBody(player, 'idle', dt, planet); store.touchPlayer(); } });
+  sched.add(TIER.NEAR, { update: dt => { advanceBody(player, ctrl.mode === 'seat' ? (ctrl.seat.pose === 'lie' ? 'rest' : 'sit') : 'idle', dt, planet); store.touchPlayer(); } });
   sched.add(TIER.ACTIVE, { update: dt => doorView.update(dt) });
 
   // ---- input
@@ -257,6 +263,8 @@ async function start(fresh) {
     keys.add(e.code);
     if (e.code === 'Space') jumpQueued = true;
     if (e.code === 'KeyE') interact();
+    if (e.code === 'KeyI') showInventory();
+    if (e.code === 'KeyL') switchLight();
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
     if (e.code === 'KeyC') showCharacter();
@@ -278,8 +286,9 @@ async function start(fresh) {
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
   // nearest door in reach on the player's level
+  let doorDist = Infinity;
   const nearestDoor = () => {
-    let best = -1, bd = 2.2;
+    let best = -1, bd = 2.2; doorDist = Infinity;
     const [px, py, pz] = ctrl.pos;
     for (let i = 0; i < town.doors.length; i++) {
       const c = doorView.centre(i), wx = c[0] + s.cx, wz = c[2] + s.cz;
@@ -288,6 +297,7 @@ async function start(fresh) {
       const d = Math.hypot(wx - px, wz - pz) - town.doors[i].door.width / 2 + 0.5;
       if (d < bd) { bd = d; best = i; }
     }
+    doorDist = bd;
     return best;
   };
   const insideBuilding = b => { const loc = world.locate(...ctrl.pos); return loc?.b === b; };
@@ -302,7 +312,10 @@ async function start(fresh) {
   function interact() {
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
-    const i = nearestDoor(); if (i < 0) return;
+    if (ctrl.mode === 'seat') { if (ctrl.seat.pose === 'lie') sleepFlow(); else ctrl.standUp(); return; }
+    const i = nearestDoor(), u = usableAhead();
+    if (u && (i < 0 || u.d < doorDist)) { useThing(u); return; }
+    if (i < 0) return;
     const { b, door } = town.doors[i], t = clock.now();
     const st = doorState(store, planet, b, door, t);
     if (st.open) { closeDoor(store, b.key, door); doorView.refresh(store, planet, t); return; }
@@ -313,6 +326,159 @@ async function start(fresh) {
       if (res.key) ui.toast('Unlocked with your key.');
       doorView.refresh(store, planet, t);
     } else ui.toast(`${res.why}. <small>Hold F to force it.</small>`, 'warn');
+  }
+
+  // ---- using things (sim/processes/use.js): furniture in reach, ahead of you on your floor
+  const KIND_LABEL = { bed: 'Bed', sofa: 'Sofa', chair: 'Chair', table: 'Table', desk: 'Desk', planter: 'Planter', fridge: 'Fridge' };
+  const VERB = { sleep: 'Lie down', sit: 'Sit down', open: 'Look inside', cook: 'Cook', buy: 'Browse the shelves', sell: 'Sell things at the till', terminal: 'Use the terminal',
+    fabricate: 'Run the fabricator', assemble: 'Build something', wash: 'Run a wash', water: 'Water the plant' };
+  const labelOf = u => u.box && !['bench', 'counter', 'machine'].includes(u.pr.kind) ? u.box.label : KIND_LABEL[u.pr.kind]
+    || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
+      : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
+  const usableAhead = () => {
+    if (ctrl.mode !== 'walk') return null;
+    const loc = world.locate(...ctrl.pos); if (!loc?.plan) return null;
+    const [ax, az] = world.toB(loc.b, ctrl.pos[0] + Math.sin(ctrl.facing), ctrl.pos[2] + Math.cos(ctrl.facing));
+    const fx = ax - loc.lx, fz = az - loc.lz;           // your facing, in the building's frame
+    let best = null, bs = Infinity;
+    for (const u of usablesOf(planet, s, loc.b)) {
+      const pr = u.pr; if (pr.k !== loc.k) continue;
+      const nx = Math.max(pr.x0, Math.min(loc.lx, pr.x1)), nz = Math.max(pr.z0, Math.min(loc.lz, pr.z1));
+      const d = Math.hypot(nx - loc.lx, nz - loc.lz); if (d > 1.0) continue;
+      const cx = (pr.x0 + pr.x1) / 2 - loc.lx, cz = (pr.z0 + pr.z1) / 2 - loc.lz, dot = (cx * fx + cz * fz) / (Math.hypot(cx, cz) || 1);
+      if (dot < -0.1 && d > 0.3) continue;
+      const score = d - 0.5 * dot;
+      if (score < bs) { bs = score; best = { b: loc.b, u, d, loc }; }
+    }
+    return best;
+  };
+  const toWorldDir = (b, a) => { const p0 = buildingToWorld(s, b, 0, 0, 0), p1 = buildingToWorld(s, b, Math.sin(a), 0, Math.cos(a)); return Math.atan2(p1[0] - p0[0], p1[2] - p0[2]); };
+  const witnessesHere = () => { const here = world.locate(...ctrl.pos); return residents.witnesses(clock.now(), ctrl.pos, here?.b?.key || null, here?.k ?? null); };
+  async function modal(fn) {
+    if (paused) return; paused = true; keys.clear(); document.exitPointerLock?.();
+    try { await fn(); } finally { ui.closePanel(); paused = false; }
+  }
+  const mins = sec => sec < 90 ? `${Math.max(1, Math.round(sec))} s` : `${Math.round(sec / 60)} min`;
+  function statusOf(b, u, t) {
+    const run = useState(store, b, u, t);
+    if (run) return run.verb === 'wash' ? `washing — ${mins(run.until - t)} left` : `${ITEMS[run.out].name.toLowerCase()} ready in ${mins(run.until - t)}`;
+    if (u.verbs.includes('water')) { const d = thirst(store, planet, b, u, t); return d > WATER_DAYS ? 'wilting — it needs water' : ''; }
+    if (u.verbs.includes('buy') || u.verbs.includes('sell')) return shopOpen(planet, b, t) ? '' : 'closed';
+    return '';
+  }
+  async function useThing({ b, u }) {
+    let verb = u.verbs[0];
+    if (u.verbs.length > 1) {
+      let pick = null;
+      await modal(async () => { pick = await ui.choose({ title: labelOf(u), sub: statusOf(b, u, clock.now()), options: u.verbs.map(v => ({ a: v, label: VERB[v] })) }); });
+      if (!pick || pick.a === 'close') return;
+      verb = pick.a;
+    }
+    const t = clock.now();
+    if (verb === 'sit' || verb === 'sleep') {
+      const away = q => { const w = buildingToWorld(s, b, q.x, q.y, q.z); return Math.hypot(w[0] - ctrl.pos[0], w[2] - ctrl.pos[2]); };
+      const a = u.seats.slice().sort((p, q) => away(p) - away(q))[0]; if (!a) return;
+      ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), a.pose, ctrl.pos);
+      if (verb === 'sleep') sleepFlow();
+      return;
+    }
+    if (verb === 'water') { water(store, b, u, t); ui.toast('You water the plant.'); return; }
+    if (verb === 'wash') { const r = startWork(ctx, b, u, 'wash', null, t); ui.toast(r.ok ? `The wash will take ${mins(r.until - t)}.` : r.why, r.ok ? '' : 'warn'); return; }
+    if (verb === 'cook' || verb === 'fabricate' || verb === 'assemble') return workFlow(b, u, verb);
+    if (verb === 'terminal') return terminalFlow(b);
+    if (verb === 'open') return stashFlow(b, u, 'take');
+    if (verb === 'buy') return stashFlow(b, u, shopOpen(planet, b, t) ? 'buy' : 'take');
+    if (verb === 'sell') return sellFlow(b);
+  }
+  async function workFlow(b, u, verb) {
+    const t = clock.now(), run = useState(store, b, u, t);
+    if (run) { ui.toast(`It's busy: ${statusOf(b, u, t)}.`, 'warn'); return; }
+    const has = (need) => Object.entries(need).every(([id, n]) => inventoryOf(player).filter(x => x.id === id).reduce((a, x) => a + x.n, 0) >= n);
+    let pick = null;
+    await modal(async () => {
+      pick = await ui.choose({ title: { cook: 'Cook', fabricate: 'Fabricator', assemble: 'Workbench' }[verb], sub: 'Uses what you carry. What you make is left here for you to collect, even if you walk away.',
+        options: RECIPES[verb].map((r, i) => ({ a: 'make', v: String(i), label: `${ITEMS[r.out].name} — ${r.min} min`, disabled: !has(r.in) || (r.tool && !has({ [r.tool]: 1 })),
+          note: Object.entries(r.in).map(([id, n]) => `${n} × ${ITEMS[id].name.toLowerCase()}`).join(', ') + (r.tool ? ` · needs a ${ITEMS[r.tool].name.toLowerCase()}` : '') })) });
+    });
+    if (!pick || pick.a !== 'make') return;
+    const r = startWork(ctx, b, u, verb, RECIPES[verb][+pick.v], clock.now());
+    ui.toast(r.ok ? `${ITEMS[RECIPES[verb][+pick.v].out].name} will be ready in ${mins(r.until - clock.now())}.` : r.why, r.ok ? '' : 'warn', 6000);
+  }
+  async function stashFlow(b, u, mode) {
+    const own = ownership(b, u.room, player), stolen = [];
+    let value = 0, warn = '';
+    await modal(async () => {
+      for (;;) {
+        const t = clock.now(), items = contents(store, planet, b, u, t);
+        const whose = own.yours ? 'Yours.' : own.communal ? 'Shared by the residents — help yourself.' : mode === 'buy' ? `${b.owner} · open until ${formatHour(b.hours[1])}` : `This belongs to ${own.owner}. <b>Taking anything is theft.</b>`;
+        const r = await ui.stash({ title: u.box.label, note: whose, warn,
+          box: { title: u.box.label, items, act: mode, label: mode === 'buy' ? 'Buy' : 'Take', price: mode === 'buy' ? id => buyPrice(id) : null },
+          you: { items: inventoryOf(player), act: mode === 'buy' ? null : 'put', label: 'Put', limit: carryLimit(player) } });
+        warn = '';
+        if (r.a === 'close') break;
+        const all = r.a === 'takeall' ? items.map((it, i) => [items.length - 1 - i, items[items.length - 1 - i].n]) : [[r.idx, r.n]];
+        for (const [idx, n] of all) {
+          const res = r.a === 'put' ? put(ctx, b, u, idx, n, t) : r.a === 'buy' ? buy(ctx, b, u, idx, n, t) : take(ctx, b, u, idx, n, t);
+          if (!res.ok) { warn = res.why || ''; break; }
+          if (res.stolen) { value += res.stolen; stolen.push({ id: res.id, n: res.n }); }
+        }
+      }
+    });
+    if (value) {
+      const t = clock.now(), seen = witnessesHere();
+      const inc = reportTheft(ctx, b, u.room, value, stolen, t, seen);
+      lodgeIncident(ctx, inc);
+      const cop = seen.find(w => isOfficer(pop.byId.get(w.id)));
+      if (cop) startPursuit(pop.byId.get(cop.id), 'you were seen stealing');
+      ui.toast(`You took ${value} cr worth of ${own.owner}'s things. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you</b> (${seen.slice(0, 3).map(w => w.name).join(', ')}).` : 'Nobody saw you.'}`, 'bad', 8000);
+    }
+  }
+  async function sellFlow(b) {
+    let warn = '';
+    await modal(async () => {
+      for (;;) {
+        const r = await ui.stash({ title: `Sell to ${b.owner}`, note: shopOpen(planet, b, clock.now()) ? 'The till pays half what things are worth.' : 'The shop is closed.', warn,
+          box: null, you: { items: inventoryOf(player), act: 'sell', label: 'Sell', price: id => sellPrice(id), limit: carryLimit(player) } });
+        if (r.a === 'close') break;
+        const res = sell(ctx, b, r.idx, r.n, clock.now());
+        warn = res.ok ? `Sold ${res.n} × ${ITEMS[res.id].name.toLowerCase()} for ${res.pay} cr.` : res.why || '';
+      }
+    });
+  }
+  async function terminalFlow(b) {
+    const t = clock.now(), mine = store.events.filter(e => e.who === player.id).slice(-8).reverse();
+    const NEWS = ['died', 'born', 'household_arrived', 'household_left', 'case_opened', 'case_cold', 'fined', 'theft_discovered', 'break_in_discovered', 'resident_hired', 'door_repaired'];
+    const news = store.events.filter(e => NEWS.includes(e.type)).slice(-10).reverse();
+    const owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
+    const list = es => `<ul class="events">${es.map(e => `<li>${describeEvent(e, planet)}</li>`).join('') || '<li class="none">Nothing yet.</li>'}</ul>`;
+    await modal(() => ui.terminal({ title: `${b.owner} — terminal`, sections: [
+      { h: 'Your account', html: `<p>${player.credits ?? 0} cr${owed ? ` · <b class="late">${owed} cr in fines</b>` : ''}${player.job ? ` · ${esc(player.job.employer)}, ${player.job.wage} cr/h` : ''}</p>` },
+      { h: 'Messages', html: list(mine) }, { h: `${s.name} news`, html: list(news) },
+      { h: 'Time', html: `<p>Day ${dayNumber(planet, t)}, ${formatHour(solarHour(planet, t))} · ${planet.name}, a ${(planet.dayLength / 3600).toFixed(1)}-hour day</p>` }] }));
+  }
+  async function sleepFlow() {
+    const t = clock.now(), h = solarHour(planet, t), toMorning = ((7 - h + 24) % 24 || 24) / 24 * planet.dayLength;
+    let pick = null;
+    await modal(async () => { pick = await ui.choose({ title: 'Sleep', sub: `Fatigue ${Math.round(player.fatigue * 100)}%. Time passes; everything else carries on.`,
+      options: [{ a: 'z', v: String(planet.dayLength / 24), label: 'One hour' }, { a: 'z', v: String(planet.dayLength / 6), label: 'Four hours' }, { a: 'z', v: String(toMorning), label: `Until morning (07:00) — ${(toMorning / planet.dayLength * 24).toFixed(1)} h` }, { a: 'stay', label: 'Just lie here' }] }); });
+    if (pick?.a !== 'z') return;
+    const sec = +pick.v;
+    clock.advance(sec); advanceBody(player, 'rest', sec, planet); store.touchPlayer();
+    ui.toast(`You slept ${(sec / planet.dayLength * 24).toFixed(1)} hours. Fatigue ${Math.round(player.fatigue * 100)}%, hunger ${Math.round(player.hunger * 100)}%.`, '', 7000);
+  }
+  async function showInventory() {
+    await modal(async () => {
+      for (;;) {
+        const r = await ui.inventory({ player, limit: carryLimit(player) });
+        if (r.a !== 'eat') break;
+        const it = inventoryOf(player)[r.idx], res = consume(player, r.idx); store.touchPlayer();
+        if (res.ok) ui.toast(`${ITEMS[it.id].cat === 'drink' ? 'Drank' : ITEMS[it.id].cat === 'medicine' ? 'Took' : 'Ate'} the ${ITEMS[it.id].name.toLowerCase()}. Hunger ${Math.round(player.hunger * 100)}%.`);
+      }
+    });
+  }
+  function switchLight() {
+    const loc = world.locate(...ctrl.pos); if (!loc?.room) return;
+    ui.toast(toggleLight(store, loc.b.key, loc.k, loc.room.i) ? 'Light on.' : 'Light off.');
   }
   async function showCharacter() {
     if (paused) return;
@@ -418,8 +584,13 @@ async function start(fresh) {
     const rp = toRender(...ctrl.pos);
     avatar.object.position.set(rp[0], rp[1], rp[2]);
     avatar.object.rotation.y = ctrl.facing;
+    if (ctrl.mode === 'seat') { // same placement as the crowd's sitters and sleepers (render/crowd.js)
+      const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing);
+      if (ctrl.seat.pose === 'lie') avatar.object.position.set(rp[0] + fx * 0.87, rp[1] + 0.14, rp[2] + fz * 0.87);
+      else avatar.object.position.set(rp[0] - fx * 0.12, rp[1], rp[2] - fz * 0.12);
+    }
     const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' ? { moving: true, lean: 0.5 } : ctrl.climbing ? { moving: true, lean: 0.6 } : null;
-    avatar.update(dt, ctrl.speed, ctrl.grounded, climbPose);
+    avatar.update(dt, ctrl.speed, ctrl.grounded, climbPose, ctrl.mode === 'seat' ? ctrl.seat.pose : null);
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -459,11 +630,17 @@ async function start(fresh) {
     if (loc?.room) {
       const r = loc.room.rect, c = buildingToWorld(s, loc.b, (r[0] + r[2]) / 2, (loc.k + 1) * loc.plan.H - 0.5, (r[1] + r[3]) / 2);
       const lp = toRender(...c); roomLight.position.set(lp[0], lp[1], lp[2]);
-      roomLight.intensity = 6 + 10 * (1 - (sky.state.day ?? 1));
+      roomLight.intensity = lightOn(store, loc.b.key, loc.k, loc.room.i) ? 6 + 10 * (1 - (sky.state.day ?? 1)) : 0;
     } else roomLight.intensity = 0;
     if (!paused) {
       const di = nearestDoor(), lad = nearLadder();
-      if (ctrl.mode === 'ladder') ui.showPrompt(`<kbd>W</kbd>/<kbd>S</kbd> climb · <kbd>Space</kbd> let go${player.fatigue > 0.92 ? ' <small>— you\'re exhausted</small>' : ''}`);
+      const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
+      if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
+      else if (ua && (di < 0 || ua.d < doorDist)) {
+        const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
+        ui.showPrompt(`<kbd>E</kbd> ${labelOf(ua.u)} <small>— ${ua.u.verbs.map(v => VERB[v].toLowerCase()).join(' · ')}${st ? ` · <b>${st}</b>` : ''}${ua.u.box && !own.yours && !own.communal && !ua.u.box.shop ? ` · ${esc(own.owner)}'s` : ''}</small>`);
+      }
+      else if (ctrl.mode === 'ladder') ui.showPrompt(`<kbd>W</kbd>/<kbd>S</kbd> climb · <kbd>Space</kbd> let go${player.fatigue > 0.92 ? ' <small>— you\'re exhausted</small>' : ''}`);
       else if (lad && forceHold === 0) ui.showPrompt(`<kbd>E</kbd> ${ctrl.pos[1] > lad.foot[1] + 1.5 ? 'Climb down the ladder' : 'Climb the fire ladder'}`);
       else if (di >= 0 && forceHold === 0) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
@@ -495,7 +672,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

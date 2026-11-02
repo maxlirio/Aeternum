@@ -572,6 +572,112 @@ suites.climb = async () => {
   console.log(`  ${ls.length} ladders; ${onto} furniture climbs`);
 };
 
+suites.items = async () => {
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { registerLawJobs, lodgeIncident } = await import('../js/sim/processes/law.js');
+  const U2 = await import('../js/sim/processes/use.js');
+  const { ITEMS, massOf } = await import('../js/gen/items.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { advanceBody } = await import('../js/sim/processes/character.js');
+  const { catchUp } = await import('../js/sim/offline.js');
+  const { EPOCH, solarHour } = await import('../js/sim/clock.js');
+  const U = uni(7), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
+  const setup = () => {
+    const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+    const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; pl.credits = 500; pl.inventory = []; st.setPlayer(pl);
+    const sc = new Scheduler(st); registerLawJobs(sc); U2.registerUseJobs(sc);
+    return { st, sc, ctx: { store: st, sched: sc, planet: p, s, pop, polity, doorstepOf: () => [9, 9, 9] } };
+  };
+  // every building offers things to do; count verbs across the town
+  const verbs = {}; let props = 0, used = 0;
+  for (const b of s.buildings) { const pl = buildingPlan(p, s, b); props += pl.props.length; for (const u of U2.usablesOf(p, s, b)) { used++; for (const v of u.verbs) verbs[v] = (verbs[v] || 0) + 1; } }
+  check(used / props > 0.95, `${used}/${props} pieces of furniture can be used`);
+  for (const v of ['sleep', 'sit', 'open', 'cook', 'buy', 'sell', 'terminal', 'fabricate', 'assemble', 'wash', 'water']) check(verbs[v] > 0, `someone can ${v} (${verbs[v] || 0})`);
+  const find = (pred, from = s.buildings) => { for (const b of from) for (const u of U2.usablesOf(p, s, b)) if (pred(b, u)) return { b, u }; return null; };
+  // generated contents are a pure function: same box, same week → same things
+  const A = setup(), t0 = EPOCH + 0.4 * p.dayLength;
+  const fr = find((b, u) => u.pr.kind === 'fridge' && U2.ownership(b, u.room, A.st.player).yours) || find((b, u) => u.pr.kind === 'fridge');
+  check(JSON.stringify(U2.contents(A.st, p, fr.b, fr.u, t0)) === JSON.stringify(U2.contents(setup().st, p, fr.b, fr.u, t0)), 'contents are deterministic');
+  // your own home: taking isn't theft. A neighbour's: it is.
+  const mine = find((b, u) => u.box && !u.box.shop && U2.ownership(b, u.room, A.st.player).yours && U2.contents(A.st, p, b, u, t0).length);
+  const theirs = find((b, u) => u.box && !u.box.shop && (b.type === 'house' || b.type === 'hab') && !U2.ownership(b, u.room, A.st.player).yours && !U2.ownership(b, u.room, A.st.player).communal && U2.contents(A.st, p, b, u, t0).length);
+  check(mine && theirs, 'found a container at home and one in someone else\'s home');
+  const r1 = U2.take(A.ctx, mine.b, mine.u, 0, 1, t0), r2 = U2.take(A.ctx, theirs.b, theirs.u, 0, 1, t0);
+  check(r1.ok && !r1.stolen, `took ${r1.id} from home — not theft`);
+  check(r2.ok && r2.stolen > 0, `took ${r2.id} from ${theirs.b.owner}'s — theft worth ${r2.stolen} cr`);
+  check(A.st.player.inventory.length === 2 - (r1.id === r2.id), 'both are in your inventory');
+  // what you take is gone from the box; what you leave there stays yours
+  const left = U2.contents(A.st, p, mine.b, mine.u, t0);
+  U2.put(A.ctx, mine.b, mine.u, 0, 1, t0);
+  check(U2.contents(A.st, p, mine.b, mine.u, t0).some(x => x.own), 'the thing you put back is marked as yours');
+  // carry limit
+  const heavy = setup(); heavy.st.player.inventory = [{ id: 'plate', n: 20 }];
+  check(!U2.take(heavy.ctx, mine.b, mine.u, 0, 1, t0).ok || massOf(heavy.st.player.inventory) <= U2.carryLimit(heavy.st.player) + 1e-9, 'you can\'t carry past your limit');
+  // theft: seen by an officer → warrant straight away; unseen → found later, case opened
+  const officer = pop.people.find(x => x.job && pop.jobById.get(x.job).security);
+  const inc = U2.reportTheft(A.ctx, theirs.b, theirs.u.room, r2.stolen, [{ id: r2.id, n: 1 }], t0, [{ id: officer.id, name: officer.name, dist: 4 }]);
+  lodgeIncident(A.ctx, inc);
+  check(A.st.player.warrant && /stealing/.test(A.st.player.warrant.reason), `officer saw it: warrant — ${A.st.player.warrant?.reason}`);
+  const Bq = setup(); U2.take(Bq.ctx, theirs.b, theirs.u, 0, 1, t0);
+  const inc2 = U2.reportTheft(Bq.ctx, theirs.b, theirs.u.room, r2.stolen, [{ id: r2.id, n: 1 }], t0, []); lodgeIncident(Bq.ctx, inc2);
+  Bq.sc.runDue(t0 + 3 * p.dayLength, Bq.ctx);
+  check(Bq.st.events.some(e => e.type === 'theft_discovered') && Bq.st.events.some(e => e.type === 'case_opened' && e.what === 'theft'), 'unseen theft is noticed and reported');
+  // shops: buy while open, not when closed; shelves restock weekly
+  const shelf = find((b, u) => u.box?.shop);
+  const tOpen = (() => { for (let t = t0; ; t += 600) if (U2.shopOpen(p, shelf.b, t)) return t; })();
+  const tShut = (() => { for (let t = t0; ; t += 600) if (!U2.shopOpen(p, shelf.b, t)) return t; })();
+  const S = setup(), stock = U2.contents(S.st, p, shelf.b, shelf.u, tOpen), cr = S.st.player.credits;
+  const bought = U2.buy(S.ctx, shelf.b, shelf.u, 0, 2, tOpen);
+  check(bought.ok && S.st.player.credits === cr - bought.cost && bought.cost > 0, `bought 2 ${bought.id} for ${bought.cost} cr`);
+  check(U2.contents(S.st, p, shelf.b, shelf.u, tOpen)[0]?.n !== stock[0].n || stock[0].n === 2, 'the shelf has fewer');
+  check(!U2.buy(S.ctx, shelf.b, shelf.u, 0, 1, tShut).ok, `closed at ${solarHour(p, tShut).toFixed(1)} h: can't buy`);
+  const tNext = tOpen + 7 * p.dayLength;
+  check(JSON.stringify(U2.contents(S.st, p, shelf.b, shelf.u, tNext)) !== JSON.stringify(U2.contents(S.st, p, shelf.b, shelf.u, tOpen)), 'restocked a week later');
+  const sold = U2.sell(S.ctx, shelf.b, S.st.player.inventory.findIndex(x => x.id === bought.id), 1, tOpen);
+  check(sold.ok && sold.pay < bought.cost / 2 + 1, `sold one back for ${sold.pay} cr`);
+  // cooking is a timed job: the meal appears in the kitchen, yours, even if you're away
+  const kitchen = find((b, u) => u.verbs.includes('cook'));
+  const cook = (stepped) => {
+    const C = setup(); C.st.player.inventory = [{ id: 'protein', n: 1 }, { id: 'vegetables', n: 1 }];
+    const r = U2.startWork(C.ctx, kitchen.b, kitchen.u, 'cook', U2.RECIPES.cook.find(x => x.out === 'stew'), t0);
+    check(r.ok && C.st.player.inventory.length === 0, 'ingredients used');
+    check(!U2.startWork(C.ctx, kitchen.b, kitchen.u, 'cook', U2.RECIPES.cook[0], t0 + 10).ok, 'can\'t start a second dish on a busy hob');
+    if (stepped) for (let t = t0; t < t0 + 3600; t += 37) C.sc.runDue(t, C.ctx); else catchUp(C.ctx, t0, t0 + 3600, 'idle');
+    const out = U2.contents(C.st, p, kitchen.b, kitchen.u, t0 + 3600).find(x => x.id === 'stew' && x.own);
+    return { C, out };
+  };
+  const k1 = cook(false), k2 = cook(true);
+  check(k1.out && k2.out, 'the stew is waiting in the kitchen (offline and stepped)');
+  const idx = U2.contents(k1.C.st, p, kitchen.b, kitchen.u, t0 + 3600).findIndex(x => x.id === 'stew');
+  const got = U2.take(k1.C.ctx, kitchen.b, kitchen.u, idx, 1, t0 + 3600);
+  check(got.ok && !got.stolen, 'taking your own cooking is not theft, wherever it was cooked');
+  k1.C.st.player.hunger = 0.9;
+  check(U2.consume(k1.C.st.player, k1.C.st.player.inventory.findIndex(x => x.id === 'stew')).ok && Math.abs(k1.C.st.player.hunger - 0.3) < 1e-9, 'eating the stew: hunger 0.9 → 0.3');
+  // tools gate recipes
+  const bench = find((b, u) => u.verbs.includes('assemble'));
+  const T = setup(); T.st.player.inventory = [{ id: 'circuit', n: 2 }, { id: 'wiring', n: 1 }, { id: 'cell', n: 1 }];
+  check(!U2.startWork(T.ctx, bench.b, bench.u, 'assemble', U2.RECIPES.assemble.find(r => r.out === 'scanner'), t0).ok, 'no multitool: can\'t build a scanner');
+  T.st.player.inventory.push({ id: 'multitool', n: 1 });
+  check(U2.startWork(T.ctx, bench.b, bench.u, 'assemble', U2.RECIPES.assemble.find(r => r.out === 'scanner'), t0).ok && T.st.player.inventory.some(x => x.id === 'multitool'), 'with one: started, and the tool is kept');
+  // hunger is closed-form: one jump equals many small steps
+  const a = { fatigue: 0.3, fitness: 0.5, hunger: 0.2 }, b2 = { ...a };
+  advanceBody(a, 'idle', 5 * 3600, p); for (let i = 0; i < 500; i++) advanceBody(b2, 'idle', 36, p);
+  check(Math.abs(a.hunger - b2.hunger) < 1e-9 && a.hunger > 0.2, `hunger after 5 h awake: ${a.hunger.toFixed(3)} either way`);
+  const h = { fatigue: 0.3, fitness: 0.5, hunger: 0.9 }; advanceBody(h, 'home', 3 * p.dayLength, p);
+  check(h.hunger < 0.35, 'days at home: you eat (hunger settles)');
+  // lights switch and stay switched
+  const L = setup(), room = kitchen.u.room;
+  check(U2.lightOn(L.st, kitchen.b.key, room.k, room.i) && !U2.toggleLight(L.st, kitchen.b.key, room.k, room.i) && !U2.lightOn(L.st, kitchen.b.key, room.k, room.i), 'a light switched off stays off');
+  // persistence: what you moved survives a save and reload
+  const json = A.st.exportJSON(), R = new WorldStore(new MemoryBackend()); await R.importJSON(json);
+  check(JSON.stringify(U2.contents(R, p, mine.b, mine.u, t0)) === JSON.stringify(U2.contents(A.st, p, mine.b, mine.u, t0)) && R.player.inventory.length === A.st.player.inventory.length, 'containers and inventory survive reload');
+  console.log(`  ${used} usable props · verbs ${JSON.stringify(verbs)}`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

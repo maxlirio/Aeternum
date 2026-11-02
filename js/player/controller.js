@@ -3,6 +3,7 @@
 //   scramble — slopes too steep to walk can still be climbed, slowly, while you're not exhausted
 //   mantle   — Space while walking into something 0.55–2.2 m high pulls you up onto it
 //   ladder   — E at a ladder; W/S to climb, Space to let go; the top steps you onto the roof
+//   seat     — sitting or lying at a furniture anchor; any move key gets you up
 // Every surface comes from the collision world's logical data, never from meshes.
 export const GRAVITY = 9.81;
 const WALK = 1.9, RUN = 5.4, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
@@ -16,7 +17,7 @@ export class Controller {
     this.grounded = false;
     this.facing = 0;            // radians, 0 = +z
     this.speed = 0;
-    this.mode = 'walk';         // 'walk' | 'mantle' | 'ladder'
+    this.mode = 'walk';         // 'walk' | 'mantle' | 'ladder' | 'seat'
     this.climbing = false;      // exerting: scrambling, mantling or on a ladder (drives fatigue + pose)
   }
 
@@ -26,6 +27,9 @@ export class Controller {
     this.mode = 'ladder'; this.ladder = l; this.vel = [0, 0, 0]; this.facing = l.facing;
     this.pos = [l.head[0], fromTop ? l.head[1] - 1.2 : Math.max(l.foot[1], this.pos[1]), l.head[2]];
   }
+  // Sit or lie at a spot (world position, facing); getting up returns you to `standAt`.
+  seatAt(pos, facing, pose, standAt) { this.mode = 'seat'; this.seat = { pose, standAt: standAt.slice() }; this.pos = pos.slice(); this.facing = facing; this.vel = [0, 0, 0]; }
+  standUp() { if (this.mode !== 'seat') return; this.mode = 'walk'; this.pos = this.seat.standAt.slice(); this.vel = [0, 0, 0]; this.seat = null; }
   mantleTo(to, dur) { this.mode = 'mantle'; this.mantle = { from: this.pos.slice(), to, t: 0, dur }; this.vel = [0, 0, 0]; }
 
   // input: { fwd, right, run, jump, yaw, tired } — yaw is the camera heading
@@ -33,6 +37,7 @@ export class Controller {
     this.climbing = false;
     if (this.mode === 'mantle') return this.stepMantle(dt);
     if (this.mode === 'ladder') return this.stepLadder(dt, input, speedFactor);
+    if (this.mode === 'seat') { this.speed = 0; this.grounded = true; if (input.fwd || input.right || input.jump) this.standUp(); return; }
     const w = this.world;
     let [x, y, z] = this.pos;
     // desired horizontal velocity in camera space

@@ -31,7 +31,7 @@ export function firstPresence(pop, bKey, t, who = pop.people.filter(p => p.homeB
   return by ? { t: best, person: by } : null;
 }
 
-// Called right after a forced_entry incident is logged.
+// Called right after a forced_entry or theft incident is logged.
 export function lodgeIncident(ctx, inc) {
   const { store, pop, polity } = ctx;
   let reports = 0;
@@ -39,7 +39,7 @@ export function lodgeIncident(ctx, inc) {
     const p = pop.byId.get(w.id), officer = p?.job && pop.jobById.get(p.job).security;
     if (officer) {
       store.schedule({ at: inc.t + 20, kind: 'law.report', target: caseKey(inc.id), data: { incident: inc.id, witness: w.id, officer: true } }); reports++;
-      if (store.player?.id === inc.by && !store.player.warrant) issueWarrant(ctx, inc.t, `seen by ${p.name} breaking in`, p.id);
+      if (store.player?.id === inc.by && !store.player.warrant) issueWarrant(ctx, inc.t, `seen by ${p.name} ${inc.type === 'theft' ? 'stealing' : 'breaking in'}`, p.id);
       continue;
     }
     if (roll(ctx, inc.id, w.id, 'report') < polity.reportRate) {
@@ -65,7 +65,7 @@ function openCase(ctx, inc, t, reporter) {
   const { store, polity } = ctx;
   const k = caseKey(inc.id);
   if (store.getDelta(k)) return store.getDelta(k);
-  store.log({ t, type: 'case_opened', incident: inc.id, authority: polity.securityName, reporter, settlementName: inc.settlementName, owner: inc.owner });
+  store.log({ t, type: 'case_opened', incident: inc.id, what: inc.type === 'theft' ? 'theft' : 'break-in', authority: polity.securityName, reporter, settlementName: inc.settlementName, owner: inc.owner });
   store.schedule({ at: t + (24 + 24 * roll(ctx, inc.id, 'inv')) * HOUR, kind: 'law.investigate', target: k, data: { incident: inc.id } });
   return store.patchDelta(k, { status: 'open', opened: t, identified: false, reports: 0 });
 }
@@ -94,7 +94,7 @@ export function registerLawJobs(sched) {
   sched.on('law.discover', (job, ctx) => {
     const inc = incident(ctx, job.data.incident); if (!inc) return;
     const p = job.data.by ? ctx.pop.byId.get(job.data.by) : null;
-    ctx.store.log({ t: job.at, type: 'break_in_discovered', incident: inc.id, by: p?.name || inc.owner, owner: inc.owner, settlementName: inc.settlementName });
+    ctx.store.log({ t: job.at, type: inc.type === 'theft' ? 'theft_discovered' : 'break_in_discovered', incident: inc.id, by: p?.name || inc.owner, owner: inc.owner, settlementName: inc.settlementName });
     openCase(ctx, inc, job.at, p?.name || inc.owner);
   });
 

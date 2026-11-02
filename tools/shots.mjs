@@ -55,6 +55,21 @@ SHOTS.ladder = 'hour=15'; SHOTS.roof = 'hour=15';
 SHOTS.peoplebox = SHOTS.people + '&boxprops'; SHOTS.interiorbox = SHOTS.interior + '&boxprops';
 SHOTS.road = 'hour=10&road=0'; SHOTS.road1 = 'hour=10&road=1';
 SHOTS.jobs = 'hour=11'; SHOTS.shift = 'hour=11'; SHOTS.arrest = 'hour=10.5'; SHOTS.cell = 'hour=10.5';
+
+// using things at home: stand at a piece of furniture (by kind) and press E
+const useAt = (kind, after = '') => `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    const { usablesOf, ownership } = await import('./js/sim/processes/use.js'); const { buildingToWorld } = await import('./js/gen/place.js');
+    const FRONT = [[0, -1], [1, 0], [0, 1], [-1, 0]], home = O.pop.buildingByKey.get(P.home);
+    const u = usablesOf(O.planet, O.s, home).find(u => u.pr.kind === '${kind}' && ownership(home, u.room, P).yours) || usablesOf(O.planet, O.s, home).find(u => u.pr.kind === '${kind}');
+    const pr = u.pr, F = FRONT[pr.face], cx = (pr.x0 + pr.x1) / 2, cz = (pr.z0 + pr.z1) / 2, dep = F[0] ? pr.x1 - pr.x0 : pr.z1 - pr.z0;
+    const at = buildingToWorld(O.s, home, cx + F[0] * (dep / 2 + 0.45), pr.y, cz + F[1] * (dep / 2 + 0.45)), c = buildingToWorld(O.s, home, cx, pr.y, cz);
+    O.ctrl.pos = at; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(c[0] - at[0], c[2] - at[2]); O.cam.yaw = O.ctrl.facing + 0.6; O.cam.pitch = 0.35; O.cam.dist = 3;
+    await wait(1200); dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); await wait(800); ${after}`;
+SCRIPTS.fridge = useAt('fridge'); SCRIPTS.prompt = useAt('fridge', "dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' })); await wait(300); O.ui.closePanel();").replace("dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }))", '0');
+SCRIPTS.inbed = useAt('bed', "O.ui.closePanel(); dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' })); await wait(300); O.cam.yaw = O.ctrl.facing + 2.2; O.cam.pitch = 0.6; O.cam.dist = 3.2; await wait(1500);");
+SCRIPTS.onsofa = useAt('sofa', "O.cam.yaw = O.ctrl.facing + 2.6; O.cam.pitch = 0.3; O.cam.dist = 3; await wait(1500);");
+SCRIPTS.cook = useAt('counter');
+SHOTS.fridge = 'hour=19'; SHOTS.prompt = 'hour=19'; SHOTS.inbed = 'hour=22'; SHOTS.onsofa = 'hour=19'; SHOTS.cook = 'hour=19';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

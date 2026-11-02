@@ -1,5 +1,7 @@
 // The character's body over time — closed-form, so an 8-hour rest is the same whether
-// computed in one step or 480.  fatigue ∈ [0,1], fitness ∈ [0,1].
+// computed in one step or 480.  fatigue ∈ [0,1], fitness ∈ [0,1], hunger ∈ [0,1].
+// Food lowers hunger (sim/processes/use.js consume); time away living at home ('home',
+// 'routine') assumes you eat, so hunger settles instead of climbing.
 import { planetHours } from '../clock.js';
 
 const AWAKE_RATE = 1 / 18;      // fatigue per planet-hour awake
@@ -7,6 +9,8 @@ const REST_TAU = 3;             // planet-hours e-folding while resting
 const TRAIN_TAU = 400;          // planet-hours of training to close 63% of the fitness gap
 const TRAIN_TIRE = 1 / 9;       // training tires you faster than idling
 const ROUTINE = 0.35, ROUTINE_TAU = 12;   // working days and nights' sleep settle fatigue here
+const SIT_TAU = 9;              // planet-hours e-folding while sitting down
+const HUNGRY_RATE = 1 / 16, ASLEEP_RATE = 1 / 40, FED = 0.3, FED_TAU = 6;
 
 export const ACTIVITIES = {
   rest: { label: 'Rest at home', desc: 'Sleep and recover. Fatigue falls.' },
@@ -18,7 +22,11 @@ export const ACTIVITIES = {
 
 export function advanceBody(p, activity, seconds, planet) {
   const h = planetHours(planet, seconds);
-  if (activity === 'rest') p.fatigue = p.fatigue * Math.exp(-h / REST_TAU);
+  p.hunger ??= 0.2;
+  if (activity === 'home' || activity === 'routine') p.hunger = FED + (p.hunger - FED) * Math.exp(-h / FED_TAU);
+  else p.hunger = 1 - (1 - p.hunger) * Math.exp(-h * (activity === 'rest' ? ASLEEP_RATE : activity === 'train' ? HUNGRY_RATE * 1.6 : HUNGRY_RATE));
+  if (activity === 'rest' || activity === 'home') p.fatigue = p.fatigue * Math.exp(-h / REST_TAU);
+  else if (activity === 'sit') p.fatigue = p.fatigue * Math.exp(-h / SIT_TAU);
   else if (activity === 'train') {
     p.fitness = 1 - (1 - p.fitness) * Math.exp(-h / TRAIN_TAU);
     p.fatigue = 1 - (1 - p.fatigue) * Math.exp(-h * TRAIN_TIRE);
@@ -27,4 +35,4 @@ export function advanceBody(p, activity, seconds, planet) {
   return p;
 }
 
-export const moveSpeedFactor = p => (0.85 + 0.3 * p.fitness) * (p.fatigue > 0.8 ? 0.7 : 1);
+export const moveSpeedFactor = p => (0.85 + 0.3 * p.fitness) * (p.fatigue > 0.8 ? 0.7 : 1) * ((p.hunger ?? 0) > 0.85 ? 0.8 : 1);

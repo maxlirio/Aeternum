@@ -249,6 +249,55 @@ try {
     const after = await ev(`ORBIS.pop.people.map(p => p.id + '@' + p.home).sort().join()`);
     check(before === after, 'the same residents live in the same homes after reloading');
   }
+  console.log('[items]');
+  const items = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    const { usablesOf, ownership, contents } = await import('./js/sim/processes/use.js');
+    const { buildingToWorld } = await import('./js/gen/place.js');
+    const key = c => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    const FRONT = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+    const stand = (b, u) => { const pr = u.pr, F = FRONT[pr.face], cx = (pr.x0 + pr.x1) / 2, cz = (pr.z0 + pr.z1) / 2, dep = F[0] ? pr.x1 - pr.x0 : pr.z1 - pr.z0;
+      const at = buildingToWorld(O.s, b, cx + F[0] * (dep / 2 + 0.45), pr.y, cz + F[1] * (dep / 2 + 0.45)), c = buildingToWorld(O.s, b, cx, pr.y, cz);
+      O.ctrl.mode = 'walk'; O.ctrl.pos = at; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(c[0] - at[0], c[2] - at[2]); };
+    const out = {};
+    const home = O.pop.buildingByKey.get(P.home), us = usablesOf(O.planet, O.s, home);
+    const fr = us.find(u => u.pr.kind === 'fridge' && ownership(home, u.room, P).yours) || us.find(u => u.verbs.includes('open') && ownership(home, u.room, P).yours);
+    stand(home, fr); await wait(300);
+    out.aim = O.use.usableAhead()?.u.i === fr.i;
+    const n0 = (P.inventory || []).reduce((a, x) => a + x.n, 0), had = contents(O.store, O.planet, home, fr, O.clock.now()).length;
+    key('KeyE'); await wait(300);
+    out.panel = !!document.querySelector('.panel.use');
+    document.querySelector('.panel.use [data-a=takeall]')?.click(); await wait(200);
+    key('Escape'); await wait(200);
+    out.took = (P.inventory || []).reduce((a, x) => a + x.n, 0) - n0; out.had = had; out.closed = !document.querySelector('.panel.use');
+    // eat from the inventory
+    P.hunger = 0.8; key('KeyI'); await wait(300);
+    document.querySelector('.panel.use [data-a=eat]')?.click(); await wait(200); key('Escape'); await wait(200);
+    out.ate = P.hunger < 0.8;
+    // a bed: lie down, sleep one hour
+    const bed = us.find(u => u.verbs.includes('sleep'));
+    if (bed) { stand(home, bed); await wait(300); const t0 = O.clock.now(), f0 = P.fatigue = 0.7;
+      key('KeyE'); await wait(300); key('Digit1'); await wait(300);
+      out.slept = Math.round((O.clock.now() - t0) / (O.planet.dayLength / 24) * 10) / 10; out.lying = O.ctrl.mode === 'seat' && O.ctrl.seat.pose === 'lie'; out.rested = P.fatigue < f0;
+      dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(200); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); out.up = O.ctrl.mode === 'walk'; }
+    // a shop: buy something off the shelf while it's open
+    const shop = O.s.buildings.find(b => b.type === 'store'), shelf = usablesOf(O.planet, O.s, shop).find(u => u.verbs.includes('buy'));
+    const h = (await import('./js/sim/clock.js')).solarHour(O.planet, O.clock.now()); O.clock.advance(((12 - h + 24) % 24) / 24 * O.planet.dayLength);
+    stand(shop, shelf); await wait(300); P.credits = Math.max(P.credits, 300); const c0 = P.credits;
+    key('KeyE'); await wait(300);
+    document.querySelector('.panel.use [data-a=buy]')?.click(); await wait(200); key('Escape'); await wait(200);
+    out.spent = c0 - P.credits;
+    // the light switch
+    const loc = O.world.locate(...O.ctrl.pos); key('KeyL'); await wait(100);
+    out.light = O.store.getDelta('light/' + loc.b.key + '/' + loc.k + ':' + loc.room.i)?.on === false; key('KeyL');
+    return out; })()`);
+  check(items.aim, 'facing the fridge at home targets it');
+  check(items.panel && items.closed, 'E opens it; Esc closes it');
+  check(items.took > 0 || items.had === 0, `took everything (${items.took} items)`);
+  check(items.ate, 'ate something from the inventory');
+  check(items.lying && items.slept === 1 && items.rested && items.up, `lay down and slept ${items.slept} h, then got up (${JSON.stringify(items)})`);
+  check(items.spent > 0, `bought from a shop shelf (${items.spent} cr)`);
+  check(items.light, 'switched the room light off');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

@@ -5,6 +5,7 @@ import { formatDuration, formatHour, solarHour, dayNumber } from '../sim/clock.j
 import { address } from '../gen/settlement.js';
 import { SKILLS, titleOf, roleFor, wageOf, assess } from '../gen/careers.js';
 import { LIFE_EVENTS } from '../sim/processes/life.js';
+import { ITEMS } from '../gen/items.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -18,12 +19,13 @@ export class UI {
       <div class="clock"><div class="time"></div><div class="sub"></div></div>
       <div class="stats"><div class="who"></div>
         <div class="bar"><span>Fatigue</span><i><b class="fatigue"></b></i></div>
+        <div class="bar"><span>Hunger</span><i><b class="hunger"></b></i></div>
         <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div>
         <div class="credits"></div><div class="job"></div><div class="law"></div></div>
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
-    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump · E use · hold F force · J work · C you · Esc menu'); this.root.append(this.hint);
+    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump/climb · E use · I inventory · L light · hold F force · J work · C you · Esc menu'); this.root.append(this.hint);
   }
   panel(html, cls = '') {
     this.closePanel();
@@ -63,6 +65,7 @@ export class UI {
     $('.who', this.hud).textContent = `${player.name}, ${player.age}`;
     $('.fatigue', this.hud).style.width = Math.round(player.fatigue * 100) + '%';
     $('.fitness', this.hud).style.width = Math.round(player.fitness * 100) + '%';
+    $('.hunger', this.hud).style.width = Math.round((player.hunger ?? 0) * 100) + '%';
     const cr = $('.credits', this.hud); cr.textContent = `${player.credits ?? 0} cr`; cr.classList.toggle('debt', (player.credits ?? 0) < 0);
     const lw = $('.law', this.hud), owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
     lw.innerHTML = player.custody ? `<b class="late">In custody</b> until ${formatHour(solarHour(planet, player.custody.until))}`
@@ -114,7 +117,7 @@ export class UI {
         <p class="lede">${formatDuration(r.elapsed)} passed${r.activity && r.activity !== 'idle' ? ` · ${esc(ACTIVITIES[r.activity]?.label || r.activity)}` : ''}.</p>
         ${r.notes.map(n => `<p>${esc(n)}</p>`).join('')}
         ${shiftSummary(r.events)}
-        <p>Fatigue ${pct(r.body.fatigue[0])} → ${pct(r.body.fatigue[1])} · Fitness ${pct(r.body.fitness[0])} → ${pct(r.body.fitness[1])}</p>
+        <p>Fatigue ${pct(r.body.fatigue[0])} → ${pct(r.body.fatigue[1])} · Fitness ${pct(r.body.fitness[0])} → ${pct(r.body.fitness[1])}${r.body.hunger ? ` · Hunger ${pct(r.body.hunger[0])} → ${pct(r.body.hunger[1])}` : ''}</p>
         <h3>In town</h3><ul class="events">${evs}</ul>${townSummary(r.events)}
         <button data-a="ok" class="primary">Carry on</button>`, 'away');
       p.addEventListener('click', e => { if (e.target.dataset.a === 'ok') { this.closePanel(); res(); } });
@@ -148,7 +151,7 @@ UI.prototype.character = function (player, pop, planet, s, polity) {
       ${(player.fines || []).length ? `<p>Fines owed: <b>${player.fines.reduce((n, f) => n + f.amount, 0)} cr</b> — pay at the ${esc(polity.securityName)} office (J there).</p>` : ''}
       ${player.warrant ? `<p class="late">Wanted: ${esc(player.warrant.reason)}.</p>` : ''}
       <h3>Record — ${esc(polity?.name || '')}</h3><ul class="events">${(player.record || []).map(r => `<li><span class="when">day ${dayNumber(planet, r.t)}</span> ${esc(r.offence)} — fined ${r.fine} cr</li>`).join('') || '<li class="none">Clean.</li>'}</ul>
-      <p class="fine">Fatigue ${Math.round(player.fatigue * 100)}% · Fitness ${Math.round(player.fitness * 100)}%</p>
+      <p class="fine">Fatigue ${Math.round(player.fatigue * 100)}% · Fitness ${Math.round(player.fitness * 100)}% · Hunger ${Math.round((player.hunger ?? 0) * 100)}%</p>
       <button data-a="ok" class="primary">Back</button>`, 'char');
     p.addEventListener('click', e => { if (e.target.dataset.a === 'ok') res(); });
   });
@@ -178,9 +181,12 @@ export function describeEvent(e, planet) {
   switch (e.type) {
     case 'forced_entry': return `${when} Forced entry at a ${esc(TYPE_LABEL[e.buildingType] || 'building')} owned by ${esc(e.owner)}, ${esc(e.settlementName)} — by ${esc(e.byName)}. ${e.witnesses?.length ? `Witnessed by ${e.witnesses.length}.` : 'No witnesses.'} <em>Unresolved.</em>`;
     case 'door_repaired': return `${when} ${esc(e.owner)} had a forced door repaired.`;
-    case 'case_opened': return `${when} ${esc(e.reporter)} reported a break-in at ${esc(e.owner)}'s to ${esc(e.authority)}.`;
+    case 'case_opened': return `${when} ${esc(e.reporter)} reported a ${esc(e.what || 'break-in')} at ${esc(e.owner)}'s to ${esc(e.authority)}.`;
+    case 'theft': return `${when} ${esc(e.byName)} took things worth ${e.value} cr from ${esc(e.owner)} without paying${e.shop ? ' (shoplifting)' : ''}. ${e.witnesses?.length ? `Seen by ${e.witnesses.length}.` : 'Nobody saw.'}`;
+    case 'theft_discovered': return `${when} ${esc(e.by)} noticed things missing at ${esc(e.owner)}'s.`;
+    case 'made': return `${when} ${e.item ? `Finished: ${esc(ITEMS[e.item]?.name || e.item)}` : 'The wash finished'}${e.owner ? ` at ${esc(e.owner)}'s` : ''}.`;
     case 'break_in_discovered': return `${when} ${esc(e.by)} found the door at ${esc(e.owner)}'s forced.`;
-    case 'case_cold': return `${when} ${esc(e.authority)} closed the ${esc(e.owner)} break-in case unsolved.`;
+    case 'case_cold': return `${when} ${esc(e.authority)} closed the ${esc(e.owner)} case unsolved.`;
     case 'fined': return `${when} ${esc(e.authority)} fined ${esc(e.whoName)} ${e.amount} ${esc(e.currency)} — ${esc(e.offence.toLowerCase())}.`;
     case 'hired': return `${when} ${esc(e.employer)} hired ${esc(e.whoName)} as ${esc(e.title.toLowerCase())}.`;
     case 'application_rejected': return `${when} ${esc(e.employer)} turned down ${esc(e.whoName)}'s application (${esc(e.title.toLowerCase())}) — ${esc(e.why)}.`;
