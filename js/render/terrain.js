@@ -6,10 +6,52 @@ import * as THREE from 'three';
 import { CHUNK, MAX_LOD } from '../core/units.js';
 import { chunkData } from '../gen/chunk.js';
 import { texture } from './textures.js';
+import { baked, surfaceMeans } from './materials.js';
 
 const VIEW = 16000, SPLIT = 1.7;
 
 function terrainMaterial() {
+  // Baked ground surfaces (grass, dry ground, rock) used as detail over the planet's own
+  // ground colour (vertex colours from gen/chunk.js): each texture is divided by its mean
+  // albedo, so a red-grass world keeps red grass. Grass vs dry follows how green the
+  // ground colour is; rock takes over on steep slopes, projected from three sides.
+  const G = baked('grass'), D = baked('dirt'), R = baked('rock'), means = surfaceMeans();
+  if (!G || !D || !R || !means.grass) return proceduralTerrainMaterial();
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, map: G.map, normalMap: G.normalMap, roughness: 0.95, metalness: 0 });
+  m.normalScale.set(0.8, 0.8);
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, { tDirt: { value: D.map }, tRock: { value: R.map }, tRockN: { value: R.normalMap },
+      mGrass: { value: new THREE.Vector3(...means.grass) }, mDirt: { value: new THREE.Vector3(...means.dirt) }, mRock: { value: new THREE.Vector3(...means.rock) } });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position; vWN = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      uniform sampler2D tDirt; uniform sampler2D tRock; uniform sampler2D tRockN; uniform vec3 mGrass; uniform vec3 mDirt; uniform vec3 mRock;
+      varying vec3 vWP; varying vec3 vWN;`)
+      .replace('#include <map_fragment>', `
+      vec3 wn = normalize(vWN);
+      float rockW = 1.0 - smoothstep(0.6, 0.84, wn.y);
+      float green = clamp((vColor.g - max(vColor.r, vColor.b)) * 9.0 + 0.45, 0.0, 1.0);
+      vec2 top = vWP.xz;
+      vec3 gr = texture2D(map, top / 3.0).rgb / mGrass, dr = texture2D(tDirt, top / 3.0).rgb / mDirt;
+      vec3 gr2 = texture2D(map, top / 31.0 + 0.37).rgb / mGrass, dr2 = texture2D(tDirt, top / 29.0 + 0.61).rgb / mDirt;   // a coarser pass breaks up the tiling
+      vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
+      vec3 rk = ((texture2D(tRock, vWP.zy / 13.0).rgb + texture2D(tRock, vWP.zy / 47.0 + 0.3).rgb) * bw.x + (texture2D(tRock, vWP.xz / 13.0).rgb + texture2D(tRock, vWP.xz / 47.0 + 0.3).rgb) * bw.y
+        + (texture2D(tRock, vWP.xy / 13.0).rgb + texture2D(tRock, vWP.xy / 47.0 + 0.3).rgb) * bw.z) * 0.5 / mRock;
+      vec3 soft = mix(dr * 0.6 + dr2 * 0.4, gr * 0.6 + gr2 * 0.4, green);
+      vec3 detail = mix(soft, rk, rockW);
+      float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
+      diffuseColor.rgb *= 0.8 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // (0.8: the old detail texture's mean, which the palette was tuned under)
+      `)
+      .replace('#include <normal_fragment_maps>', `
+      vec3 mapN = mix(texture2D(normalMap, vWP.xz / 3.0).xyz, texture2D(tRockN, vWP.xz / 8.0).xyz, rockW) * 2.0 - 1.0;
+      mapN.xy *= normalScale * clamp(1.0 - vViewPosition.z / 300.0, 0.0, 1.0);
+      normal = normalize(tbn * mapN);
+      `);
+  };
+  return m;
+}
+
+function proceduralTerrainMaterial() {
   const t = texture('ground');
   const map = t.map.clone(); map.repeat.set(1 / 6, 1 / 6); map.needsUpdate = true;
   const nmap = t.normalMap.clone(); nmap.repeat.set(1 / 6, 1 / 6); nmap.needsUpdate = true;

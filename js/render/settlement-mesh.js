@@ -133,6 +133,9 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   const pole = new THREE.CylinderGeometry(0.07, 0.1, 6, 8).translate(0, 3, 0);
   const arm = new THREE.BoxGeometry(0.08, 0.08, 1.4).translate(0, 5.9, 0.7);
   const head = new THREE.BoxGeometry(0.35, 0.12, 0.6).translate(0, 5.85, 1.3);
+  // the street light model from the asset library when it's there: its lens takes the night-lit lamp material
+  const model = propView && [...propView.lib.variants.values()].find(v => v.kind === 'streetlamp');
+  const lampParts = model ? model.prims.map(pr => { const im = new THREE.InstancedMesh(pr.geometry.clone().translate(-0.3, 0, -0.3), pr.slot === 'glow' ? M.lamp : pr.material, lamps.length); im.castShadow = pr.slot !== 'glow'; return im; }) : [];
   const poleMesh = new THREE.InstancedMesh(mergeSimple([pole, arm]), M.trim, lamps.length);
   const headMesh = new THREE.InstancedMesh(head, M.lamp, lamps.length);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
@@ -142,6 +145,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     q.setFromAxisAngle(up, Math.atan2(dx, dz));
     m4.compose(new THREE.Vector3(x, s.h, z), q, new THREE.Vector3(1, 1, 1));
     poleMesh.setMatrixAt(i, m4); headMesh.setMatrixAt(i, m4);
+    for (const im of lampParts) im.setMatrixAt(i, m4);
   });
   poleMesh.castShadow = true;
   // pools of lamplight on the street: additive decals, faded in at night (lamp material
@@ -149,7 +153,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   const poolMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(16, 16).rotateX(-Math.PI / 2).translate(0, 0.08, 1.3), poolMaterial(), lamps.length);
   for (let i = 0; i < lamps.length; i++) { headMesh.getMatrixAt(i, m4); poolMesh.setMatrixAt(i, m4); }
   poolMesh.renderOrder = 1;
-  group.add(poleMesh, headMesh, poolMesh);
+  group.add(...(lampParts.length ? lampParts : [poleMesh, headMesh]), poolMesh);
 
   onProgress(1);
   return { group, doors, lamps: lamps.length };

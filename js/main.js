@@ -38,7 +38,7 @@ import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
 import { DoorView } from './render/doors.js';
 import { loadPropLibrary, PropView } from './render/props.js';
-import { materials, occupancy, WINDOW_TYPES } from './render/materials.js';
+import { materials, occupancy, WINDOW_TYPES, loadSurfaces } from './render/materials.js';
 import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
@@ -146,6 +146,7 @@ async function start(fresh) {
   const root = new THREE.Group(); scene.add(root);   // world content; offset = floating origin
   const origin = [0, 0, 0];
   const toRender = (x, y, z) => [x - origin[0], y, z - origin[2]];
+  await loadSurfaces(renderer.capabilities.getMaxAnisotropy());
   materials();
   ui.loading('Weathering the surface…', 0.05);
   await tick();

@@ -161,14 +161,149 @@ def mat_cardboard(seed):
     col = lerp3(srgb((168, 128, 86)), srgb((138, 100, 62)), np.clip(0.6 * a + 0.3 * f, 0, 1))
     return col, normal_from_height(flutes * 0.15 + f * 0.3, 0.8), np.ones((N, N)), 0.9 * np.ones((N, N)), 0.0
 
+# ---- town and terrain surfaces (tile sizes match what render/materials.js and terrain.js used)
+def grid_cells(nx, ny, seed, offset_rows=False):
+    """Per-pixel cell index and distance to the nearest joint (in cells) for an nx × ny grid."""
+    y = (np.arange(N)[:, None] + 0.5) / N * ny * np.ones((1, N)); x = (np.arange(N)[None, :] + 0.5) / N * nx * np.ones((N, 1))
+    if offset_rows: x = x + 0.5 * (np.floor(y) % 2)
+    ix, iy = np.floor(x) % nx, np.floor(y)
+    fx, fy = x - np.floor(x), y - np.floor(y)
+    edge = np.minimum(np.minimum(fx, 1 - fx) * (N / nx), np.minimum(fy, 1 - fy) * (N / ny))     # px to the nearest joint
+    r = np.random.default_rng(seed).random((ny + 1, nx + 1))
+    return r[iy.astype(int), ix.astype(int)], edge
+
+def streaks(seed, k=0.6):          # rain streaks: long vertical marks, stronger lower down a tile
+    v = spectral(N, 1.2, seed, ax=1, ay=14)          # long along y: they run down the wall
+    return np.clip((v - 0.5) * 2.2, 0, 1) * k
+
+
+def worley(cells, seed):
+    """Tileable cellular noise on a jittered cells × cells grid → (F1, F2 in cell units, id of nearest cell 0..1)."""
+    r = np.random.default_rng(seed)
+    jit = r.random((cells, cells, 2)); ids = r.random((cells, cells))
+    u = (np.arange(N) + 0.5) / N * cells
+    X, Y = np.meshgrid(u, u)                       # X across (columns), Y down (rows)
+    cx, cy = np.floor(X).astype(int), np.floor(Y).astype(int)
+    f1 = np.full((N, N), 9.0); f2 = np.full((N, N), 9.0); nid = np.zeros((N, N))
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            gx, gy = cx + dx, cy + dy
+            jx, jy = jit[gy % cells, gx % cells, 0], jit[gy % cells, gx % cells, 1]
+            d = np.hypot(gx + jx - X, gy + jy - Y)
+            closer = d < f1
+            f2 = np.where(closer, f1, np.minimum(f2, d)); nid = np.where(closer, ids[gy % cells, gx % cells], nid); f1 = np.where(closer, d, f1)
+    return f1, f2, nid
+
+def mat_facade(seed):    # precast concrete panels, 1.6 × 3.2 m: recessed joints, tone per panel, grain, rain streaks
+    tone, edge = grid_cells(2, 1, seed)
+    joint = np.clip(1 - edge / 5, 0, 1)
+    a = spectral(N, 1.8, seed + 1); g = spectral(N, 0.2, seed + 2); st = streaks(seed + 3, 0.5)
+    pores = (spectral(N, 0.05, seed + 4) > 0.9).astype(float)
+    v = 0.74 + 0.1 * (tone - 0.5) + 0.07 * (a - 0.5) + 0.05 * (g - 0.5) - 0.3 * st - 0.3 * joint - 0.1 * pores
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.985, 0.955])
+    h = 0.15 * g + 0.25 * a - 1.2 * joint - 0.3 * pores
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.5), 0.82 + 0.1 * g - 0.08 * st, 0.0
+
+def mat_corrugated(seed):   # painted corrugated steel sheet, ribs vertical; dirt and rust run down from the laps
+    x = np.arange(N)[None, :] / N * np.ones((N, 1)); y = np.arange(N)[:, None] / N * np.ones((1, N))
+    ribs = 0.5 + 0.5 * np.sin(2 * math.pi * 32 * x)
+    lap = np.clip(1 - np.abs(y - 0.0) * N / 6, 0, 1) + np.clip(1 - np.abs(y - 1.0) * N / 6, 0, 1)
+    st = streaks(seed, 0.7); a = spectral(N, 1.5, seed + 1); rust = np.clip((spectral(N, 1.3, seed + 2) - 0.68) * 5, 0, 1) * (0.4 + 0.6 * st)
+    base = np.repeat((0.74 + 0.05 * (a - 0.5) - 0.12 * st)[..., None], 3, -1)
+    col = base * (1 - rust[..., None]) + np.array(srgb((120, 66, 38)))[None, None, :] * rust[..., None]
+    col *= (0.9 + 0.1 * ribs)[..., None]
+    h = ribs * 1.0 - 0.6 * lap + 0.05 * a
+    return col, normal_from_height(h, 6.0), ao_from_height(h, 0.25), 0.45 + 0.25 * st + 0.35 * rust, 0.55 * (1 - rust)
+
+def mat_render(seed):    # rendered (stuccoed) wall: fine float texture, trowel arcs, damp at the foot
+    a = spectral(N, 0.6, seed); b = spectral(N, 1.7, seed + 1); t = spectral(N, 1.0, seed + 2, ax=3, ay=1); st = streaks(seed + 3, 0.35)
+    v = 0.83 + 0.04 * (b - 0.5) + 0.03 * (t - 0.5) - 0.12 * st
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.975, 0.94])
+    h = 0.5 * a + 0.2 * t
+    return col, normal_from_height(h, 2.5), ao_from_height(h, 0.4), 0.9 * np.ones((N, N)), 0.0
+
+def mat_floortile(seed):  # 0.5 m ceramic floor tiles (8 × 8 per 4 m tile), grout, slight gloss, per-tile tone
+    tone, edge = grid_cells(8, 8, seed)
+    grout = np.clip(1 - edge / 3, 0, 1); a = spectral(N, 1.4, seed + 1); sp = spectral(N, 0.2, seed + 2)
+    v = 0.8 + 0.06 * (tone - 0.5) + 0.04 * (a - 0.5) + 0.03 * (sp - 0.5)
+    col = np.repeat(v[..., None], 3, -1) * (1 - grout[..., None] * 0.45)
+    h = -grout + 0.03 * a
+    return col, normal_from_height(h, 2.0), ao_from_height(h, 0.3), 0.25 + 0.6 * grout + 0.1 * a, 0.0
+
+def mat_asphalt(seed):    # aggregate set in tar, worn smooth on top; hairline cracks, patches, oil
+    f1, f2, nid = worley(180, seed)
+    stone = np.clip(1 - f1 * 1.8, 0, 1) * (nid > 0.35)
+    fine = spectral(N, 0.4, seed + 1); big = spectral(N, 2.2, seed + 2)
+    ridge = 1 - np.abs(spectral(N, 1.6, seed + 3) - 0.5) * 2
+    crack = np.clip((ridge - 0.992) * 120, 0, 1) * (big > 0.5)
+    patch = np.clip((spectral(N, 2.4, seed + 4) - 0.74) * 8, 0, 1); oil = np.clip((spectral(N, 2.0, seed + 5) - 0.78) * 6, 0, 1)
+    v = 0.27 + 0.07 * stone * (0.5 + nid) + 0.03 * (fine - 0.5) + 0.05 * (big - 0.5) - 0.05 * patch - 0.06 * crack - 0.05 * oil
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 1.0, 1.02])
+    h = 0.35 * stone + 0.15 * fine - 0.6 * crack + 0.1 * patch
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.5), 0.86 - 0.2 * oil - 0.1 * patch + 0.04 * stone, 0.0
+
+def mat_pavers(seed):     # 0.4 × 0.2 m concrete pavers, running bond (10 × 20 per 4 m tile), chipped arrises
+    tone, edge = grid_cells(10, 20, seed, offset_rows=True)
+    j = np.clip(1 - edge / 2.2, 0, 1); a = spectral(N, 1.6, seed + 1); g = spectral(N, 0.2, seed + 2); dirt = spectral(N, 2.0, seed + 3)
+    v = 0.6 + 0.1 * (tone - 0.5) + 0.05 * (a - 0.5) + 0.04 * (g - 0.5) - 0.08 * dirt
+    col = np.repeat(v[..., None], 3, -1) * np.array([1.0, 0.97, 0.93]) * (1 - 0.3 * j[..., None])
+    h = -0.8 * j + 0.1 * g + 0.15 * a
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.6), 0.85 + 0.1 * j, 0.0
+
+def mat_grass(seed):      # short grass seen from above: dense blades, clumps, bare soil between
+    blades = spectral(N, 0.15, seed); clump = spectral(N, 1.8, seed + 1); dir_ = spectral(N, 0.5, seed + 2, ax=1, ay=4)
+    bare = np.clip((0.35 - clump) * 4, 0, 1)
+    green = lerp3(srgb((58, 80, 36)), srgb((120, 132, 62)), np.clip(0.55 * blades + 0.45 * dir_, 0, 1))
+    soil = lerp3(srgb((70, 56, 40)), srgb((104, 86, 62)), blades)
+    col = green * (1 - bare[..., None]) + soil * bare[..., None]
+    h = 0.7 * blades + 0.3 * dir_ + 0.4 * clump
+    return col, normal_from_height(h, 3.5), ao_from_height(h, 0.7), 0.92 * np.ones((N, N)), 0.0
+
+def mat_dirt(seed):       # dry ground: dust, small stones, cracked patches
+    a = spectral(N, 1.6, seed); f = spectral(N, 0.3, seed + 1); st = np.clip((spectral(N, 0.1, seed + 2) - 0.78) * 6, 0, 1)
+    ridge = 1 - np.abs(spectral(N, 1.4, seed + 3) - 0.5) * 2; crack = np.clip((ridge - 0.99) * 80, 0, 1) * (a > 0.55)
+    col = lerp3(srgb((118, 98, 72)), srgb((168, 146, 112)), np.clip(0.6 * a + 0.4 * f, 0, 1))
+    col = col * (1 - 0.2 * crack[..., None]) * (1 - 0.15 * st[..., None]) + 0.12 * st[..., None]
+    h = 0.4 * a + 0.3 * f + 0.6 * st - 0.6 * crack
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.6), 0.95 * np.ones((N, N)), 0.0
+
+def mat_rock(seed):       # bedded rock: blocky fractured faces, thin joints, strata, lichen
+    y = np.arange(N)[:, None] / N * np.ones((1, N))
+    warp = spectral(N, 2.0, seed)
+    strata = 0.5 + 0.5 * np.sin(2 * math.pi * (y * 7 + warp * 1.4))
+    f1, f2, nid = worley(9, seed + 1)
+    joint = np.clip(1 - (f2 - f1) * 14, 0, 1)                  # thin dark cracks between blocks
+    a = spectral(N, 1.9, seed + 2); f = spectral(N, 0.5, seed + 3); lichen = np.clip((spectral(N, 1.2, seed + 4) - 0.72) * 5, 0, 1) * (f > 0.55)
+    v = 0.4 + 0.08 * (nid - 0.5) + 0.07 * (strata - 0.5) + 0.08 * (a - 0.5) + 0.06 * (f - 0.5) - 0.2 * joint
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.96, 0.9])
+    col = col * (1 - lichen[..., None] * 0.5) + np.array(srgb((122, 126, 90)))[None, None, :] * lichen[..., None] * 0.5
+    h = 0.6 * (1 - f1) * 0.6 + 0.4 * a + 0.25 * f + 0.2 * strata - 0.9 * joint
+    return col, normal_from_height(h, 6.0), ao_from_height(h, 0.7), 0.88 + 0.08 * f, 0.0
+
+def mat_gravel(seed):     # loose gravel: rounded pebbles of mixed stone, packed fines between
+    f1, f2, nid = worley(64, seed)
+    peb = np.clip(1 - f1 * 1.5, 0, 1) ** 0.6
+    gap = np.clip(1 - (f2 - f1) * 4, 0, 1)
+    q = spectral(N, 0.3, seed + 1)
+    tone = lerp3(srgb((96, 90, 82)), srgb((178, 170, 156)), np.clip(nid * 0.8 + 0.2 * q, 0, 1))
+    col = tone * (1 - 0.45 * gap[..., None])
+    h = peb - 0.4 * gap
+    return col, normal_from_height(h, 5.0), ao_from_height(h, 0.9), 0.85 + 0.1 * gap, 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
+    'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
+    'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
+    'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
 def build_textures():
     os.makedirs(MAT_DIR, exist_ok=True)
+    import json
+    ip = os.path.join(MAT_DIR, 'index.json')
+    index = json.load(open(ip)) if os.path.exists(ip) else {}
     for i, (name, (gen, tile)) in enumerate(MATERIALS.items()):
         if ONLY and name not in ONLY: continue
         col, nrm, ao, rough, metal = gen(1000 + i * 17)
@@ -176,10 +311,11 @@ def build_textures():
         save(name + '_c', col, True)
         save(name + '_n', nrm, False)
         save(name + '_orm', np.stack([ao, np.clip(rough, 0.04, 1), np.clip(metal, 0, 1)], -1), False)
+        # mean linear albedo: lets a shader use the texture as detail over a colour of its own (terrain)
+        index[name] = {'tile': tile, 'mean': [round(float(np.mean(np.clip(col[..., c], 0, 1) ** 2.2)), 4) for c in range(3)]}
         print('texture', name)
-    import json
-    with open(os.path.join(MAT_DIR, 'index.json'), 'w') as f:
-        json.dump({k: {'tile': v[1]} for k, v in MATERIALS.items()}, f, indent=1)
+    for k, v in MATERIALS.items(): index.setdefault(k, {'tile': v[1]})['tile'] = v[1]
+    with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
 SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor']
@@ -748,6 +884,34 @@ def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
         vs = [bm.verts.new(P(*v)) for v in [(x, 0.0, rp['z0']), (x, deck, rp['z1']), (x, deck + 0.18, rp['z1']), (x, 0.18, rp['z0'])]]
         bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.05); merge(p, bm, 'paint')
 
+def streetlamp(p, L, D, H, r):
+    """Street light. Frame: pole at (0.3, 0.3), arm reaching toward +z; the lens ('glow')
+    is lit at night by the game's lamp material. Same footprint as the old placeholder."""
+    px, pz = 0.3, 0.3
+    add_box(p, px - 0.16, 0, pz - 0.16, px + 0.16, 0.5, pz + 0.16, 'concrete', 0.02)                 # footing
+    add_cyl(p, px, pz, 0.5, 0.9, 0.12, 'metal', 16, r2=0.1)                                           # base flange with the access door
+    add_box(p, px - 0.05, 0.6, pz - 0.115, px + 0.05, 0.8, pz - 0.1, 'metal', 0.003)
+    add_cyl(p, px, pz, 0.9, 5.7, 0.085, 'metal', 16, r2=0.055)                                        # tapered shaft
+    # arm: a quarter bend out of the top of the pole, then level
+    prev = (pz, 5.7); R = 0.45
+    for k in range(1, 9):
+        a = k / 8 * math.pi / 2
+        z, y = pz + R * (1 - math.cos(a)), 5.7 + R * math.sin(a)
+        bm = bmesh.new(); bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=0.045, radius2=0.045, depth=1.0)
+        dz, dy = z - prev[0], y - prev[1]; ln = math.hypot(dz, dy)
+        for v in bm.verts:
+            x0, y0, z0 = v.co      # along Blender z, centred
+            t = (z0 + 0.5) * ln
+            ux, uy = dz / ln, dy / ln
+            nz, ny = -uy, ux        # perpendicular in the (z, y) plane
+            v.co = P(px + x0, prev[1] + uy * t + ny * y0, prev[0] + ux * t + nz * y0)
+        merge(p, bm, 'metal'); prev = (z, y)
+    add_cyl(p, px, 6.15, prev[0], 1.3, 0.045, 'metal', 10, axis='z')
+    # luminaire head: a low bevelled housing with the lens underneath
+    add_box(p, px - 0.2, 6.02, 1.2, px + 0.2, 6.2, 1.85, 'paint', 0.03, 3)
+    add_box(p, px - 0.17, 6.0, 1.24, px + 0.17, 6.03, 1.8, 'glow', 0.01)
+    add_box(p, px - 0.12, 6.2, 1.35, px + 0.12, 6.24, 1.6, 'paint', 0.01)
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -766,6 +930,7 @@ def variants():
         ('crate', crate, 1.2, 1.2, 1.0), ('crate', crate, 1.0, 1.0, 0.8), ('crate', crate, 1.6, 1.6, 1.4),
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
         ('speeder', speeder, 2.6, 1.0, 1.05),
+        ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]

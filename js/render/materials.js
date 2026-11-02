@@ -5,6 +5,32 @@
 import * as THREE from 'three';
 import { texture } from './textures.js';
 
+// Baked PBR surfaces (tools/assets/build.py → assets/materials/): colour, normal and
+// occlusion/roughness/metalness. Loaded once at boot (loadSurfaces); when they aren't
+// there (or ?proctex), the procedural canvas textures stand in.
+let SURF = null, aniso = 8;
+const BASE = './assets/materials/';
+export async function loadSurfaces(anisotropy = 8) {
+  aniso = anisotropy;
+  if (new URLSearchParams(globalThis.location?.search || '').has('proctex')) return null;
+  try { SURF = await (await fetch(BASE + 'index.json')).json(); } catch { SURF = null; }
+  return SURF;
+}
+export const surfaceMeans = () => Object.fromEntries(Object.entries(SURF || {}).filter(([, v]) => v.mean).map(([k, v]) => [k, v.mean]));
+const cache = new Map();
+// { map, normalMap, roughnessMap, metalnessMap, aoMap } for a baked surface, tiled at its own size (or `metres`)
+export function baked(name, metres) {
+  if (!SURF?.[name]) return null;
+  const key = name + '@' + (metres || SURF[name].tile);
+  if (cache.has(key)) return cache.get(key);
+  const tile = metres || SURF[name].tile, tl = new THREE.TextureLoader();
+  const t = (f, srgb) => { const x = tl.load(BASE + name + f); x.wrapS = x.wrapT = THREE.RepeatWrapping; x.repeat.set(1 / tile, 1 / tile); x.anisotropy = aniso; if (srgb) x.colorSpace = THREE.SRGBColorSpace; return x; };
+  const orm = t('_orm.webp', false);
+  const out = { map: t('_c.webp', true), normalMap: t('_n.webp', false), roughnessMap: orm, metalnessMap: orm, aoMap: orm };
+  cache.set(key, out);
+  return out;
+}
+
 function scaled(name, metres) {
   const t = texture(name);
   const c = {};
@@ -12,8 +38,11 @@ function scaled(name, metres) {
   return c;
 }
 
-function std(tex, metres, o = {}) {
-  const m = new THREE.MeshStandardMaterial({ ...scaled(tex, metres), ...o });
+// A surface: the baked set `bakedName` if it's loaded (its own tile size), else the procedural one.
+function std(tex, metres, o = {}, bakedName = null) {
+  const b = bakedName && baked(bakedName);
+  const m = b ? new THREE.MeshStandardMaterial({ ...b, aoMapIntensity: 0.7, ...o, roughness: 1, metalness: 1 })     // (the maps carry both)
+    : new THREE.MeshStandardMaterial({ ...scaled(tex, metres), ...o });
   if (o.normalScale) m.normalScale = new THREE.Vector2(o.normalScale, o.normalScale);
   return m;
 }
@@ -44,20 +73,20 @@ let M = null;
 export function materials() {
   if (M) return M;
   M = {
-    panels: std('panels', 3.2, { vertexColors: true }),
-    corrugated: std('corrugated', 2.4, { vertexColors: true, metalness: 0.6 }),
-    concrete: std('concrete', 4, { vertexColors: true }),
+    panels: std('panels', 3.2, { vertexColors: true }, 'facade'),
+    corrugated: std('corrugated', 2.4, { vertexColors: true, metalness: 0.6 }, 'corrugated'),
+    concrete: std('concrete', 4, { vertexColors: true }, 'concrete'),
     trim: std('metal', 2, { color: 0x6b7178, metalness: 0.8 }),
     darkTrim: std('metal', 2, { color: 0x3c4148, metalness: 0.6 }),
     glass: glassMaterial(),
-    asphalt: std('asphalt', 6),
-    pavers: std('pavers', 4),
+    asphalt: std('asphalt', 6, {}, 'asphalt'),
+    pavers: std('pavers', 4, {}, 'pavers'),
     marking: new THREE.MeshStandardMaterial({ color: 0xd9d4c4, roughness: 0.7 }),
-    plaster: std('plaster', 3, { vertexColors: true }),
-    tiles: std('tiles', 4, { vertexColors: true }),
-    fabric: std('fabric', 1, { vertexColors: true }),
-    wood: std('wood', 1.5, { vertexColors: true }),
-    metal: std('metal', 1.5, { vertexColors: true, metalness: 0.6 }),
+    plaster: std('plaster', 3, { vertexColors: true }, 'render'),
+    tiles: std('tiles', 4, { vertexColors: true }, 'floortile'),
+    fabric: std('fabric', 1, { vertexColors: true }, 'fabric'),
+    wood: std('wood', 1.5, { vertexColors: true }, 'wood'),
+    metal: std('metal', 1.5, { vertexColors: true, metalness: 0.6 }, 'metal'),
     door: std('metal', 2, { color: 0x8a9096, metalness: 0.7, roughness: 0.4 }),
     doorLocked: std('metal', 2, { color: 0x8a6a3c, metalness: 0.7, roughness: 0.4 }),
     lightPanel: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2dd, emissiveIntensity: 1.6, roughness: 0.4 }),
