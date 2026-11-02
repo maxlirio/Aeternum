@@ -57,3 +57,27 @@ export function floraNear(planet, x, z, R, fn) {
   const t0 = Math.floor((x - R) / TILE), t1 = Math.floor((x + R) / TILE), u0 = Math.floor((z - R) / TILE), u1 = Math.floor((z + R) / TILE);
   for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const p of floraTile(planet, ti, tj)) if ((p.x - x) ** 2 + (p.z - z) ** 2 <= R * R) fn(p);
 }
+
+// Grass clumps: much denser than plants, only ever needed near the player. One candidate
+// per GCELL m; kept where the ground is green enough and flat, off towns and roads.
+// → Float32Array of [x, y, z, size, lush] per clump.
+export const GCELL = 0.65, GTILE = 26;
+const gcache = new Map();
+export function grassTile(planet, ti, tj) {
+  const ck = planet.universeSeed.join(':') + '|g' + ti + ',' + tj;
+  if (gcache.has(ck)) return gcache.get(ck);
+  const n = GTILE / GCELL, seed = planet.universeSeed[1] ^ 0x6a55, out = [];
+  for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+    const ci = ti * n + a, cj = tj * n + b, r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
+    const x = (ci + r(1)) * GCELL, z = (cj + r(2)) * GCELL;
+    const s = surfaceAt(planet, x, z);
+    if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 1.5 || s.h > planet.climate.treeline + 150) continue;
+    const moist = moisture(planet, x, z), lush = smoothstep(0.2, 0.75, moist);
+    if (r(3) > 0.25 + 0.7 * lush) continue;
+    out.push(x, s.h, z, 0.35 + 0.55 * r(4) * (0.5 + lush), lush);
+  }
+  const arr = new Float32Array(out);
+  gcache.set(ck, arr);
+  if (gcache.size > 3000) gcache.delete(gcache.keys().next().value);
+  return arr;
+}

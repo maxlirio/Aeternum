@@ -441,6 +441,17 @@ def draw_impostor(kind, seed):
 def build_foliage():
     for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')):
         save_rgba(name, draw_twig(kind, 77 if kind == 'leaf' else 91)); print('texture', name)
+    # grass blades: tapering, curving strokes rising from the bottom edge, on transparent ground
+    r = np.random.default_rng(13); col = np.zeros((N, N, 3)); al = np.zeros((N, N)); Y, X = np.mgrid[0:N, 0:N] / N
+    for k in range(260):
+        x0 = r.uniform(0.04, 0.96); h = r.uniform(0.45, 0.97); lean = r.uniform(-0.25, 0.25); w = r.uniform(0.006, 0.012)
+        c = np.array(srgb((int(r.uniform(70, 125)), int(r.uniform(105, 150)), int(r.uniform(40, 70)))))
+        for t in np.linspace(0, 1, 60):
+            cx = x0 + lean * t * t; cy = 1 - h * t; rad = w * (1 - t) + 0.0015
+            bx0, bx1 = int(max(0, (cx - rad) * N)), int(min(N, (cx + rad) * N + 1)); by0, by1 = int(max(0, (cy - 0.01) * N)), int(min(N, (cy + 0.01) * N + 1))
+            m = np.abs(X[by0:by1, bx0:bx1] - cx) < rad
+            col[by0:by1, bx0:bx1][m] = c * (0.55 + 0.6 * t); al[by0:by1, bx0:bx1][m] = 1
+    save_rgba('grass_blades', np.concatenate([col, al[..., None]], -1)); print('texture grass_blades')
     for kind in ('conifer', 'broadleaf'): save_rgba('impostor_' + kind, draw_impostor(kind, 5 if kind == 'conifer' else 6)); print('texture impostor', kind)
 
 def build_textures():

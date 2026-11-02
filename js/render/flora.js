@@ -3,7 +3,7 @@
 // as you move, so nothing stalls; instance buffers are rebuilt when you've moved far
 // enough to matter. Leaves take the planet's own grass colour.
 import * as THREE from 'three';
-import { floraTile, TILE } from '../gen/flora.js';
+import { floraTile, TILE, grassTile, GTILE } from '../gen/flora.js';
 
 const NEAR = { conifer: 170, broadleaf: 170, shrub: 95, boulder: 320 };   // full model within (m)
 const FAR = 1100;                                                         // trees as stand-ins out to (m)
@@ -75,5 +75,58 @@ export class FloraView {
       for (const P of K.prims) { P.im.setMatrixAt(i, this._m); if (P.leafy) P.im.setColorAt(i, this._c); }
     });
     for (const P of K.prims) { P.im.count = n; P.im.instanceMatrix.needsUpdate = true; if (P.leafy) P.im.instanceColor.needsUpdate = true; }
+  }
+}
+
+// Grass clumps around the player: three crossed cards of blades, tinted between the
+// planet's green and its dry colour, swaying a little. Rebuilt as you walk.
+const GR = 40;
+export class GrassView {
+  constructor(planet, base = './assets/') {
+    this.planet = planet;
+    const g = new THREE.BufferGeometry(), P = [], U = [], I = [];
+    for (let k = 0; k < 3; k++) {
+      const a = k * Math.PI / 3, cx = Math.cos(a) * 0.35, cz = Math.sin(a) * 0.35, o = P.length / 3;
+      P.push(-cx, 0, -cz, cx, 0, cz, cx, 0.5, cz, -cx, 0.5, -cz); U.push(0, 0, 1, 0, 1, 1, 0, 1); I.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I);
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(P.length).fill(0).map((_, i) => i % 3 === 1 ? 1 : 0), 3));   // lit like the ground
+    const t = new THREE.TextureLoader().load(base + 'materials/grass_blades.png'); t.colorSpace = THREE.SRGBColorSpace;
+    this.time = { value: 0 };
+    const m = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.9 });
+    m.onBeforeCompile = sh => {
+      sh.uniforms.uTime = this.time;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uTime;')
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vec4 ip = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+          transformed.x += sin(uTime * 1.7 + ip.x * 0.31 + ip.z * 0.17) * 0.07 * uv.y;
+          transformed.z += cos(uTime * 1.3 + ip.z * 0.29) * 0.05 * uv.y;`);
+    };
+    this.cap = 45000;
+    this.mesh = new THREE.InstancedMesh(g, m, this.cap); this.mesh.frustumCulled = false; this.mesh.receiveShadow = true; this.mesh.count = 0;
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3), 3);
+    const C = planet.climate, l = v => { const k = Math.max(...v); return new THREE.Color(v[0] / k, v[1] / k, v[2] / k); };
+    this.green = l(C.grass).lerp(new THREE.Color(1, 1, 1), 0.3); this.dry = l(C.dry).lerp(new THREE.Color(1, 1, 1), 0.2);
+    this.at = null; this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._c = new THREE.Color(); this.up = new THREE.Vector3(0, 1, 0);
+  }
+  update(x, z, dt) {
+    this.time.value += dt;
+    if (this.at && Math.hypot(x - this.at[0], z - this.at[1]) < 6) return;
+    this.at = [x, z];
+    let n = 0;
+    const t0 = Math.floor((x - GR) / GTILE), t1 = Math.floor((x + GR) / GTILE), u0 = Math.floor((z - GR) / GTILE), u1 = Math.floor((z + GR) / GTILE);
+    for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) {
+      const A = grassTile(this.planet, ti, tj);
+      for (let i = 0; i < A.length && n < this.cap; i += 5) {
+        const d = Math.hypot(A[i] - x, A[i + 2] - z); if (d > GR) continue;
+        const s = A[i + 3] * Math.min(1, (GR - d) / 10);          // shrink out toward the edge instead of popping
+        this._q.setFromAxisAngle(this.up, A[i] * 7.3 + A[i + 2]);
+        this._m.compose(new THREE.Vector3(A[i], A[i + 1] - 0.06, A[i + 2]), this._q, new THREE.Vector3(s, s, s));
+        this.mesh.setMatrixAt(n, this._m);
+        this.mesh.setColorAt(n, this._c.copy(this.dry).lerp(this.green, A[i + 4]).multiplyScalar(0.75 + 0.25 * ((A[i] * 13.1) % 1)));
+        n++;
+      }
+    }
+    this.mesh.count = n; this.mesh.instanceMatrix.needsUpdate = true; this.mesh.instanceColor.needsUpdate = true;
   }
 }

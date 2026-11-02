@@ -52,7 +52,7 @@ import { SHIP_PRICE } from './gen/ships.js';
 import { shipsIn, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
-import { FloraView } from './render/flora.js';
+import { FloraView, GrassView } from './render/flora.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
 import { ITEMS, buyPrice, sellPrice } from './gen/items.js';
@@ -160,6 +160,7 @@ async function start(fresh) {
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const flora = new FloraView(propLib, planet); root.add(flora.group);      // (world coordinates, under the floating origin)
+  const grass = new GrassView(planet); root.add(grass.mesh);
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const doorView = new DoorView(s, town.doors);
@@ -812,6 +813,7 @@ async function start(fresh) {
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
+    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt); grass.mesh.visible = !flight || flight.altitude() < 60;
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position);
     water.position.set(camera.position.x, planet.seaLevel, camera.position.z);
