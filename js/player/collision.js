@@ -5,6 +5,7 @@
 import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
+import { floraNear } from '../gen/flora.js';
 
 export const STEP = 0.5;
 const GRID = 16;
@@ -13,6 +14,7 @@ export class CollisionWorld {
   constructor(planet, s, doorPassable) {
     this.planet = planet; this.s = s; this.doorPassable = doorPassable;
     this.base = s.h + PLINTH;
+    this.flora = true;           // trees and boulders block (tests of town-only collision can turn it off)
     this.cols = new Map();       // building n (or structure key) -> collider set
     this.grid = new Map();
     for (const b of s.buildings) this.index(b, true);
@@ -148,6 +150,14 @@ export class CollisionWorld {
         for (const wbox of c.walls) test(wbox, wbox[6] >= 0);
         for (const pbox of c.props) test(pbox, false);
       }
+      // tree trunks and boulders out in the open (gen/flora.js): circles
+      if (this.flora) floraNear(this.planet, x, z, r + 1.4, p => {
+        if (!p.solid || yFeet > p.y + (p.sp === 'boulder' ? p.size * 0.8 : p.size) || yFeet + h < p.y) return;
+        const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), R = r + p.solid;
+        if (d >= R) return;
+        const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
+        x = p.x + ux * R; z = p.z + uz * R; moved = true;
+      });
       if (!moved) break;
     }
     return [x, z];

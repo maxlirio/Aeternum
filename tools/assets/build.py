@@ -290,14 +290,104 @@ def mat_gravel(seed):     # loose gravel: rounded pebbles of mixed stone, packed
     h = peb - 0.4 * gap
     return col, normal_from_height(h, 5.0), ao_from_height(h, 0.9), 0.85 + 0.1 * gap, 0.0
 
+def mat_bark(seed):       # tree bark: deep vertical furrows, plates between, moss low down
+    f = spectral(N, 1.1, seed, ax=1, ay=10); g = spectral(N, 0.4, seed + 1); m = spectral(N, 1.8, seed + 2)
+    furrow = np.clip((0.55 - f) * 4, 0, 1)
+    col = lerp3(srgb((92, 74, 58)), srgb((58, 46, 38)), np.clip(0.6 * furrow + 0.4 * g, 0, 1))
+    moss = np.clip((m - 0.62) * 4, 0, 1)
+    col = col * (1 - moss[..., None] * 0.5) + np.array(srgb((70, 84, 44)))[None, None, :] * moss[..., None] * 0.5
+    h = 1 - furrow + 0.2 * g
+    return col, normal_from_height(h, 6.0), ao_from_height(h, 0.8), 0.92 * np.ones((N, N)), 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
-    'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
+    'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
+
+# ---- foliage atlases (RGBA): a leafy twig and a needle spray, drawn on transparent ground
+def save_rgba(name, rgba):
+    img = bpy.data.images.new(name, N, N, alpha=True)
+    img.colorspace_settings.name = 'sRGB'; img.alpha_mode = 'STRAIGHT'
+    img.pixels.foreach_set(np.clip(rgba, 0, 1).astype(np.float32)[::-1].ravel())
+    img.filepath_raw = os.path.join(MAT_DIR, name + '.png'); img.file_format = 'PNG'
+    img.save(); bpy.data.images.remove(img)
+
+def draw_twig(kind, seed):
+    """kind 'leaf': a twig rising up the middle with alternate leaves; 'needle': a frond along x."""
+    r = np.random.default_rng(seed)
+    col = np.zeros((N, N, 3)); a = np.zeros((N, N))
+    Y, X = np.mgrid[0:N, 0:N] / N                   # image rows (y down) and columns
+    def stroke(x0, y0, x1, y1, w, c):
+        dx, dy = x1 - x0, y1 - y0; L2 = dx * dx + dy * dy
+        bx0, bx1 = int(max(0, (min(x0, x1) - w) * N)), int(min(N, (max(x0, x1) + w) * N + 1)); by0, by1 = int(max(0, (min(y0, y1) - w) * N)), int(min(N, (max(y0, y1) + w) * N + 1))
+        xs, ys = X[by0:by1, bx0:bx1], Y[by0:by1, bx0:bx1]
+        t = np.clip(((xs - x0) * dx + (ys - y0) * dy) / L2, 0, 1)
+        d = np.hypot(xs - x0 - t * dx, ys - y0 - t * dy); m = d < w * (1 - 0.6 * t)
+        col[by0:by1, bx0:bx1][m] = c; a[by0:by1, bx0:bx1][m] = 1
+    def leaf(cx, cy, ang, ln, wd, c):
+        bx0, bx1 = int(max(0, (cx - ln) * N)), int(min(N, (cx + ln) * N + 1)); by0, by1 = int(max(0, (cy - ln) * N)), int(min(N, (cy + ln) * N + 1))
+        xs, ys = X[by0:by1, bx0:bx1] - cx, Y[by0:by1, bx0:bx1] - cy
+        u = (xs * math.cos(ang) + ys * math.sin(ang)) / ln; v = (-xs * math.sin(ang) + ys * math.cos(ang)) / wd
+        m = (u > 0) & (u < 1) & (np.abs(v) < np.sin(np.clip(u, 0, 1) * math.pi) ** 0.8)
+        shade = 0.82 + 0.18 * np.clip(1 - np.abs(v) * 1.2, 0, 1) - 0.25 * (np.abs(v) < 0.06)        # midrib, darker edges
+        sub = col[by0:by1, bx0:bx1]; sub[m] = (np.array(c)[None, :] * shade[m][:, None]); a[by0:by1, bx0:bx1][m] = 1
+    if kind == 'leaf':
+        stroke(0.5, 0.98, 0.5, 0.05, 0.012, srgb((70, 52, 36)))
+        for k in range(26):
+            t = 0.08 + 0.86 * k / 26; side = 1 if k % 2 else -1
+            cy = 0.98 - t * 0.92; ang = (-math.pi / 2) + side * r.uniform(0.6, 1.2)
+            c = srgb((int(r.uniform(70, 110)), int(r.uniform(112, 150)), int(r.uniform(40, 62))))
+            stroke(0.5, cy, 0.5 + side * 0.05, cy - 0.03, 0.004, srgb((70, 60, 40)))
+            leaf(0.5 + side * 0.04, cy - 0.025, ang, r.uniform(0.17, 0.24) * (1.1 - 0.4 * t), r.uniform(0.06, 0.08), c)
+    else:
+        stroke(0.02, 0.5, 0.98, 0.5, 0.01, srgb((80, 60, 42)))
+        for k in range(14):                                   # side shoots
+            x0 = 0.06 + 0.86 * k / 14; ln = 0.32 * (1 - 0.6 * x0)
+            for side in (-1, 1): stroke(x0, 0.5, x0 + ln * 0.5, 0.5 + side * ln, 0.006, srgb((80, 62, 44)))
+        for k in range(1800):                                 # needles
+            t = r.random(); x = 0.03 + 0.95 * t; side = r.choice([-1, 1]); spread = 0.36 * (1 - 0.55 * t) * r.random() ** 0.7
+            y = 0.5 + side * spread; ang = side * r.uniform(0.6, 1.3) - 0.35
+            ln = r.uniform(0.025, 0.045)
+            c = srgb((int(r.uniform(30, 55)), int(r.uniform(60, 92)), int(r.uniform(36, 52))))
+            stroke(x, y, x + math.cos(ang) * ln, y + math.sin(ang) * ln, 0.0035, c)
+    return np.concatenate([col, a[..., None]], -1)
+
+def draw_impostor(kind, seed):
+    """A whole tree seen from the side, for the distant stand-in: drawn from the same
+    strokes as the foliage atlases (trunk, then foliage within the tree's silhouette)."""
+    r = np.random.default_rng(seed)
+    col = np.zeros((N, N, 3)); a = np.zeros((N, N))
+    Y, X = np.mgrid[0:N, 0:N] / N
+    def blob(cx, cy, rad, c):
+        bx0, bx1 = int(max(0, (cx - rad) * N)), int(min(N, (cx + rad) * N + 1)); by0, by1 = int(max(0, (cy - rad) * N)), int(min(N, (cy + rad) * N + 1))
+        xs, ys = X[by0:by1, bx0:bx1] - cx, Y[by0:by1, bx0:bx1] - cy
+        m = xs * xs + ys * ys < rad * rad
+        sub = col[by0:by1, bx0:bx1]; sub[m] = c; a[by0:by1, bx0:bx1][m] = 1
+    trunk = srgb((74, 56, 42))
+    if kind == 'conifer':
+        m = (np.abs(X - 0.5) < 0.012) & (Y > 0.05); col[m] = trunk; a[m] = 1
+        for k in range(5200):            # needle tufts filling a drooping triangle, darker inside and below
+            y = r.uniform(0.02, 0.86); half = 0.47 * (y / 0.86) ** 0.95 * r.uniform(0.75, 1.0)
+            x = 0.5 + r.uniform(-1, 1) * half
+            shade = 0.55 + 0.45 * (abs(x - 0.5) / max(half, 1e-3)) * (1 - 0.4 * y) * r.uniform(0.7, 1.0)
+            blob(x, y + 0.02 * abs(x - 0.5) / max(half, 1e-3), r.uniform(0.006, 0.014), np.array(srgb((40, 74, 46))) * shade * 1.25)
+    else:
+        m = (np.abs(X - 0.5) < 0.02 * (0.6 + Y)) & (Y > 0.45); col[m] = trunk; a[m] = 1
+        for k in range(4200):            # leaf clusters in a rounded crown, lit from above
+            ang = r.uniform(0, 2 * math.pi); rad = r.random() ** 0.6
+            x = 0.5 + math.cos(ang) * rad * 0.46; y = 0.36 + math.sin(ang) * rad * 0.32
+            shade = 0.55 + 0.5 * (1 - (y - 0.04) / 0.64) * r.uniform(0.75, 1.0)
+            blob(x, y, r.uniform(0.008, 0.02), np.array(srgb((74, 110, 52))) * shade)
+    return np.concatenate([col, a[..., None]], -1)
+
+def build_foliage():
+    for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')):
+        save_rgba(name, draw_twig(kind, 77 if kind == 'leaf' else 91)); print('texture', name)
+    for kind in ('conifer', 'broadleaf'): save_rgba('impostor_' + kind, draw_impostor(kind, 5 if kind == 'conifer' else 6)); print('texture impostor', kind)
 
 def build_textures():
     os.makedirs(MAT_DIR, exist_ok=True)
@@ -314,11 +404,12 @@ def build_textures():
         # mean linear albedo: lets a shader use the texture as detail over a colour of its own (terrain)
         index[name] = {'tile': tile, 'mean': [round(float(np.mean(np.clip(col[..., c], 0, 1) ** 2.2)), 4) for c in range(3)]}
         print('texture', name)
+    if not ONLY or 'foliage' in ONLY: build_foliage()
     for k, v in MATERIALS.items(): index.setdefault(k, {'tile': v[1]})['tile'] = v[1]
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -435,7 +526,9 @@ def merge(part, bm, mat):
 def finish(part, name):
     bm = part.bm
     uv = bm.loops.layers.uv.active or bm.loops.layers.uv.new('UVMap')
+    cards = {SLOTS.index('leafcard'), SLOTS.index('needlecard'), SLOTS.index('impconifer'), SLOTS.index('impbroadleaf')}
     for f in bm.faces:                       # box projection in metres (prop frame), so tiles are true to scale
+        if f.material_index in cards: continue          # (foliage cards keep their own 0–1 UVs)
         n = f.normal; ax = max(range(3), key=lambda i: abs(n[i]))
         for l in f.loops:
             x, y, z = l.vert.co             # Blender coords: x, -z_prop, y_prop
@@ -920,6 +1013,90 @@ def streetlamp(p, L, D, H, r):
     add_box(p, px - 0.17, 6.0, 1.24, px + 0.17, 6.03, 1.8, 'glow', 0.01)
     add_box(p, px - 0.12, 6.2, 1.35, px + 0.12, 6.24, 1.6, 'paint', 0.01)
 
+def card(part, centre, along, up, w, h, mat, uv_along_x=False):
+    """A double-sided quad of foliage: `along` is the twig's direction (texture up, or +x for needles)."""
+    c = mathutils.Vector(centre); a = mathutils.Vector(along).normalized(); u = mathutils.Vector(up).normalized()
+    side = a.cross(u).normalized()
+    if uv_along_x: corners = [c - side * h / 2, c - side * h / 2 + a * w, c + side * h / 2 + a * w, c + side * h / 2]   # base at the trunk
+    else: corners = [c - side * w / 2, c + side * w / 2, c + side * w / 2 + a * h, c - side * w / 2 + a * h]
+    bm = bmesh.new(); vs = [bm.verts.new(P(v.x, v.y, v.z)) for v in corners]; f = bm.faces.new(vs)
+    uvl = bm.loops.layers.uv.new('UVMap')
+    for l, uv in zip(f.loops, [(0, 0), (1, 0), (1, 1), (0, 1)] if not uv_along_x else [(0, 0), (1, 0), (1, 1), (0, 1)]): l[uvl].uv = uv
+    m = bpy.data.meshes.new('tmp'); bm.to_mesh(m); bm.free()
+    for pp in m.polygons: pp.material_index = SLOTS.index(mat)
+    m['card'] = 1; part.bm.from_mesh(m); bpy.data.meshes.remove(m)
+
+# ------------------------------------------------------------------ plants and rocks
+# Frame: centred on (L/2, D/2), standing on y = 0; the game scales each to its own size.
+def jag_cone(part, cx, cz, y0, y1, r, mat, rng, seg=14, droop=0.25, ragged=0.22):
+    """A drooping, ragged skirt of foliage: a cone whose rim hangs and frays."""
+    bm = bmesh.new(); tip = bm.verts.new(P(cx + rng.uniform(-0.05, 0.05), y1, cz + rng.uniform(-0.05, 0.05)))
+    rim, mid = [], []
+    for k in range(seg):
+        a = 2 * math.pi * k / seg + rng.uniform(-0.12, 0.12); rr = r * (1 + rng.uniform(-ragged, ragged))
+        mid.append(bm.verts.new(P(cx + math.cos(a) * rr * 0.55, y0 + (y1 - y0) * 0.45, cz + math.sin(a) * rr * 0.55)))
+        rim.append(bm.verts.new(P(cx + math.cos(a) * rr, y0 - droop * rng.uniform(0.4, 1.0), cz + math.sin(a) * rr)))
+    under = bm.verts.new(P(cx, y0 + (y1 - y0) * 0.15, cz))
+    for k in range(seg):
+        k1 = (k + 1) % seg
+        bm.faces.new([tip, mid[k1], mid[k]]); bm.faces.new([mid[k], mid[k1], rim[k1], rim[k]]); bm.faces.new([rim[k], rim[k1], under])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(part, bm, mat)
+
+def conifer(p, L, D, H, r):
+    cx, cz = L / 2, D / 2
+    add_cyl(p, cx, cz, 0, H * 0.92, H * 0.032, 'bark', 10, r2=H * 0.006)
+    for i in range(16):                      # whorls of drooping needle fronds, shorter toward the top
+        f = i / 16; y = H * (0.16 + 0.8 * f); reach = (L / 2) * (1 - f) ** 0.85 + 0.3
+        for k in range(7):
+            a = 2 * math.pi * (k / 7) + i * 0.9 + r.uniform(-0.2, 0.2)
+            out = mathutils.Vector((math.cos(a), -0.35 - 0.2 * r.random(), math.sin(a)))
+            card(p, (cx, y, cz), out, (0, 1, 0), reach * 1.05, reach * 0.75, 'needlecard', uv_along_x=True)
+
+def broadleaf(p, L, D, H, r):
+    cx, cz = L / 2, D / 2
+    add_cyl(p, cx, cz, 0, H * 0.5, H * 0.045, 'bark', 12, r2=H * 0.03)
+    tips = []
+    for k in range(5):                        # main limbs, each ending in a clump
+        a = k * 2 * math.pi / 5 + r.uniform(-0.4, 0.4); L1 = H * 0.3
+        x1, z1, y1 = cx + math.cos(a) * L1 * 0.75, cz + math.sin(a) * L1 * 0.75, H * r.uniform(0.62, 0.74)
+        bm = bmesh.new(); bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=H * 0.022, radius2=H * 0.008, depth=1.0)
+        d = mathutils.Vector((x1 - cx, y1 - H * 0.42, z1 - cz)); ln = d.length; d.normalize(); rot = d.to_track_quat('Z', 'Y')
+        for v in bm.verts:
+            q = mathutils.Vector((v.co.x, v.co.y, (v.co.z + 0.5) * ln)); q.rotate(rot); v.co = P(cx + q.x, H * 0.42 + q.y, cz + q.z)
+        merge(p, bm, 'bark'); tips.append((x1, y1, z1))
+    tips.append((cx, H * 0.8, cz))
+    for (tx, ty, tz) in tips:                # leafy twigs radiating from each clump centre
+        for k in range(48):
+            d = mathutils.Vector((r.uniform(-1, 1), r.uniform(-0.4, 1), r.uniform(-1, 1))).normalized()
+            c = (tx + d.x * L * 0.16, ty + d.y * H * 0.08, tz + d.z * L * 0.16)
+            card(p, c, d, (r.uniform(-1, 1), 1, r.uniform(-1, 1)), H * 0.17, H * 0.22, 'leafcard')
+
+def shrub(p, L, D, H, r):
+    cx, cz = L / 2, D / 2
+    for k in range(40):
+        d = mathutils.Vector((r.uniform(-1, 1), r.uniform(0.25, 1), r.uniform(-1, 1))).normalized()
+        card(p, (cx + d.x * L * 0.18, H * r.uniform(0.0, 0.25), cz + d.z * L * 0.18), d, (r.uniform(-1, 1), 0.2, r.uniform(-1, 1)), L * 0.32, H * 0.7, 'leafcard')
+
+def boulder(p, L, D, H, r):
+    bm = bmesh.new(); bmesh.ops.create_icosphere(bm, subdivisions=3, radius=1.0)
+    w = [(r.uniform(-1, 1), r.uniform(-1, 1), r.uniform(-1, 1), r.uniform(0.1, 0.3)) for _ in range(6)]
+    for v in bm.verts:
+        x, y, z = v.co; k = 1.0
+        for (a, b, c, s) in w: k += s * max(0, x * a + y * b + z * c) ** 2 * (1 if s > 0.2 else -1)   # broad facets
+        k += 0.04 * math.sin(x * 9 + y * 5) * math.sin(z * 7)
+        x, y, z = x * k, y * k, z * k
+        v.co = P(L / 2 + x * L / 2, max(-0.2 * H, (z * 0.5 + 0.35) * H), D / 2 + y * D / 2)
+    merge(p, bm, 'rock')
+
+def impostor(p, L, D, H, mat):
+    """Three crossed upright cards carrying the side-on picture of the tree."""
+    for k in range(3):
+        a = k * math.pi / 3
+        card(p, (L / 2, 0, D / 2), (0, 1, 0), (math.cos(a), 0, math.sin(a)), L, H, mat)
+
+def conifer_far(p, L, D, H, r): impostor(p, L, D, H, 'impconifer')
+def broadleaf_far(p, L, D, H, r): impostor(p, L, D, H, 'impbroadleaf')
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -939,6 +1116,8 @@ def variants():
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
+        ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10), ('shrub', shrub, 1.8, 1.8, 1.0), ('boulder', boulder, 1.6, 1.4, 1.0),
+        ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]

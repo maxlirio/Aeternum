@@ -30,6 +30,10 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     if (mats.has(name)) return mats.get(name);
     let m;
     if (name === 'screen') m = new THREE.MeshStandardMaterial({ color: 0x0b1118, emissive: 0x5d8fc0, emissiveIntensity: 0.55, roughness: 0.15 });
+    else if (name === 'leafcard' || name === 'needlecard' || name.startsWith('imp')) {   // alpha-tested foliage cards (and distant tree pictures), lit from both sides
+      const t = tl.load(base + 'materials/' + ({ leafcard: 'foliage_leaf', needlecard: 'foliage_needle', impconifer: 'impostor_conifer', impbroadleaf: 'impostor_broadleaf' })[name] + '.png'); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = anisotropy;
+      m = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.75, metalness: 0 });
+    }
     else if (name === 'visor') m = new THREE.MeshStandardMaterial({ color: 0x0b1218, roughness: 0.06, metalness: 0.6 });
     else if (name === 'glow') m = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2.2, roughness: 0.3 });
     else if (name === 'glass') m = new THREE.MeshStandardMaterial({ color: 0xb8d0dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2, depthWrite: false });

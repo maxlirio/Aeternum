@@ -834,6 +834,26 @@ suites.ships = async () => {
   check(back.at && Math.hypot(back.at.c[0] - fl.pos[0], back.at.c[2] - fl.pos[2]) < 0.01 && S.shipIsYours(back, pl), 'landed where you left it, after reloading');
 };
 
+suites.flora = async () => {
+  const { floraTile, floraNear, TILE } = await import('../js/gen/flora.js');
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Controller } = await import('../js/player/controller.js');
+  const { surfaceAt } = await import('../js/gen/surface.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0);
+  check(JSON.stringify(floraTile(p, 20, 10)) === JSON.stringify(floraTile(makePlanet(uni(4), HOMEWORLD), 20, 10)), 'plants are deterministic');
+  const all = []; floraNear(p, s.cx, s.cz, 900, q => all.push(q));
+  const bad = all.filter(q => { const a = surfaceAt(p, q.x, q.z); return a.town > 0.01 || a.road > 0.01 || q.y < p.seaLevel; });
+  check(all.length > 1000 && bad.length === 0, `${all.length} plants within 900 m, none in town, on a road or under the sea`);
+  const trees = all.filter(q => q.sp === 'conifer' || q.sp === 'broadleaf');
+  check(trees.length > 100, `${trees.length} trees`);
+  // you can't walk through a trunk
+  const world = new CollisionWorld(p, s, () => false), t = trees[0];
+  const c = new Controller(world, [t.x - 3, surfaceAt(p, t.x - 3, t.z).h, t.z]);
+  for (let k = 0; k < 600; k++) c.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.PI / 2 });
+  const d = Math.hypot(c.pos[0] - t.x, c.pos[2] - t.z);
+  check(d >= t.solid + 0.3 - 0.02, `walking at a ${t.sp} trunk stops ${d.toFixed(2)} m from its centre`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;
