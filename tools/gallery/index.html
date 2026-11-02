@@ -61,6 +61,10 @@ dialog p { margin: 8px 0 0; color: #e6e4df; font: 13px var(--mono); }
   <section>
     <h2>Batch log</h2>
     <div class="log">
+      <p class="when">Batch 7 · 2 Nov 2026</p>
+      <p>People you can talk to: strangers until you introduce yourself, then they'll tell you what they do, where they live, who they live with, the town's news, and the way to places. The shoreline gets wet sand and washing foam.</p>
+    </div>
+    <div class="log">
       <p class="when">Batch 6 · 2 Nov 2026</p>
       <p>Water with moving ripples, sky reflections and sun glints on the sea and lakes. Speeders with riders run the roads in and out of town. Firms' ships make a daily cargo run: they lift off their pads, fly out of sight and come back hours later. And rooms look lived in: skirting boards, rugs, framed paintings, floor lamps, tiled splashbacks, pin boards.</p>
     </div>
@@ -118,7 +122,7 @@ dialog p { margin: 8px 0 0; color: #e6e4df; font: 13px var(--mono); }
 <dialog id="lb"><img id="lb-img" alt=""><p id="lb-cap"></p></dialog>
 
 <script>
-const BATCH = 6;
+const BATCH = 7;
 const SURF = [
   ['wood', 1.2, 'Oak-like timber: growth rings, fibres and latewood bands'],
   ['fabric', 0.45, 'Woven upholstery, 150 threads per tile'],
@@ -173,7 +177,8 @@ const chip = (t, cls = '') => `<span class="chip ${cls}">${t}</span>`;
 const plate = (src, name, dims, chips) => `<figure class="plate" style="margin:0"><button type="button" data-src="${src}" data-cap="${name} · ${dims}"><img src="${src}" alt="${name}, studio render" loading="lazy"></button>
   <figcaption class="cap"><div class="row"><span class="name">${name}</span><span class="dims">${dims}</span></div><div class="chips">${chips}</div></figcaption></figure>`;
 
-const GAME = [['sea', 'A lake shore', 'Ripples scroll across each other; the sky reflects, strongest at a low angle', 6], ['road', 'Traffic on the road out', 'A rider coming down the valley road', 6],
+const GAME = [['talk', 'A conversation', 'Introduced, then: a machinist at Jialhon Fabrication, works 06:00 to 15:00, lives alone', 7],
+  ['sea', 'A lake shore', 'Ripples scroll across each other; the sky reflects, strongest at a low angle', 6], ['road', 'Traffic on the road out', 'A rider coming down the valley road', 6],
   ['inbed', 'A bedroom', 'A painting from the atlas, skirting, the duvet', 6], ['onsofa', 'A living room', 'Plastered walls, skirting boards', 6], ['interior', 'An office', 'Desks, pin boards, pictures', 6],
   ['freighter', 'Freighter on its cargo field', 'Container pods, four corner engines, six legs, hazard markings', 5], ['abovecloud', 'Climbing toward the cloud deck', 'The deck sits at about 1.7 km; you can fly through it', 5],
   ['overcast', 'Rain', 'Overcast greys the light and the air; rain blows with the wind', 5], ['clouds', 'A cloudy afternoon', 'Clouds drift with the wind; cover changes over hours', 5],
