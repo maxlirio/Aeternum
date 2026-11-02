@@ -7,7 +7,8 @@ import SHUTTLE from '../../assets/ships/shuttle.json' with { type: 'json' };
 import FREIGHTER from '../../assets/ships/freighter.json' with { type: 'json' };
 import { surfaceAt } from './surface.js';
 import { Rng } from '../core/prng.js';
-import { derive, hashStr } from '../core/hash.js';
+import { derive, hashStr, hashInts } from '../core/hash.js';
+import { dayIndex, dayStart } from './schedule.js';
 
 export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER };
 export const SHIP_PRICE = 9500;
@@ -87,3 +88,28 @@ function cargoField(planet, s, L) {
 const NAMES_A = ['Quiet', 'Long', 'Red', 'Patient', 'Second', 'Brass', 'Late', 'Northern', 'Grey', 'Lucky', 'Small', 'Far'];
 const NAMES_B = ['Heron', 'Margin', 'Ledger', 'Kestrel', 'Promise', 'Lantern', 'Harvest', 'Wake', 'Anvil', 'Courier', 'Errand', 'Tide'];
 function shipName(rng) { return `${rng.pick(NAMES_A)} ${rng.pick(NAMES_B)}`; }
+
+// ---- cargo runs: a firm's ship leaves its pad once a day and comes back hours later.
+// Pure in time: where the ship is at t follows from (planet, ship, t) alone.
+//   → { phase: 'pad'|'departing'|'away'|'arriving', D, c?: [x, y, z], facing?, pitch? }
+const RUN_CLIMB = 30, RUN_OUT = 120;            // s to lift off vertically; s from lift-off to out of sight
+const hr = (planet, sh, D, k) => hashInts(planet.universeSeed[0] ^ 0x51a9, [hashStr(4, sh.id), D, k]) / 4294967296;
+export function runOn(planet, sh, D) {
+  const H = planet.dayLength / 24;
+  const depart = dayStart(planet, D) + (8 + 6 * hr(planet, sh, D, 1)) * H;
+  return { D, depart, back: depart + (2 + 4 * hr(planet, sh, D, 2)) * H, heading: hr(planet, sh, D, 3) * Math.PI * 2 };
+}
+export function tripOf(planet, sh, t, home, skip = null) {     // home: { c, facing } on its pad / field
+  if (sh.forSale) return { phase: 'pad' };
+  const D = dayIndex(planet, t), run = runOn(planet, sh, D);
+  if (skip === D || t < run.depart || t >= run.back) return { phase: 'pad', D };
+  const L = LAYOUTS[sh.model], climb = 70;
+  const along = s => {                          // s seconds after lift-off: up, then away along the heading, nose turning to it
+    const up = Math.min(1, s / RUN_CLIMB), out = Math.max(0, s - RUN_CLIMB), tc = 120 / 4.5, d = out < tc ? 0.5 * 4.5 * out * out : 0.5 * 4.5 * tc * tc + 120 * (out - tc);   // 4.5 m/s² up to 120 m/s
+    const f = home.facing + Math.atan2(Math.sin(run.heading - home.facing), Math.cos(run.heading - home.facing)) * Math.min(1, out / 25);
+    return { c: [home.c[0] + Math.sin(run.heading) * d, home.c[1] + climb * up * up * (3 - 2 * up) + d * 0.08, home.c[2] + Math.cos(run.heading) * d], facing: f, pitch: out > 0 ? 0.08 : 0 };
+  };
+  if (t < run.depart + RUN_OUT) return { phase: 'departing', D, ...along(t - run.depart) };
+  if (t >= run.back - RUN_OUT) { const a = along(run.back - t); return { phase: 'arriving', D, ...a, pitch: -a.pitch }; }
+  return { phase: 'away', D };
+}

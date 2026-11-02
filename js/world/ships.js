@@ -2,14 +2,22 @@
 // laid over — bought, stolen, flown, landed somewhere else, ramp raised or forced.
 // `ship/<id>` = { at?: { c: [x, y, z] ground point under the centre, facing }, flying?,
 //                 owner?, ownerName?, forSale?, ramp?: 'up'|'down', forced? }
-import { shipsAt, shipPlan, SHIP_PRICE, PRICES } from '../gen/ships.js';
+import { shipsAt, shipPlan, SHIP_PRICE, PRICES, tripOf } from '../gen/ships.js';
 import { within, solarHour } from '../sim/clock.js';
 import { surfaceHeight } from '../gen/surface.js';
 
 export const shipKey = id => `ship/${id}`;
-export function shipsIn(store, planet, s) {
-  return shipsAt(planet, s).map(sh => { const d = store.getDelta(shipKey(sh.id)); return d ? { ...sh, ...d } : sh; });
+// With t, a firm's ship carries `trip` (gen/ships.js tripOf): it is off its pad while on a cargo run.
+export function shipsIn(store, planet, s, t = null) {
+  return shipsAt(planet, s).map(sh => {
+    const d = store.getDelta(shipKey(sh.id)), cur = d ? { ...sh, ...d } : sh;
+    if (t !== null && cur.owner?.startsWith('firm:') && !cur.flying) cur.trip = tripOf(planet, cur, t, centreOf(s, cur), cur.skip);
+    return cur;
+  });
 }
+export const onRun = sh => !!sh.trip && sh.trip.phase !== 'pad';
+// You're aboard when its run is due: it stays on the pad today.
+export function holdRun(store, sh) { store.patchDelta(shipKey(sh.id), { skip: sh.trip.D }); }
 export const shipIsYours = (sh, player) => sh.owner === 'you:' + player.id;
 
 // Ramp: yours or for sale — down unless you raised it. A firm's — down while its crew

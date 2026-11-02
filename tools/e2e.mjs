@@ -369,6 +369,15 @@ try {
   check(sp.alt > 15, `climbed to ${sp.alt} m`);
   check(sp.refusedInAir, "can't land in mid-air");
   check(sp.landed && sp.at, `landed (${sp.why ?? 'ok'})`);
+  const runChk = await ev(`(async () => {
+    const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { runOn } = await import('./js/gen/ships.js'); const { dayIndex } = await import('./js/gen/schedule.js'); const { centreOf } = await import('./js/world/ships.js');
+    const sh = O.getShips().find(x => x.owner?.startsWith('firm:') && !x.field), home = centreOf(O.s, sh);
+    let run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now())); if (run.depart < O.clock.now()) run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now()) + 1);
+    O.ctrl.mode = 'walk'; O.ctrl.pos = [home.c[0] + 40, home.c[1], home.c[2]]; await wait(200);
+    O.clock.advance(run.depart + 25 - O.clock.now()); O.syncShips(); await wait(600);
+    const live = O.getShips().find(x => x.id === sh.id), onPad = O.world.locate(home.c[0], home.c[1] + 2.5, home.c[2])?.b?.key === sh.id;
+    return { phase: live.trip?.phase, onPad }; })()`);
+  check(runChk.phase === 'departing' && !runChk.onPad, `a firm's ship lifts off on its cargo run (${JSON.stringify(runChk)})`);
   check(await load('auto=continue'), 'reload');
   const shipAfter = await ev(`JSON.stringify(ORBIS.getShips().find(x => x.id === ${JSON.stringify(sp.id)}).at?.c)`);
   check(shipAfter === JSON.stringify(sp.at), 'the ship is where you landed it after reloading');

@@ -838,6 +838,23 @@ suites.ships = async () => {
   let slope = null;
   for (let k = 0; k < 6000 && !slope; k++) { const a = k * 2.39996, r = s.R + 300 + k * 2, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r; const ft = fl2.feet(x, z); if (Math.max(...ft) - Math.min(...ft) > 4) slope = [x, z]; }
   if (slope) { fl2.pos = [slope[0], 2000, slope[1]]; fl2.vel = [0, 0, 0]; fl2.onGround = false; for (let t = 0; t < 600 && !fl2.onGround; t += 1 / 60) fl2.step(1 / 60, { fwd: 0, right: 0, up: false, down: fl2.vel[1] > (fl2.altitude() > 40 ? -30 : -3), boost: false }); for (let t = 0; t < 1; t += 1 / 60) fl2.step(1 / 60, {}); check(/level/.test(fl2.landingProblem() || ''), 'on a hillside: ' + fl2.landingProblem()); }
+  { // cargo runs: firm ships leave and come back every day, a pure function of time
+    const { runOn, tripOf } = await import('../js/gen/ships.js');
+    const { dayStart } = await import('../js/gen/schedule.js');
+    const firmShip = S.shipsIn(st, p, s).find(x => x.owner.startsWith('firm:') && !x.field);
+    const home = S.centreOf(s, firmShip), D = 3, run = runOn(p, firmShip, D), H = p.dayLength / 24;
+    const at = tt => tripOf(p, firmShip, tt, home);
+    check(at(dayStart(p, D) + 2 * H).phase === 'pad' && at(run.depart + 60).phase === 'departing' && at((run.depart + run.back) / 2).phase === 'away' && at(run.back - 60).phase === 'arriving' && at(run.back + 10).phase === 'pad',
+      `a run: leaves at ${((run.depart - dayStart(p, D)) / H).toFixed(1)} h, back ${((run.back - run.depart) / H).toFixed(1)} h later`);
+    let jump = 0, prev = at(run.depart);
+    for (let tt = run.depart; tt < run.depart + 125; tt += 0.5) { const q = at(tt); if (q.c && prev.c) jump = Math.max(jump, Math.hypot(q.c[0] - prev.c[0], q.c[1] - prev.c[1], q.c[2] - prev.c[2])); prev = q; }
+    check(jump < 0.5 * 9 * 100 * 0.6, `the departure is continuous (largest half-second step ${jump.toFixed(1)} m)`);
+    const lift = at(run.depart + 25);
+    check(lift.c[1] > home.c[1] + 40 && Math.hypot(lift.c[0] - home.c[0], lift.c[2] - home.c[2]) < 1, 'it lifts straight up first');
+    check(tripOf(p, firmShip, (run.depart + run.back) / 2, home, D).phase === 'pad', 'a held run (you were aboard) keeps it on the pad');
+    const live = S.shipsIn(st, p, s, (run.depart + run.back) / 2).find(x => x.id === firmShip.id);
+    check(S.onRun(live), 'the live list knows it is away');
+  }
   // owning one: buy it; steal another; it all persists
   check(S.buyShip(st, sh, EPOCH).ok && pl.credits === 20000 - SHIP_PRICE && S.shipIsYours(S.shipsIn(st, p, s).find(x => x.id === sh.id), pl), `bought the ${sh.name} for ${SHIP_PRICE} cr`);
   const firm = S.shipsIn(st, p, s).find(x => !x.forSale && !S.shipIsYours(x, pl));

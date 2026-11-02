@@ -101,6 +101,13 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.liftoff = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { runOn } = await import('./js/gen/ships.js'); const { dayIndex } = await import('./js/gen/schedule.js'); const { centreOf } = await import('./js/world/ships.js');
+    const sh = O.getShips().find(x => x.owner?.startsWith('firm:') && !x.field), home = centreOf(O.s, sh);
+    let run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now())); if (run.depart < O.clock.now()) run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now()) + 1);
+    O.clock.advance(run.depart + 22 - O.clock.now());
+    const a = home.facing + 2.2; O.ctrl.pos = [home.c[0] + Math.sin(a) * 30, home.c[1], home.c[2] + Math.cos(a) * 30]; O.ctrl.vel = [0, 0, 0];
+    O.ctrl.facing = Math.atan2(home.c[0] - O.ctrl.pos[0], home.c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.5; O.cam.pitch = -0.3; O.cam.dist = 7; O.syncShips(); await wait(2500);`;
+SHOTS.liftoff = 'hour=7';
 SCRIPTS.sea = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { surfaceHeight } = await import('./js/gen/surface.js');
     let best = null; for (let k = 0; k < 20000 && !best; k++) { const a = k * 2.39996, r = 300 + k * 3, x = O.s.cx + Math.cos(a) * r, z = O.s.cz + Math.sin(a) * r;
       const h = surfaceHeight(O.planet, x, z); if (h > O.planet.seaLevel + 1 && h < O.planet.seaLevel + 4) { for (let q = 0; q < 8; q++) { const th = q * Math.PI / 4; if (surfaceHeight(O.planet, x + Math.sin(th) * 40, z + Math.cos(th) * 40) < O.planet.seaLevel - 3) { best = [x, h, z, th]; break; } } } }

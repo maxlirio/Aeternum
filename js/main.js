@@ -48,8 +48,8 @@ import { SPEEDER } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
-import { SHIP_PRICE, PRICES } from './gen/ships.js';
-import { shipsIn, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
+import { SHIP_PRICE, PRICES, tripOf } from './gen/ships.js';
+import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
 import { FloraView, GrassView } from './render/flora.js';
@@ -551,13 +551,15 @@ async function start(fresh) {
   }
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
-  let ships = shipsIn(store, planet, s), flight = null, rampHold = 0, cockpitView = false;
+  let ships = shipsIn(store, planet, s, clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const placed = new Map();          // ship id → structure in the collision world
   const shipById = id => ships.find(x => x.id === id);
   function syncShips() {
-    ships = shipsIn(store, planet, s);
+    ships = shipsIn(store, planet, s, clock.now());
     for (const sh of ships) {
-      const want = !sh.flying && !(flight && flight.ship.id === sh.id), have = placed.get(sh.id);
+      // a cargo run due while you're aboard waits: today's run is off
+      if (onRun(sh) && placed.has(sh.id) && world.locate(...ctrl.pos)?.b?.key === sh.id) { holdRun(store, sh); ships = shipsIn(store, planet, s, clock.now()); return syncShips(); }
+      const want = !sh.flying && !onRun(sh) && !(flight && flight.ship.id === sh.id), have = placed.get(sh.id);
       const sig = JSON.stringify([sh.at, sh.O]);
       if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
       if (want && !placed.has(sh.id)) {
@@ -598,13 +600,13 @@ async function start(fresh) {
       const seen = witnessesHere(), inc = stealShip(store, s, sh, t, seen); lodgeIncident(ctx, inc);
       ui.toast(`You overrode the ${esc(sh.name)}'s lockout. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
     }
-    takeOff(shipsIn(store, planet, s).find(x => x.id === sh.id));
+    takeOff(shipsIn(store, planet, s, clock.now()).find(x => x.id === sh.id));
   }
   function takeOff(sh) {
     const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
     const { c, facing } = centreOf(s, sh);
     launch(store, sh); setRamp(store, sh, false);
-    ships = shipsIn(store, planet, s);
+    ships = shipsIn(store, planet, s, clock.now());
     flight = new Flight(world, planet, shipById(sh.id), c, facing);
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = 30; cam.pitch = 0.25;
     ui.toast(`<kbd>Space</kbd> climb · <kbd>Q</kbd> descend · <kbd>W</kbd>/<kbd>S</kbd> thrust · <kbd>A</kbd>/<kbd>D</kbd> turn · <kbd>Shift</kbd> boost`, '', 8000);
@@ -773,6 +775,10 @@ async function start(fresh) {
     shipView.update(ships.map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
       if (sh.flying) return null;
+      if (onRun(sh)) {   // on a cargo run: drawn along its path, recomputed every frame so it moves smoothly
+        const tr = tripOf(planet, sh, t, centreOf(s, sh), sh.skip);
+        return tr.c ? { id: sh.id, model: sh.model, c: toRender(...tr.c), facing: tr.facing, pitch: tr.pitch, colour: sh.colour, rampDown: false } : null;
+      }
       const { c, facing } = centreOf(s, sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean), dt);
