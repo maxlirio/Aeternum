@@ -678,6 +678,77 @@ suites.items = async () => {
   console.log(`  ${used} usable props · verbs ${JSON.stringify(verbs)}`);
 };
 
+suites.vehicles = async () => {
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Ride } = await import('../js/player/ride.js');
+  const { parkedVehicles, SPEEDER } = await import('../js/gen/vehicles.js');
+  const { vehiclesIn, park, buyVehicle, stealVehicle, isYours } = await import('../js/world/vehicles.js');
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { outRoutes } = await import('../js/gen/highways.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(4), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false), pop = getPopulation(p, s);
+  const vs = parkedVehicles(p, s);
+  check(JSON.stringify(vs) === JSON.stringify(parkedVehicles(makePlanet(U, HOMEWORLD), getSettlement(makePlanet(U, HOMEWORLD), 0, 0))), 'parked bikes are deterministic');
+  const forSale = vs.filter(v => v.forSale), owned = vs.filter(v => !v.forSale);
+  check(owned.length > pop.households.length * 0.2 && forSale.length >= 3, `${owned.length} household bikes, ${forSale.length} for sale`);
+  // nobody parks inside a wall
+  let clear = 0;
+  for (const v of vs) { const [x, z] = world.resolve(v.pos[0], v.pos[2], s.h + 0.3, 0.5, 1.0); if (Math.hypot(x - v.pos[0], z - v.pos[2]) < 0.01) clear++; }
+  check(clear === vs.length, `${clear}/${vs.length} parked clear of walls`);
+  const run = (r, input, secs) => { for (let t = 0; t < secs; t += 1 / 60) r.step(1 / 60, input); };
+  // out along a road: steer toward points ahead; it follows the road profile, fast
+  const road = outRoutes(p, s)[0];
+  const r = new Ride(world, p, { pos: [road.pts[2][0], 0, road.pts[2][1]], facing: Math.atan2(road.pts[6][0] - road.pts[2][0], road.pts[6][1] - road.pts[2][1]) });
+  let maxGap = 0, top = 0, i = 2;
+  let secs = 0;
+  for (let t = 0; t < 90; t += 1 / 60) {
+    secs = t;
+    while (i < road.pts.length - 1 && Math.hypot(road.pts[i][0] - r.pos[0], road.pts[i][1] - r.pos[2]) < 14) i++;
+    const want = Math.atan2(road.pts[i][0] - r.pos[0], road.pts[i][1] - r.pos[2]); let d = want - r.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
+    r.step(1 / 60, { fwd: Math.abs(d) > 0.35 && r.speed > 12 ? -1 : 1, right: Math.max(-1, Math.min(1, -d * 3)), boost: false });   // brake for the bends
+    const g = Math.max(world.groundAt(r.pos[0], r.pos[2], r.pos[1] + 1).h, p.seaLevel);
+    maxGap = Math.max(maxGap, Math.abs(r.pos[1] - g)); top = Math.max(top, r.speed);
+    if (i >= road.pts.length - 2) break;
+  }
+  const along = i * 4;
+  check(along > Math.min(1200, road.pts.length * 4 - 20), `rode ${along} of ${road.pts.length * 4} m along the road in 90 s (top ${top.toFixed(1)} m/s)`);
+  check(maxGap < 1.5, `stays on the ground line (worst gap ${maxGap.toFixed(2)} m)`);
+  // straight at a building: stopped by the wall, never inside it
+  const { buildingToWorld } = await import('../js/gen/place.js');
+  let a0, a1, b;      // a clear 10 m run-up to a building's front wall, away from its door
+  for (const q of s.buildings) { const pl = buildingPlan(p, s, q), dx = pl.doors[pl.entrance].x, x = dx > q.w / 2 ? 1.2 : q.w - 1.2;
+    const st = buildingToWorld(s, q, x, 0, -10), path = [2, 4, 6, 8].every(k => !world.locate(...buildingToWorld(s, q, x, 0.3, -k)));
+    if (!world.locate(...st) && path && Math.abs(x - dx) > 3) { b = q; a0 = st; a1 = buildingToWorld(s, q, x, 0, q.d / 2); break; } }
+  const w = new Ride(world, p, { pos: a0, facing: Math.atan2(a1[0] - a0[0], a1[2] - a0[2]) });
+  let hit = 0; for (let t = 0; t < 8; t += 1 / 60) { w.step(1 / 60, { fwd: 1, right: 0 }); hit = Math.max(hit, w.impact); }
+  check(world.locate(...w.pos)?.room === undefined && hit > 3, `rode into a wall at ${hit.toFixed(1)} m/s and stopped outside`);
+  // over water it hovers on the surface
+  let wet = null;
+  for (let k = 0; k < 6000 && !wet; k++) { const a = k * 2.4, rr = 200 + k * 2, x = s.cx + Math.cos(a) * rr, z = s.cz + Math.sin(a) * rr; if (surfaceHeight(p, x, z) < p.seaLevel - 2) wet = [x, z]; }
+  if (wet) { const h = new Ride(world, p, { pos: [wet[0], p.seaLevel + 3, wet[1]], facing: 0 }); run(h, { fwd: 0, right: 0 }, 3); check(Math.abs(h.pos[1] - p.seaLevel) < 0.05, 'hovers on water'); }
+  // a slope too steep to climb stops it
+  let steep = null;
+  for (let k = 0; k < 6000 && !steep; k++) { const a = k * 2.39996, rr = s.R + 300 + (k % 500) * 3, x = s.cx + Math.cos(a) * rr, z = s.cz + Math.sin(a) * rr;
+    for (let q = 0; q < 8; q++) { const th = q * Math.PI / 4, dx = Math.sin(th), dz = Math.cos(th); if ((surfaceHeight(p, x + 4 * dx, z + 4 * dz) - surfaceHeight(p, x, z)) / 4 > 1.0 && (surfaceHeight(p, x + 12 * dx, z + 12 * dz) - surfaceHeight(p, x, z)) / 12 > 0.9) { steep = { x, z, th }; break; } } }
+  if (check(steep, 'found a cliff')) { const c = new Ride(world, p, { pos: [steep.x - Math.sin(steep.th) * 3, 0, steep.z - Math.cos(steep.th) * 3], facing: steep.th }); const y0 = c.pos[1]; run(c, { fwd: 1, right: 0 }, 6); check(c.pos[1] - y0 < 6, `can't ride up a cliff (rose ${(c.pos[1] - y0).toFixed(1)} m)`); }
+  // ownership: buy from the dealer, steal a neighbour's, park; it all persists
+  const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+  const pl2 = newCharacter(U, p, s, pop, 1, EPOCH); pl2.credits = 2000; st.setPlayer(pl2);
+  const sale = vehiclesIn(st, p, s).find(v => v.forSale);
+  check(buyVehicle(st, sale, EPOCH).ok && pl2.credits === 200 && isYours(vehiclesIn(st, p, s).find(v => v.id === sale.id), pl2), 'bought a bike from the dealer');
+  check(!buyVehicle(st, vehiclesIn(st, p, s).find(v => v.forSale), EPOCH).ok, 'can\'t afford a second');
+  const other = vehiclesIn(st, p, s).find(v => !v.forSale && !isYours(v, pl2));
+  const inc = stealVehicle(st, s, other, EPOCH + 5, []);
+  check(inc.type === 'theft' && inc.value === SPEEDER.price && isYours(vehiclesIn(st, p, s).find(v => v.id === other.id), pl2), 'stole one: it\'s yours now, and it\'s a theft');
+  park(st, other, [1, 2, 3], 0.5);
+  const R = new WorldStore(new MemoryBackend()); await R.importJSON(st.exportJSON());
+  const back = vehiclesIn(R, p, s).find(v => v.id === other.id);
+  check(back.pos.join() === '1,2,3' && back.facing === 0.5 && isYours(back, pl2), 'where you left it, after reloading');
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

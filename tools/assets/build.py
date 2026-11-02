@@ -12,7 +12,7 @@
 # Prop frame (same as render/building-mesh.js): x along the item [0, len], y up [0, h],
 # z from the front (z = 0) to the back (z = dep). Gameplay never sees these meshes: a
 # prop is a logical box with a kind; the game fits the variant made for that box.
-import bpy, bmesh, sys, os, math, random
+import bpy, bmesh, mathutils, sys, os, math, random
 import numpy as np
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -102,13 +102,13 @@ def mat_paint(seed):    # powder-coated steel: orange peel, smudges, a few fine 
     smudge = spectral(N, 2.2, seed + 1)
     s = np.zeros((N, N))
     r = np.random.default_rng(seed)
-    for _ in range(140):
-        x0, y0 = r.integers(0, N, 2); ang = r.uniform(0, math.pi); L = r.integers(20, 160)
+    for _ in range(36):         # faint hairlines: at any tint they must read as wear, not cracks
+        x0, y0 = r.integers(0, N, 2); ang = r.uniform(0, math.pi); L = r.integers(12, 70)
         for t in range(L):
             s[int(y0 + t * math.sin(ang)) % N, int(x0 + t * math.cos(ang)) % N] = r.uniform(0.3, 1)
-    col = np.repeat((0.86 - 0.05 * smudge - 0.25 * s)[..., None], 3, -1)
-    h = 0.25 * peel - 0.6 * s
-    rough = 0.38 + 0.2 * smudge + 0.25 * s
+    col = np.repeat((0.86 - 0.05 * smudge - 0.05 * s)[..., None], 3, -1)
+    h = 0.25 * peel - 0.15 * s
+    rough = 0.38 + 0.2 * smudge + 0.1 * s
     return col, normal_from_height(h, 1.6), ao_from_height(h, 0.2), rough, 0.05 * (1 - s)
 
 def mat_metal(seed):    # brushed stainless: streaks along x
@@ -182,8 +182,8 @@ def build_textures():
         json.dump({k: {'tile': v[1]} for k, v in MATERIALS.items()}, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint']
-# 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow']
+# 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light
 
 class Part:
     def __init__(self): self.bm = bmesh.new(); self.uvl = self.bm.loops.layers.uv.new('UVMap')
@@ -544,6 +544,71 @@ def machine(p, L, D, H, r):
         add_cyl(p, D * 0.5, H * 0.92, 0, L, 0.08, 'metal', 16, axis='x')                   # duct across the top
     add_box(p, L - 0.05, 0.4, D * 0.3, L, 0.8, D * 0.7, 'metal', 0.01)                    # side panel
 
+
+def add_loft(part, secs, mat, n=28, cap=True):
+    """A smooth hull through cross-sections (x, cy, ry, cz, rz, e): superellipses of
+    exponent e (2 = ellipse, higher = squarer), centred (cy, cz), radii ry (up) rz (across)."""
+    bm = bmesh.new(); rings = []
+    for (x, cy, ry, cz, rz, e) in secs:
+        ring = []
+        for k in range(n):
+            a = 2 * math.pi * k / n; u, v = math.cos(a), math.sin(a)
+            y = cy + ry * math.copysign(abs(v) ** (2 / e), v); z = cz + rz * math.copysign(abs(u) ** (2 / e), u)
+            ring.append(bm.verts.new(P(x, y, z)))
+        rings.append(ring)
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(n): bm.faces.new([r0[k], r0[(k + 1) % n], r1[(k + 1) % n], r1[k]])
+    if cap:
+        for ring, rev in ((rings[0], True), (rings[-1], False)):
+            c = bm.verts.new(sum((v.co for v in ring), mathutils.Vector()) / n)
+            for k in range(n): bm.faces.new([ring[k], ring[(k + 1) % n], c][::-1] if rev else [ring[k], ring[(k + 1) % n], c])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    merge(part, bm, mat)
+
+def speeder(p, L, D, H, r):
+    """A single-seat repulsor bike. Prop frame: x = rear (0) → nose (L), z = across, y = up.
+    Rides with its belly ~0.3 m off the ground; the seat top is at ~0.86 m."""
+    zc = D / 2
+    def S(t): return t * L
+    # main hull: tail cone, fat middle under the seat, long tapered nose
+    hull = [(S(0.02), 0.62, 0.10, zc, 0.12, 3), (S(0.08), 0.60, 0.17, zc, 0.22, 3), (S(0.22), 0.58, 0.21, zc, 0.30, 3.2), (S(0.40), 0.57, 0.22, zc, 0.30, 3.2),
+            (S(0.56), 0.58, 0.21, zc, 0.27, 3), (S(0.70), 0.60, 0.17, zc, 0.21, 2.8), (S(0.84), 0.62, 0.12, zc, 0.14, 2.5), (S(0.96), 0.64, 0.06, zc, 0.07, 2.2), (S(1.0), 0.645, 0.02, zc, 0.02, 2)]
+    add_loft(p, hull, 'tint', 32)
+    # dark belly pan and the repulsor pads under it (they glow)
+    add_loft(p, [(S(0.10), 0.40, 0.04, zc, 0.20, 4), (S(0.25), 0.37, 0.05, zc, 0.27, 4), (S(0.60), 0.38, 0.05, zc, 0.24, 4), (S(0.78), 0.42, 0.04, zc, 0.15, 4)], 'paint', 24)
+    for x in (S(0.22), S(0.62)):
+        add_cyl(p, x, zc, 0.30, 0.33, 0.13, 'metal', 24)
+        add_cyl(p, x, zc, 0.29, 0.30, 0.10, 'glow', 24)
+    # twin forward thruster booms with intake rings
+    for s_ in (-1, 1):
+        z = zc + s_ * 0.30
+        add_cyl(p, 0.52, z, S(0.50), S(0.98), 0.07, 'paint', 20, axis='x', r2=0.055)
+        add_cyl(p, 0.52, z, S(0.97), S(1.0), 0.062, 'metal', 20, axis='x')
+        add_cyl(p, 0.52, z, S(0.50), S(0.53), 0.078, 'metal', 20, axis='x')
+        add_box(p, S(0.52), 0.50, min(z, zc) + (0.0 if s_ > 0 else 0.06), S(0.62), 0.56, max(z, zc) - (0.06 if s_ > 0 else 0.0), 'paint', 0.01)   # strut to the hull
+        add_box(p, S(0.36), 0.36, z - 0.06, S(0.48), 0.40, z + 0.06, 'rubber', 0.01)    # footrests
+    # rear engine: nozzle ring and its glow
+    add_cyl(p, 0.62, zc, -0.02, S(0.06), 0.15, 'metal', 28, axis='x', r2=0.12)
+    add_cyl(p, 0.62, zc, -0.03, -0.01, 0.11, 'glow', 28, axis='x')
+    # saddle
+    add_cushion(p, S(0.20), 0.76, zc - 0.17, S(0.47), 0.87, zc + 0.17, 'rubber', puff=0.18, round_=0.5, cuts=8)
+    # instrument cowl, windscreen and headlight
+    add_loft(p, [(S(0.55), 0.74, 0.04, zc, 0.15, 3), (S(0.63), 0.80, 0.07, zc, 0.17, 3), (S(0.72), 0.78, 0.05, zc, 0.13, 3), (S(0.78), 0.72, 0.02, zc, 0.08, 2.5)], 'paint', 24)
+    bm = bmesh.new()
+    vs = [bm.verts.new(P(*v)) for v in [(S(0.62), 0.84, zc - 0.15), (S(0.62), 0.84, zc + 0.15), (S(0.56), 1.02, zc + 0.12), (S(0.56), 1.02, zc - 0.12)]]
+    bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.006); merge(p, bm, 'glass')
+    add_box(p, S(0.58), 0.82, zc - 0.07, S(0.62), 0.86, zc + 0.07, 'screen', 0.004)
+    add_cyl(p, 0.66, zc, S(0.95), S(0.975), 0.035, 'glow', 16, axis='x')
+    # handlebars: stem, bar, grips
+    add_cyl(p, S(0.55), zc, 0.78, 0.94, 0.02, 'metal', 12)
+    add_cyl(p, S(0.55), 0.95, zc - 0.32, zc + 0.32, 0.016, 'metal', 12, axis='z')
+    for s_ in (-1, 1): add_cyl(p, S(0.55), 0.95, zc + s_ * 0.34 - 0.05, zc + s_ * 0.34 + 0.05, 0.022, 'rubber', 12, axis='z')
+    # fins at the tail
+    for s_ in (-1, 1):
+        bm = bmesh.new()
+        vs = [bm.verts.new(P(*v)) for v in [(S(0.05), 0.66, zc + s_ * 0.10), (S(0.20), 0.70, zc + s_ * 0.18), (S(0.16), 0.86, zc + s_ * 0.24), (S(0.02), 0.84, zc + s_ * 0.20)]]
+        bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.012); merge(p, bm, 'paint')
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -561,6 +626,7 @@ def variants():
         ('planter', planter, 0.7, 0.7, 1.1), ('planter', planter, 0.8, 0.8, 1.0),
         ('crate', crate, 1.2, 1.2, 1.0), ('crate', crate, 1.0, 1.0, 0.8), ('crate', crate, 1.6, 1.6, 1.4),
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
+        ('speeder', speeder, 2.6, 1.0, 1.05),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]
 

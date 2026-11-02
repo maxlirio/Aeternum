@@ -70,6 +70,16 @@ SCRIPTS.inbed = useAt('bed', "O.ui.closePanel(); dispatchEvent(new KeyboardEvent
 SCRIPTS.onsofa = useAt('sofa', "O.cam.yaw = O.ctrl.facing + 2.6; O.cam.pitch = 0.3; O.cam.dist = 3; await wait(1500);");
 SCRIPTS.cook = useAt('counter');
 SHOTS.fridge = 'hour=19'; SHOTS.prompt = 'hour=19'; SHOTS.inbed = 'hour=22'; SHOTS.onsofa = 'hour=19'; SHOTS.cook = 'hour=19';
+
+// a speeder: buy one at the dealer, get on, ride off down the street
+SCRIPTS.speeder = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    const v = O.getVehicles().find(v => v.forSale); P.credits = 5000;
+    O.ctrl.pos = [v.pos[0] + 1.2, v.pos[1], v.pos[2] + 0.5]; await wait(800); key('KeyE'); await wait(400); key('Digit1'); await wait(400); key('KeyE'); await wait(300);
+    key('KeyW', false); const ride = new URLSearchParams(location.search).get('secs') || 3; await wait(ride * 1000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    O.cam.pitch = 0.18; O.cam.yaw = O.ctrl.facing + 0.5; await wait(600);`;
+SCRIPTS.parked = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const v = O.getVehicles().find(v => v.forSale);
+    O.ctrl.pos = [v.pos[0] - Math.sin(v.facing) * 3 + Math.cos(v.facing) * 2, v.pos[1], v.pos[2] - Math.cos(v.facing) * 3 - Math.sin(v.facing) * 2]; O.ctrl.facing = v.facing; O.cam.yaw = v.facing + 1.1; O.cam.pitch = 0.3; O.cam.dist = 4; await wait(1500);`;
+SHOTS.speeder = 'hour=10&secs=3'; SHOTS.parked = 'hour=10';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

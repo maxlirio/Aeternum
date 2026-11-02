@@ -44,6 +44,10 @@ import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
 import { laddersIn } from './gen/climb.js';
+import { SPEEDER } from './gen/vehicles.js';
+import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
+import { Ride } from './player/ride.js';
+import { VehicleView } from './render/vehicles.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
 import { ITEMS, buyPrice, sellPrice } from './gen/items.js';
@@ -147,6 +151,7 @@ async function start(fresh) {
   // furniture from the built asset library; the box furniture remains the fallback if it can't load
   const propLib = params.has('boxprops') ? null : await loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
   const propView = propLib ? new PropView(propLib) : null;
+  const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const doorView = new DoorView(s, town.doors);
@@ -277,7 +282,8 @@ async function start(fresh) {
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
-    player.pos = ctrl.pos.slice(); player.facing = ctrl.facing;
+    if (ride) { park(store, ride.v, ride.pos, ride.facing); player.pos = ride.dismountSpot(); } else player.pos = ctrl.pos.slice();
+    player.facing = ctrl.facing;
     store.meta.gameTime = clock.now(); store.meta.realTime = Date.now();
     store.touchPlayer(); store.dirty.meta = true;
     await store.flush();
@@ -312,7 +318,10 @@ async function start(fresh) {
   function interact() {
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
+    if (ride) { getOff(); return; }
     if (ctrl.mode === 'seat') { if (ctrl.seat.pose === 'lie') sleepFlow(); else ctrl.standUp(); return; }
+    const bike = nearVehicle();
+    if (bike) { bikeFlow(bike); return; }
     const i = nearestDoor(), u = usableAhead();
     if (u && (i < 0 || u.d < doorDist)) { useThing(u); return; }
     if (i < 0) return;
@@ -480,6 +489,47 @@ async function start(fresh) {
     const loc = world.locate(...ctrl.pos); if (!loc?.room) return;
     ui.toast(toggleLight(store, loc.b.key, loc.k, loc.room.i) ? 'Light on.' : 'Light off.');
   }
+
+  // ---- speeder bikes (gen/vehicles.js, world/vehicles.js, player/ride.js)
+  let vehicles = vehiclesIn(store, planet, s), ride = null, camDist = cam.dist, hotwire = 0;
+  sched.add(TIER.NEAR, { update: () => { vehicles = vehiclesIn(store, planet, s); } });
+  const nearVehicle = () => {
+    if (ride || ctrl.mode !== 'walk') return null;
+    let best = null, bd = 2.2;
+    for (const v of vehicles) { const d = Math.hypot(v.pos[0] - ctrl.pos[0], v.pos[2] - ctrl.pos[2]); if (d < bd && Math.abs(v.pos[1] - ctrl.pos[1]) < 1.6) { bd = d; best = v; } }
+    return best;
+  };
+  function mount(v) {
+    ride = new Ride(world, planet, v); ctrl.mode = 'ride'; camDist = cam.dist; cam.dist = Math.max(cam.dist, 6.5);
+    ui.toast(`<kbd>W</kbd>/<kbd>S</kbd> throttle and brake · <kbd>A</kbd>/<kbd>D</kbd> steer · <kbd>Shift</kbd> boost · <kbd>E</kbd> get off when slow`, '', 6000);
+  }
+  function getOff() {
+    if (Math.abs(ride.speed) > 4) { ui.toast('Slow down first.', 'warn', 2000); return; }
+    park(store, ride.v, ride.pos, ride.facing);
+    ctrl.pos = ride.dismountSpot(); ctrl.vel = [0, 0, 0]; ctrl.mode = 'walk'; ctrl.facing = ride.facing;
+    ride = null; cam.dist = camDist; vehicles = vehiclesIn(store, planet, s);
+  }
+  async function bikeFlow(v) {
+    if (isYours(v, player)) return mount(v);
+    if (v.forSale) {
+      let pick = null;
+      await modal(async () => { pick = await ui.choose({ title: 'Speeder bike', sub: `For sale at ${esc(v.ownerName)}. Single seat, about 110 km/h, boost to 150. Hovers over ground and water.`,
+        options: [{ a: 'buy', label: `Buy it — ${SPEEDER.price} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < SPEEDER.price }] }); });
+      if (pick?.a !== 'buy') return;
+      const r = buyVehicle(store, v, clock.now());
+      ui.toast(r.ok ? 'It\'s yours. <kbd>E</kbd> to ride.' : r.why, r.ok ? '' : 'warn'); vehicles = vehiclesIn(store, planet, s);
+      return;
+    }
+    ui.toast(`This belongs to ${esc(v.ownerName)}. Hold <kbd>F</kbd> to hotwire it.`, 'warn');
+  }
+  function hotwired(v) {
+    const t = clock.now(), seen = witnessesHere();
+    const inc = stealVehicle(store, s, v, t, seen); lodgeIncident(ctx, inc);
+    const cop = seen.find(w => isOfficer(pop.byId.get(w.id)));
+    if (cop) startPursuit(pop.byId.get(cop.id), 'you were seen stealing a bike');
+    ui.toast(`You hotwired ${esc(v.ownerName)}'s bike. ${seen.length ? `<b>${seen.length} ${seen.length === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
+    vehicles = vehiclesIn(store, planet, s); mount(vehicles.find(x => x.id === v.id));
+  }
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -552,7 +602,18 @@ async function start(fresh) {
         run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92,
       };
       jumpQueued = false;
-      for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+      if (ride) {
+        for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run });
+        ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
+        if (ride.impact > 12) { player.fatigue = Math.min(1, player.fatigue + 0.08); ui.toast(`You hit something at ${Math.round(ride.impact * 3.6)} km/h.`, 'bad', 3000); }
+        cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
+      } else for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+      // hotwire someone's bike by holding F next to it
+      const nv = keys.has('KeyF') && !ride ? nearVehicle() : null;
+      if (nv && !isYours(nv, player) && !nv.forSale) {
+        hotwire += dt; ui.showPrompt(`Hotwiring… <i class="meter"><b style="width:${Math.min(100, hotwire / 3 * 100)}%"></b></i>`);
+        if (hotwire > 3) { hotwire = 0; hotwired(nv); }
+      } else hotwire = 0;
       if (ctrl.climbing) advanceBody(player, 'train', dt * 8, planet);     // climbing is hard work (and trains you)
       // force a locked door by holding F
       const di = keys.has('KeyF') ? nearestDoor() : -1;
@@ -590,7 +651,14 @@ async function start(fresh) {
       else avatar.object.position.set(rp[0] - fx * 0.12, rp[1], rp[2] - fz * 0.12);
     }
     const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' ? { moving: true, lean: 0.5 } : ctrl.climbing ? { moving: true, lean: 0.6 } : null;
-    avatar.update(dt, ctrl.speed, ctrl.grounded, climbPose, ctrl.mode === 'seat' ? ctrl.seat.pose : null);
+    if (ride) { // astride the saddle: the seat is ~0.45 m behind the bike's centre
+      const fx = Math.sin(ride.facing), fz = Math.cos(ride.facing), back = -0.42;
+      avatar.object.position.set(rp[0] + fx * back, rp[1] + SPEEDER.seat - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back);
+      avatar.object.rotation.set(0, ride.facing, 0);
+    }
+    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : null);
+    vehView.update(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
+      .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : []));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -608,7 +676,7 @@ async function start(fresh) {
       if (ev === 'done') pursuit = null;
       if (pursuit) agents = agents.filter(a => a.id !== pursuit.person.id).concat(pursuit.agent());
     }
-    for (const a of agents) { // people are solid to the player (not the other way round yet)
+    for (const a of ride ? [] : agents) { // people are solid to the player (not the other way round yet)
       if (a.pose === 'lie' || Math.abs(a.pos[1] - ctrl.pos[1]) > 1.2) continue;
       const dx = ctrl.pos[0] - a.pos[0], dz = ctrl.pos[2] - a.pos[2], d = Math.hypot(dx, dz);
       if (d < 0.6) { // exactly on top of each other: step back the way they came
@@ -635,7 +703,11 @@ async function start(fresh) {
     if (!paused) {
       const di = nearestDoor(), lad = nearLadder();
       const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
-      if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
+      const nv = !ride && !ua && hotwire === 0 ? nearVehicle() : null;
+      if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
+      else if (hotwire > 0) {}
+      else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? '<kbd>E</kbd> Ride your speeder' : nv.forSale ? `<kbd>E</kbd> Speeder for sale — ${SPEEDER.price} cr` : `${esc(nv.ownerName)}'s speeder · hold <kbd>F</kbd> hotwire`);
+      else if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
       else if (ua && (di < 0 || ua.d < doorDist)) {
         const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
         ui.showPrompt(`<kbd>E</kbd> ${labelOf(ua.u)} <small>— ${ua.u.verbs.map(v => VERB[v].toLowerCase()).join(' · ')}${st ? ` · <b>${st}</b>` : ''}${ua.u.box && !own.yours && !own.communal && !ua.u.box.shop ? ` · ${esc(own.owner)}'s` : ''}</small>`);
@@ -672,7 +744,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

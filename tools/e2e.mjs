@@ -298,6 +298,40 @@ try {
   check(items.lying && items.slept === 1 && items.rested && items.up, `lay down and slept ${items.slept} h, then got up (${JSON.stringify(items)})`);
   check(items.spent > 0, `bought from a shop shelf (${items.spent} cr)`);
   check(items.light, 'switched the room light off');
+  console.log('[speeders]');
+  const bikes = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    const key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    const out = {}, v = O.getVehicles().find(v => v.forSale); P.credits = 5000;
+    O.ctrl.mode = 'walk'; O.ctrl.pos = [v.pos[0] + 1.2, v.pos[1], v.pos[2] + 0.5]; await wait(500);
+    key('KeyE'); await wait(300); key('Digit1'); await wait(300);
+    out.paid = 5000 - P.credits; key('KeyE'); await wait(300);
+    out.riding = !!O.getRide();
+    key('KeyW', false); await wait(3000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    out.speed = Math.round(O.getRide()?.speed * 3.6);
+    key('KeyE'); await wait(100); out.refused = !!O.getRide();
+    key('KeyS', false); for (let i = 0; i < 40 && O.getRide().speed > 1; i++) await wait(100); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyS' }));
+    key('KeyE'); await wait(300);
+    const now = O.getVehicles().find(x => x.id === v.id);
+    out.off = !O.getRide() && O.ctrl.mode === 'walk'; out.moved = Math.round(Math.hypot(now.pos[0] - v.pos[0], now.pos[2] - v.pos[2]));
+    out.near = Math.round(Math.hypot(now.pos[0] - O.ctrl.pos[0], now.pos[2] - O.ctrl.pos[2]) * 10) / 10;
+    // someone else's: E only warns; holding F hotwires it (a theft)
+    const other = O.getVehicles().find(x => !x.forSale && !x.owner.startsWith('you'));
+    O.ctrl.pos = [other.pos[0] + 1.2, other.pos[1], other.pos[2]]; await wait(400);
+    key('KeyE'); await wait(200); out.notMine = !O.getRide();
+    key('KeyF', false); await wait(3600); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' })); await wait(200);
+    out.stole = O.getRide()?.v.id === other.id && O.store.events.some(e => e.type === 'theft' && e.vehicle === other.id);
+    key('KeyE'); await wait(200); await O.save();
+    out.id = v.id; out.pos = now.pos;
+    return out; })()`);
+  check(bikes.paid === 1800 && bikes.riding, `bought a speeder for ${bikes.paid} cr and got on`);
+  check(bikes.speed > 30, `3 s of throttle: ${bikes.speed} km/h`);
+  check(bikes.refused, "can't get off at speed");
+  check(bikes.off && bikes.moved > 20 && bikes.near < 2, `braked, got off; it's parked ${bikes.moved} m from the dealer, ${bikes.near} m from you`);
+  check(bikes.notMine && bikes.stole, "someone else's bike: E won't take it; holding F hotwires it, and that's logged as theft");
+  check(await load('auto=continue'), 'reload');
+  const parkedAfter = await ev(`JSON.stringify(ORBIS.getVehicles().find(x => x.id === ${JSON.stringify(bikes.id)}).pos)`);
+  check(parkedAfter === JSON.stringify(bikes.pos), 'your bike is where you left it after reloading');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});
