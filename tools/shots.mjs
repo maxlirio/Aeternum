@@ -96,6 +96,11 @@ SCRIPTS.flying = shipAt(5, 1.6, 16.1, `P.credits = 20000; const c = W(5, 1.6, 18
     O.cam.pitch = 0.22; await wait(800);`);
 SCRIPTS.pilotview = SCRIPTS.flying + ' O.setCockpitView(true); await wait(1200);';
 SHOTS.pilotview = 'hour=10&secs=3';
+SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { floraNear } = await import('./js/gen/flora.js');
+    let best = null, n = 0; for (let R = 300; R < 4000 && !best; R += 300) floraNear(O.planet, O.s.cx, O.s.cz, R, q => { if (!best && q.sp === 'broadleaf' && Math.hypot(q.x - O.s.cx, q.z - O.s.cz) > R - 300) { let k = 0; floraNear(O.planet, q.x, q.z, 25, w => { if (w.sp !== 'shrub') k++; }); if (k > 9) best = q; } });
+    if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
+    await wait(5000);`;
+SHOTS.forest = 'hour=15';
 SHOTS.ship = 'hour=10'; SHOTS.shipside = 'hour=10'; SHOTS.cockpit = 'hour=10'; SHOTS.hold = 'hour=10'; SHOTS.flying = 'hour=10&secs=5';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';

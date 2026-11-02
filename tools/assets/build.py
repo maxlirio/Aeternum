@@ -299,13 +299,67 @@ def mat_bark(seed):       # tree bark: deep vertical furrows, plates between, mo
     h = 1 - furrow + 0.2 * g
     return col, normal_from_height(h, 6.0), ao_from_height(h, 0.8), 0.92 * np.ones((N, N)), 0.0
 
+def panel_layout(seed, depth=5):
+    """Irregular hull panels: a rectangle split recursively into plates → per-pixel plate id and px to the nearest seam."""
+    r = np.random.default_rng(seed); rects = []
+    def split(x0, y0, x1, y1, d):
+        w, h = x1 - x0, y1 - y0
+        if d == 0 or (w < 0.12 and h < 0.12) or (d < 3 and r.random() < 0.25): rects.append((x0, y0, x1, y1)); return
+        if (w > h) ^ (r.random() < 0.2):
+            t = x0 + w * r.choice([0.25, 0.333, 0.5, 0.667, 0.75]); split(x0, y0, t, y1, d - 1); split(t, y0, x1, y1, d - 1)
+        else:
+            t = y0 + h * r.choice([0.25, 0.333, 0.5, 0.667, 0.75]); split(x0, y0, x1, t, d - 1); split(x0, t, x1, y1, d - 1)
+    split(0, 0, 1, 1, depth)
+    pid = np.zeros((N, N)); edge = np.full((N, N), 1e9); rivet = np.zeros((N, N))
+    Y, X = np.mgrid[0:N, 0:N]
+    for i, (x0, y0, x1, y1) in enumerate(rects):
+        a0, a1, b0, b1 = int(x0 * N), int(x1 * N), int(y0 * N), int(y1 * N)
+        pid[b0:b1, a0:a1] = r.random()
+        xs, ys = X[b0:b1, a0:a1], Y[b0:b1, a0:a1]
+        e = np.minimum(np.minimum(xs - a0, a1 - 1 - xs), np.minimum(ys - b0, b1 - 1 - ys))
+        edge[b0:b1, a0:a1] = e
+        # rivet rows 5 px inside each seam, every 14 px
+        on = (np.abs(e - 5) < 1.6) & (((xs + ys) % 14) < 3)
+        rivet[b0:b1, a0:a1] = np.maximum(rivet[b0:b1, a0:a1], on.astype(float))
+    return pid, edge, rivet
+
+def mat_hull(seed):       # spacecraft hull plating: irregular plates, recessed seams, rivets, grime, worn edges
+    pid, edge, rivet = panel_layout(seed)
+    seam = np.clip(1 - edge / 2.2, 0, 1)
+    a = spectral(N, 1.8, seed + 1); g = spectral(N, 0.3, seed + 2); st = streaks(seed + 3, 0.6)
+    wear = np.clip((spectral(N, 0.9, seed + 4) - 0.55) * 4, 0, 1) * np.clip(1 - edge / 9, 0, 1)      # paint worn off near seams
+    v = 0.78 + 0.07 * (pid - 0.5) + 0.04 * (a - 0.5) + 0.03 * (g - 0.5) - 0.18 * st - 0.35 * seam
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1)
+    bare = np.array([0.55, 0.56, 0.58])
+    col = col * (1 - wear[..., None]) + bare[None, None, :] * wear[..., None]
+    h = -1.0 * seam + 0.6 * rivet + 0.15 * g + 0.08 * (pid - 0.5)
+    rough = 0.45 + 0.15 * g + 0.25 * st - 0.2 * wear
+    metal = 0.15 + 0.75 * wear
+    return col, normal_from_height(h, 5.0), ao_from_height(h, 0.5), rough, metal
+
+def mat_heatshield(seed): # black ceramic heat-shield tiles, staggered, scorched
+    tone, edge = grid_cells(16, 16, seed, offset_rows=True)
+    gap = np.clip(1 - edge / 2.0, 0, 1); a = spectral(N, 1.6, seed + 1); sc = spectral(N, 2.2, seed + 2)
+    v = 0.12 + 0.05 * (tone - 0.5) + 0.03 * (a - 0.5) + 0.06 * np.clip(sc - 0.6, 0, 1)
+    col = np.repeat(v[..., None], 3, -1) * np.array([1.0, 0.98, 0.95]) * (1 - 0.5 * gap[..., None])
+    h = -gap + 0.1 * a
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.5), 0.8 + 0.1 * a, 0.0
+
+def mat_hazard(seed):     # yellow/black hazard stripes, chipped
+    x = np.arange(N)[None, :] / N * np.ones((N, 1)); y = np.arange(N)[:, None] / N * np.ones((1, N))
+    band = ((x + y) * 8 % 1.0) < 0.5
+    chip = np.clip((spectral(N, 0.8, seed) - 0.7) * 6, 0, 1)
+    col = np.where(band[..., None], np.array(srgb((214, 168, 32)))[None, None, :], np.array([0.05, 0.05, 0.05])[None, None, :])
+    col = col * (1 - chip[..., None]) + np.array([0.5, 0.5, 0.52])[None, None, :] * chip[..., None]
+    return col, normal_from_height(-chip * 0.3, 2.0), np.ones((N, N)), 0.6 + 0.2 * chip, 0.6 * chip
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
-    'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
+    'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
 # ---- foliage atlases (RGBA): a leafy twig and a needle spray, drawn on transparent ground
@@ -409,7 +463,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -905,22 +959,72 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
         if q <= 0: continue
         hw = rx0 * q ** (1 / e0)
         if deck < ym < dtop:
-            add_box(p, xc - hw, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'paint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'paint', 0)
-        else: add_box(p, xc - hw, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'paint', 0)
+            add_box(p, xc - hw, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'tint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'tint', 0)
+        else: add_box(p, xc - hw, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'tint', 0)
     for x in (dx0 - 0.08, dx1): add_box(p, x, deck, hz0 - 0.18, x + 0.08, dtop, hz0 - 0.05, 'metal', 0.01)   # door frame
-    # cockpit canopy: tinted glass over the nose, above the cockpit
-    # (it sits on the hull: over the cockpit its underside stays above the ceiling; ahead of the bulkhead it wraps the nose)
+    # ---- the hull surface, for placing things on it: section radii interpolated along z
+    def sect(z):
+        for (za, *A), (zb, *B) in zip(secs, secs[1:]):
+            if za <= z <= zb:
+                t = (z - za) / (zb - za); return [a + (b - a) * t for a, b in zip(A, B)]
+        return list(secs[-1][1:]) if z > secs[-1][0] else list(secs[0][1:])
+    def top_y(x, z):                     # hull top at (x, z)
+        cy, ry, cx, rx, e = sect(z); q = 1 - min(1, abs((x - cx) / rx)) ** e
+        return cy + ry * max(q, 0) ** (1 / e)
+    def side_x(y, z, s_):                # hull side at height y
+        cy, ry, cx, rx, e = sect(z); q = 1 - min(1, abs((y - cy) / ry)) ** e
+        return cx + s_ * rx * max(q, 0) ** (1 / e)
+    # cockpit canopy: a dark visor hump over the cockpit (its underside stays above the ceiling)
     add_loft(p, [(15.4, 4.62, 0.12, xc, 1.6, 2.6), (16.6, 4.72, 0.3, xc, 2.3, 2.6), (18.2, 4.62, 0.26, xc, 2.3, 2.6), (18.75, 4.45, 0.1, xc, 1.9, 2.4)], 'visor', 32, axis='z')
-    # the windscreen as seen from outside: a dark band on the nose in front of the cockpit window (single-sided: invisible from inside)
-    add_loft(p, [(18.55, 2.85, 1.66, xc, 3.02, 2.9), (19.35, 2.78, 1.42, xc, 2.62, 2.75)], 'visor', 40, axis='z', cap=False) if False else None
-    # dark belly, a pale dorsal stripe, twin tail fins
-    add_loft(p, [(hz0 + 0.05, 1.5, 0.32, xc, 2.6, 2.4), (8.0, 1.36, 0.36, xc, 3.0, 2.4), (15.0, 1.38, 0.36, xc, 2.9, 2.4), (18.8, 1.6, 0.3, xc, 2.2, 2.4), (20.2, 2.05, 0.15, xc, 0.9, 2)], 'plastic', 32, axis='z')
-    add_loft(p, [(hz0 + 0.05, 4.62, 0.08, xc, 0.55, 2.2), (9.0, 4.85, 0.1, xc, 0.6, 2.2), (14.8, 4.82, 0.1, xc, 0.55, 2.2), (15.5, 4.7, 0.05, xc, 0.3, 2)], 'paint', 20, axis='z')
+    for z in (16.1, 17.0, 17.9):          # canopy frame ribs
+        add_box(p, xc - 2.0, top_y(xc, z) + 0.18, z - 0.04, xc + 2.0, top_y(xc, z) + 0.26, z + 0.04, 'metal', 0.01)
+    # windscreen seen from outside: a framed dark band on the nose, built facing out only (so from inside it culls away)
+    bm = bmesh.new(); rows = []
+    for z in (18.62, 19.0, 19.4):
+        cy, ry, cx, rx, e = sect(z); row = []
+        for k in range(15):
+            a = math.radians(32 + 116 * k / 14); u, v = math.cos(a), math.sin(a)
+            row.append(bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(u) ** (2 / e), u), cy + 1.012 * ry * math.copysign(abs(v) ** (2 / e), v), z)))
+        rows.append(row)
+    for r0, r1 in zip(rows, rows[1:]):
+        for k in range(14): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
+    for f in bm.faces:
+        cm = f.calc_center_median()
+        if (cm - mathutils.Vector(P(xc, 2.9, 13.0))).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, 'visor')
+    # heat-shield belly, dorsal spine, tail fins with hazard tips
+    add_loft(p, [(hz0 + 0.05, 1.5, 0.32, xc, 2.6, 2.4), (8.0, 1.36, 0.36, xc, 3.0, 2.4), (15.0, 1.38, 0.36, xc, 2.9, 2.4), (18.8, 1.6, 0.3, xc, 2.2, 2.4), (20.2, 2.05, 0.15, xc, 0.9, 2)], 'heatshield', 32, axis='z')
+    add_box(p, xc - 0.5, top_y(xc, 10) - 0.1, hz0 + 0.4, xc + 0.5, top_y(xc, 10) + 0.28, 15.0, 'metal', 0.04, 3)
+    for z in range(int(hz0) + 1, 15):     # spine ribs
+        add_box(p, xc - 0.56, top_y(xc, 10) + 0.05, z, xc + 0.56, top_y(xc, 10) + 0.3, z + 0.12, 'paint', 0.01)
     for s_ in (-1, 1):
         bm = bmesh.new()
         q = [(xc + s_ * 1.2, 4.55, hz0 + 0.3), (xc + s_ * 1.0, 4.65, hz0 + 3.4), (xc + s_ * 1.9, 6.1, hz0 + 1.5), (xc + s_ * 2.05, 6.15, hz0 + 0.4)]
-        bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.1); merge(p, bm, 'paint')
-    # wings and engines
+        bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.12); merge(p, bm, 'tint')
+        add_box(p, xc + s_ * 1.9 - 0.12, 5.85, hz0 + 0.35, xc + s_ * 2.05 + 0.08, 6.18, hz0 + 1.45, 'hazard', 0.01)
+        add_cyl(p, xc + s_ * 1.98, 6.25, hz0 + 0.8, hz0 + 0.95, 0.06, 'navwhite', 10, axis='z')
+    # greebles: plates, boxes and vents scattered over the upper hull, off the spine and the canopy
+    for k in range(70):
+        z = r.uniform(hz0 + 0.6, 15.0); x = xc + r.choice([-1, 1]) * r.uniform(0.9, 2.6)
+        y = top_y(x, z); w, d_, h_ = r.uniform(0.2, 0.9), r.uniform(0.2, 1.4), r.uniform(0.04, 0.22)
+        add_box(p, x - w / 2, y - 0.25, z, x + w / 2, y + h_ - 0.05, z + d_, r.choice(['metal', 'paint', 'tint', 'plastic']), 0.012)
+    for s_ in (-1, 1):                     # side vents (slatted grilles) and access hatches
+        for z0 in (7.0, 11.2):
+            x = side_x(3.4, z0 + 0.6, s_)
+            for j in range(8): add_box(p, x - 0.08 if s_ > 0 else x - 0.02, 3.0 + j * 0.1, z0, x + 0.02 if s_ > 0 else x + 0.08, 3.05 + j * 0.1, z0 + 1.2, 'metal', 0.004)
+        x = side_x(2.6, 14.0, s_)
+        add_box(p, x - 0.04, 2.1, 13.4, x + 0.04, 3.2, 14.6, 'tint', 0.02)
+        add_box(p, x - 0.07, 2.55, 14.35, x + 0.07, 2.75, 14.5, 'hazard', 0.005)
+        for z in (hz0 + 0.5, 18.2):        # RCS thruster blocks at the shoulders: four nozzles each
+            y0_ = 3.9; x = side_x(y0_, z, s_)
+            add_box(p, x - 0.3, y0_ - 0.25, z - 0.3, x + 0.3, y0_ + 0.25, z + 0.3, 'metal', 0.04, 3)
+            for (dy, dz) in ((0.12, 0.12), (-0.12, 0.12), (0.12, -0.12), (-0.12, -0.12)):
+                add_cyl(p, x + s_ * 0.3, y0_ + dy, z + dz - 0.06, z + dz + 0.06, 0.05, 'rubber', 10, axis='x') if False else add_box(p, x + s_ * 0.27 - 0.04, y0_ + dy - 0.05, z + dz - 0.05, x + s_ * 0.27 + 0.04, y0_ + dy + 0.05, z + dz + 0.05, 'rubber', 0.005)
+    # antenna mast and a small dish on the spine
+    add_cyl(p, xc - 0.25, 13.5, top_y(xc, 13.5) + 0.25, top_y(xc, 13.5) + 1.6, 0.025, 'metal', 8)
+    add_cyl(p, xc + 0.3, 7.5, top_y(xc, 7.5) + 0.25, top_y(xc, 7.5) + 0.55, 0.06, 'metal', 10)
+    add_cyl(p, xc + 0.3, 7.5, top_y(xc, 7.5) + 0.55, top_y(xc, 7.5) + 0.62, 0.35, 'paint', 20, r2=0.42)
+    # wings, nav lights, engine pods with proper bells
     for s_ in (-1, 1):
         root = xc + s_ * 3.0; tip = xc + s_ * 5.0
         bm = bmesh.new()
@@ -928,17 +1032,32 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
         top = [bm.verts.new(P(x, y + 0.12, z)) for (x, y, z) in pts]; bot = [bm.verts.new(P(x, y - 0.12, z)) for (x, y, z) in pts]
         bm.faces.new(top); bm.faces.new(bot[::-1])
         for k in range(4): bm.faces.new([top[k], bot[k], bot[(k + 1) % 4], top[(k + 1) % 4]])
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'paint')
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'tint')
+        add_box(p, tip - 0.06 if s_ > 0 else tip - 0.02, 2.4, 6.5, tip + 0.02 if s_ > 0 else tip + 0.06, 2.72, 8.9, 'hazard', 0.005)
+        add_cyl(p, tip, 2.55, 8.95, 9.15, 0.07, 'navgreen' if s_ > 0 else 'navred', 10, axis='z')
         ex_ = xc + s_ * 4.2
-        add_loft(p, [(4.4, 2.5, 0.62, ex_, 0.62, 2), (5.0, 2.5, 0.78, ex_, 0.78, 2), (8.0, 2.5, 0.78, ex_, 0.78, 2), (9.4, 2.5, 0.55, ex_, 0.55, 2), (10.0, 2.5, 0.2, ex_, 0.2, 2)], 'paint', 24, axis='z')
-        add_cyl(p, ex_, 2.5, 4.3, 4.42, 0.58, 'glow', 24, axis='z')
-        add_cyl(p, ex_, 2.5, 4.25, 4.45, 0.66, 'metal', 24, axis='z', r2=0.64)
-    # landing gear: four legs with pads
+        add_loft(p, [(4.6, 2.5, 0.66, ex_, 0.66, 2), (5.2, 2.5, 0.8, ex_, 0.8, 2), (8.0, 2.5, 0.8, ex_, 0.8, 2), (9.4, 2.5, 0.55, ex_, 0.55, 2), (10.0, 2.5, 0.2, ex_, 0.2, 2)], 'tint', 28, axis='z')
+        for z in (5.6, 6.6, 7.6): add_cyl(p, ex_, 2.5, z, z + 0.08, 0.81, 'metal', 28, axis='z')       # pod bands
+        add_cyl(p, ex_, 2.5, 9.7, 10.05, 0.32, 'metal', 20, axis='z', r2=0.24)                           # intake lip
+        add_cyl(p, ex_, 2.5, 3.7, 4.6, 0.68, 'metal', 28, axis='z', r2=0.5)                               # nozzle bell, flaring aft
+        add_cyl(p, ex_, 2.5, 3.85, 4.5, 0.6, 'rubber', 28, axis='z', r2=0.43)                             # sooty throat
+        add_cyl(p, ex_, 2.5, 4.35, 4.45, 0.42, 'glow', 28, axis='z')                                     # the burn, deep inside
+    # landing gear: struts with pistons, braces, pads
     for gx in (xc - 2.1, xc + 2.1):
         for gz in (6.6, 16.2):
-            add_cyl(p, gx, gz, 0.12, 1.5, 0.09, 'metal', 12)
+            add_cyl(p, gx, gz, 0.6, 1.5, 0.11, 'paint', 12)                  # upper strut
+            add_cyl(p, gx, gz, 0.1, 0.8, 0.065, 'metal', 12)                 # piston
+            add_box(p, gx - 0.04, 0.55, gz - 0.12, gx + 0.04, 0.68, gz + 0.12, 'hazard', 0.005)
             add_cyl(p, gx, gz, 0.0, 0.12, 0.38, 'rubber', 20)
-            add_box(p, gx - 0.25, 1.25, gz - 0.25, gx + 0.25, 1.45, gz + 0.25, 'paint', 0.02)
+            add_cyl(p, gx, gz, 0.1, 0.16, 0.3, 'metal', 20)
+            bm = bmesh.new(); bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.04, radius2=0.04, depth=1.0)
+            for v in bm.verts:               # diagonal brace from the pad up into the hull
+                x0, y0, z0 = v.co; t = z0 + 0.5
+                v.co = P(gx + x0, 0.3 + t * 1.1 + y0 * 0.0, gz + (0.6 if gz < 10 else -0.6) * t + y0)
+            merge(p, bm, 'metal')
+            add_box(p, gx - 0.3, 1.25, gz - 0.3, gx + 0.3, 1.5, gz + 0.3, 'metal', 0.02)
+    # hazard frame round the ramp door
+    for x in (dx0 - 0.2, dx1 + 0.08): add_box(p, x, deck, hz0 - 0.16, x + 0.12, dtop, hz0 - 0.1, 'hazard', 0.005)
     # ---- the interior, exactly the layout
     T = 0.1
     add_box(p, hx0, deck - 0.2, hz0, hx1, deck, hz1, 'metal', 0.01)                               # deck plate
@@ -1066,10 +1185,11 @@ def broadleaf(p, L, D, H, r):
         merge(p, bm, 'bark'); tips.append((x1, y1, z1))
     tips.append((cx, H * 0.8, cz))
     for (tx, ty, tz) in tips:                # leafy twigs radiating from each clump centre
-        for k in range(48):
-            d = mathutils.Vector((r.uniform(-1, 1), r.uniform(-0.4, 1), r.uniform(-1, 1))).normalized()
-            c = (tx + d.x * L * 0.16, ty + d.y * H * 0.08, tz + d.z * L * 0.16)
-            card(p, c, d, (r.uniform(-1, 1), 1, r.uniform(-1, 1)), H * 0.17, H * 0.22, 'leafcard')
+        for k in range(95):
+            d = mathutils.Vector((r.uniform(-1, 1), r.uniform(-0.5, 1), r.uniform(-1, 1))).normalized()
+            rr = r.uniform(0.3, 1.0)                 # fill the clump, not just its shell
+            c = (tx + d.x * L * 0.2 * rr, ty + d.y * H * 0.11 * rr, tz + d.z * L * 0.2 * rr)
+            card(p, c, d, (r.uniform(-1, 1), r.uniform(-1, 1), r.uniform(-1, 1)), H * 0.1, H * 0.13, 'leafcard')
 
 def shrub(p, L, D, H, r):
     cx, cz = L / 2, D / 2
