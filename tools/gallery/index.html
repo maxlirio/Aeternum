@@ -1,0 +1,176 @@
+<title>ORBIS Asset Catalogue</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a parts catalogue. Batch header, then surfaces, then furniture grouped by kind; each plate is a studio render with its spec line. */
+:root {
+  --bg: #eceae6; --panel: #f7f6f3; --ink: #1d2126; --muted: #646a72; --line: #d3d0ca; --accent: #c2541d; --chip: #e1ded8;
+  --display: "Saira Condensed", "Arial Narrow", sans-serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #16191d; --panel: #1f2328; --ink: #e6e4df; --muted: #9aa0a8; --line: #31363c; --accent: #e8814b; --chip: #2a2f35; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #16191d; --panel: #1f2328; --ink: #e6e4df; --muted: #9aa0a8; --line: #31363c; --accent: #e8814b; --chip: #2a2f35; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1280px; margin: 0 auto; padding-block: 40px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 44px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 700 clamp(40px, 7vw, 72px)/0.95 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.lede { max-width: 64ch; color: var(--muted); margin: 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 28px; font: 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink); font-weight: 500; }
+h2 { font: 700 30px/1 var(--display); margin: 0; letter-spacing: .02em; text-transform: uppercase; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+h2 small { font: 400 13px var(--mono); color: var(--muted); text-transform: none; letter-spacing: 0; }
+section { display: grid; gap: 18px; }
+.sec-note { margin: 0; color: var(--muted); max-width: 70ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 14px; }
+.plate { background: var(--panel); border: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-width: 0; }
+.plate button { all: unset; cursor: zoom-in; display: block; }
+.plate button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.plate img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--chip); }
+.cap { padding: 10px 12px 12px; display: grid; gap: 6px; border-top: 1px solid var(--line); }
+.cap .row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.name { font: 700 19px/1.1 var(--display); letter-spacing: .02em; }
+.dims { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 11px/1 var(--mono); padding: 4px 6px; background: var(--chip); color: var(--muted); }
+.chip.new { background: var(--accent); color: var(--bg); }
+.kind { display: grid; gap: 10px; }
+.kind h3 { margin: 0; font: 500 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.next { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.next li { border: 1px dashed var(--line); padding: 12px 14px; display: grid; gap: 4px; }
+.next li b { font: 700 18px var(--display); letter-spacing: .02em; }
+.next li span { color: var(--muted); font-size: 13px; }
+.log { border-left: 2px solid var(--accent); padding-left: 14px; display: grid; gap: 6px; max-width: 72ch; }
+.log p { margin: 0; }
+.log .when { font: 12px var(--mono); color: var(--muted); }
+dialog { border: 0; padding: 0; background: transparent; max-width: min(96vw, 1600px); }
+dialog::backdrop { background: rgba(10, 12, 14, .86); }
+dialog img { display: block; max-width: 100%; max-height: 86vh; }
+dialog p { margin: 8px 0 0; color: #e6e4df; font: 13px var(--mono); }
+@media (prefers-reduced-motion: no-preference) { .plate img { transition: filter .2s; } .plate button:hover img { filter: brightness(1.06); } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">ORBIS · built in Blender from code</div>
+    <h1>Asset Catalogue</h1>
+    <p class="lede">Every model and surface made for the game so far, photographed on its own under a neutral studio light with the game's tone mapping. This page grows as new batches land. Recoloured parts (upholstery and paint) get a different colour for each piece in game.</p>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section>
+    <h2>Batch log</h2>
+    <div class="log">
+      <p class="when">Batch 2 · 2 Nov 2026</p>
+      <p>A speeder bike and a shuttle, both rideable in game. The shuttle's model is built from the same layout file the game uses for its interior: hold, cabin and cockpit sit exactly where you walk. The paint texture was toned down; its scratches read as cracks on large surfaces.</p>
+    </div>
+    <div class="log">
+      <p class="when">Batch 1 · 2 Nov 2026</p>
+      <p>Furniture and fixtures for homes, shops, offices and workshops, plus the twelve tileable surfaces they're made from. All 33 pieces are in game, fitted to the same footprints as the old grey boxes.</p>
+    </div>
+  </section>
+
+
+  <section id="ingame">
+    <h2>In game <small>batch 2</small></h2>
+    <p class="sec-note">The same models where they are used. Studio renders hide everything that goes wrong under real light, so each batch is checked here too.</p>
+    <div class="grid" id="game"></div>
+  </section>
+  <section id="surfaces">
+    <h2>Surfaces <small id="surf-count"></small></h2>
+    <p class="sec-note">Seamless PBR textures (colour, surface relief, roughness and metalness), shown on a 1&nbsp;m sphere beside a 1.2&nbsp;m slab so you can judge their real scale. The tile size is how far each texture runs before it repeats.</p>
+    <div class="grid" id="surf"></div>
+  </section>
+
+  <section id="furniture">
+    <h2>Furniture &amp; fixtures <small id="furn-count"></small></h2>
+    <p class="sec-note">Sizes are length × depth × height in metres. Triangle counts are for one piece.</p>
+    <div class="kind-list" id="furn" style="display:grid;gap:28px"></div>
+  </section>
+
+  <section>
+    <h2>Coming next</h2>
+    <ul class="next">
+      <li><b>Building shells</b><span>Wall panels, window frames, doors, roofs and stairs</span></li>
+      <li><b>Streets</b><span>Road surfaces, kerbs, paving and street lamps</span></li>
+      <li><b>Terrain</b><span>Rock, grass, sand and soil for the open ground</span></li>
+      <li><b>Shuttle, second pass</b><span>Panel lines, a cockpit window you can see out of, a richer interior</span></li>
+      <li><b>Items</b><span>Models for the 47 things you can carry, for shelves and floors</span></li>
+      <li><b>Lamps and street furniture</b><span>Street lights, benches, signs, bollards</span></li>
+    </ul>
+  </section>
+</div>
+
+<dialog id="lb"><img id="lb-img" alt=""><p id="lb-cap"></p></dialog>
+
+<script>
+const BATCH = 2;
+const SURF = [
+  ['wood', 1.2, 'Oak-like timber: growth rings, fibres and latewood bands'],
+  ['fabric', 0.45, 'Woven upholstery, 150 threads per tile'],
+  ['paint', 1.0, 'Powder-coated steel: orange peel and faint wear (the scratches were reading as cracks)'],
+  ['metal', 0.6, 'Brushed metal'],
+  ['laminate', 1.0, 'Desk and counter laminate'],
+  ['stone', 1.0, 'Polished worktop stone'],
+  ['plastic', 0.5, 'Moulded plastic with a light grain'],
+  ['rubber', 0.3, 'Rubber for feet, castors and grips'],
+  ['concrete', 2.0, 'Cast concrete with pores and staining'],
+  ['soil', 0.5, 'Potting soil'],
+  ['leaf', 0.3, 'Foliage for planters'],
+  ['cardboard', 0.6, 'Corrugated cardboard for boxes on shelves'],
+].map(([k, tile, note]) => ({ k, tile, note, batch: k === 'paint' ? 2 : 1 }));
+
+const NAMES = {
+  'bed_2.1x1.5x0.55': 'Double bed', 'sofa_2x0.9x0.8': 'Sofa',
+  'table_1.2x0.8x0.45': 'Coffee table', 'table_1.4x0.9x0.75': 'Dining table', 'table_1x0.8x0.75': 'Small table', 'table_3x1.2x0.75': 'Meeting table',
+  'desk_1.5x0.75x0.75': 'Office desk', 'chair_0.5x0.5x0.9': 'Office chair',
+  'cabinet_1.2x0.45x1.8': 'Tall cabinet', 'cabinet_1x0.5x1.4': 'Filing cabinet', 'cabinet_1.6x0.45x0.9': 'Sideboard',
+  'locker_0.9x0.55x2': 'Locker', 'fridge_0.8x0.7x1.9': 'Fridge',
+  'counter_1.8x0.65x0.92': 'Kitchen counter', 'counter_2.6x0.65x0.92': 'Kitchen run', 'counter_2.8x0.7x1.05': 'Shop counter', 'counter_2.2x0.7x1': 'Reception desk',
+  'shelf_2.4x0.6x1.9': 'Shop shelving', 'shelf_2.4x0.9x1.5': 'Display shelving',
+  'rack_2x0.6x2': 'Storage rack', 'rack_2.4x0.8x2.2': 'Pallet rack', 'rack_3x0.9x2.6': 'Heavy pallet rack',
+  'bench_1.8x0.5x0.45': 'Seating bench', 'bench_2.6x0.9x0.95': 'Workbench', 'bench_2.4x1x0.95': 'Lab bench',
+  'planter_0.7x0.7x1.1': 'Planter', 'planter_0.8x0.8x1': 'Planter, wide',
+  'crate_1.2x1.2x1': 'Cargo crate', 'crate_1x1x0.8': 'Small crate', 'crate_1.6x1.6x1.4': 'Large crate',
+  'machine_0.7x0.7x0.95': 'Washing machine', 'machine_1.8x1.4x1.7': 'Fabricator', 'machine_2.2x1.6x2': 'Large fabricator',
+  'speeder_2.6x1x1.05': 'Speeder bike', 'shuttle_10x21x5.4': 'Shuttle',
+};
+const KINDS = { bed: 'Beds', sofa: 'Seating', chair: 'Seating', table: 'Tables', desk: 'Tables', cabinet: 'Storage', locker: 'Storage', fridge: 'Appliances', machine: 'Appliances', counter: 'Counters', shelf: 'Shelving & racks', rack: 'Shelving & racks', bench: 'Benches', planter: 'Planters & crates', crate: 'Planters & crates', speeder: 'Vehicles', shuttle: 'Ships' };
+const SLOT = { tint: 'recolourable', screen: 'screen', glass: 'glass', glow: 'thruster glow', visor: 'tinted canopy' };
+const PROPS = [{"k": "bed", "d": [2.1, 1.5, 0.55], "f": "booth-bed_2.1x1.5x0.55", "m": ["fabric", "tint", "wood"], "t": 14356, "b": 1}, {"k": "sofa", "d": [2.0, 0.9, 0.8], "f": "booth-sofa_2x0.9x0.8", "m": ["metal", "tint"], "t": 13400, "b": 1}, {"k": "table", "d": [1.2, 0.8, 0.45], "f": "booth-table_1.2x0.8x0.45", "m": ["wood"], "t": 728, "b": 1}, {"k": "table", "d": [1.4, 0.9, 0.75], "f": "booth-table_1.4x0.9x0.75", "m": ["metal", "wood"], "t": 472, "b": 1}, {"k": "table", "d": [1.0, 0.8, 0.75], "f": "booth-table_1x0.8x0.75", "m": ["metal", "wood"], "t": 472, "b": 1}, {"k": "table", "d": [3.0, 1.2, 0.75], "f": "booth-table_3x1.2x0.75", "m": ["metal", "wood"], "t": 472, "b": 1}, {"k": "desk", "d": [1.5, 0.75, 0.75], "f": "booth-desk_1.5x0.75x0.75", "m": ["laminate", "metal", "paint", "plastic", "screen"], "t": 1388, "b": 1}, {"k": "chair", "d": [0.5, 0.5, 0.9], "f": "booth-chair_0.5x0.5x0.9", "m": ["metal", "plastic", "rubber", "tint"], "t": 1248, "b": 1}, {"k": "cabinet", "d": [1.2, 0.45, 1.8], "f": "booth-cabinet_1.2x0.45x1.8", "m": ["metal", "paint", "plastic"], "t": 648, "b": 1}, {"k": "cabinet", "d": [1.0, 0.5, 1.4], "f": "booth-cabinet_1x0.5x1.4", "m": ["metal", "paint", "plastic"], "t": 1080, "b": 1}, {"k": "cabinet", "d": [1.6, 0.45, 0.9], "f": "booth-cabinet_1.6x0.45x0.9", "m": ["metal", "paint", "plastic"], "t": 864, "b": 1}, {"k": "locker", "d": [0.9, 0.55, 2.0], "f": "booth-locker_0.9x0.55x2", "m": ["metal", "paint", "plastic"], "t": 792, "b": 1}, {"k": "fridge", "d": [0.8, 0.7, 1.9], "f": "booth-fridge_0.8x0.7x1.9", "m": ["metal", "paint", "plastic"], "t": 808, "b": 1}, {"k": "counter", "d": [1.8, 0.65, 0.92], "f": "booth-counter_1.8x0.65x0.92", "m": ["metal", "paint", "plastic", "stone", "tint"], "t": 1736, "b": 1}, {"k": "counter", "d": [2.6, 0.65, 0.92], "f": "booth-counter_2.6x0.65x0.92", "m": ["glass", "metal", "paint", "plastic", "stone", "tint"], "t": 2536, "b": 1}, {"k": "counter", "d": [2.8, 0.7, 1.05], "f": "booth-counter_2.8x0.7x1.05", "m": ["plastic", "screen", "stone", "tint", "wood"], "t": 632, "b": 1}, {"k": "counter", "d": [2.2, 0.7, 1.0], "f": "booth-counter_2.2x0.7x1", "m": ["laminate", "plastic", "screen", "wood"], "t": 632, "b": 1}, {"k": "shelf", "d": [2.4, 0.6, 1.9], "f": "booth-shelf_2.4x0.6x1.9", "m": ["cardboard", "metal", "plastic", "tint"], "t": 3904, "b": 1}, {"k": "shelf", "d": [2.4, 0.9, 1.5], "f": "booth-shelf_2.4x0.9x1.5", "m": ["cardboard", "metal", "plastic", "tint"], "t": 3056, "b": 1}, {"k": "rack", "d": [2.0, 0.6, 2.0], "f": "booth-rack_2x0.6x2", "m": ["cardboard", "metal", "paint"], "t": 3456, "b": 1}, {"k": "rack", "d": [2.4, 0.8, 2.2], "f": "booth-rack_2.4x0.8x2.2", "m": ["cardboard", "metal", "paint"], "t": 3672, "b": 1}, {"k": "rack", "d": [3.0, 0.9, 2.6], "f": "booth-rack_3x0.9x2.6", "m": ["cardboard", "metal", "paint"], "t": 3888, "b": 1}, {"k": "bench", "d": [1.8, 0.5, 0.45], "f": "booth-bench_1.8x0.5x0.45", "m": ["metal", "wood"], "t": 968, "b": 1}, {"k": "bench", "d": [2.6, 0.9, 0.95], "f": "booth-bench_2.6x0.9x0.95", "m": ["metal", "paint", "tint", "wood"], "t": 1592, "b": 1}, {"k": "bench", "d": [2.4, 1.0, 0.95], "f": "booth-bench_2.4x1x0.95", "m": ["metal", "paint", "tint", "wood"], "t": 1592, "b": 1}, {"k": "planter", "d": [0.7, 0.7, 1.1], "f": "booth-planter_0.7x0.7x1.1", "m": ["concrete", "leaf", "soil", "wood"], "t": 844, "b": 1}, {"k": "planter", "d": [0.8, 0.8, 1.0], "f": "booth-planter_0.8x0.8x1", "m": ["concrete", "leaf", "soil", "wood"], "t": 844, "b": 1}, {"k": "crate", "d": [1.2, 1.2, 1.0], "f": "booth-crate_1.2x1.2x1", "m": ["paint", "plastic", "tint"], "t": 1512, "b": 1}, {"k": "crate", "d": [1.0, 1.0, 0.8], "f": "booth-crate_1x1x0.8", "m": ["paint", "plastic", "tint"], "t": 1512, "b": 1}, {"k": "crate", "d": [1.6, 1.6, 1.4], "f": "booth-crate_1.6x1.6x1.4", "m": ["paint", "plastic", "tint"], "t": 1944, "b": 1}, {"k": "machine", "d": [0.7, 0.7, 0.95], "f": "booth-machine_0.7x0.7x0.95", "m": ["glass", "metal", "paint", "plastic", "screen"], "t": 616, "b": 1}, {"k": "machine", "d": [1.8, 1.4, 1.7], "f": "booth-machine_1.8x1.4x1.7", "m": ["glass", "metal", "paint", "plastic", "screen", "tint"], "t": 1064, "b": 1}, {"k": "machine", "d": [2.2, 1.6, 2.0], "f": "booth-machine_2.2x1.6x2", "m": ["glass", "metal", "paint", "plastic", "screen", "tint"], "t": 1124, "b": 1}, {"k": "speeder", "d": [2.6, 1.0, 1.05], "f": "booth-speeder_2.6x1x1.05", "m": ["glass", "glow", "metal", "paint", "rubber", "screen", "tint"], "t": 3784, "b": 2}, {"k": "shuttle", "d": [10.0, 21.0, 5.4], "f": "booth-shuttle_10x21x5.4", "m": ["cardboard", "fabric", "glow", "metal", "paint", "plastic", "rubber", "screen", "stone", "tint", "visor", "wood"], "t": 38138, "b": 2}];
+
+const $ = id => document.getElementById(id);
+const fmt = n => n.toLocaleString('en-GB');
+const chip = (t, cls = '') => `<span class="chip ${cls}">${t}</span>`;
+const plate = (src, name, dims, chips) => `<figure class="plate" style="margin:0"><button type="button" data-src="${src}" data-cap="${name} · ${dims}"><img src="${src}" alt="${name}, studio render" loading="lazy"></button>
+  <figcaption class="cap"><div class="row"><span class="name">${name}</span><span class="dims">${dims}</span></div><div class="chips">${chips}</div></figcaption></figure>`;
+
+const GAME = [['parked', 'Speeders for sale', 'Backed in at a hangar, nose to the street'], ['speeder', 'Riding one', 'Bought for 1800 cr and taken out of town'],
+  ['ship', 'Shuttle on its pad', 'Ramp down, during the owner\'s working hours'], ['shipside', 'Shuttle from the side', 'Tail fins, visor canopy, engine pods'],
+  ['hold', 'Cargo hold', 'Racks and crates you can open; the ramp door behind'], ['cockpit', 'Cabin to cockpit', 'Locker on the left, the helm through the hatch'],
+  ['flying', 'In flight', '112 km/h, 164 m up, five seconds after take-off'], ['fridge', 'A fridge at home', 'Take and put, item by item, with the weight you carry'],
+  ['onsofa', 'Sitting down', 'Sofas, chairs, benches and tables all seat you'], ['inbed', 'Lying in bed', 'Sleep an hour, four, or until morning']];
+$('game').innerHTML = GAME.map(([f, name, note]) => plate(`img/game-${f}.jpg`, name, '', chip(note))).join('');
+$('surf').innerHTML = SURF.map(s => plate(`img/boothm-${s.k}.jpg`, s.k[0].toUpperCase() + s.k.slice(1), `tile ${s.tile} m`,
+  (s.batch === BATCH ? chip('updated', 'new') : '') + chip(s.note))).join('');
+
+const groups = new Map();
+for (const p of PROPS) { const g = KINDS[p.k] || p.k; (groups.get(g) || groups.set(g, []).get(g)).push(p); }
+$('furn').innerHTML = [...groups].map(([g, list]) => `<div class="kind"><h3>${g} · ${list.length}</h3><div class="grid">${list.map(p => {
+  const key = p.f.replace('booth-', ''), dims = p.d.map(x => +x.toFixed(2)).join(' × ') + ' m';
+  return plate(`img/${p.f}.jpg`, NAMES[key] || key, dims,
+    (p.b === BATCH ? chip('new', 'new') : '') + chip(fmt(p.t) + ' tris') + p.m.map(m => chip(SLOT[m] || m)).join(''));
+}).join('')}</div></div>`).join('');
+
+const tris = PROPS.reduce((n, p) => n + p.t, 0);
+$('stats').innerHTML = `<span><b>${PROPS.length}</b> models</span><span><b>${SURF.length}</b> surfaces</span><span><b>${fmt(tris)}</b> triangles in all</span><span>batch <b>${BATCH}</b> · 2 Nov 2026</span>`;
+$('surf-count').textContent = SURF.length + ' materials';
+$('furn-count').textContent = PROPS.length + ' models';
+
+const lb = $('lb');
+document.addEventListener('click', e => {
+  const b = e.target.closest('.plate button');
+  if (b) { $('lb-img').src = b.dataset.src; $('lb-cap').textContent = b.dataset.cap; lb.showModal(); }
+  else if (e.target.closest('dialog')) lb.close();
+});
+</script>
