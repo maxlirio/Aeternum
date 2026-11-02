@@ -102,9 +102,82 @@ export function buildBuilding(mb, plan, b, frame) {
     mb.quad(M.lightPanel, [[cx - hw, y, cz - hd], [cx + hw, y, cz - hd], [cx + hw, y, cz + hd], [cx - hw, y, cz + hd]], [0, -1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE);
   }
 
+  roomDecor(mb, M, plan, b, rng);
+
   // furniture
   const saved = [mb.o, mb.ex, mb.ez];
   for (const pr of plan.props) { buildProp(mb, M, pr, rng); mb.setFrame(...saved); }
+}
+
+// What makes a room look lived in, drawn only (no collision, no gameplay): skirting
+// boards, rugs, pictures, floor lamps, kitchen splashbacks, office pin boards.
+const ART = [[0.62, 0.35, 0.22], [0.2, 0.36, 0.5], [0.72, 0.62, 0.3], [0.3, 0.45, 0.32], [0.55, 0.25, 0.32], [0.82, 0.8, 0.74]];
+function roomDecor(mb, M, plan, b, rng) {
+  const home = b.type === 'hab' || b.type === 'house';
+  for (const room of plan.rooms) {
+    const [x0, z0, x1, z1] = room.rect, y = room.k * plan.H, ins = 0.11;
+    const doorsOn = (axis, c) => room.doors.map(id => plan.doors[id]).filter(d => d && d.k === room.k && (axis === 'x' ? Math.abs(d.z - c) < 0.4 && d.axis !== 'z' : Math.abs(d.x - c) < 0.4 && d.axis === 'z'));
+    // skirting, broken at doorways
+    const run = (axis, c, a0, a1, out) => {
+      const gaps = doorsOn(axis, c).map(d => axis === 'x' ? [d.x - d.width / 2, d.x + d.width / 2] : [d.z - d.width / 2, d.z + d.width / 2]).sort((p, q) => p[0] - q[0]);
+      let cur = a0;
+      for (const [g0, g1] of [...gaps, [a1, a1]]) {
+        if (g0 - cur > 0.05) {
+          if (axis === 'x') mb.box(M.darkTrim, cur, y, c + out * ins - 0.008, g0, y + 0.08, c + out * ins + 0.008, [0.75, 0.75, 0.75]);
+          else mb.box(M.darkTrim, c + out * ins - 0.008, y, cur, c + out * ins + 0.008, y + 0.08, g0, [0.75, 0.75, 0.75]);
+        }
+        cur = Math.max(cur, g1);
+      }
+    };
+    if (home || b.type === 'office') { run('x', z0, x0 + ins, x1 - ins, 1); run('x', z1, x0 + ins, x1 - ins, -1); run('z', x0, z0 + ins, z1 - ins, 1); run('z', x1, z0 + ins, z1 - ins, -1); }
+    const p = room.purpose, w = x1 - x0, d = z1 - z0;
+    if (home && (p === 'living' || p === 'bedroom' || p === 'studio') && w > 2.5 && d > 2.5) {
+      const rw = Math.min(2.6, w * 0.5), rd = Math.min(1.8, d * 0.45), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      mb.box(M.fabric, cx - rw / 2, y + 0.002, cz - rd / 2, cx + rw / 2, y + 0.014, cz + rd / 2, rng.pick(FABRIC));                       // rug
+      mb.box(M.fabric, cx - rw / 2 + 0.08, y + 0.014, cz - rd / 2 + 0.08, cx + rw / 2 - 0.08, y + 0.016, cz + rd / 2 - 0.08, rng.pick(FABRIC));   // its border
+    }
+    if (home || b.type === 'office') {   // a picture or two, on walls without doors
+      const n = home ? rng.int(1, 2) : rng.int(0, 1);
+      for (let k = 0; k < n; k++) {
+        const side = rng.int(0, 3), fw = rng.range(0.4, 0.9), fh = rng.range(0.35, 0.7), yc = y + rng.range(1.45, 1.7);
+        const along = side < 2 ? [x0 + 0.6, x1 - 0.6 - fw] : [z0 + 0.6, z1 - 0.6 - fw]; if (along[1] <= along[0]) continue;
+        const a = rng.range(along[0], along[1]), c = side === 0 ? z0 + ins : side === 1 ? z1 - ins : side === 2 ? x0 + ins : x1 - ins, o = side === 0 || side === 2 ? 1 : -1;
+        if (doorsOn(side < 2 ? 'x' : 'z', side === 0 ? z0 : side === 1 ? z1 : side === 2 ? x0 : x1).some(dd => { const dc = side < 2 ? dd.x : dd.z; return dc + dd.width / 2 + 0.2 > a && dc - dd.width / 2 - 0.2 < a + fw; })) continue;
+        const art = rng.pick(ART), frame = rng.chance(0.5) ? [0.15, 0.13, 0.12] : [0.75, 0.7, 0.62];
+        if (side < 2) mb.box(M.wood, a, yc - fh / 2, c + o * 0.0, a + fw, yc + fh / 2, c + o * 0.03, frame);
+        else mb.box(M.wood, c, yc - fh / 2, a, c + o * 0.03, yc + fh / 2, a + fw, frame);
+        // the painting itself: one cell of the 4 × 4 atlas on a quad facing into the room
+        const cell = rng.int(0, 15), u0 = (cell % 4) / 4 + 0.01, u1 = u0 + 0.23, v1 = 1 - Math.floor(cell / 4) / 4 - 0.01, v0 = v1 - 0.23;
+        const m0 = a + 0.05, m1 = a + fw - 0.05, q0 = yc - fh / 2 + 0.05, q1 = yc + fh / 2 - 0.05, f = c + o * 0.034, uv = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        if (!M.art) mb.box(M.plaster, side < 2 ? m0 : f, q0, side < 2 ? f : m0, side < 2 ? m1 : f + o * 0.002, q1, side < 2 ? f + o * 0.002 : m1, art);
+        else if (side === 0) mb.quad(M.art, [[m0, q0, f], [m1, q0, f], [m1, q1, f], [m0, q1, f]], [0, 0, 1], uv, WHITE);
+        else if (side === 1) mb.quad(M.art, [[m1, q0, f], [m0, q0, f], [m0, q1, f], [m1, q1, f]], [0, 0, -1], uv, WHITE);
+        else if (side === 2) mb.quad(M.art, [[f, q0, m1], [f, q0, m0], [f, q1, m0], [f, q1, m1]], [1, 0, 0], uv, WHITE);
+        else mb.quad(M.art, [[f, q0, m0], [f, q0, m1], [f, q1, m1], [f, q1, m0]], [-1, 0, 0], uv, WHITE);
+      }
+    }
+    if (home && (p === 'living' || p === 'studio') && rng.chance(0.7)) {   // floor lamp in a corner
+      const lx = rng.chance(0.5) ? x0 + 0.35 : x1 - 0.35, lz = rng.chance(0.5) ? z0 + 0.35 : z1 - 0.35;
+      mb.box(M.darkTrim, lx - 0.13, y, lz - 0.13, lx + 0.13, y + 0.03, lz + 0.13, WHITE);
+      mb.box(M.darkTrim, lx - 0.012, y + 0.03, lz - 0.012, lx + 0.012, y + 1.45, lz + 0.012, WHITE);
+      mb.box(M.fabric, lx - 0.17, y + 1.45, lz - 0.17, lx + 0.17, y + 1.72, lz + 0.17, [0.92, 0.88, 0.78]);
+    }
+    if (p === 'kitchen' || p === 'studio') {   // splashback tiles behind the counters
+      for (const pr of plan.props) {
+        if (pr.room !== room.i || pr.k !== room.k || pr.kind !== 'counter') continue;
+        const yA = y + pr.h + 0.01, yB = yA + 0.55;
+        if (pr.face === 2) mb.box(M.tiles, pr.x0, yA, pr.z0 - 0.0, pr.x1, yB, pr.z0 + 0.012, [0.9, 0.92, 0.93]);
+        else if (pr.face === 0) mb.box(M.tiles, pr.x0, yA, pr.z1 - 0.012, pr.x1, yB, pr.z1, [0.9, 0.92, 0.93]);
+        else if (pr.face === 1) mb.box(M.tiles, pr.x0, yA, pr.z0, pr.x0 + 0.012, yB, pr.z1, [0.9, 0.92, 0.93]);
+        else mb.box(M.tiles, pr.x1 - 0.012, yA, pr.z0, pr.x1, yB, pr.z1, [0.9, 0.92, 0.93]);
+      }
+    }
+    if (p === 'office' && rng.chance(0.6) && w > 2) {   // pin board with notes
+      const bx = x0 + 0.5, by = y + 1.2;
+      mb.box(M.wood, bx, by, z1 - ins - 0.02, bx + 1.2, by + 0.8, z1 - ins, [0.7, 0.55, 0.38]);
+      for (let k = 0; k < 6; k++) { const nx = bx + 0.1 + rng.next() * 0.9, ny = by + 0.1 + rng.next() * 0.55; mb.box(M.plaster, nx, ny, z1 - ins - 0.024, nx + 0.15, ny + 0.12, z1 - ins - 0.02, rng.pick([[0.95, 0.9, 0.5], [0.95, 0.95, 0.95], [0.6, 0.8, 0.95]])); }
+    }
+  }
 }
 
 // The things that make a box read as a lived-in building: downpipes at the corners,

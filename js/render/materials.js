@@ -107,6 +107,7 @@ export function materials() {
     lightPanel: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2dd, emissiveIntensity: 1.6, roughness: 0.4 }),
     screen: new THREE.MeshStandardMaterial({ color: 0x0a1418, emissive: 0x3aa6c8, emissiveIntensity: 0.9, roughness: 0.2 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffd7a0, emissiveIntensity: 0 }),
+    art: SURF ? new THREE.MeshStandardMaterial({ map: (() => { const t = new THREE.TextureLoader().load(BASE + 'art_c.webp'); t.colorSpace = THREE.SRGBColorSpace; return t; })(), roughness: 0.75 }) : null,   // the paintings atlas (4 × 4)
   };
   return M;
 }

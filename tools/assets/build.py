@@ -460,6 +460,32 @@ def build_foliage():
     save_rgba('grass_blades', np.concatenate([col, al[..., None]], -1)); print('texture grass_blades')
     for kind in ('conifer', 'broadleaf'): save_rgba('impostor_' + kind, draw_impostor(kind, 5 if kind == 'conifer' else 6)); print('texture impostor', kind)
 
+def build_art():
+    """16 small paintings in a 4 × 4 atlas: landscapes (layered ridges under a sky) and
+    abstract colour fields, with a little canvas grain."""
+    r = np.random.default_rng(29); C = N // 4; out = np.zeros((N, N, 3))
+    grain = spectral(N, 0.2, 31)
+    for k in range(16):
+        y = np.arange(C)[:, None] / C * np.ones((1, C)); x = np.arange(C)[None, :] / C * np.ones((C, 1))
+        if k % 3 != 2:            # landscape
+            top, bot = np.array(srgb(tuple(int(v) for v in r.integers(120, 230, 3)))), np.array(srgb(tuple(int(v) for v in r.integers(150, 250, 3))))
+            img = top[None, None, :] * (1 - y[..., None]) + bot[None, None, :] * y[..., None]
+            for layer in range(3):
+                ridge = 0.45 + 0.13 * layer + 0.08 * np.sin(x[0] * r.uniform(4, 11) + r.uniform(0, 6)) + 0.04 * np.sin(x[0] * r.uniform(15, 30))
+                col = np.array(srgb(tuple(int(v) for v in r.integers(30, 120, 3)))) * (1.25 - 0.2 * layer)
+                m = y > ridge[None, :]; img[m] = col
+            if r.random() < 0.6:  # a sun or moon
+                cx, cy = r.uniform(0.2, 0.8), r.uniform(0.15, 0.35); m = (x - cx) ** 2 + (y - cy) ** 2 < 0.004; img[m] = srgb((250, 236, 200))
+        else:                     # colour field
+            img = np.zeros((C, C, 3)) + np.array(srgb(tuple(int(v) for v in r.integers(60, 230, 3))))[None, None, :]
+            for b_ in range(r.integers(2, 5)):
+                x0, y0 = r.uniform(0, 0.6), r.uniform(0, 0.6); w_, h_ = r.uniform(0.2, 0.5), r.uniform(0.15, 0.5)
+                m = (x > x0) & (x < x0 + w_) & (y > y0) & (y < y0 + h_); img[m] = srgb(tuple(int(v) for v in r.integers(30, 240, 3)))
+        i, j = k // 4, k % 4
+        out[i * C:(i + 1) * C, j * C:(j + 1) * C] = img
+    out *= (0.92 + 0.12 * grain)[..., None]
+    save('art_c', out, True); print('texture art')
+
 def build_textures():
     os.makedirs(MAT_DIR, exist_ok=True)
     import json
@@ -476,6 +502,7 @@ def build_textures():
         index[name] = {'tile': tile, 'mean': [round(float(np.mean(np.clip(col[..., c], 0, 1) ** 2.2)), 4) for c in range(3)]}
         print('texture', name)
     if not ONLY or 'foliage' in ONLY: build_foliage()
+    if not ONLY or 'art' in ONLY: build_art()
     for k, v in MATERIALS.items(): index.setdefault(k, {'tile': v[1]})['tile'] = v[1]
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
