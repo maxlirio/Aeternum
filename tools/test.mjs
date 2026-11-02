@@ -764,12 +764,15 @@ suites.ships = async () => {
   const { EPOCH } = await import('../js/sim/clock.js');
   const U = uni(4), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s);
   const ships = shipsAt(p, s);
-  check(ships.length === s.pads.length && ships.length >= 2 && ships.some(x => x.forSale), `${ships.length} ships on ${s.pads.length} pads, one for sale`);
+  const onPads = ships.filter(x => !x.field);
+  check(onPads.length === s.pads.length && onPads.length >= 2 && ships.some(x => x.forSale), `${onPads.length} ships on ${s.pads.length} pads, one for sale`);
+  const fr = ships.find(x => x.model === 'freighter');
+  check(fr && fr.at && !fr.forSale, `a freighter on the cargo field, ${Math.round(Math.hypot(fr.at.c[0] - s.cx, fr.at.c[2] - s.cz))} m from the centre (${fr.ownerName})`);
   const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
   const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.credits = 20000; st.setPlayer(pl);
   const world = new CollisionWorld(p, s, () => false);
   let down = true;
-  const sh = S.shipsIn(st, p, s).find(x => x.forSale), b = S.structureOf(s, sh, id => id !== 0 || down);
+  const sh = S.shipsIn(st, p, s).find(x => x.forSale), b = S.structureOf(s, sh, id => id !== 0 || down, p);
   world.addStructure(b);
   const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
   const L = shipPlan().layout, toW = (x, y, z) => buildingToWorld(s, b, x, y, z);
@@ -781,6 +784,20 @@ suites.ships = async () => {
   const at = world.locate(...c.pos);
   check(inHold === 'hold' && at?.b === b && at.room?.purpose === 'cockpit', `walked up the ramp into the hold and on to the cockpit (${inHold} → ${at?.room?.purpose})`);
   check(Math.abs(c.pos[1] - (b.base + L.deck)) < 0.05, 'standing on the deck');
+  { // the freighter: up its ramp, through the hold, onto the flight deck
+    const fb = S.structureOf(s, fr, () => true, p), FL = shipPlan('freighter').layout; world.addStructure(fb);
+    const FW = (x, z) => buildingToWorld(s, fb, x, 0, z), mx = (FL.ramp.x0 + FL.ramp.x1) / 2;
+    const fc = new Controller(world, FW(mx, -1.5)); run(fc, {}, 0.3);
+    const go = (x, z, secs = 20) => { for (let t = 0; t < secs; t += 1 / 120) { const w = FW(x, z); if (Math.hypot(w[0] - fc.pos[0], w[2] - fc.pos[2]) < 0.3) break; fc.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.atan2(w[0] - fc.pos[0], w[2] - fc.pos[2]) }); } };
+    go(mx, 10); const fh = world.locate(...fc.pos)?.room?.purpose; go(8, 24.2); go(8, 27.6);
+    check(fh === 'hold' && world.locate(...fc.pos)?.room?.purpose === 'cockpit', `freighter: ramp → ${fh} → ${world.locate(...fc.pos)?.room?.purpose}`);
+    const fv = new Set(usablesOf(p, s, fb).flatMap(u => u.verbs));
+    check(fv.has('fly') && fv.has('sleep') && fv.has('fabricate'), 'freighter aboard: ' + [...fv].join(', '));
+    world.removeStructure(fb);
+    const ff = new Flight(world, p, fr, fr.at.c, fr.at.facing);
+    for (let t = 0; t < 5; t += 1 / 60) ff.step(1 / 60, { up: true });
+    check(ff.altitude() > 25, `freighter lifts off: ${ff.altitude().toFixed(0)} m`);
+  }
   // ramp raised: you can't get in
   down = false;
   const c2 = new Controller(world, toW(5, 0, -1.5)); run(c2, {}, 0.3); walkTo(c2, 5, 7, 8);
@@ -808,7 +825,7 @@ suites.ships = async () => {
     fly({}, 1);
     check(fl.onGround && fl.landingProblem() === null && fl.impact === 0, `touched down gently, can land (${fl.landingProblem()})`);
     S.land(st, sh, fl.pos, fl.facing);
-    const sh2 = S.shipsIn(st, p, s).find(x => x.id === sh.id), b2 = S.structureOf(s, sh2, () => true);
+    const sh2 = S.shipsIn(st, p, s).find(x => x.id === sh.id), b2 = S.structureOf(s, sh2, () => true, p);
     world.addStructure(b2);
     const c3 = new Controller(world, buildingToWorld(s, b2, 5, L.deck, 13)); run(c3, {}, 0.3);
     check(world.locate(...c3.pos)?.room?.purpose === 'studio', 'aboard at the landing site');

@@ -1,0 +1,302 @@
+{
+ "name": "Freighter",
+ "note": "Logical layout of the freighter (same frame rules as shuttle.json): x across, z along the hull (0 = foot of the ramp), y up from the ground under the gear.",
+ "W": 16,
+ "D": 34,
+ "H": 8.4,
+ "deck": 2.2,
+ "ceiling": 6.4,
+ "hull": [
+  3.0,
+  6.2,
+  13.0,
+  30.0
+ ],
+ "partitions": [
+  {
+   "z": 22.0,
+   "door": 1
+  },
+  {
+   "z": 26.5,
+   "door": 2
+  }
+ ],
+ "ramp": {
+  "x0": 6.0,
+  "x1": 10.0,
+  "z0": 0.6,
+  "z1": 6.2
+ },
+ "doors": [
+  {
+   "id": 0,
+   "kind": "ramp",
+   "rooms": [
+    0,
+    "outside"
+   ],
+   "x": 8.0,
+   "z": 6.2,
+   "width": 3.9,
+   "height": 3.4
+  },
+  {
+   "id": 1,
+   "kind": "hatch",
+   "rooms": [
+    0,
+    1
+   ],
+   "x": 8.0,
+   "z": 22.0,
+   "width": 1.4
+  },
+  {
+   "id": 2,
+   "kind": "hatch",
+   "rooms": [
+    1,
+    2
+   ],
+   "x": 8.0,
+   "z": 26.5,
+   "width": 1.2
+  }
+ ],
+ "rooms": [
+  {
+   "i": 0,
+   "purpose": "hold",
+   "label": "cargo hold",
+   "rect": [
+    3.0,
+    6.2,
+    13.0,
+    22.0
+   ]
+  },
+  {
+   "i": 1,
+   "purpose": "studio",
+   "label": "crew deck",
+   "rect": [
+    3.0,
+    22.0,
+    13.0,
+    26.5
+   ]
+  },
+  {
+   "i": 2,
+   "purpose": "cockpit",
+   "label": "flight deck",
+   "rect": [
+    3.0,
+    26.5,
+    13.0,
+    30.0
+   ]
+  }
+ ],
+ "props": [
+  {
+   "kind": "crate",
+   "room": 0,
+   "x0": 3.3,
+   "z0": 7.0,
+   "x1": 4.9,
+   "z1": 8.6,
+   "h": 1.4,
+   "face": 1
+  },
+  {
+   "kind": "crate",
+   "room": 0,
+   "x0": 3.3,
+   "z0": 9.0,
+   "x1": 4.9,
+   "z1": 10.6,
+   "h": 1.4,
+   "face": 1
+  },
+  {
+   "kind": "crate",
+   "room": 0,
+   "x0": 11.1,
+   "z0": 7.0,
+   "x1": 12.7,
+   "z1": 8.6,
+   "h": 1.4,
+   "face": 3
+  },
+  {
+   "kind": "crate",
+   "room": 0,
+   "x0": 11.5,
+   "z0": 9.2,
+   "x1": 12.7,
+   "z1": 10.4,
+   "h": 1.0,
+   "face": 3
+  },
+  {
+   "kind": "rack",
+   "room": 0,
+   "x0": 3.1,
+   "z0": 12.5,
+   "x1": 4.0,
+   "z1": 15.5,
+   "h": 2.6,
+   "face": 1
+  },
+  {
+   "kind": "rack",
+   "room": 0,
+   "x0": 3.1,
+   "z0": 16.5,
+   "x1": 4.0,
+   "z1": 19.5,
+   "h": 2.6,
+   "face": 1
+  },
+  {
+   "kind": "rack",
+   "room": 0,
+   "x0": 12.0,
+   "z0": 12.5,
+   "x1": 12.9,
+   "z1": 15.5,
+   "h": 2.6,
+   "face": 3
+  },
+  {
+   "kind": "machine",
+   "room": 0,
+   "x0": 11.0,
+   "z0": 17.5,
+   "x1": 12.6,
+   "z1": 19.7,
+   "h": 2.0,
+   "face": 3
+  },
+  {
+   "kind": "bed",
+   "room": 1,
+   "x0": 3.1,
+   "z0": 22.3,
+   "x1": 4.6,
+   "z1": 24.4,
+   "h": 0.55,
+   "face": 1
+  },
+  {
+   "kind": "bed",
+   "room": 1,
+   "x0": 3.1,
+   "z0": 24.5,
+   "x1": 4.6,
+   "z1": 26.4,
+   "h": 0.55,
+   "face": 1
+  },
+  {
+   "kind": "counter",
+   "room": 1,
+   "x0": 12.25,
+   "z0": 22.3,
+   "x1": 12.9,
+   "z1": 24.1,
+   "h": 0.92,
+   "face": 3
+  },
+  {
+   "kind": "locker",
+   "room": 1,
+   "x0": 12.35,
+   "z0": 24.6,
+   "x1": 12.9,
+   "z1": 25.5,
+   "h": 2.0,
+   "face": 3
+  },
+  {
+   "kind": "table",
+   "room": 1,
+   "x0": 5.0,
+   "z0": 23.3,
+   "x1": 6.4,
+   "z1": 24.7,
+   "h": 0.75,
+   "face": 0
+  },
+  {
+   "kind": "console",
+   "room": 2,
+   "x0": 4.6,
+   "z0": 29.1,
+   "x1": 11.4,
+   "z1": 29.85,
+   "h": 1.0,
+   "face": 0
+  },
+  {
+   "kind": "chair",
+   "room": 2,
+   "x0": 6.2,
+   "z0": 27.9,
+   "x1": 6.7,
+   "z1": 28.4,
+   "h": 0.9,
+   "face": 2,
+   "soft": true
+  },
+  {
+   "kind": "chair",
+   "room": 2,
+   "x0": 9.3,
+   "z0": 27.9,
+   "x1": 9.8,
+   "z1": 28.4,
+   "h": 0.9,
+   "face": 2,
+   "soft": true
+  }
+ ],
+ "seats": [
+  {
+   "kind": "pilot",
+   "pose": "sit",
+   "prop": 14,
+   "x": 6.45,
+   "z": 28.15,
+   "facing": 0
+  },
+  {
+   "kind": "sit",
+   "pose": "sit",
+   "prop": 15,
+   "x": 9.55,
+   "z": 28.15,
+   "facing": 0
+  },
+  {
+   "kind": "sleep",
+   "pose": "lie",
+   "prop": 8,
+   "x": 3.85,
+   "z": 23.35,
+   "facing": 0,
+   "top": 0.55
+  },
+  {
+   "kind": "sleep",
+   "pose": "lie",
+   "prop": 9,
+   "x": 3.85,
+   "z": 25.45,
+   "facing": 0,
+   "top": 0.55
+  }
+ ]
+}

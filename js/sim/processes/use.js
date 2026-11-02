@@ -51,7 +51,7 @@ export function usablesOf(planet, s, b) {
     const seats = plan.anchors.filter(a => a.prop === i && (a.pose === 'sit' || a.pose === 'lie'));
     switch (pr.kind) {
       case 'bed': verbs.push('sleep'); break;
-      case 'chair': if (p === 'cockpit') { verbs.push('fly'); break; } if (seats.length) verbs.push('sit'); break;
+      case 'chair': if (p === 'cockpit' && seats.some(a => a.kind === 'pilot')) { verbs.push('fly'); break; } if (seats.length) verbs.push('sit'); break;
       case 'console': verbs.push('terminal'); break;
       case 'sofa': case 'table': if (seats.length) verbs.push('sit'); break;
       case 'bench': if (p === 'shopfloor-workshop') verbs.push('assemble'); else verbs.push('sit'); break;

@@ -7,6 +7,14 @@ import { hashInts } from '../core/hash.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { smoothstep } from '../core/noise.js';
+import { settlementNear } from './settlement.js';
+import { shipsAt, LAYOUTS } from './ships.js';
+
+// ground kept clear for ships standing outside town (cargo fields): [x, z, radius]
+function clearings(planet, x, z) {
+  const s = settlementNear(planet, x, z); if (!s) return [];
+  return shipsAt(planet, s).filter(sh => sh.field && sh.at).map(sh => [sh.at.c[0], sh.at.c[2], LAYOUTS[sh.model].D * 0.6 + 4]);
+}
 
 export const CELL = 6, TILE = 96;               // candidate spacing; flora is generated and cached per tile
 export const SPECIES = {
@@ -21,13 +29,14 @@ const cache = new Map();
 export function floraTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj;
   if (cache.has(ck)) return cache.get(ck);
-  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a;
+  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b;
     const r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + 0.15 + 0.7 * r(1)) * CELL, z = (cj + 0.15 + 0.7 * r(2)) * CELL;
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 2) continue;
+    if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;
     const ny = e / Math.hypot(hx, e, hz);                                         // 1 = flat
     const moist = moisture(planet, x, z), above = s.h - planet.seaLevel;

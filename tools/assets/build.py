@@ -272,12 +272,13 @@ def mat_rock(seed):       # bedded rock: blocky fractured faces, thin joints, st
     warp = spectral(N, 2.0, seed)
     strata = 0.5 + 0.5 * np.sin(2 * math.pi * (y * 7 + warp * 1.4))
     f1, f2, nid = worley(9, seed + 1)
-    joint = np.clip(1 - (f2 - f1) * 14, 0, 1)                  # thin dark cracks between blocks
+    wob = spectral(N, 1.4, seed + 6)
+    joint = np.clip(1 - (f2 - f1 + 0.12 * (wob - 0.5)) * 22, 0, 1) * np.clip((spectral(N, 1.6, seed + 7) - 0.35) * 3, 0, 1)   # hairline cracks that wander and fade out
     a = spectral(N, 1.9, seed + 2); f = spectral(N, 0.5, seed + 3); lichen = np.clip((spectral(N, 1.2, seed + 4) - 0.72) * 5, 0, 1) * (f > 0.55)
-    v = 0.4 + 0.08 * (nid - 0.5) + 0.07 * (strata - 0.5) + 0.08 * (a - 0.5) + 0.06 * (f - 0.5) - 0.2 * joint
+    v = 0.4 + 0.04 * (nid - 0.5) + 0.07 * (strata - 0.5) + 0.1 * (a - 0.5) + 0.06 * (f - 0.5) - 0.08 * joint
     col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.96, 0.9])
     col = col * (1 - lichen[..., None] * 0.5) + np.array(srgb((122, 126, 90)))[None, None, :] * lichen[..., None] * 0.5
-    h = 0.6 * (1 - f1) * 0.6 + 0.4 * a + 0.25 * f + 0.2 * strata - 0.9 * joint
+    h = 0.15 * (1 - f1) + 0.5 * a + 0.3 * f + 0.2 * strata - 0.3 * joint
     return col, normal_from_height(h, 6.0), ao_from_height(h, 0.7), 0.88 + 0.08 * f, 0.0
 
 def mat_gravel(seed):     # loose gravel: rounded pebbles of mixed stone, packed fines between
@@ -1069,13 +1070,18 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
             add_box(p, gx - 0.3, 1.25, gz - 0.3, gx + 0.3, 1.5, gz + 0.3, 'metal', 0.02)
     # hazard frame round the ramp door
     for x in (dx0 - 0.2, dx1 + 0.08): add_box(p, x, deck, hz0 - 0.16, x + 0.12, dtop, hz0 - 0.1, 'hazard', 0.005)
-    # ---- the interior, exactly the layout
+    ship_interior(p, lay)
+
+def ship_interior(p, lay):
+    """Deck, walls, partitions with hatches, windscreen, lights and furniture: exactly the layout."""
+    hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2
+    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
     T = 0.1
     add_box(p, hx0, deck - 0.2, hz0, hx1, deck, hz1, 'metal', 0.01)                               # deck plate
     add_box(p, hx0, ceil, hz0, hx1, ceil + 0.12, hz1, 'paint', 0.01)                              # ceiling
     for z in range(int(hz0) + 1, int(hz1), 2): add_box(p, xc - 0.6, ceil - 0.025, z, xc + 0.6, ceil, z + 0.12, 'glow', 0)   # light strips
     add_box(p, hx0, deck, hz0, hx0 + T, ceil, hz1, 'paint', 0.01); add_box(p, hx1 - T, deck, hz0, hx1, ceil, hz1, 'paint', 0.01)   # side walls
-    wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, hx0 + 0.45, hx1 - 0.45                         # forward bulkhead around the windscreen:
+    wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, max(hx0 + 0.45, xc - 3.2), min(hx1 - 0.45, xc + 3.2)                         # forward bulkhead around the windscreen:
     add_box(p, hx0, deck, hz1 - T, hx1, wy0, hz1, 'paint', 0.01); add_box(p, hx0, wy1, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)
     add_box(p, hx0, wy0, hz1 - T, wx0, wy1, hz1, 'paint', 0.01); add_box(p, wx1, wy0, hz1 - T, hx1, wy1, hz1, 'paint', 0.01)
     for (x0_, x1_, y0_, y1_) in ((wx0 - 0.06, wx1 + 0.06, wy0 - 0.06, wy0), (wx0 - 0.06, wx1 + 0.06, wy1, wy1 + 0.06), (wx0 - 0.06, wx0, wy0, wy1), (wx1, wx1 + 0.06, wy0, wy1), (xc - 0.03, xc + 0.03, wy0, wy1)):
@@ -1091,11 +1097,103 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
     for x0 in (hx0 + T, hx1 - T - 0.04):                                                           # wall ribs
         for z in range(int(hz0) + 1, int(hz1)):
             add_box(p, x0, deck, z, x0 + 0.04, ceil, z + 0.08, 'metal', 0.004)
-    B = {'bed': (bed, 2.1, 1.5, 0.55), 'counter': (counter, 1.8, 0.65, 0.92), 'locker': (lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 0.9, 0.55, 2.0),
-         'crate': (crate, 1.2, 1.2, 1.0), 'rack': (lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 2.4, 0.8, 2.2), 'chair': (chair, 0.5, 0.5, 0.9), 'console': (console, 3.4, 0.7, 1.0)}
-    for pr in lay['props']:
-        fn, L, D, H = B[pr['kind']]
-        place_in(p, fn, L, D, H, pr, deck)
+    B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine,
+         'rack': lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 'chair': chair, 'console': console}
+    for pr in lay['props']:                  # each piece built to its own footprint in the layout
+        across = pr['face'] in (0, 2)
+        L, D = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
+        place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
+
+
+def hull_loft(p, secs, mat, centre):
+    """The outer hull through sections (z, cy, ry, cx, rx, e), open at the stern, capped at the nose,
+    every face turned away from `centre` (prop frame)."""
+    bm = bmesh.new(); n = 48; rings = []
+    for (z, cy, ry, cx, rx, e) in secs:
+        rings.append([bm.verts.new(P(cx + rx * math.copysign(abs(math.cos(a)) ** (2 / e), math.cos(a)), cy + ry * math.copysign(abs(math.sin(a)) ** (2 / e), math.sin(a)), z))
+                      for a in (2 * math.pi * k / n for k in range(n))])
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(n): bm.faces.new([r0[k], r1[k], r1[(k + 1) % n], r0[(k + 1) % n]])
+    c = bm.verts.new(sum((v.co for v in rings[-1]), mathutils.Vector()) / n)
+    for k in range(n): bm.faces.new([rings[-1][k], c, rings[-1][(k + 1) % n]])
+    cv = mathutils.Vector(P(*centre))
+    for f in bm.faces:
+        if (f.calc_center_median() - cv).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, mat)
+
+def freighter(p, L_, D_, H_, r, model='freighter'):
+    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json')))
+    hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2
+    secs = [(hz0, 4.3, 2.7, xc, 5.75, 4.5), (12.0, 4.35, 2.8, xc, 5.9, 4.5), (24.0, 4.35, 2.8, xc, 5.9, 4.5), (29.0, 4.35, 2.75, xc, 5.85, 4.4),
+            (30.4, 4.3, 2.65, xc, 5.7, 4.2), (31.8, 4.0, 2.0, xc, 4.4, 3.4), (33.0, 3.6, 1.1, xc, 2.4, 2.8), (33.7, 3.4, 0.1, xc, 0.2, 2)]
+    hull_loft(p, secs, 'tint', (xc, 4.3, 18.0))
+    def sect(z):
+        for (za, *A), (zb, *B) in zip(secs, secs[1:]):
+            if za <= z <= zb: t = (z - za) / (zb - za); return [a + (b - a) * t for a, b in zip(A, B)]
+        return list(secs[-1][1:])
+    def top_y(x, z):
+        cy, ry, cx, rx, e = sect(z); q = 1 - min(1, abs((x - cx) / rx)) ** e; return cy + ry * max(q, 0) ** (1 / e)
+    # stern bulkhead in strips round the tall cargo door
+    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
+    cy0, ry0, rx0, e0 = secs[0][1], secs[0][2], secs[0][4], secs[0][5]
+    for k in range(80):
+        y0_, y1_ = cy0 - ry0 + k * 2 * ry0 / 80, cy0 - ry0 + (k + 1) * 2 * ry0 / 80; ym = (y0_ + y1_) / 2
+        q = 1 - abs((ym - cy0) / ry0) ** e0
+        if q <= 0: continue
+        hw = rx0 * q ** (1 / e0)
+        if deck < ym < dtop:
+            add_box(p, xc - hw, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'tint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'tint', 0)
+        else: add_box(p, xc - hw, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'tint', 0)
+    for x in (dx0 - 0.3, dx1 + 0.1): add_box(p, x, deck, hz0 - 0.18, x + 0.2, dtop, hz0 - 0.1, 'hazard', 0.005)
+    add_box(p, dx0 - 0.3, dtop, hz0 - 0.18, dx1 + 0.3, dtop + 0.2, hz0 - 0.1, 'hazard', 0.005)
+    for x in (dx0 - 0.6, dx1 + 0.45): add_box(p, x, dtop + 0.3, hz0 - 0.3, x + 0.15, dtop + 0.45, hz0 - 0.1, 'navwhite', 0.005)   # floodlights over the door
+    # windscreen band on the nose (outward faces only) and a framed visor hump over the flight deck
+    bm = bmesh.new(); rows = []
+    for z in (30.5, 31.0, 31.6):
+        cy, ry, cx, rx, e = sect(z); rows.append([bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(math.cos(a)) ** (2 / e), math.cos(a)), cy + 1.012 * ry * math.copysign(abs(math.sin(a)) ** (2 / e), math.sin(a)), z))
+                                                for a in (math.radians(30 + 120 * k / 16) for k in range(17))])
+    for r0, r1 in zip(rows, rows[1:]):
+        for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
+    for f in bm.faces:
+        if (f.calc_center_median() - mathutils.Vector(P(xc, 4.3, 18.0))).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, 'visor')
+    add_loft(p, [(26.6, top_y(xc, 27) - 0.1, 0.15, xc, 2.4, 2.6), (27.8, top_y(xc, 28) + 0.1, 0.35, xc, 2.9, 2.6), (29.6, top_y(xc, 29.6), 0.3, xc, 2.8, 2.6), (30.3, top_y(xc, 30.3) - 0.15, 0.1, xc, 2.2, 2.4)], 'visor', 32, axis='z')
+    # heat-shield belly
+    add_loft(p, [(hz0 + 0.05, 1.75, 0.25, xc, 4.8, 3.5), (12.0, 1.62, 0.3, xc, 5.3, 3.5), (29.0, 1.65, 0.3, xc, 5.2, 3.5), (32.5, 2.4, 0.2, xc, 2.6, 2.5)], 'heatshield', 32, axis='z')
+    # container pods along both flanks, with hazard ends and lights
+    for s_ in (-1, 1):
+        xo = xc + s_ * 5.9
+        for (z0, z1) in ((8.0, 14.6), (15.0, 21.6)):
+            add_box(p, min(xo, xo + s_ * 1.3), 2.0, z0, max(xo, xo + s_ * 1.3), 4.9, z1, 'tint', 0.05, 3)
+            for z in (z0 + 0.6, (z0 + z1) / 2, z1 - 0.6): add_box(p, min(xo, xo + s_ * 1.38), 1.95, z - 0.08, max(xo, xo + s_ * 1.38), 4.95, z + 0.08, 'metal', 0.01)   # straps
+            add_box(p, min(xo, xo + s_ * 1.32), 2.0, z0 - 0.05, max(xo, xo + s_ * 1.32), 4.9, z0 + 0.05, 'hazard', 0.005)
+        add_cyl(p, xo + s_ * 1.32, 4.8, 21.6, 21.8, 0.08, 'navgreen' if s_ > 0 else 'navred', 10, axis='z')
+    # dorsal radiators and a sensor mast
+    for x in (xc - 2.2, xc + 2.2):
+        add_box(p, x - 0.04, top_y(x, 14) - 0.1, 10.0, x + 0.04, top_y(x, 14) + 1.4, 19.0, 'metal', 0.01)
+        for z in range(10, 19): add_box(p, x - 0.08, top_y(x, 14), z, x + 0.08, top_y(x, 14) + 1.4, z + 0.06, 'paint', 0.005)
+    add_cyl(p, xc, 24.5, top_y(xc, 24.5) - 0.2, top_y(xc, 24.5) + 2.4, 0.05, 'metal', 8)
+    add_cyl(p, xc, 24.5, top_y(xc, 24.5) + 2.4, top_y(xc, 24.5) + 2.5, 0.12, 'navwhite', 10)
+    for k in range(110):                     # greebles on the upper hull
+        z = r.uniform(hz0 + 0.6, 26.0); x = xc + r.choice([-1, 1]) * r.uniform(0.5, 4.6)
+        if 9.5 < z < 19.5 and abs(abs(x - xc) - 2.2) < 0.5: continue
+        y = top_y(x, z); w, d_, h_ = r.uniform(0.3, 1.2), r.uniform(0.3, 1.8), r.uniform(0.05, 0.3)
+        add_box(p, x - w / 2, y - 0.3, z, x + w / 2, y + h_ - 0.05, z + d_, r.choice(['metal', 'paint', 'tint', 'plastic']), 0.015)
+    # four main engines at the stern corners: pods, bells, burn
+    for (ex_, ey) in ((xc - 4.4, 3.0), (xc + 4.4, 3.0), (xc - 3.6, 5.7), (xc + 3.6, 5.7)):
+        add_cyl(p, ex_, ey, hz0 - 0.2, hz0 + 3.0, 0.85, 'tint', 28, axis='z')
+        add_cyl(p, ex_, ey, hz0 - 1.4, hz0 - 0.2, 0.95, 'metal', 28, axis='z', r2=0.7)
+        add_cyl(p, ex_, ey, hz0 - 1.35, hz0 - 0.25, 0.86, 'rubber', 28, axis='z', r2=0.62)
+        add_cyl(p, ex_, ey, hz0 - 0.4, hz0 - 0.3, 0.6, 'glow', 28, axis='z')
+        for z in (hz0 + 0.5, hz0 + 1.6): add_cyl(p, ex_, ey, z, z + 0.1, 0.87, 'metal', 28, axis='z')
+    # six landing legs
+    for gx in (xc - 4.0, xc + 4.0):
+        for gz in (8.5, 18.0, 27.0):
+            add_cyl(p, gx, gz, 0.8, 2.0, 0.16, 'paint', 12); add_cyl(p, gx, gz, 0.12, 1.0, 0.1, 'metal', 12)
+            add_box(p, gx - 0.06, 0.7, gz - 0.18, gx + 0.06, 0.88, gz + 0.18, 'hazard', 0.005)
+            add_cyl(p, gx, gz, 0.0, 0.14, 0.55, 'rubber', 20); add_cyl(p, gx, gz, 0.12, 0.2, 0.42, 'metal', 20)
+            add_box(p, gx - 0.4, 1.7, gz - 0.4, gx + 0.4, 2.0, gz + 0.4, 'metal', 0.03)
+    ship_interior(p, lay)
 
 def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
     lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json')))
@@ -1250,6 +1348,7 @@ def variants():
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10), ('shrub', shrub, 1.8, 1.8, 1.0), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
+        ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]
 

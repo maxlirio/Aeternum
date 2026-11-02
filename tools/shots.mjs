@@ -84,7 +84,7 @@ SHOTS.speeder = 'hour=10&secs=3'; SHOTS.parked = 'hour=10';
 // ships: the one for sale on its pad, inside it, and flying it
 const shipAt = (x, y, z, then = '') => `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
     const { buildingToWorld } = await import('./js/gen/place.js'); const { structureOf } = await import('./js/world/ships.js');
-    const sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
+    const sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true, O.planet), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
     const at = W(${x}, ${y}, ${z}); O.ctrl.mode = 'walk'; O.ctrl.pos = at; O.ctrl.vel = [0, 0, 0]; await wait(600); ${then}`;
 SCRIPTS.ship = shipAt(-6, 0, -9, "const c = W(5, 2, 10); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing - 0.25; O.cam.pitch = 0.12; O.cam.dist = 5; await wait(2500);");
 SCRIPTS.shipside = shipAt(18, 0, 14, "const c = W(5, 2, 10); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.15; O.cam.dist = 5; await wait(2500);");
@@ -101,6 +101,11 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.freighter = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const f = O.getShips().find(x => x.model === 'freighter');
+    const k = +(new URLSearchParams(location.search).get('view') || 0), a = f.at.facing + [2.4, 1.3, 3.6][k], r = [28, 26, 30][k];
+    O.ctrl.pos = [f.at.c[0] + Math.sin(a) * r, f.at.c[1], f.at.c[2] + Math.cos(a) * r]; O.ctrl.vel = [0, 0, 0]; await wait(500);
+    O.ctrl.facing = Math.atan2(f.at.c[0] - O.ctrl.pos[0], f.at.c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.12; O.cam.dist = 6; await wait(4000);`;
+SCRIPTS.freighter2 = SCRIPTS.freighter; SHOTS.freighter = 'hour=10&view=0'; SHOTS.freighter2 = 'hour=10&view=1';
 SHOTS.ship = 'hour=10'; SHOTS.shipside = 'hour=10'; SHOTS.cockpit = 'hour=10'; SHOTS.hold = 'hour=10'; SHOTS.flying = 'hour=10&secs=5';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';

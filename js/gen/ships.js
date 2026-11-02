@@ -4,11 +4,14 @@
 // layout file — so the collision world, furniture and theft work in it unchanged, and
 // the model (tools/assets/build.py) is built to fit the same layout.
 import SHUTTLE from '../../assets/ships/shuttle.json' with { type: 'json' };
+import FREIGHTER from '../../assets/ships/freighter.json' with { type: 'json' };
+import { surfaceAt } from './surface.js';
 import { Rng } from '../core/prng.js';
 import { derive, hashStr } from '../core/hash.js';
 
-export const LAYOUTS = { shuttle: SHUTTLE };
+export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER };
 export const SHIP_PRICE = 9500;
+export const PRICES = { shuttle: 9500, freighter: 42000 };
 const PAD = 22;
 
 // The layout as a building-format plan (gen/building.js), in the ship's frame.
@@ -56,8 +59,29 @@ export function shipsAt(planet, s) {
       name: shipName(rng), colour: rng.int(0, 6),
       ...(i === 0 || !firm ? { owner: 'dealer', ownerName: 'a private seller', forSale: true } : { owner: 'firm:' + firm.key, ownerName: firm.owner, firmB: firm.key }) };
   });
+  // a freighter is too big for a pad: it stands on level open ground just outside town (the cargo field)
+  const firm = s.buildings.find(b => b.type === 'hangar') || firms[0];
+  const spot = cargoField(planet, s, FREIGHTER);
+  if (spot && firm) out.push({ id: `ship:${s.key}:field0`, model: 'freighter', field: true, at: spot, name: shipName(rng), colour: rng.int(0, 6), owner: 'firm:' + firm.key, ownerName: firm.owner, firmB: firm.key });
   cache.set(ck, out);
   return out;
+}
+
+// Level ground near the edge of town, off roads, where a ship of this layout fits.
+function cargoField(planet, s, L) {
+  let best = null;
+  for (let k = 0; k < 1500; k++) {
+    const a = k * 2.39996, r = s.R + 40 + (k % 100) * 9;
+    const cx = s.cx + Math.cos(a) * r, cz = s.cz + Math.sin(a) * r, facing = a + Math.PI;     // nose toward town
+    const fx = Math.sin(facing), fz = Math.cos(facing), rx = -fz, rz = fx;
+    const pts = [];
+    for (const u of [-0.5, -0.17, 0.17, 0.5]) for (const v of [-0.5, 0, 0.5]) pts.push(surfaceAt(planet, cx + fx * u * L.D + rx * v * L.W, cz + fz * u * L.D + rz * v * L.W));
+    if (pts.some(p => p.town > 0.01 || p.road > 0.01 || p.h < planet.seaLevel + 2)) continue;
+    const hs = pts.map(p => p.h), spread = Math.max(...hs) - Math.min(...hs);
+    if (spread <= 2.0) return { c: [cx, Math.max(...hs), cz], facing };
+    if (spread < 3.2 && (!best || spread < best.spread)) best = { c: [cx, Math.max(...hs), cz], facing, spread };   // the flattest seen, as a fallback
+  }
+  return best && { c: best.c, facing: best.facing };
 }
 
 const NAMES_A = ['Quiet', 'Long', 'Red', 'Patient', 'Second', 'Brass', 'Late', 'Northern', 'Grey', 'Lucky', 'Small', 'Far'];

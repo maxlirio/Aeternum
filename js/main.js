@@ -48,7 +48,7 @@ import { SPEEDER } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
-import { SHIP_PRICE } from './gen/ships.js';
+import { SHIP_PRICE, PRICES } from './gen/ships.js';
 import { shipsIn, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
@@ -559,7 +559,7 @@ async function start(fresh) {
       const sig = JSON.stringify([sh.at, sh.O]);
       if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
       if (want && !placed.has(sh.id)) {
-        const b = structureOf(s, sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)));
+        const b = structureOf(s, sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)), planet);
         b.sig = sig; world.addStructure(b); placed.set(sh.id, b);
       }
     }
@@ -585,11 +585,11 @@ async function start(fresh) {
     const sh = shipById(b.ship.id), t = clock.now(), opts = [];
     if (shipIsYours(sh, player)) opts.push({ a: 'launch', label: 'Take off', note: 'Space climb · Q descend · W/S thrust · A/D turn · Shift boost · E lands when you\'re down and slow' });
     else {
-      if (sh.forSale) opts.push({ a: 'buy', label: `Buy the ${sh.name} — ${SHIP_PRICE} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < SHIP_PRICE });
+      if (sh.forSale) opts.push({ a: 'buy', label: `Buy the ${sh.name} — ${PRICES[sh.model]} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < PRICES[sh.model] });
       opts.push({ a: 'steal', label: 'Override the lockout and take off', note: `It belongs to ${esc(sh.ownerName)}. <b>That's stealing a ship.</b>` });
     }
     let pick = null;
-    await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} A short-range shuttle: a cargo hold, a bunk and a galley.`, options: opts }); });
+    await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} ${sh.model === 'freighter' ? 'A cargo freighter: a high hold, a crew deck with two bunks, a two-seat flight deck.' : 'A short-range shuttle: a cargo hold, a bunk and a galley.'}`, options: opts }); });
     if (!pick || pick.a === 'close') return;
     if (pick.a === 'buy') { const r = buyShip(store, sh, t); ui.toast(r.ok ? `The ${esc(sh.name)} is yours. Sit at the helm again to take off.` : r.why, r.ok ? '' : 'warn'); syncShips(); return; }
     if (pick.a === 'steal') {
@@ -769,10 +769,10 @@ async function start(fresh) {
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : null);
     avatar.object.visible = !flight;
     shipView.update(ships.map(sh => {
-      if (flight && flight.ship.id === sh.id) return { id: sh.id, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
+      if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
       if (sh.flying) return null;
       const { c, facing } = centreOf(s, sh);
-      return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
+      return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean), dt);
     vehView.update(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : []));

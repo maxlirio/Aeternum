@@ -337,7 +337,7 @@ try {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
     const key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
     const { buildingToWorld } = await import('./js/gen/place.js'); const { structureOf } = await import('./js/world/ships.js');
-    const out = {}, sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
+    const out = {}, sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true, O.planet), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
     // walk up the ramp from the pad
     O.ctrl.mode = 'walk'; O.ctrl.pos = W(5, 0, -1); O.ctrl.vel = [0, 0, 0]; await wait(400);
     const tgt = W(5, 1.6, 16.1); O.ctrl.facing = O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]);
