@@ -101,6 +101,12 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.talk = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), key = c => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => x.pose !== 'lie' && !x.moving && !String(x.id).startsWith('tr:') && x.person.age > 18); if (!a) { O.clock.advance(O.planet.dayLength / 24); await wait(300); } }
+    O.ctrl.pos = [a.pos[0] + Math.sin(a.facing) * 1.3, a.pos[1], a.pos[2] + Math.cos(a.facing) * 1.3]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(a.pos[0] - O.ctrl.pos[0], a.pos[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.7; O.cam.pitch = 0.1; O.cam.dist = 3;
+    await wait(600); key('KeyE'); await wait(400);
+    for (const k of ['intro', 'work', 'family', 'chat']) { document.querySelector('.panel.use [data-a=' + k + ']')?.click(); await wait(250); }`;
+SHOTS.talk = 'hour=17';
 SCRIPTS.liftoff = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { runOn } = await import('./js/gen/ships.js'); const { dayIndex } = await import('./js/gen/schedule.js'); const { centreOf } = await import('./js/world/ships.js');
     const sh = O.getShips().find(x => x.owner?.startsWith('firm:') && !x.field), home = centreOf(O.s, sh);
     let run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now())); if (run.depart < O.clock.now()) run = runOn(O.planet, sh, dayIndex(O.planet, O.clock.now()) + 1);

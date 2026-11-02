@@ -3,7 +3,7 @@
 //   world/ persistent changes            sim/   time, scheduler, processes
 //   render/ three.js views of gen data   player/ motion, camera, collision
 import * as THREE from 'three';
-import { seedHex, seedFromHex, makeSeed } from './core/hash.js';
+import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
 import { HOMEWORLD } from './core/address.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, address } from './gen/settlement.js';
@@ -56,6 +56,7 @@ import { FloraView, GrassView } from './render/flora.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
 import { trafficNear } from './gen/traffic.js';
+import { known, introduce, talked, workLine, homeLine, familyLine, smallTalk, directionsFrom } from './sim/processes/talk.js';
 import { weatherAt } from './gen/weather.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
@@ -172,7 +173,10 @@ async function start(fresh) {
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
   const world = new CollisionWorld(planet, s, (b, id) => doorView.isPassable(doorIndex.get(b.key + '#' + id)));
-  const sea = makeSea(planet); scene.add(sea);          // (not 'water': that's the plant-watering action)
+  const sea = makeSea(planet); scene.add(sea);
+  // where someone told you to go: a tall pale beam you can see over the rooftops
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 120, 12, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  beam.visible = false; scene.add(beam);          // (not 'water': that's the plant-watering action)
 
   const player = store.player;
   player.credits ??= 500; player.record ??= [];        // saves from before money existed
@@ -341,6 +345,9 @@ async function start(fresh) {
     if (ctrl.mode === 'seat') { if (ctrl.seat.pose === 'lie') sleepFlow(); else ctrl.standUp(); return; }
     const bike = nearVehicle();
     if (bike) { bikeFlow(bike); return; }
+    const who = personAhead(), di0 = nearestDoor(), ua0 = usableAhead();
+    const wd = who ? Math.hypot(who.pos[0] - ctrl.pos[0], who.pos[2] - ctrl.pos[2]) - 0.6 : Infinity;     // the nearest thing wins: the person, a door, or furniture
+    if (who && (di0 < 0 || wd < doorDist) && (!ua0 || wd < ua0.d)) { talkFlow(who); return; }
     const i = nearestDoor(), u = usableAhead();
     if (u && (i < 0 || u.d < doorDist)) { useThing(u); return; }
     if (i < 0) return;
@@ -626,6 +633,48 @@ async function start(fresh) {
     const sh = shipById(player.piloting);
     if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; }
   }
+
+  // ---- people: the one in front of you, and talking to them (sim/processes/talk.js)
+  const personAhead = () => {
+    let best = null, bd = 2.6;
+    for (const a of agents) {
+      if (String(a.id).startsWith('tr:')) continue;
+      const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz);
+      if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.5 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.2) { bd = d; best = a; }
+    }
+    return best;
+  };
+  const nameFor = p => known(store, p.id) || relation(p.id) ? p.name : p.age < 16 ? 'a child' : p.age > 64 ? 'an older ' + (hashStr(2, p.id) % 2 ? 'man' : 'woman') : 'a stranger';
+  async function talkFlow(a) {
+    const p = a.person;
+    if (a.pose === 'lie') { ui.toast(`${esc(nameFor(p))} is asleep.`); return; }
+    const said = []; let n = 0;
+    const say = (who, line) => said.push(`<p><b>${esc(who)}:</b> ${esc(line)}</p>`);
+    await modal(async () => {
+      for (;;) {
+        const t = clock.now(), met = known(store, p.id) || !!relation(p.id);
+        const opts = [];
+        if (!met) opts.push({ a: 'intro', label: 'Introduce yourself' });
+        opts.push({ a: 'work', label: 'Ask what they do' }, { a: 'home', label: 'Ask where they live' }, { a: 'family', label: 'Ask about their family' },
+          { a: 'chat', label: 'Make small talk' }, { a: 'way', label: 'Ask for directions' });
+        const r = await ui.choose({ title: met ? p.name : nameFor(p)[0].toUpperCase() + nameFor(p).slice(1), sub: `${p.age} · ${esc(a.activity)}${relation(p.id) ? ' · ' + relation(p.id) : ''}${said.length ? '<div class="talk">' + said.slice(-6).join('') + '</div>' : ''}`, options: opts });
+        if (r.a === 'close') break;
+        const reticent = !met && r.a !== 'intro' && r.a !== 'chat' && r.a !== 'way';
+        if (r.a === 'intro') { introduce(store, p, t); say('You', `I'm ${player.given || player.name.split(' ')[0]}.`); say(p.given, `${p.given}. ${p.given === player.given ? 'Same as you!' : 'Nice to meet you.'}`); continue; }
+        if (reticent) { say(p.given || 'They', "Sorry — do I know you?"); continue; }
+        talked(store, p);
+        if (r.a === 'work') say(p.given, workLine(pop, p));
+        if (r.a === 'home') say(p.given, homeLine(pop, p));
+        if (r.a === 'family') say(p.given, familyLine(pop, p));
+        if (r.a === 'chat') say(met ? p.given : 'They', smallTalk(pop, store, p, t, weatherAt(planet, t), a.activity, n++));
+        if (r.a === 'way') {
+          const dests = directionsFrom(pop, polity, player, p);
+          const w = await ui.choose({ title: 'Directions', sub: 'Where to?', options: dests.map((d, i) => ({ a: 'go', v: String(i), label: d.label[0].toUpperCase() + d.label.slice(1), note: `${Math.round(Math.hypot(d.pos[0] - ctrl.pos[0], d.pos[2] - ctrl.pos[2]))} m` })) });
+          if (w.a === 'go') { const d = dests[+w.v]; player.waypoint = { x: d.pos[0], y: d.pos[1], z: d.pos[2], label: d.label }; store.touchPlayer(); say(met ? p.given : 'They', 'That way — I\'ve pointed it out.'); }
+        }
+      }
+    });
+  }
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -833,6 +882,11 @@ async function start(fresh) {
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
     sea.update(dt, camera, origin); terrainTime.value += dt;
+    if (player.waypoint) {
+      const wp = player.waypoint, d = Math.hypot(wp.x - ctrl.pos[0], wp.z - ctrl.pos[2]);
+      if (d < 6) { ui.toast(`You've arrived: ${esc(wp.label)}.`); player.waypoint = null; store.touchPlayer(); beam.visible = false; }
+      else { const r = toRender(wp.x, wp.y, wp.z); beam.position.set(r[0], r[1], r[2]); beam.visible = true; }
+    } else beam.visible = false;
     // interior lighting follows the room you are in
     const loc = world.locate(...ctrl.pos);
     if (loc?.room) {
@@ -872,12 +926,12 @@ async function start(fresh) {
           if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.5 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.2) { bd = d; best = a; }
         }
         if (best) {
-          const rel = relation(best.id), p = best.person;
-          ui.showPrompt(`<b>${p.name}</b>${rel ? ` — ${rel}` : ''} · ${p.age} · ${occupation(pop, p)} <small>· ${best.activity}</small>`);
+          const rel = relation(best.id), p = best.person, met = known(store, p.id) || rel;
+          ui.showPrompt(`<kbd>E</kbd> Talk · <b>${esc(met ? p.name : nameFor(p))}</b>${rel ? ` — ${rel}` : ''} · ${p.age}${met ? ' · ' + occupation(pop, p) : ''} <small>· ${best.activity}</small>`);
         } else ui.showPrompt(null);
       }
     }
-    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx });
+    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;

@@ -58,6 +58,7 @@ export function knowsYou(ctx, witnessId, player) {
   const p = ctx.pop.byId.get(witnessId);
   if (player.family?.parents.includes(witnessId) || player.family?.siblings.includes(witnessId)) return 1;
   if (p && (p.homeB === player.home || p.home === player.homeUnit)) return 0.8;   // neighbours
+  if (ctx.store.getDelta('know/' + witnessId)) return 0.75;                          // someone you've met (sim/processes/talk.js)
   return 0.35;
 }
 

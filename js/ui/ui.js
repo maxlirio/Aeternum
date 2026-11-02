@@ -21,7 +21,7 @@ export class UI {
         <div class="bar"><span>Fatigue</span><i><b class="fatigue"></b></i></div>
         <div class="bar"><span>Hunger</span><i><b class="hunger"></b></i></div>
         <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div>
-        <div class="credits"></div><div class="job"></div><div class="law"></div></div>
+        <div class="credits"></div><div class="job"></div><div class="law"></div><div class="way"></div></div>
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
@@ -70,6 +70,7 @@ export class UI {
     const lw = $('.law', this.hud), owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
     lw.innerHTML = player.custody ? `<b class="late">In custody</b> until ${formatHour(solarHour(planet, player.custody.until))}`
       : player.warrant ? `<b class="late">Wanted</b> — ${esc(player.warrant.reason)}` : owed ? `Owes ${owed} cr in fines` : '';
+    const wp = player.waypoint; $('.way', this.hud).textContent = wp ? `→ ${wp.label} · ${Math.round(Math.hypot(wp.x - (g.pos || player.pos)[0], wp.z - (g.pos || player.pos)[2]))} m` : '';
     const jb = $('.job', this.hud), pj = player.job, sh = player.shift;
     if (!pj) jb.textContent = 'Unemployed';
     else if (sh && t >= sh.t0 && t < sh.t1) jb.innerHTML = `${esc(titleOf(pj))} · <b class="${g.atWork ? 'on' : 'late'}">${g.atWork ? 'on shift' : 'shift started — not at work'}</b> until ${formatHour(solarHour(planet, sh.t1))}`;

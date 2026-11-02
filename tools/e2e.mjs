@@ -381,6 +381,27 @@ try {
   check(await load('auto=continue'), 'reload');
   const shipAfter = await ev(`JSON.stringify(ORBIS.getShips().find(x => x.id === ${JSON.stringify(sp.id)}).at?.c)`);
   check(shipAfter === JSON.stringify(sp.at), 'the ship is where you landed it after reloading');
+  console.log('[talk]');
+  const tk = await ev(`(async () => {
+    const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), key = c => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    O.ctrl.mode = 'walk';
+    let a = null;
+    for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => x.pose !== 'lie' && !x.moving && !String(x.id).startsWith('tr:')); if (!a) { O.clock.advance(O.planet.dayLength / 24); await wait(300); } }
+    if (!a) return { none: true };
+    O.ctrl.pos = [a.pos[0] + Math.sin(a.facing) * 1.2, a.pos[1], a.pos[2] + Math.cos(a.facing) * 1.2]; O.ctrl.vel = [0, 0, 0];
+    O.ctrl.facing = Math.atan2(a.pos[0] - O.ctrl.pos[0], a.pos[2] - O.ctrl.pos[2]); await wait(400);
+    key('KeyE'); await wait(400);
+    const opened = !!document.querySelector('.panel.use'), title0 = document.querySelector('.panel.use h2')?.textContent;
+    document.querySelector('.panel.use [data-a=intro]')?.click(); await wait(300);
+    document.querySelector('.panel.use [data-a=work]')?.click(); await wait(300);
+    const said = document.querySelector('.panel.use .talk')?.textContent || '';
+    document.querySelector('.panel.use [data-a=way]')?.click(); await wait(300);
+    document.querySelector('.panel.use [data-a=go]')?.click(); await wait(300);
+    key('Escape'); await wait(300);
+    return { opened, title0, title1: a.person.name, known: !!O.store.getDelta('know/' + a.person.id), said: said.slice(0, 160), waypoint: O.store.player.waypoint?.label }; })()`);
+  check(tk.opened && tk.known, `talked to ${tk.title0} — introduced: now ${tk.title1} (${JSON.stringify(tk).slice(0, 200)})`);
+  check(/I'm|I live|School|retired|Nothing|Looking|between/.test(tk.said), 'they answered: ' + tk.said);
+  check(!!tk.waypoint, 'asked the way: waypoint to ' + tk.waypoint);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

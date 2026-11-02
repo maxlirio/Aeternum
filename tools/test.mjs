@@ -903,6 +903,35 @@ suites.traffic = async () => {
   check(n > 0 && off === 0, `${n} on the roads out of town, all within their lane (${off} off)`);
 };
 
+suites.talk = async () => {
+  const T = await import('../js/sim/processes/talk.js');
+  const { knowsYou } = await import('../js/sim/processes/law.js');
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { getPopulation } = await import('../js/gen/population.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(7), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), pop = getPopulation(p, s), polity = getPolity(p, s);
+  const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0); const pl = newCharacter(U, p, s, pop, 1, EPOCH); st.setPlayer(pl);
+  const ctx = { store: st, planet: p, s, pop, polity };
+  const worker = pop.people.find(q => q.job && q.age > 25), j = pop.jobById.get(worker.job);
+  const w = T.workLine(pop, worker);
+  check(w.includes(j.title.toLowerCase()) && w.includes(j.employer), 'they tell you their real job: ' + w);
+  const fam = pop.people.find(q => pop.people.some(r => r.household === q.household && r.id !== q.id && r.age < 18) && q.age > 25);
+  const f = T.familyLine(pop, fam), kid = pop.people.find(r => r.household === fam.household && r.age < 18);
+  check(f.includes(kid.given), 'and who they live with: ' + f);
+  check(T.homeLine(pop, worker) === T.homeLine(pop, worker), 'answers are stable');
+  const stranger = pop.people.find(q => !pl.family.parents.includes(q.id) && q.homeB !== pl.home && q.age > 20);
+  const before = knowsYou(ctx, stranger.id, pl);
+  check(!T.known(st, stranger.id), 'a stranger is a stranger');
+  T.introduce(st, stranger, EPOCH + 10);
+  check(T.known(st, stranger.id) && knowsYou(ctx, stranger.id, pl) > before, `after meeting, they'd recognise you as a witness (${before} → ${knowsYou(ctx, stranger.id, pl)})`);
+  const d = T.directionsFrom(pop, polity, pl, worker);
+  check(d.length >= 3 && d.every(x => x.pos && x.pos.length === 3), 'directions to ' + d.map(x => x.label).join('; '));
+  check(typeof T.smallTalk(pop, st, worker, EPOCH, { label: 'rain' }, 'shopping', 0) === 'string', 'small talk');
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;
