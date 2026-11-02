@@ -64,6 +64,7 @@ export function buildBuilding(mb, plan, b, frame) {
   mb.box({ default: facade, py: M.trim }, 0, top, d - EXT_T, w, top + par, d, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, 0, top, EXT_T, EXT_T, top + par, d - EXT_T, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, w - EXT_T, top, EXT_T, w, top + par, d - EXT_T, fcol, new Set(['ny']));
+  exteriorDetail(mb, M, plan, b, rng, facade, fcol);
   const units = Math.floor(w * d / 120) + 1;
   for (let i = 0; i < units; i++) {
     const ux = rng.range(1.5, w - 3.5), uz = rng.range(1.5, d - 3.5), uw = rng.range(1.2, 2.2), ud = rng.range(1.0, 2.0), uh = rng.range(0.7, 1.4);
@@ -104,6 +105,68 @@ export function buildBuilding(mb, plan, b, frame) {
   // furniture
   const saved = [mb.o, mb.ex, mb.ez];
   for (const pr of plan.props) { buildProp(mb, M, pr, rng); mb.setFrame(...saved); }
+}
+
+// The things that make a box read as a lived-in building: downpipes at the corners,
+// balconies on flats, air-conditioning boxes under windows, kitchen extract vents, a
+// stair housing on tall roofs, solar panels on houses. All drawn, none collides.
+function exteriorDetail(mb, M, plan, b, rng, facade, fcol) {
+  const { w, d, F, H } = plan, top = F * H;
+  // a box standing proud of an exterior face: a along the wall, y up, out from the face
+  const onFace = (side, a0, a1, y0, y1, o0, o1, m, c = WHITE) => {
+    if (side === 'front') mb.box(m, a0, y0, -o1, a1, y1, -o0, c);
+    else if (side === 'back') mb.box(m, a0, y0, d + o0, a1, y1, d + o1, c);
+    else if (side === 'left') mb.box(m, -o1, y0, a0, -o0, y1, a1, c);
+    else mb.box(m, w + o0, y0, a0, w + o1, y1, a1, c);
+  };
+  const span = side => side === 'front' || side === 'back' ? w : d;
+  const pipe = (side, a) => {
+    onFace(side, a - 0.06, a + 0.06, 0.15, top + 0.35, 0.05, 0.17, M.darkTrim);
+    onFace(side, a - 0.1, a + 0.1, 0.05, 0.2, 0.05, 0.3, M.darkTrim);                         // shoe
+    for (let y = 1.6; y < top; y += 2.2) onFace(side, a - 0.09, a + 0.09, y, y + 0.05, 0.0, 0.19, M.trim);   // brackets
+  };
+  pipe('front', 0.3); pipe('back', w - 0.3);
+  if (w > 14) { pipe('front', w - 0.3); pipe('back', 0.3); }
+  const home = b.type === 'hab' || b.type === 'house';
+  for (const wl of plan.walls) {
+    if (!wl.exterior) continue;
+    for (const o of wl.openings) {
+      if (o.kind !== 'window') continue;
+      const y0 = wl.y0 + o.y0, y1 = wl.y0 + o.y1;
+      if (b.type === 'hab' && wl.k >= 1 && wl.side === 'front' && o.b - o.a >= 1.2 && rng.chance(0.55)) {
+        const a0 = o.a - 0.35, a1 = o.b + 0.35, fl = wl.y0;
+        onFace('front', a0, a1, fl - 0.14, fl + 0.04, 0, 1.25, M.concrete, [0.72, 0.72, 0.7]);    // slab
+        onFace('front', a0, a1, fl + 0.04, fl + 0.95, 1.17, 1.25, facade, fcol);                    // parapet panel
+        onFace('front', a0, a0 + 0.08, fl + 0.04, fl + 0.95, 0, 1.25, facade, fcol); onFace('front', a1 - 0.08, a1, fl + 0.04, fl + 0.95, 0, 1.25, facade, fcol);
+        onFace('front', a0 - 0.02, a1 + 0.02, fl + 0.95, fl + 1.0, 1.15, 1.28, M.trim);              // handrail
+        if (rng.chance(0.4)) onFace('front', a0 + 0.3, a0 + 0.75, fl + 0.04, fl + 0.5, 0.4, 0.85, M.plaster, [0.4, 0.5, 0.35]);   // a planter
+      } else if (home && wl.side !== 'front' && rng.chance(0.22) && y0 > 0.9) {
+        const m = (o.a + o.b) / 2;
+        onFace(wl.side, m - 0.42, m + 0.42, y0 - 0.75, y0 - 0.2, 0.02, 0.32, M.metal, [0.82, 0.82, 0.8]);   // AC unit
+        onFace(wl.side, m - 0.32, m + 0.12, y0 - 0.68, y0 - 0.27, 0.32, 0.335, M.darkTrim);                  // its fan grille
+        onFace(wl.side, m - 0.3, m - 0.26, 0.2, y0 - 0.75, 0.02, 0.06, M.darkTrim);                          // drain line
+      }
+    }
+    if (home && (wl.side === 'left' || wl.side === 'right') && rng.chance(0.5)) {   // kitchen extract on each storey
+      const a = rng.range(0.8, Math.max(1, span(wl.side) - 0.8)), y = wl.y0 + H - 0.7;
+      onFace(wl.side, a - 0.15, a + 0.15, y - 0.15, y + 0.15, 0, 0.12, M.darkTrim);
+      onFace(wl.side, a - 0.17, a + 0.17, y + 0.15, y + 0.19, 0, 0.18, M.trim);
+    }
+  }
+  if (b.type === 'hab' && F > 1) {                       // stair and lift housing on the roof
+    const x0 = 1.2, z0 = d - 4.2;
+    mb.box({ default: facade, py: M.concrete }, x0, top, z0, x0 + 3, top + 2.7, z0 + 3, fcol);
+    mb.box(M.darkTrim, x0 + 1.0, top, z0 - 0.04, x0 + 2.0, top + 2.1, z0, WHITE);
+    mb.box(M.trim, x0 - 0.1, top + 2.7, z0 - 0.1, x0 + 3.1, top + 2.82, z0 + 3.1, WHITE);
+  }
+  if (b.type === 'house') {                              // a row of tilted solar panels
+    const n = Math.max(2, Math.floor((w - 2) / 1.2));
+    for (let i = 0; i < n; i++) {
+      const x0 = 1 + i * 1.15, x1 = x0 + 1.05, z0 = d * 0.35, z1 = z0 + 1.7, y = top + 0.25;
+      mb.quad(M.darkTrim, [[x0, y, z1], [x1, y, z1], [x1, y + 0.7, z0], [x0, y + 0.7, z0]], [0, 0.92, -0.38], [[0, 0], [1, 0], [1, 1], [0, 1]], [0.25, 0.3, 0.42]);
+      mb.box(M.trim, x0 + 0.45, top, z0 + 0.1, x0 + 0.55, y + 0.7, z0 + 0.2, WHITE);
+    }
+  }
 }
 
 // Wall segment → solid pieces around its openings, glass in windows, trim in reveals.
