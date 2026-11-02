@@ -33,7 +33,7 @@ import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
-import { TerrainStreamer } from './render/terrain.js';
+import { TerrainStreamer, terrainTime } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
 import { DoorView } from './render/doors.js';
@@ -832,7 +832,7 @@ async function start(fresh) {
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
-    sea.update(dt, camera, origin);
+    sea.update(dt, camera, origin); terrainTime.value += dt;
     // interior lighting follows the room you are in
     const loc = world.locate(...ctrl.pos);
     if (loc?.room) {

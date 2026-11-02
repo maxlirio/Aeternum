@@ -10,7 +10,8 @@ import { baked, surfaceMeans } from './materials.js';
 
 const VIEW = 16000, SPLIT = 1.7;
 
-function terrainMaterial() {
+export const terrainTime = { value: 0 };    // advanced by main.js (shoreline wash)
+function terrainMaterial(planet) {
   // Baked ground surfaces (grass, dry ground, rock) used as detail over the planet's own
   // ground colour (vertex colours from gen/chunk.js): each texture is divided by its mean
   // albedo, so a red-grass world keeps red grass. Grass vs dry follows how green the
@@ -21,11 +22,11 @@ function terrainMaterial() {
   m.normalScale.set(0.8, 0.8);
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { tDirt: { value: D.map }, tRock: { value: R.map }, tRockN: { value: R.normalMap },
-      mGrass: { value: new THREE.Vector3(...means.grass) }, mDirt: { value: new THREE.Vector3(...means.dirt) }, mRock: { value: new THREE.Vector3(...means.rock) } });
+      mGrass: { value: new THREE.Vector3(...means.grass) }, mDirt: { value: new THREE.Vector3(...means.dirt) }, mRock: { value: new THREE.Vector3(...means.rock) }, uSea: { value: planet.seaLevel }, uTime: terrainTime });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position; vWN = normal;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      uniform sampler2D tDirt; uniform sampler2D tRock; uniform sampler2D tRockN; uniform vec3 mGrass; uniform vec3 mDirt; uniform vec3 mRock;
+      uniform sampler2D tDirt; uniform sampler2D tRock; uniform sampler2D tRockN; uniform vec3 mGrass; uniform vec3 mDirt; uniform vec3 mRock; uniform float uSea; uniform float uTime;
       varying vec3 vWP; varying vec3 vWN;`)
       .replace('#include <map_fragment>', `
       vec3 wn = normalize(vWN);
@@ -41,6 +42,12 @@ function terrainMaterial() {
       vec3 detail = mix(soft, rk, rockW);
       float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
       diffuseColor.rgb *= 0.8 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // (0.8: the old detail texture's mean, which the palette was tuned under)
+      // the shoreline: ground darkens as it gets wet near the water, and a line of foam washes up and back
+      float above = vWP.y - uSea;
+      diffuseColor.rgb *= 1.0 - 0.45 * (1.0 - smoothstep(-0.2, 1.4, above));
+      float wash = 0.35 + 0.25 * sin(uTime * 0.7 + vWP.x * 0.05 + vWP.z * 0.04);
+      float foam = smoothstep(0.18, 0.0, abs(above - wash + 0.15)) * smoothstep(0.35, 0.75, texture2D(tDirt, vWP.xz / 1.7 + uTime * 0.01).r * 1.6);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 0.96), foam * 0.85);
       `)
       .replace('#include <normal_fragment_maps>', `
       vec3 mapN = mix(texture2D(normalMap, vWP.xz / 3.0).xyz, texture2D(tRockN, vWP.xz / 8.0).xyz, rockW) * 2.0 - 1.0;
@@ -74,7 +81,7 @@ function proceduralTerrainMaterial() {
 export class TerrainStreamer {
   constructor(planet, parent) {
     this.planet = planet; this.parent = parent;
-    this.material = terrainMaterial();
+    this.material = terrainMaterial(planet);
     this.tiles = new Map();          // key -> { mesh, lod, i, j }
     this.desired = new Set();
     this.queue = [];
