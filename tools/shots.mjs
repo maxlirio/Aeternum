@@ -94,6 +94,8 @@ SCRIPTS.flying = shipAt(5, 1.6, 16.1, `P.credits = 20000; const c = W(5, 1.6, 18
     key('KeyE'); await wait(400); key('Digit1'); await wait(400); key('KeyE'); await wait(400); key('Digit1'); await wait(400);
     key('Space', false); await wait(5000); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' })); key('KeyW', false); await wait((+new URLSearchParams(location.search).get('secs') || 5) * 1000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
     O.cam.pitch = 0.22; await wait(800);`);
+SCRIPTS.pilotview = SCRIPTS.flying + ' O.setCockpitView(true); await wait(1200);';
+SHOTS.pilotview = 'hour=10&secs=3';
 SHOTS.ship = 'hour=10'; SHOTS.shipside = 'hour=10'; SHOTS.cockpit = 'hour=10'; SHOTS.hold = 'hour=10'; SHOTS.flying = 'hour=10&secs=5';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';

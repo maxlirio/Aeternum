@@ -276,6 +276,7 @@ async function start(fresh) {
     if (e.code === 'KeyE') interact();
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
+    if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
     if (e.code === 'KeyC') showCharacter();
@@ -545,7 +546,7 @@ async function start(fresh) {
   }
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
-  let ships = shipsIn(store, planet, s), flight = null, rampHold = 0;
+  let ships = shipsIn(store, planet, s), flight = null, rampHold = 0, cockpitView = false;
   const placed = new Map();          // ship id → structure in the collision world
   const shipById = id => ships.find(x => x.id === id);
   function syncShips() {
@@ -800,7 +801,12 @@ async function start(fresh) {
     crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
-    if (!shot) cam.update(dt, ctrl.pos, toRender);
+    if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
+      const L = flight.L, a = flight.L.seats.find(x => x.kind === 'pilot'), e = new THREE.Euler(-flight.pitch, flight.facing, flight.roll, 'YXZ');
+      const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyEuler(e), ahead = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.45, a.z - L.D / 2 + 12).applyEuler(e);
+      const p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z), p1 = toRender(flight.pos[0] + ahead.x, flight.pos[1] + ahead.y, flight.pos[2] + ahead.z);
+      camera.position.set(...p0); camera.lookAt(...p1);
+    } else if (!shot) cam.update(dt, ctrl.pos, toRender);
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
@@ -818,7 +824,7 @@ async function start(fresh) {
       const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
       const nv = !ride && !ua && hotwire === 0 ? nearVehicle() : null;
       const rpn = !ride && !flight && !ua ? nearRamp() : null;
-      if (flight) { const why = flight.onGround ? flight.landingProblem() : null; ui.showPrompt(`<b>${Math.round(flight.speed * 3.6)} km/h</b> · ${Math.round(flight.altitude())} m up · <kbd>Space</kbd>/<kbd>Q</kbd> climb/descend${flight.onGround ? (why ? ` · can't land: ${why}` : ' · <kbd>E</kbd> land') : ''}`); }
+      if (flight) { const why = flight.onGround ? flight.landingProblem() : null; ui.showPrompt(`<b>${Math.round(flight.speed * 3.6)} km/h</b> · ${Math.round(flight.altitude())} m up · <kbd>Space</kbd>/<kbd>Q</kbd> climb/descend · <kbd>V</kbd> ${cockpitView ? 'chase view' : 'cockpit view'}${flight.onGround ? (why ? ` · can't land: ${why}` : ' · <kbd>E</kbd> land') : ''}`); }
       else if (rampHold > 0) {}
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${SHIP_PRICE} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
       else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
@@ -861,7 +867,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

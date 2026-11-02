@@ -800,8 +800,8 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
     for k in range(n): bm.faces.new([rings[-1][k], c, rings[-1][(k + 1) % n]])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     for f in bm.faces:                                        # open at the stern, so orient by hand: away from the hull's axis
-        cm = f.calc_center_median(); axis = mathutils.Vector((xc, cm.y, 2.9))
-        if (cm - axis).dot(f.normal) < 0: f.normal_flip()
+        cm = f.calc_center_median(); centre = mathutils.Vector(P(xc, 2.9, 13.0))     # inside a convex hull, every face looks away from its middle
+        if (cm - centre).dot(f.normal) < 0: f.normal_flip()
     merge(p, bm, 'tint')
     # rear bulkhead around the ramp door, flush with the hull's open end
     d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + 2.15
@@ -816,7 +816,10 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
         else: add_box(p, xc - hw, y0_, hz0 - 0.1, xc + hw, y1_, hz0 + 0.05, 'paint', 0)
     for x in (dx0 - 0.08, dx1): add_box(p, x, deck, hz0 - 0.18, x + 0.08, dtop, hz0 - 0.05, 'metal', 0.01)   # door frame
     # cockpit canopy: tinted glass over the nose, above the cockpit
-    add_loft(p, [(15.4, 4.3, 0.3, xc, 1.7, 2.6), (16.6, 4.38, 0.48, xc, 2.5, 2.6), (18.4, 4.05, 0.6, xc, 2.6, 2.6), (19.7, 3.4, 0.5, xc, 1.9, 2.4), (20.55, 2.8, 0.12, xc, 0.8, 2)], 'visor', 32, axis='z')
+    # (it sits on the hull: over the cockpit its underside stays above the ceiling; ahead of the bulkhead it wraps the nose)
+    add_loft(p, [(15.4, 4.62, 0.12, xc, 1.6, 2.6), (16.6, 4.72, 0.3, xc, 2.3, 2.6), (18.2, 4.62, 0.26, xc, 2.3, 2.6), (18.75, 4.45, 0.1, xc, 1.9, 2.4)], 'visor', 32, axis='z')
+    # the windscreen as seen from outside: a dark band on the nose in front of the cockpit window (single-sided: invisible from inside)
+    add_loft(p, [(18.55, 2.85, 1.66, xc, 3.02, 2.9), (19.35, 2.78, 1.42, xc, 2.62, 2.75)], 'visor', 40, axis='z', cap=False) if False else None
     # dark belly, a pale dorsal stripe, twin tail fins
     add_loft(p, [(hz0 + 0.05, 1.5, 0.32, xc, 2.6, 2.4), (8.0, 1.36, 0.36, xc, 3.0, 2.4), (15.0, 1.38, 0.36, xc, 2.9, 2.4), (18.8, 1.6, 0.3, xc, 2.2, 2.4), (20.2, 2.05, 0.15, xc, 0.9, 2)], 'plastic', 32, axis='z')
     add_loft(p, [(hz0 + 0.05, 4.62, 0.08, xc, 0.55, 2.2), (9.0, 4.85, 0.1, xc, 0.6, 2.2), (14.8, 4.82, 0.1, xc, 0.55, 2.2), (15.5, 4.7, 0.05, xc, 0.3, 2)], 'paint', 20, axis='z')
@@ -849,7 +852,12 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
     add_box(p, hx0, ceil, hz0, hx1, ceil + 0.12, hz1, 'paint', 0.01)                              # ceiling
     for z in range(int(hz0) + 1, int(hz1), 2): add_box(p, xc - 0.6, ceil - 0.025, z, xc + 0.6, ceil, z + 0.12, 'glow', 0)   # light strips
     add_box(p, hx0, deck, hz0, hx0 + T, ceil, hz1, 'paint', 0.01); add_box(p, hx1 - T, deck, hz0, hx1, ceil, hz1, 'paint', 0.01)   # side walls
-    add_box(p, hx0, deck, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)                                 # forward bulkhead…
+    wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, hx0 + 0.45, hx1 - 0.45                         # forward bulkhead around the windscreen:
+    add_box(p, hx0, deck, hz1 - T, hx1, wy0, hz1, 'paint', 0.01); add_box(p, hx0, wy1, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)
+    add_box(p, hx0, wy0, hz1 - T, wx0, wy1, hz1, 'paint', 0.01); add_box(p, wx1, wy0, hz1 - T, hx1, wy1, hz1, 'paint', 0.01)
+    for (x0_, x1_, y0_, y1_) in ((wx0 - 0.06, wx1 + 0.06, wy0 - 0.06, wy0), (wx0 - 0.06, wx1 + 0.06, wy1, wy1 + 0.06), (wx0 - 0.06, wx0, wy0, wy1), (wx1, wx1 + 0.06, wy0, wy1), (xc - 0.03, xc + 0.03, wy0, wy1)):
+        add_box(p, x0_, y0_, hz1 - T - 0.03, x1_, y1_, hz1 + 0.02, 'metal', 0.005)                  # frame and centre mullion
+    # (the hull and canopy beyond are seen from inside, so they cull away: the windscreen looks out)
     add_box(p, hx0, deck, hz0, dx0, ceil, hz0 + T, 'paint', 0.01); add_box(p, dx1, deck, hz0, hx1, ceil, hz0 + T, 'paint', 0.01)
     add_box(p, dx0, dtop, hz0, dx1, ceil, hz0 + T, 'paint', 0.01)
     for part_ in lay['partitions']:
