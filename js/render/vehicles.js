@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { SPEEDER } from '../gen/vehicles.js';
 import { PAINTS_VEHICLE } from './props.js';
 
-const MAX = 64;
+const MAX = 160;
 export class VehicleView {
   constructor(lib) {
     this.group = new THREE.Group(); this.group.name = 'vehicles';

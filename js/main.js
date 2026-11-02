@@ -55,6 +55,7 @@ import { ShipView } from './render/ships.js';
 import { FloraView, GrassView } from './render/flora.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
+import { trafficNear } from './gen/traffic.js';
 import { weatherAt } from './gen/weather.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
@@ -782,8 +783,9 @@ async function start(fresh) {
       const { c, facing } = centreOf(s, sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean), dt);
-    vehView.update(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
-      .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : []));
+    const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 450);
+    vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
+      .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -809,7 +811,11 @@ async function start(fresh) {
         ctrl.pos[0] = a.pos[0] + ux * 0.6; ctrl.pos[2] = a.pos[2] + uz * 0.6;
       }
     }
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })), dt);
+    const riders = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 160).map(v => {   // the riders of passing traffic (seated, a little behind the bike's centre)
+      const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
+      return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] - fx * 0.3, v.pos[1] + SPEEDER.seat - 0.5, v.pos[2] - fz * 0.3) };
+    });
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen

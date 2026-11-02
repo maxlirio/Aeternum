@@ -888,6 +888,21 @@ suites.flora = async () => {
   check(d >= t.solid + 0.3 - 0.02, `walking at a ${t.sp} trunk stops ${d.toFixed(2)} m from its centre`);
 };
 
+suites.traffic = async () => {
+  const { trafficNear } = await import('../js/gen/traffic.js');
+  const { outRoutes, nearRoute } = await import('../js/gen/highways.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), T = 3.3e9;
+  const a = trafficNear(p, s, T, s.cx, s.cz, 5000), b = trafficNear(p, s, T + 0.5, s.cx, s.cz, 5000);
+  check(a.length > 6, `${a.length} speeders on the roads`);
+  check(JSON.stringify(a) === JSON.stringify(trafficNear(p, s, T, s.cx, s.cz, 5000)), 'traffic is a pure function of time');
+  const byId = new Map(b.map(v => [v.id, v])); let worst = 0;
+  for (const v of a) { const w = byId.get(v.id); if (w) worst = Math.max(worst, Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2])); }
+  check(worst < 20, `half a second later each has moved at most ${worst.toFixed(1)} m`);
+  const routes = outRoutes(p, s); let off = 0, n = 0;
+  for (const v of a.filter(v => v.id.startsWith('tr:r'))) { n++; const q = routes.map(r => nearRoute(r, v.pos[0], v.pos[2])).filter(Boolean).sort((x, y) => x.d - y.d)[0]; if (!q || q.d > 3.5) off++; }
+  check(n > 0 && off === 0, `${n} on the roads out of town, all within their lane (${off} off)`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;
