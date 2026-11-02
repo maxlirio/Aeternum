@@ -57,7 +57,7 @@ export class SkySystem {
     this.state = {};
   }
 
-  update(t, focus, cameraPos) {
+  update(t, focus, cameraPos, w = null) {        // w: weather (gen/weather.js) — overcast dims the sun and thickens the air
     const { el, dir } = sunDirection(this.planet, t);
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(dir);
@@ -69,19 +69,21 @@ export class SkySystem {
     const sunCol = new THREE.Color().setRGB(1, 0.93 - 0.35 * low, 0.85 - 0.6 * low);
     const lightDir = el > -0.05 ? dir : new THREE.Vector3(-dir.x, Math.abs(dir.y) + 0.4, -dir.z).normalize();
     this.sun.color.copy(el > -0.05 ? sunCol : new THREE.Color(0.55, 0.65, 0.9));
-    this.sun.intensity = el > -0.05 ? 4.6 * THREE.MathUtils.smoothstep(el, -0.05, 0.12) : 0.45;
+    const cover = w ? w.cloud : 0;
+    this.sun.intensity = (el > -0.05 ? 4.6 * THREE.MathUtils.smoothstep(el, -0.05, 0.12) : 0.45) * (1 - 0.72 * THREE.MathUtils.smoothstep(cover, 0.45, 0.95));
     const snap = 70 * 2 / 4096;
     const fx = Math.round(focus.x / snap) * snap, fz = Math.round(focus.z / snap) * snap;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
-    this.ambient.intensity = 0.05 + 0.55 * (1 - day);
+    this.ambient.intensity = 0.05 + 0.55 * (1 - day) + 0.35 * day * THREE.MathUtils.smoothstep(cover, 0.4, 0.95);
     this.starMat.opacity = 1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0);
     this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
     // fog: horizon colour by day, deep blue by night
     const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
+    fogDay.lerp(new THREE.Color(0.58, 0.6, 0.63), THREE.MathUtils.smoothstep(cover, 0.5, 1.0) * 0.8);   // grey under overcast
     const fog = new THREE.Color(0.012, 0.016, 0.03).lerp(fogDay, day);
     this.scene.fog.color.copy(fog);
-    this.scene.fog.density = 0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6;
+    this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0));
     this.renderer.toneMappingExposure = 0.7 - 0.1 * day;
     // regenerate the environment map when the sun has moved noticeably
     if (!this.lastEnvDir || this.lastEnvDir.angleTo(dir) > 0.02) {
@@ -93,7 +95,7 @@ export class SkySystem {
       old?.dispose();
       this.lastEnvDir = dir.clone();
     }
-    this.state = { el, day };
+    this.state = { el, day, dir: dir.clone(), sunColor: this.sun.color.clone() };
     return this.state;
   }
 }

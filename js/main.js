@@ -53,6 +53,8 @@ import { shipsIn, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centr
 import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
 import { FloraView, GrassView } from './render/flora.js';
+import { WeatherView } from './render/weather.js';
+import { weatherAt } from './gen/weather.js';
 import { UI, describeEvent } from './ui/ui.js';
 import './ui/use-ui.js';
 import { ITEMS, buyPrice, sellPrice } from './gen/items.js';
@@ -153,6 +155,7 @@ async function start(fresh) {
   await tick();
 
   const sky = new SkySystem(renderer, scene, planet);
+  const weatherView = new WeatherView(scene, planet);
   const terrain = new TerrainStreamer(planet, root);
   // furniture from the built asset library; the box furniture remains the fallback if it can't load
   const propLib = params.has('boxprops') ? null : await loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
@@ -815,7 +818,9 @@ async function start(fresh) {
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt); grass.mesh.visible = !flight || flight.altitude() < 60;
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
-    sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position);
+    const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
+    const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
+    weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
     water.position.set(camera.position.x, planet.seaLevel, camera.position.z);
     // interior lighting follows the room you are in
     const loc = world.locate(...ctrl.pos);
@@ -861,7 +866,7 @@ async function start(fresh) {
         } else ui.showPrompt(null);
       }
     }
-    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity) });
+    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;
@@ -872,7 +877,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

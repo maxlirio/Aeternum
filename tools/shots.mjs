@@ -101,6 +101,9 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.overcast = SCRIPTS.road; SHOTS.overcast = 'hour=11&road=0&weather=' + encodeURIComponent('{"cloud":0.95,"rain":0.8,"label":"rain"}');
+SCRIPTS.clouds = SCRIPTS.road; SHOTS.clouds = 'hour=16&road=0&weather=' + encodeURIComponent('{"cloud":0.55,"rain":0,"label":"cloudy"}');
+SCRIPTS.abovecloud = SCRIPTS.flying.replace('await wait(5000)', 'await wait(30000)'); SHOTS.abovecloud = 'hour=15&secs=4&weather=' + encodeURIComponent('{"cloud":0.6,"rain":0,"label":"cloudy"}');
 SCRIPTS.freighter = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const f = O.getShips().find(x => x.model === 'freighter');
     const k = +(new URLSearchParams(location.search).get('view') || 0), a = f.at.facing + [2.4, 1.3, 3.6][k], r = [28, 26, 30][k];
     O.ctrl.pos = [f.at.c[0] + Math.sin(a) * r, f.at.c[1], f.at.c[2] + Math.cos(a) * r]; O.ctrl.vel = [0, 0, 0]; await wait(500);
