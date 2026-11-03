@@ -41,7 +41,11 @@ function terrainMaterial(planet) {
       vec3 soft = mix(dr * 0.6 + dr2 * 0.4, gr * 0.6 + gr2 * 0.4, green);
       vec3 detail = mix(soft, rk, rockW);
       float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
-      diffuseColor.rgb *= 0.8 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // (0.8: the old detail texture's mean, which the palette was tuned under)
+      diffuseColor.rgb *= 0.55 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // real ground is dark: grass and soil reflect 10–25%   // (0.8: the old detail texture's mean, which the palette was tuned under)
+      // where grass grows (not rock, above the shore) the ground reads as the sward seen from afar: darker, a touch more saturated
+      float sward = (1.0 - rockW) * smoothstep(0.6, 2.0, vWP.y - uSea);
+      vec3 swardCol = diffuseColor.rgb * vec3(0.62, 0.66, 0.5);
+      diffuseColor.rgb = mix(diffuseColor.rgb, swardCol, sward * 0.85);
       // the shoreline: ground darkens as it gets wet near the water, and a line of foam washes up and back
       float above = vWP.y - uSea;
       diffuseColor.rgb *= 1.0 - 0.45 * (1.0 - smoothstep(-0.2, 1.4, above));

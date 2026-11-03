@@ -52,7 +52,8 @@ import { SHIP_PRICE, PRICES, tripOf } from './gen/ships.js';
 import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
 import { ShipView } from './render/ships.js';
-import { FloraView, GrassView } from './render/flora.js';
+import { FloraView } from './render/flora.js';
+import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
 import { trafficNear } from './gen/traffic.js';
@@ -166,7 +167,7 @@ async function start(fresh) {
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const flora = new FloraView(propLib, planet); root.add(flora.group);      // (world coordinates, under the floating origin)
-  const grass = new GrassView(planet); root.add(grass.mesh);
+  const grass = new GrassField(planet); root.add(grass.group);
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const doorView = new DoorView(s, town.doors);
@@ -876,7 +877,7 @@ async function start(fresh) {
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
-    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt); grass.mesh.visible = !flight || flight.altitude() < 60;
+    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = !flight || flight.altitude() < 60;
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
