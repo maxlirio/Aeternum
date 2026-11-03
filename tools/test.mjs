@@ -878,7 +878,9 @@ suites.flora = async () => {
   const all = []; floraNear(p, s.cx, s.cz, 900, q => all.push(q));
   const bad = all.filter(q => { const a = surfaceAt(p, q.x, q.z); return a.town > 0.01 || a.road > 0.01 || q.y < p.seaLevel; });
   check(all.length > 1000 && bad.length === 0, `${all.length} plants within 900 m, none in town, on a road or under the sea`);
-  const trees = all.filter(q => q.sp === 'conifer' || q.sp === 'broadleaf');
+  const { SPECIES, plantSet } = await import('../js/gen/flora.js');
+  const trees = all.filter(q => SPECIES[q.sp]?.tree);
+  check(plantSet(p).length >= 4, 'this planet grows ' + plantSet(p).join(', '));
   check(trees.length > 100, `${trees.length} trees`);
   // you can't walk through a trunk
   const world = new CollisionWorld(p, s, () => false), t = trees[0];

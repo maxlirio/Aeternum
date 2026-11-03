@@ -31,8 +31,8 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     if (mats.has(name)) return mats.get(name);
     let m;
     if (name === 'screen') m = new THREE.MeshStandardMaterial({ color: 0x0b1118, emissive: 0x5d8fc0, emissiveIntensity: 0.55, roughness: 0.15 });
-    else if (name === 'leafcard' || name === 'needlecard' || name.startsWith('imp')) {   // alpha-tested foliage cards (and distant tree pictures), lit from both sides
-      const t = tl.load(base + 'materials/' + ({ leafcard: 'foliage_leaf', needlecard: 'foliage_needle', impconifer: 'impostor_conifer', impbroadleaf: 'impostor_broadleaf' })[name] + '.png'); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = anisotropy;
+    else if (name === 'leafcard' || name === 'needlecard' || name === 'frondcard' || name === 'padcard' || name.startsWith('imp')) {   // alpha-tested foliage cards (and distant tree pictures), lit from both sides
+      const t = tl.load(base + 'materials/' + ({ leafcard: 'foliage_leaf', needlecard: 'foliage_needle', frondcard: 'foliage_frond', padcard: 'foliage_pad', impconifer: 'impostor_conifer', impbroadleaf: 'impostor_broadleaf' })[name] + '.png'); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = anisotropy;
       m = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.75, metalness: 0 });
     }
     else if (name.startsWith('nav')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { navred: 0xff2a1a, navgreen: 0x1aff4a, navwhite: 0xfff4e0 }[name], emissiveIntensity: 3 });

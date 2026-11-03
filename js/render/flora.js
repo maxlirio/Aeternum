@@ -3,33 +3,67 @@
 // as you move, so nothing stalls; instance buffers are rebuilt when you've moved far
 // enough to matter. Leaves take the planet's own grass colour.
 import * as THREE from 'three';
-import { floraTile, TILE, grassTile, GTILE } from '../gen/flora.js';
+import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.js';
 
-const NEAR = { conifer: 170, broadleaf: 170, shrub: 95, boulder: 320 };   // full model within (m)
-const FAR = 1100;                                                         // trees as stand-ins out to (m)
-const LEAFY = new Set(['leafcard', 'needlecard', 'leaf', 'impconifer', 'impbroadleaf']);
+const NEAR_TREE = 190, NEAR = { shrub: 95, boulder: 320 };     // full model within (m)
+const FAR = 1300;                                                // trees as stand-ins out to (m)
+const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf']);
+// Leaf colours: familiar trees take the planet's own green; the others have their own
+const TINT = { parasol: [0.32, 0.55, 0.42], spiral: [0.45, 0.42, 0.78], bottle: [0.95, 0.55, 0.28] };
 
 export class FloraView {
-  constructor(lib, planet) {
-    this.planet = planet; this.group = new THREE.Group(); this.group.name = 'flora';
+  constructor(lib, planet, renderer) {
+    this.planet = planet; this.renderer = renderer; this.group = new THREE.Group(); this.group.name = 'flora';
     this.kinds = {};
     const v = k => lib && [...lib.variants.values()].find(x => x.kind === k);
-    for (const k of ['conifer', 'broadleaf', 'shrub', 'boulder', 'conifer_far', 'broadleaf_far']) {
-      const va = v(k); if (!va) continue;
-      this.kinds[k] = { dims: va.dims, prims: va.prims.map(pr => ({ pr, im: null, leafy: LEAFY.has(pr.slot) })), list: [] };
+    for (const sp of [...TREES, 'shrub', 'boulder']) {
+      const va = v(SPECIES[sp].tree ? 'tree_' + sp : sp); if (!va) continue;
+      this.kinds[sp] = { sp, dims: va.dims, prims: va.prims.map(pr => ({ pr, im: null, leafy: LEAFY.has(pr.slot) })), list: [] };
+      if (SPECIES[sp].tree) this.kinds[sp + '_far'] = { sp, far: true, dims: va.dims, prims: null, list: [] };
     }
     const g = planet.climate.grass, l = Math.max(...g);
-    this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.35);   // the planet's green, kept bright enough to tint by
+    this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.3);
     this.at = null; this.tiles = new Map(); this.queue = [];
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._c = new THREE.Color(); this.up = new THREE.Vector3(0, 1, 0);
   }
-  get ok() { return !!this.kinds.conifer; }
+  get ok() { return Object.keys(this.kinds).length > 0; }
+  leafColour(sp, tint, out) {
+    const t = TINT[sp];
+    if (t) out.setRGB(t[0], t[1], t[2]); else out.copy(this.leafBase);
+    return out.multiplyScalar((sp === 'spruce' || sp === 'pine' ? 0.6 : 0.78) + 0.3 * tint);
+  }
+  // The distant stand-in for a species: its real model photographed from the side into a
+  // texture, on three crossed upright cards. Made once, the first time it's needed.
+  impostor(K) {
+    if (K.prims) return K.prims;
+    const near = this.kinds[K.sp], [L, D, H] = near.dims, W = 256, Hh = 320;
+    const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-L * 0.62, L * 0.62, H * 1.03, -H * 0.03, -50, 50);
+    cam.position.set(0, 0, 20); cam.lookAt(0, 0, 0);
+    const dl = new THREE.DirectionalLight(0xffffff, 2.2); dl.position.set(3, 6, 8); scene.add(new THREE.HemisphereLight(0xffffff, 0x445544, 1.6), dl);
+    for (const P of near.prims) {
+      const m = new THREE.Mesh(P.pr.geometry, P.leafy ? P.pr.material.clone() : P.pr.material); m.position.set(-L / 2, 0, -D / 2);
+      if (P.leafy) m.material.color = this.leafColour(K.sp, 0.5, new THREE.Color());
+      scene.add(m);
+    }
+    const rt = new THREE.WebGLRenderTarget(W, Hh, { samples: 4 }), r = this.renderer, oldT = r.getRenderTarget(), oldC = r.getClearColor(new THREE.Color()), oldA = r.getClearAlpha();
+    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(scene, cam); r.setRenderTarget(oldT); r.setClearColor(oldC, oldA);
+    const geo = new THREE.BufferGeometry(), Pp = [], U = [], I = [];
+    for (let k = 0; k < 3; k++) {
+      const a = k * Math.PI / 3, cx = Math.cos(a) * L * 0.62, cz = Math.sin(a) * L * 0.62, o = Pp.length / 3;
+      Pp.push(L / 2 - cx, -H * 0.03, D / 2 - cz, L / 2 + cx, -H * 0.03, D / 2 + cz, L / 2 + cx, H * 1.03, D / 2 + cz, L / 2 - cx, H * 1.03, D / 2 - cz);
+      U.push(0, 0, 1, 0, 1, 1, 0, 1); I.push(o, o + 1, o + 2, o, o + 2, o + 3);
+    }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(Pp, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); geo.setIndex(I); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ map: rt.texture, alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.9 });
+    K.prims = [{ pr: { geometry: geo, material: mat }, im: null, leafy: false }];
+    return K.prims;
+  }
   update(x, z) {
     if (!this.ok) return;
-    // generate missing tiles around, nearest first, a few per frame
     const R = Math.ceil(FAR / TILE), ti = Math.floor(x / TILE), tj = Math.floor(z / TILE);
-    if (!this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 30 || this.queue.length) {
-      if (!this.queue.length && (!this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 30)) {
+    const moved = !this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 30;
+    if (moved || this.queue.length) {
+      if (!this.queue.length && moved) {
         for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) {
           const k = (ti + a) + ',' + (tj + b);
           if (!this.tiles.has(k) && (a * a + b * b) * TILE * TILE <= (FAR + TILE) ** 2) this.queue.push([ti + a, tj + b, a * a + b * b]);
@@ -38,7 +72,7 @@ export class FloraView {
       }
       const t0 = performance.now();
       while (this.queue.length && performance.now() - t0 < 6) { const [a, b] = this.queue.pop(); this.tiles.set(a + ',' + b, floraTile(this.planet, a, b)); }
-      if (!this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 30 || !this.queue.length) this.rebuild(x, z);
+      if (moved || !this.queue.length) this.rebuild(x, z);
     }
   }
   rebuild(x, z) {
@@ -48,33 +82,35 @@ export class FloraView {
       const [a, b] = key.split(',').map(Number);
       if (Math.abs((a + 0.5) * TILE - x) > FAR + TILE || Math.abs((b + 0.5) * TILE - z) > FAR + TILE) { this.tiles.delete(key); continue; }
       for (const p of list) {
-        const d = Math.hypot(p.x - x, p.z - z);
-        if (d < NEAR[p.sp]) this.kinds[p.sp].list.push(p);
-        else if ((p.sp === 'conifer' || p.sp === 'broadleaf') && d < FAR) this.kinds[p.sp + '_far']?.list.push(p);
+        const d = Math.hypot(p.x - x, p.z - z), K = this.kinds[p.sp]; if (!K) continue;
+        if (d < (SPECIES[p.sp].tree ? NEAR_TREE : NEAR[p.sp])) K.list.push(p);
+        else if (SPECIES[p.sp].tree && d < FAR) this.kinds[p.sp + '_far'].list.push(p);
       }
     }
     for (const k in this.kinds) this.fill(this.kinds[k]);
   }
   fill(K) {
     const n = K.list.length, [L, D, H] = K.dims;
-    for (const P of K.prims) {
+    if (K.far && !n && !K.prims) return;
+    const prims = K.far ? this.impostor(K) : K.prims;
+    for (const P of prims) {
       if (!P.im || P.im.instanceMatrix.count < n) {
         if (P.im) { this.group.remove(P.im); P.im.dispose(); }
         const cap = Math.max(64, Math.ceil(n * 1.4));
-        P.im = new THREE.InstancedMesh(P.pr.geometry, P.pr.material, cap); P.im.frustumCulled = false; P.im.castShadow = true; P.im.receiveShadow = true;
-        if (P.leafy) P.im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+        P.im = new THREE.InstancedMesh(P.pr.geometry, P.pr.material, cap); P.im.frustumCulled = false; P.im.castShadow = !K.far; P.im.receiveShadow = true;
+        if (P.leafy || K.far) P.im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
         this.group.add(P.im);
       }
     }
     K.list.forEach((p, i) => {
       const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint);
-      this._q.setFromAxisAngle(this.up, p.rot);
+      this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));
-      this._c.copy(this.leafBase).multiplyScalar(p.sp === 'conifer' ? 0.62 + 0.2 * p.tint : 0.78 + 0.3 * p.tint);
-      if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.75, 0.68, 0.45), 0.25 * p.tint);
-      for (const P of K.prims) { P.im.setMatrixAt(i, this._m); if (P.leafy) P.im.setColorAt(i, this._c); }
+      if (K.far) this._c.setScalar(0.8 + 0.3 * p.tint);
+      else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.75, 0.68, 0.45), 0.25 * p.tint); }
+      for (const P of prims) { P.im.setMatrixAt(i, this._m); if (P.leafy || K.far) P.im.setColorAt(i, this._c); }
     });
-    for (const P of K.prims) { P.im.count = n; P.im.instanceMatrix.needsUpdate = true; if (P.leafy) P.im.instanceColor.needsUpdate = true; }
+    for (const P of prims) { P.im.count = n; P.im.instanceMatrix.needsUpdate = true; if (P.im.instanceColor) P.im.instanceColor.needsUpdate = true; }
   }
 }
 

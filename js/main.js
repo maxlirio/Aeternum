@@ -166,7 +166,7 @@ async function start(fresh) {
   const propView = propLib ? new PropView(propLib) : null;
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
-  const flora = new FloraView(propLib, planet); root.add(flora.group);      // (world coordinates, under the floating origin)
+  const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
   const grass = new GrassField(planet); root.add(grass.group);
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);

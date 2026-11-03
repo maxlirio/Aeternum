@@ -56,7 +56,7 @@ if (mat) {             // a 1 m sphere beside a 1.2 m bevelled slab, so the tile
 }
 const cam = new THREE.PerspectiveCamera(one ? 40 : 45, innerWidth / innerHeight, 0.05, 200);
 if (mat) { cam.fov = 32; cam.updateProjectionMatrix(); cam.position.set(0.2, 1.5, -2.9); cam.lookAt(0.1, 0.25, 0); wall.position.z = 3; }
-else if (one) { const [L, D, H] = lib.variants.get(one).dims, r = Math.max(L, H, D) * 1.5 + 0.6; cam.position.set(-r * 0.55, H * 0.6 + r * 0.35, -r * 0.95); cam.lookAt(0, H * 0.45, 0); }
+else if (one) { const [L, D, H] = lib.variants.get(one).dims, r = Math.max(L, H, D) * (H > 4 ? 1.75 : 1.5) + 0.6; cam.position.set(-r * 0.55, H * (H > 4 ? 0.35 : 0.6) + r * (H > 4 ? 0.12 : 0.35), -r * 0.95); cam.lookAt(0, H * (H > 4 ? 0.5 : 0.45), 0); }
 else { cam.position.set(0, cols * 3.2, -cols * 4.2); cam.lookAt(0, 0, 0); }
 // front of a prop is -z in the booth (prop z = 0 is its front): the camera stands in front
 document.getElementById('l').textContent = q.has('clean') ? '' : mat || names.join('  ');

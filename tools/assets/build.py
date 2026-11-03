@@ -359,13 +359,28 @@ def mat_water(seed):      # open-water ripples: a broad swell spectrum, tileable
     h = a * 0.8 + b * 0.25
     return np.full((N, N, 3), 0.1), normal_from_height(h, 9.0), np.ones((N, N)), 0.05 * np.ones((N, N)), 0.0
 
+def mat_birchbark(seed):  # white papery birch: horizontal dark lenticels, black diamonds, peeling patches
+    a = spectral(N, 1.4, seed); l = spectral(N, 0.3, seed + 1, ax=12, ay=1)
+    lent = np.clip((l - 0.72) * 6, 0, 1); peel = np.clip((spectral(N, 1.8, seed + 2) - 0.66) * 5, 0, 1)
+    col = np.repeat((0.86 + 0.06 * (a - 0.5))[..., None], 3, -1) * np.array([1.0, 0.98, 0.94])
+    col = col * (1 - 0.8 * lent[..., None]) * (1 - 0.25 * peel[..., None]) + peel[..., None] * 0.18 * np.array([0.9, 0.6, 0.4])
+    h = 0.3 * a - 0.6 * lent + 0.2 * peel
+    return col, normal_from_height(h, 3.0), ao_from_height(h, 0.4), 0.7 + 0.2 * lent, 0.0
+
+def mat_smoothbark(seed):  # alien smooth bark: pale grey-violet skin, faint growth rings, a waxy sheen
+    a = spectral(N, 1.6, seed); y = np.arange(N)[:, None] / N * np.ones((1, N))
+    rings = 0.5 + 0.5 * np.sin(2 * math.pi * (y * 14 + 0.4 * spectral(N, 2.0, seed + 1)))
+    col = lerp3(srgb((118, 108, 122)), srgb((160, 150, 158)), np.clip(0.6 * a + 0.25 * rings, 0, 1))
+    h = 0.3 * rings + 0.3 * a
+    return col, normal_from_height(h, 2.0), ao_from_height(h, 0.3), 0.45 + 0.2 * a, 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
-    'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
+    'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'birchbark': (mat_birchbark, 1.0), 'smoothbark': (mat_smoothbark, 1.5), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
 # ---- foliage atlases (RGBA): a leafy twig and a needle spray, drawn on transparent ground
@@ -444,6 +459,34 @@ def draw_impostor(kind, seed):
             blob(x, y, r.uniform(0.008, 0.02), np.array(srgb((74, 110, 52))) * shade)
     return np.concatenate([col, a[..., None]], -1)
 
+def draw_frond(seed):
+    """A long frond: midrib up the middle, many narrow leaflets angled forward (neutral olive: tinted in game)."""
+    r = np.random.default_rng(seed); col = np.zeros((N, N, 3)); a = np.zeros((N, N)); Y, X = np.mgrid[0:N, 0:N] / N
+    def seg(x0, y0, x1, y1, w, c):
+        dx, dy = x1 - x0, y1 - y0; L2 = dx * dx + dy * dy + 1e-9
+        bx0, bx1 = int(max(0, (min(x0, x1) - w) * N)), int(min(N, (max(x0, x1) + w) * N + 1)); by0, by1 = int(max(0, (min(y0, y1) - w) * N)), int(min(N, (max(y0, y1) + w) * N + 1))
+        xs, ys = X[by0:by1, bx0:bx1], Y[by0:by1, bx0:bx1]; t = np.clip(((xs - x0) * dx + (ys - y0) * dy) / L2, 0, 1)
+        m = np.hypot(xs - x0 - t * dx, ys - y0 - t * dy) < w * (1 - 0.7 * t); col[by0:by1, bx0:bx1][m] = c; a[by0:by1, bx0:bx1][m] = 1
+    seg(0.5, 0.99, 0.5, 0.03, 0.008, srgb((120, 120, 90)))
+    for k in range(46):
+        t = 0.05 + 0.9 * k / 46; y = 0.99 - t * 0.95; L = 0.36 * math.sin(math.pi * min(1, t * 1.15)) + 0.04
+        for sgn in (-1, 1):
+            c = np.array(srgb((int(r.uniform(150, 190)), int(r.uniform(165, 200)), int(r.uniform(110, 140)))))
+            seg(0.5, y, 0.5 + sgn * L, y - L * 0.55, 0.012, c)
+    return np.concatenate([col, a[..., None]], -1)
+
+def draw_pads(seed):
+    """Rounded fleshy leaves on short stalks around a twig (neutral pale: tinted in game)."""
+    r = np.random.default_rng(seed); col = np.zeros((N, N, 3)); a = np.zeros((N, N)); Y, X = np.mgrid[0:N, 0:N] / N
+    for k in range(34):
+        cx, cy, rad = r.uniform(0.15, 0.85), r.uniform(0.12, 0.92), r.uniform(0.05, 0.11)
+        d = np.hypot(X - cx, (Y - cy) * 1.15)
+        m = d < rad
+        shade = 0.75 + 0.3 * (1 - d / rad) - 0.15 * (np.abs(X - cx) < 0.004)
+        c = np.array(srgb((int(r.uniform(175, 215)), int(r.uniform(180, 215)), int(r.uniform(170, 210)))))
+        col[m] = (c[None, :] * shade[m][:, None]); a[m] = 1
+    return np.concatenate([col, a[..., None]], -1)
+
 def build_foliage():
     for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')):
         save_rgba(name, draw_twig(kind, 77 if kind == 'leaf' else 91)); print('texture', name)
@@ -458,6 +501,7 @@ def build_foliage():
             m = np.abs(X[by0:by1, bx0:bx1] - cx) < rad
             col[by0:by1, bx0:bx1][m] = c * (0.55 + 0.6 * t); al[by0:by1, bx0:bx1][m] = 1
     save_rgba('grass_blades', np.concatenate([col, al[..., None]], -1)); print('texture grass_blades')
+    save_rgba('foliage_frond', draw_frond(41)); save_rgba('foliage_pad', draw_pads(43)); print('texture fronds, pads')
     for kind in ('conifer', 'broadleaf'): save_rgba('impostor_' + kind, draw_impostor(kind, 5 if kind == 'conifer' else 6)); print('texture impostor', kind)
 
 def build_art():
@@ -507,7 +551,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -624,7 +668,7 @@ def merge(part, bm, mat):
 def finish(part, name):
     bm = part.bm
     uv = bm.loops.layers.uv.active or bm.loops.layers.uv.new('UVMap')
-    cards = {SLOTS.index('leafcard'), SLOTS.index('needlecard'), SLOTS.index('impconifer'), SLOTS.index('impbroadleaf')}
+    cards = {SLOTS.index(k) for k in ('leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'frondcard', 'padcard')}
     for f in bm.faces:                       # box projection in metres (prop frame), so tiles are true to scale
         if f.material_index in cards: continue          # (foliage cards keep their own 0–1 UVs)
         n = f.normal; ax = max(range(3), key=lambda i: abs(n[i]))
@@ -1358,6 +1402,92 @@ def impostor(p, L, D, H, mat):
 def conifer_far(p, L, D, H, r): impostor(p, L, D, H, 'impconifer')
 def broadleaf_far(p, L, D, H, r): impostor(p, L, D, H, 'impbroadleaf')
 
+# ------------------------------------------------------------------ grown trees
+# A tree is grown, not modelled: a trunk polyline that bends and tapers, children sprouting
+# from it at angles, recursively, as tapered tubes; leaf cards at the twigs. One species is a
+# dict of growth rules. Frame: base at (L/2, 0, D/2), +y up, metres.
+def tube(part, pts, radii, mat, sides=8):
+    bm = bmesh.new(); rings = []; n_prev = None
+    for i, (pnt, rad) in enumerate(zip(pts, radii)):
+        t = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
+        if n_prev is None: n_prev = t.orthogonal().normalized()
+        n = (n_prev - t * n_prev.dot(t)).normalized(); b = t.cross(n); n_prev = n          # parallel transport
+        ring = []
+        for k in range(sides):
+            a = 2 * math.pi * k / sides; v = pnt + (n * math.cos(a) + b * math.sin(a)) * rad
+            ring.append(bm.verts.new(P(v.x, v.y, v.z)))
+        rings.append(ring)
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(sides): bm.faces.new([r0[k], r0[(k + 1) % sides], r1[(k + 1) % sides], r1[k]])
+    tip = bm.verts.new(P(*(pts[-1] + (pts[-1] - pts[-2]).normalized() * radii[-1])))
+    for k in range(sides): bm.faces.new([rings[-1][k], rings[-1][(k + 1) % sides], tip])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(part, bm, mat)
+
+def grow_branch(part, sp, r, base, d, length, radius, depth, leaves, twist=0.0):
+    V = mathutils.Vector
+    segs = max(3, int(length / sp.get('seg', 0.7)))
+    pts, rad = [base.copy()], [radius]
+    for i in range(1, segs + 1):
+        f = i / segs
+        d = (d + V((r.uniform(-1, 1), r.uniform(-1, 1), r.uniform(-1, 1))) * sp['wiggle'] + V((0, 1, 0)) * sp['up'][depth] - V((0, 1, 0)) * sp['droop'][depth] * f).normalized()
+        if twist: d = mathutils.Matrix.Rotation(twist / segs, 3, 'Y') @ d
+        pts.append(pts[-1] + d * length / segs); rad.append(radius * (1 - f * sp['taper']) + 0.006)
+    tube(part, pts, rad, sp['bark'], max(4, sp['sides'] - 2 * (sp['levels'] - depth)))
+    if depth == 0:
+        for j in range(max(1, segs // 2), segs + 1): leaves.append((pts[j], (pts[j] - pts[j - 1]).normalized()))
+        return
+    kids = sp['kids'][depth]; spin = r.uniform(0, 2 * math.pi)
+    for k in range(kids):
+        t = sp['start'][depth] + (1 - sp['start'][depth]) * ((k + r.random() * 0.8) / kids if not sp.get('fork') else 1.0)
+        idx = min(len(pts) - 1, max(1, int(t * segs)))
+        az = sp['phi'] * k + r.uniform(-0.4, 0.4) if not sp.get('fork') else 2 * math.pi * k / kids + spin + r.uniform(-0.25, 0.25)
+        tilt = math.radians(sp['angle'][depth] * r.uniform(0.8, 1.2))
+        perp = d.orthogonal().normalized(); perp = mathutils.Matrix.Rotation(az, 3, d) @ perp
+        cd = (d * math.cos(tilt) + perp * math.sin(tilt)).normalized()
+        cl = length * sp['ratio'][depth] * (1.3 * (1.04 - t) ** 0.9 if sp.get('cone') else 1.0) * r.uniform(0.85, 1.12)
+        grow_branch(part, sp, r, pts[idx], cd, cl, rad[idx] * sp['child_r'], depth - 1, leaves, twist * 0.5)
+
+def grow_tree(part, L, D, H, r, sp):
+    V = mathutils.Vector
+    leaves = []
+    trunk_len = H * sp['trunk']
+    if sp.get('bottle'):   # a swollen trunk: a fat tube under the real one
+        rr = [sp['radius'] * (1.0 + 2.2 * math.sin(math.pi * min(1, i / 8 * 1.05)) ** 1.5) for i in range(9)]
+        tube(part, [V((L / 2, trunk_len * i / 8 * 0.95, D / 2)) for i in range(9)], rr, sp['bark'], 14)
+    grow_branch(part, sp, r, V((L / 2, -0.15, D / 2)), V((0, 1, 0)), trunk_len, sp['radius'], sp['levels'], leaves, sp.get('twist', 0.0))
+    # leaves: cards at the twigs, facing out from the crown's middle
+    crown = sum((p for p, _ in leaves), V((0, 0, 0))) / max(1, len(leaves))
+    for p_, d_ in leaves:
+        for k in range(sp['per_twig']):
+            out = (p_ - crown); out.y *= 0.5; out = (out.normalized() + d_ + V((r.uniform(-.6, .6), r.uniform(-.3, .6), r.uniform(-.6, .6)))).normalized()
+            if sp.get('hang'): out = (out * 0.4 + V((0, -1, 0))).normalized()
+            card(part, (p_.x, p_.y, p_.z), out, (r.uniform(-1, 1), r.uniform(-1, 1), r.uniform(-1, 1)), sp['leaf'][0], sp['leaf'][1], sp['card'], uv_along_x=sp.get('along_x', False))
+
+TREES = {
+    'oak':     dict(trunk=0.45, radius=0.36, levels=3, kids={3: 7, 2: 5, 1: 4}, start={3: 0.45, 2: 0.25, 1: 0.25}, angle={3: 58, 2: 42, 1: 38}, ratio={3: 0.95, 2: 0.6, 1: 0.55},
+                   up={3: 0.06, 2: 0.04, 1: 0.03, 0: 0.02}, droop={3: 0, 2: 0.04, 1: 0.06, 0: 0.08}, wiggle=0.16, taper=0.7, child_r=0.62, phi=2.4, sides=10,
+                   bark='bark', card='leafcard', leaf=(0.95, 1.15), per_twig=4),
+    'birch':   dict(trunk=0.95, radius=0.15, levels=3, kids={3: 9, 2: 3, 1: 2}, start={3: 0.35, 2: 0.3, 1: 0.3}, angle={3: 38, 2: 40, 1: 35}, ratio={3: 0.33, 2: 0.6, 1: 0.6},
+                   up={3: 0.05, 2: 0.01, 1: 0.0, 0: 0.0}, droop={3: 0, 2: 0.07, 1: 0.12, 0: 0.15}, wiggle=0.12, taper=0.8, child_r=0.5, phi=2.4, sides=8, cone=True,
+                   bark='birchbark', card='leafcard', leaf=(0.65, 0.8), per_twig=5),
+    'spruce':  dict(trunk=1.0, radius=0.24, levels=2, kids={2: 42, 1: 3}, start={2: 0.1, 1: 0.25}, angle={2: 84, 1: 50}, ratio={2: 0.32, 1: 0.4},
+                   up={2: 0.05, 1: 0.0, 0: 0.0}, droop={2: 0, 1: 0.14, 0: 0.16}, wiggle=0.03, taper=0.97, child_r=0.3, phi=2.4, sides=8, cone=True, seg=0.45,
+                   bark='bark', card='needlecard', leaf=(0.75, 0.55), per_twig=3, along_x=True),
+    'pine':    dict(trunk=1.0, radius=0.26, levels=3, kids={3: 9, 2: 3, 1: 3}, start={3: 0.55, 2: 0.4, 1: 0.4}, angle={3: 62, 2: 40, 1: 35}, ratio={3: 0.38, 2: 0.6, 1: 0.55},
+                   up={3: 0.06, 2: 0.08, 1: 0.1, 0: 0.1}, droop={3: 0, 2: 0, 1: 0, 0: 0}, wiggle=0.12, taper=0.85, child_r=0.5, phi=2.4, sides=10,
+                   bark='bark', card='needlecard', leaf=(1.1, 0.8), per_twig=4, along_x=True),
+    'parasol': dict(trunk=0.5, radius=0.42, levels=5, fork=True, kids={5: 3, 4: 2, 3: 2, 2: 2, 1: 2}, start={5: 1, 4: 1, 3: 1, 2: 1, 1: 1}, angle={5: 58, 4: 42, 3: 36, 2: 30, 1: 26}, ratio={5: 0.36, 4: 0.75, 3: 0.75, 2: 0.72, 1: 0.7},
+                   up={5: 0.0, 4: 0.0, 3: 0.0, 2: 0.0, 1: 0.0, 0: 0.0}, droop={5: 0, 4: 0, 3: 0, 2: 0, 1: 0, 0: 0}, wiggle=0.05, taper=0.4, child_r=0.72, phi=2.4, sides=12,
+                   bark='smoothbark', card='frondcard', leaf=(0.9, 1.4), per_twig=9),
+    'spiral':  dict(trunk=0.8, radius=0.24, levels=2, twist=2.8, kids={2: 12, 1: 4}, start={2: 0.35, 1: 0.4}, angle={2: 65, 1: 40}, ratio={2: 0.4, 1: 0.6},
+                   up={2: 0.04, 1: 0.0, 0: 0.0}, droop={2: 0.0, 1: 0.2, 0: 0.25}, wiggle=0.08, taper=0.8, child_r=0.55, phi=2.4, sides=10,
+                   bark='smoothbark', card='padcard', leaf=(0.9, 1.15), per_twig=5, hang=True),
+    'bottle':  dict(trunk=0.6, radius=0.34, levels=2, kids={2: 5, 1: 3}, start={2: 0.9, 1: 0.4}, angle={2: 48, 1: 40}, ratio={2: 0.55, 1: 0.6},
+                   up={2: 0.1, 1: 0.05, 0: 0.05}, droop={2: 0, 1: 0, 0: 0}, wiggle=0.12, taper=0.75, child_r=0.45, phi=2.4, sides=10, bottle=True,
+                   bark='bark', card='leafcard', leaf=(0.7, 0.85), per_twig=3),
+}
+def tree_builder(name): return lambda p, L, D, H, r: grow_tree(p, L, D, H, random.Random(name), TREES[name])
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -1377,7 +1507,8 @@ def variants():
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
-        ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10), ('shrub', shrub, 1.8, 1.8, 1.0), ('boulder', boulder, 1.6, 1.4, 1.0),
+        ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),
+        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('shrub', shrub, 1.8, 1.8, 1.0), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
