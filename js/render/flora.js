@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.js';
 
-const NEAR_TREE = 190, NEAR = { shrub: 95, boulder: 320 };     // full model within (m)
+const NEAR_TREE = 190, NEAR = { shrub: 95, fern: 70, boulder: 320 };     // full model within (m)
 const FAR = 1300;                                                // trees as stand-ins out to (m)
 const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf']);
 // Leaf colours: familiar trees take the planet's own green; the others have their own
@@ -16,7 +16,7 @@ export class FloraView {
     this.planet = planet; this.renderer = renderer; this.group = new THREE.Group(); this.group.name = 'flora';
     this.kinds = {};
     const v = k => lib && [...lib.variants.values()].find(x => x.kind === k);
-    for (const sp of [...TREES, 'shrub', 'boulder']) {
+    for (const sp of [...TREES, 'shrub', 'fern', 'boulder']) {
       const va = v(SPECIES[sp].tree ? 'tree_' + sp : sp); if (!va) continue;
       this.kinds[sp] = { sp, dims: va.dims, prims: va.prims.map(pr => ({ pr, im: null, leafy: LEAFY.has(pr.slot) })), list: [] };
       if (SPECIES[sp].tree) this.kinds[sp + '_far'] = { sp, far: true, dims: va.dims, prims: null, list: [] };
@@ -107,7 +107,7 @@ export class FloraView {
       this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));
       if (K.far) this._c.setScalar(0.8 + 0.3 * p.tint);
-      else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.75, 0.68, 0.45), 0.25 * p.tint); }
+      else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'fern') this._c.multiplyScalar(0.85); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.75, 0.68, 0.45), 0.25 * p.tint); }
       for (const P of prims) { P.im.setMatrixAt(i, this._m); if (P.leafy || K.far) P.im.setColorAt(i, this._c); }
     });
     for (const P of prims) { P.im.count = n; P.im.instanceMatrix.needsUpdate = true; if (P.im.instanceColor) P.im.instanceColor.needsUpdate = true; }

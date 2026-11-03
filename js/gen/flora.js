@@ -27,6 +27,7 @@ export const SPECIES = {
   spiral:  { tree: true, solid: 0.3, h: [6, 10], moist: 0.85, alt: 0.25, alien: true },
   bottle:  { tree: true, solid: 0.7, h: [5, 9], moist: 0.2, alt: 0.3, alien: true },
   shrub:   { solid: 0, h: [0.8, 2.0] },
+  fern:    { solid: 0, h: [0.5, 1.1] },
   boulder: { solid: 1, h: [0.6, 2.2] },       // solid for boulders scales with size (×0.6 of height)
 };
 export const TREES = Object.keys(SPECIES).filter(k => SPECIES[k].tree);
@@ -75,6 +76,7 @@ export function floraTile(planet, ti, tj) {
       let q = r(4) * tot; sp = set[set.length - 1];
       for (let i = 0; i < set.length; i++) { q -= w[i]; if (q < 0) { sp = set[i]; break; } }
     }
+    else if (roll < pTree + 0.55 * pTree / 0.75 * lush) sp = 'fern';                       // undergrowth: ferns where the woods are, and damp
     else if (roll < pTree + pShrub * flat * smoothstep(1, 4, above) * (0.4 + alpine)) sp = 'shrub';
     else if (roll < pTree + pShrub + pRock * 0.35) sp = 'boulder';
     if (!sp) continue;

@@ -411,13 +411,21 @@ def draw_twig(kind, seed):
         shade = 0.82 + 0.18 * np.clip(1 - np.abs(v) * 1.2, 0, 1) - 0.25 * (np.abs(v) < 0.06)        # midrib, darker edges
         sub = col[by0:by1, bx0:bx1]; sub[m] = (np.array(c)[None, :] * shade[m][:, None]); a[by0:by1, bx0:bx1][m] = 1
     if kind == 'leaf':
-        stroke(0.5, 0.98, 0.5, 0.05, 0.012, srgb((70, 52, 36)))
-        for k in range(26):
-            t = 0.08 + 0.86 * k / 26; side = 1 if k % 2 else -1
-            cy = 0.98 - t * 0.92; ang = (-math.pi / 2) + side * r.uniform(0.6, 1.2)
-            c = srgb((int(r.uniform(70, 110)), int(r.uniform(112, 150)), int(r.uniform(40, 62))))
-            stroke(0.5, cy, 0.5 + side * 0.05, cy - 0.03, 0.004, srgb((70, 60, 40)))
-            leaf(0.5 + side * 0.04, cy - 0.025, ang, r.uniform(0.17, 0.24) * (1.1 - 0.4 * t), r.uniform(0.06, 0.08), c)
+        # a spray of fine twigs, each with many small leaves: reads as foliage, not as one big leaf
+        stroke(0.5, 0.99, 0.5, 0.08, 0.008, srgb((70, 52, 36)))
+        for tw in range(7):
+            ty = 0.92 - tw * 0.12; side = 1 if tw % 2 else -1
+            ex, ey = 0.5 + side * r.uniform(0.25, 0.42), ty - r.uniform(0.12, 0.22)
+            stroke(0.5, ty, ex, ey, 0.004, srgb((76, 60, 42)))
+            for k in range(11):
+                t = (k + 0.5) / 11; px, py = 0.5 + (ex - 0.5) * t, ty + (ey - ty) * t
+                for sd in (-1, 1):
+                    c = srgb((int(r.uniform(62, 112)), int(r.uniform(100, 150)), int(r.uniform(36, 62))))
+                    ang = math.atan2(ey - ty, ex - 0.5) + sd * r.uniform(0.6, 1.1)
+                    leaf(px, py, ang, r.uniform(0.055, 0.08), r.uniform(0.022, 0.03), c)
+        for k in range(10):                                   # a few at the tip
+            c = srgb((int(r.uniform(62, 112)), int(r.uniform(100, 150)), int(r.uniform(36, 62))))
+            leaf(0.5, 0.1 + k * 0.012, -math.pi / 2 + r.uniform(-0.9, 0.9), r.uniform(0.06, 0.085), 0.026, c)
     else:
         stroke(0.02, 0.5, 0.98, 0.5, 0.01, srgb((80, 60, 42)))
         for k in range(14):                                   # side shoots
@@ -1466,7 +1474,7 @@ def grow_tree(part, L, D, H, r, sp):
 TREES = {
     'oak':     dict(trunk=0.45, radius=0.36, levels=3, kids={3: 7, 2: 5, 1: 4}, start={3: 0.45, 2: 0.25, 1: 0.25}, angle={3: 58, 2: 42, 1: 38}, ratio={3: 0.95, 2: 0.6, 1: 0.55},
                    up={3: 0.06, 2: 0.04, 1: 0.03, 0: 0.02}, droop={3: 0, 2: 0.04, 1: 0.06, 0: 0.08}, wiggle=0.16, taper=0.7, child_r=0.62, phi=2.4, sides=10,
-                   bark='bark', card='leafcard', leaf=(0.95, 1.15), per_twig=4),
+                   bark='bark', card='leafcard', leaf=(1.0, 1.15), per_twig=5),
     'birch':   dict(trunk=0.95, radius=0.15, levels=3, kids={3: 9, 2: 3, 1: 2}, start={3: 0.35, 2: 0.3, 1: 0.3}, angle={3: 38, 2: 40, 1: 35}, ratio={3: 0.33, 2: 0.6, 1: 0.6},
                    up={3: 0.05, 2: 0.01, 1: 0.0, 0: 0.0}, droop={3: 0, 2: 0.07, 1: 0.12, 0: 0.15}, wiggle=0.12, taper=0.8, child_r=0.5, phi=2.4, sides=8, cone=True,
                    bark='birchbark', card='leafcard', leaf=(0.65, 0.8), per_twig=5),
@@ -1488,6 +1496,14 @@ TREES = {
 }
 def tree_builder(name): return lambda p, L, D, H, r: grow_tree(p, L, D, H, random.Random(name), TREES[name])
 
+def fern(p, L, D, H, r):
+    """Undergrowth fern: fronds arching out from a crown, cards of the frond atlas."""
+    cx, cz = L / 2, D / 2
+    for k in range(16):
+        a = 2 * math.pi * k / 16 + r.uniform(-0.15, 0.15); up = r.uniform(0.45, 1.0)
+        d = mathutils.Vector((math.cos(a) * (1.1 - up * 0.5), up, math.sin(a) * (1.1 - up * 0.5))).normalized()
+        card(p, (cx, 0.02, cz), d, (-math.sin(a), 0, math.cos(a)), L * 0.32, H * 1.05, 'frondcard')
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -1508,7 +1524,7 @@ def variants():
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),
-        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('shrub', shrub, 1.8, 1.8, 1.0), ('boulder', boulder, 1.6, 1.4, 1.0),
+        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('shrub', shrub, 1.8, 1.8, 1.0), ('fern', fern, 1.6, 1.6, 0.9), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
