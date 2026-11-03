@@ -348,7 +348,7 @@ async function start(fresh) {
     if (bike) { bikeFlow(bike); return; }
     const who = personAhead(), di0 = nearestDoor(), ua0 = usableAhead();
     const wd = who ? Math.hypot(who.pos[0] - ctrl.pos[0], who.pos[2] - ctrl.pos[2]) - 0.6 : Infinity;     // the nearest thing wins: the person, a door, or furniture
-    if (who && (di0 < 0 || wd < doorDist) && (!ua0 || wd < ua0.d)) { talkFlow(who); return; }
+    if (who && (di0 < 0 || wd < doorDist) && (!ua0 || wd < ua0.d + 0.8)) { talkFlow(who); return; }   // someone sitting on a chair beats the chair
     const i = nearestDoor(), u = usableAhead();
     if (u && (i < 0 || u.d < doorDist)) { useThing(u); return; }
     if (i < 0) return;
@@ -912,7 +912,7 @@ async function start(fresh) {
       else if (hotwire > 0) {}
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? '<kbd>E</kbd> Ride your speeder' : nv.forSale ? `<kbd>E</kbd> Speeder for sale — ${SPEEDER.price} cr` : `${esc(nv.ownerName)}'s speeder · hold <kbd>F</kbd> hotwire`);
       else if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
-      else if (ua && (di < 0 || ua.d < doorDist)) {
+      else if (ua && (di < 0 || ua.d < doorDist) && !(() => { const w = personAhead(); return w && Math.hypot(w.pos[0] - ctrl.pos[0], w.pos[2] - ctrl.pos[2]) - 0.6 < ua.d + 0.8; })()) {
         const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
         ui.showPrompt(`<kbd>E</kbd> ${labelOf(ua.u)} <small>— ${ua.u.verbs.map(v => VERB[v].toLowerCase()).join(' · ')}${st ? ` · <b>${st}</b>` : ''}${ua.u.box && !own.yours && !own.communal && !ua.u.box.shop ? ` · ${esc(own.owner)}'s` : ''}</small>`);
       }
