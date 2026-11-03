@@ -162,7 +162,7 @@ function roomDecor(mb, M, plan, b, rng) {
       mb.box(M.darkTrim, lx - 0.012, y + 0.03, lz - 0.012, lx + 0.012, y + 1.45, lz + 0.012, WHITE);
       mb.box(M.fabric, lx - 0.17, y + 1.45, lz - 0.17, lx + 0.17, y + 1.72, lz + 0.17, [0.92, 0.88, 0.78]);
     }
-    if (p === 'kitchen' || p === 'studio') {   // splashback tiles behind the counters
+    if (p === 'kitchen' || p === 'studio' || p === 'livingkitchen') {   // splashback tiles behind the counters
       for (const pr of plan.props) {
         if (pr.room !== room.i || pr.k !== room.k || pr.kind !== 'counter') continue;
         const yA = y + pr.h + 0.01, yB = yA + 0.55;

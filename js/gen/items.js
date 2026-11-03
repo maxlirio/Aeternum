@@ -87,7 +87,7 @@ export function containerOf(b, room, pr) {
   switch (pr.kind) {
     case 'fridge': return { pool: 'fridge', restock: true, label: 'Fridge' };
     case 'counter':
-      if (p === 'kitchen' || p === 'studio') return { pool: 'pantry', restock: true, label: 'Kitchen cupboards' };
+      if (p === 'kitchen' || p === 'studio' || p === 'livingkitchen') return { pool: 'pantry', restock: true, label: 'Kitchen cupboards' };
       if (p === 'shopfloor') return null;                              // the till: you buy and sell there
       return { pool: 'desk', restock: false, label: 'Counter drawers' };
     case 'locker': return { pool: 'wardrobe', restock: false, label: home ? 'Wardrobe' : 'Locker' };

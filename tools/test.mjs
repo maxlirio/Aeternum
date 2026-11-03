@@ -487,6 +487,7 @@ suites.life = async () => {
   // a save reloads to the same town
   const C = new WorldStore(new MemoryBackend()); await C.importJSON(A.st.exportJSON());
   const popC = livePopulation(p, s, C, EPOCH + 10 * YEAR);
+  refreshLife(pop, A.st, EPOCH + 10 * YEAR);        // (the live town updates ages at each day's tick; bring it to the same moment)
   check(digest(popC.people.map(x => [x.id, x.home, x.job, x.age])) === digest(pop.people.map(x => [x.id, x.home, x.job, x.age])), 'reloaded save gives the same people, homes and jobs');
   // residents compete for the postings: a job you applied for can go to someone else first
   const D = setup(); let lost = null;

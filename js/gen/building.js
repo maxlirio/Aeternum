@@ -70,6 +70,23 @@ function generatePlan(planet, s, b) {
       plan.walls.push({ side: 'core', x0: xc, z0: EXT_T, x1: xc, z1: d - EXT_T, k, y0, y1, t: INT_T, openings: [] });
       plan.walls.push({ side: 'divider', x0: w - EXT_T - 1.5 - 0.1, z0: zl0, x1: w - EXT_T - 1.5 - 0.1, z1: zl1, k, y0, y1, t: 0.12, openings: [] });
     }
+    // Homes are laid out like real homes (a hall with every room off it); everything else is a BSP of rooms
+    const dwelling = b.type === 'house' || (b.type === 'hab' && k >= 1);
+    if (dwelling) {
+      const wallBase = plan.walls.length;
+      const rooms = dwellingFloor(plan, b, k, F, [EXT_T, EXT_T, mainX1, d - EXT_T], hasCore, rng, addDoor, y0, y1, hasCore ? arrival(k) : null);
+      floorRooms.push({ rooms, splits: [], wallBase });
+      plan.rooms.push(...rooms);
+      if (hasCore) {
+        const zc = arrival(k) === 'front' ? EXT_T + LANDING / 2 : d - EXT_T - LANDING / 2;
+        const room = rooms.find(r => Math.abs(r.rect[2] - mainX1) < 0.01 && r.rect[1] <= zc - 0.6 && r.rect[3] >= zc + 0.6);
+        const apt = b.type === 'hab' && k >= 1;
+        const door = addDoor({ k, kind: 'core', rooms: [room ? room.i : -1, 'core'], access: apt ? 'unit' : 'open', unit: apt ? k : undefined, x: xc, z: zc, axis: 'z', width: DOOR_W, height: DOOR_H });
+        if (room) room.doors.push(door.id);
+        plan.walls.find(wl => wl.k === k && wl.side === 'core').openings.push(opening(door, xc, EXT_T, 'z'));
+      }
+      continue;
+    }
     // BSP the main area into rooms
     const leaves = [], splits = [];
     const target = T.roomArea;
@@ -142,7 +159,7 @@ function generatePlan(planet, s, b) {
   // ---- entrance
   const ground = floorRooms[0].rooms;
   const frontRooms = ground.filter(r => Math.abs(r.rect[1] - EXT_T) < 0.01).sort((a, c) => (c.rect[2] - c.rect[0]) - (a.rect[2] - a.rect[0]));
-  const entryRoom = frontRooms[0];
+  const entryRoom = b.type === 'house' ? (ground.find(r => r.purpose === 'hall') || frontRooms[0]) : frontRooms[0];
   const big = b.type === 'hangar';
   const ew = big ? Math.min(10, entryRoom.rect[2] - entryRoom.rect[0] - 3) : b.type === 'store' || b.type === 'office' ? 1.8 : DOOR_W;
   const ex = (entryRoom.rect[0] + entryRoom.rect[2]) / 2;
@@ -168,7 +185,8 @@ function generatePlan(planet, s, b) {
     if (r.unit !== undefined) continue;
     r.purpose = b.type === 'hab' ? (r === entryRoom ? 'lobby' : 'utility') : purposeFor(b.type, r, rng, r === entryRoom);
   }
-  for (const u of plan.units) {   // biggest room is the living room, then a kitchen, the rest bedrooms
+  for (const u of plan.units) {   // (rooms laid out as a home already know what they are) biggest is the living room, then a kitchen, the rest bedrooms
+    if (u.rooms.every(r => r.purpose)) continue;
     const byArea = u.rooms.slice().sort((a, c) => area(c) - area(a));
     if (byArea.length === 1) byArea[0].purpose = 'studio';
     else byArea.forEach((r, i) => { r.purpose = i === 0 ? 'living' : i === 1 && byArea.length >= 3 ? 'kitchen' : 'bedroom'; });
@@ -193,6 +211,68 @@ function generatePlan(planet, s, b) {
   for (const r of plan.rooms) furnish(plan, r, rng, H);
   plan.anchors = anchorsFor(plan, rng);
   return plan;
+}
+
+// ---- a floor of a home, the way homes are actually laid out: a hall running front to
+// back with every room opening off it; the living room and kitchen joined by a wide
+// opening; a bathroom; bedrooms at the back or upstairs. Narrow plans put the rooms on one
+// side of the hall; wide ones on both. Next to a stair core the hall (or a room) meets it.
+function dwellingFloor(plan, b, k, F, [X0, Z0, X1, Z1], hasCore, rng, addDoor, y0, y1, arrive) {
+  const HW = 1.3, wall = (x0, z0, x1, z1) => plan.walls.push({ side: 'int', x0, z0, x1, z1, k, y0, y1, t: INT_T, openings: [] });
+  const W = X1 - X0, D = Z1 - Z0, rooms = [];
+  const room = (rect, purpose) => { const r = { k, i: plan.rooms.length + rooms.length, rect, doors: [], purpose }; rooms.push(r); return r; };
+  const upstairs = b.type === 'house' && k >= 1, wholeHome = b.type === 'hab' || F === 1;
+  const two = W >= 2 * 3.0 + HW + 2 * INT_T;
+  // where the hall goes: the middle of a wide plan, else the side nearest the stair core
+  let hx0, hx1;
+  if (two) { const aw = Math.round((W - HW - 2 * INT_T) * rng.range(0.45, 0.58) * 10) / 10; hx0 = X0 + aw + INT_T; hx1 = hx0 + HW; }
+  else if (hasCore || rng.chance(0.5)) { hx1 = X1; hx0 = X1 - HW; } else { hx0 = X0; hx1 = X0 + HW; }
+  const hall = room([hx0, Z0, hx1, Z1], 'hall');
+  const zones = [];
+  if (hx0 - INT_T - X0 >= 2.4) { wall(hx0 - INT_T / 2, Z0, hx0 - INT_T / 2, Z1); zones.push({ x0: X0, x1: hx0 - INT_T, wallX: hx0 - INT_T / 2 }); }
+  if (X1 - (hx1 + INT_T) >= 2.4) { wall(hx1 + INT_T / 2, Z0, hx1 + INT_T / 2, Z1); zones.push({ x0: hx1 + INT_T, x1: X1, wallX: hx1 + INT_T / 2 }); }
+  // what goes where, front to back, per zone
+  let lists;
+  if (upstairs) lists = zones.length > 1 ? [['bedroom', 'bedroom'], ['bathroom', 'bedroom']] : [['bedroom', 'bathroom', 'bedroom']];
+  else if (!wholeHome) lists = zones.length > 1 ? [['living', 'kitchen'], ['study', 'bathroom']] : [['living', 'kitchen', 'bathroom']];
+  else lists = zones.length > 1 ? [['living', 'kitchen'], ['bathroom', 'bedroom', 'bedroom']] : [['living', 'kitchen', 'bathroom', 'bedroom']];
+  const want = { livingkitchen: 4.6, living: 4.2, kitchen: 3.2, bedroom: 3.3, bathroom: 2.3, study: 2.8, entry: 2.0 };
+  // a flat entered from the stair core beside its far zone: a small entry hall at that end, so you don't walk in through a bedroom
+  if (arrive && zones.length > 1 && zones[1].x1 >= X1 - 0.01) { const L = lists[1] || lists[0]; lists[1] = arrive === 'front' ? ['entry', ...L] : [...L, 'entry']; }
+  zones.forEach((zn, zi) => {
+    let list = (lists[zi] || lists[0]).slice();
+    const fits = () => list.reduce((s, p) => s + want[p], 0) + INT_T * (list.length - 1) <= D * 1.12;
+    // too much for the depth: drop a study, then a second bedroom, then fold the kitchen into the living room — never the last bed or the bathroom
+    while (!fits() && list.length > 1) {
+      if (list.includes('study')) list.splice(list.indexOf('study'), 1);
+      else if (list.filter(q => q === 'bedroom').length > 1) list.splice(list.lastIndexOf('bedroom'), 1);
+      else if (list.includes('kitchen') && list.includes('living')) { list.splice(list.indexOf('kitchen'), 1); list[list.indexOf('living')] = 'livingkitchen'; }
+      else break;
+    }
+    const tot = list.reduce((s, p) => s + (p === 'entry' ? 0 : want[p]), 0), avail = D - INT_T * (list.length - 1) - (list.includes('entry') ? want.entry : 0);
+    let z = Z0;
+    const made = list.map((pur, i) => {
+      const depth = i === list.length - 1 ? Z1 - z : pur === 'entry' ? want.entry : Math.round(avail * want[pur] / tot * 10) / 10;
+      const r = room([zn.x0, z, zn.x1, z + depth], pur);
+      if (i < list.length - 1) wall(zn.x0, z + depth + INT_T / 2, zn.x1, z + depth + INT_T / 2);
+      z += depth + INT_T;
+      return r;
+    });
+    // every room opens onto the hall
+    for (const r of made) {
+      const zm = Math.max(r.rect[1] + 0.7, Math.min(r.rect[3] - 0.7, (r.rect[1] + r.rect[3]) / 2 + rng.range(-0.4, 0.4)));
+      const door = addDoor({ k, kind: 'interior', rooms: [hall.i, r.i], access: 'open', x: zn.wallX, z: Math.round(zm * 10) / 10, axis: 'z', width: r.purpose === 'living' ? 1.4 : 0.9, height: DOOR_H });
+      hall.doors.push(door.id); r.doors.push(door.id); attachOpening(plan, 0, door);
+    }
+    // living room and kitchen share a wide opening
+    for (let i = 0; i + 1 < made.length; i++) {
+      if (!((made[i].purpose === 'living' && made[i + 1].purpose === 'kitchen') || (made[i].purpose === 'kitchen' && made[i + 1].purpose === 'living'))) continue;
+      const zw = made[i].rect[3] + INT_T / 2, xm = (zn.x0 + zn.x1) / 2;
+      const door = addDoor({ k, kind: 'interior', rooms: [made[i].i, made[i + 1].i], access: 'open', x: Math.round(xm * 10) / 10, z: zw, axis: 'x', width: Math.min(2.0, zn.x1 - zn.x0 - 0.8), height: DOOR_H });
+      made[i].doors.push(door.id); made[i + 1].doors.push(door.id); attachOpening(plan, 0, door);
+    }
+  });
+  return rooms;
 }
 
 function opening(door, wx0, wz0, axis) {
@@ -258,10 +338,14 @@ function placeWindows(plan, b, wl, rng, xc, hasCore) {
 
 // ---- furniture
 const WALL_PROPS = {
-  living: [['sofa', 2.0, 0.9, 0.8], ['cabinet', 1.2, 0.45, 1.8]],
+  living: [['sofa', 2.0, 0.9, 0.8], ['tvstand', 1.6, 0.45, 0.55], ['bookshelf', 1.0, 0.35, 2.0], ['armchair', 0.85, 0.85, 0.95], ['planter', 0.7, 0.7, 1.1]],
   studio: [['bed', 2.1, 1.5, 0.55], ['counter', 1.8, 0.65, 0.92], ['locker', 0.9, 0.55, 2.0]],
   utility: [['machine', 0.7, 0.7, 0.95], ['machine', 0.7, 0.7, 0.95], ['rack', 2.0, 0.6, 2.0]],
-  bedroom: [['bed', 2.1, 1.5, 0.55], ['locker', 0.9, 0.55, 2.0]],
+  bedroom: [['bed', 2.1, 1.5, 0.55], ['locker', 0.9, 0.55, 2.0], ['cabinet', 1.6, 0.45, 0.9]],
+  bathroom: [['shower', 0.9, 0.9, 2.1], ['toilet', 0.45, 0.7, 0.8], ['basin', 0.6, 0.45, 0.9]],
+  hall: [], entry: [],
+  livingkitchen: [['counter', 2.6, 0.65, 0.92], ['fridge', 0.8, 0.7, 1.9], ['sofa', 2.0, 0.9, 0.8], ['tvstand', 1.6, 0.45, 0.55]],
+  study: [['bookshelf', 1.0, 0.35, 2.0], ['armchair', 0.85, 0.85, 0.95]],
   kitchen: [['counter', 2.6, 0.65, 0.92], ['fridge', 0.8, 0.7, 1.9]],
   lobby: [['bench', 1.8, 0.5, 0.45], ['planter', 0.7, 0.7, 1.1]],
   reception: [['counter', 2.8, 0.7, 1.05], ['bench', 1.8, 0.5, 0.45]],
@@ -274,7 +358,7 @@ const WALL_PROPS = {
 };
 const CENTRE_PROPS = {
   living: [['table', 1.2, 0.8, 0.45]], kitchen: [['table', 1.4, 0.9, 0.75]], studio: [['table', 1.0, 0.8, 0.75]],
-  office: [['desk', 1.5, 0.75, 0.75]], meeting: [['table', 3.0, 1.2, 0.75]],
+  office: [['desk', 1.5, 0.75, 0.75]], study: [['desk', 1.5, 0.75, 0.75]], meeting: [['table', 3.0, 1.2, 0.75]],
   shopfloor: [['shelf', 2.4, 0.9, 1.5]], 'shopfloor-workshop': [['bench', 2.4, 1.0, 0.95]],
   hangar: [['crate', 1.6, 1.6, 1.4]], reception: [['planter', 0.8, 0.8, 1.0]],
 };
@@ -283,7 +367,7 @@ function furnish(plan, room, rng, H) {
   const [x0, z0, x1, z1] = room.rect;
   const y = room.k * H;
   const clear = [];                               // door swing zones [x, z, r]
-  for (const id of room.doors) { const dr = plan.doors[id]; clear.push([dr.x, dr.z, dr.width / 2 + 1.1]); }
+  for (const id of room.doors) { const dr = plan.doors[id]; clear.push([dr.x, dr.z, dr.width > 1.2 ? dr.width / 2 + 0.45 : dr.width / 2 + 1.1]); }   // wide openings have no door leaf to swing
   if (plan.F > 1) for (const dr of plan.doors) if (dr.kind === 'core' && dr.k === room.k) clear.push([dr.x, dr.z, 1.6]);
   const placed = [];
   const ok = (bx0, bz0, bx1, bz1) => {
@@ -301,8 +385,9 @@ function furnish(plan, room, rng, H) {
   };
   const wallSet = WALL_PROPS[room.purpose] || [];
   const scale = room.purpose === 'hangar' ? 3 : 1;
-  for (let rep = 0; rep < scale; rep++) for (const [kind, len, dep, h] of wallSet) {
-    for (let tries = 0; tries < 8; tries++) {
+  for (let rep = 0; rep < scale; rep++) for (const [kind, len0, dep, h] of wallSet) {
+    for (let tries = 0; tries < (room.unit !== undefined ? 24 : 8); tries++) {
+      const len = tries >= 8 && len0 >= 1.6 ? Math.round(len0 * 0.7 * 10) / 10 : len0;      // a smaller one if the full size won't fit
       const side = rng.int(0, 3);                 // 0 z0-wall, 1 z1-wall, 2 x0-wall, 3 x1-wall
       if (side < 2) {
         const bx0 = rng.range(x0 + 0.1, x1 - len - 0.1), bz0 = side === 0 ? z0 + 0.05 : z1 - dep - 0.05;
@@ -371,6 +456,7 @@ function anchorsFor(plan, rng) {
     switch (p.kind) {
       case 'bed': // head at the headboard end (+x of the prop's own frame), facing toward the foot
         add({ kind: 'sleep', pose: 'lie', k: p.k, x: cx, y: y + p.h, z: cz, facing: Math.atan2(F0[1], -F0[0]), prop: i, slots: Math.min(dx, dz) >= 1.4 ? 2 : 1 }, i); break;
+      case 'armchair': { const [x, z] = front(-depth * 0.35); add({ kind: 'sit', pose: 'sit', k: p.k, x, y, z, facing: ang(F0[0], F0[1]), prop: i, slots: 1 }, i); break; }
       case 'sofa': { const [x, z] = front(-depth * 0.35); add({ kind: 'sit', pose: 'sit', k: p.k, x, y, z, facing: ang(F0[0], F0[1]), prop: i, slots: 2 }, i); break; }
       case 'chair': { // faces the desk/table it was placed for
         const host = plan.props.find(q => q.k === p.k && (q.kind === 'desk' || q.kind === 'table') && Math.abs((q.x0 + q.x1) / 2 - cx) + Math.abs((q.z0 + q.z1) / 2 - cz) < 2.5);

@@ -374,13 +374,33 @@ def mat_smoothbark(seed):  # alien smooth bark: pale grey-violet skin, faint gro
     h = 0.3 * rings + 0.3 * a
     return col, normal_from_height(h, 2.0), ao_from_height(h, 0.3), 0.45 + 0.2 * a, 0.0
 
+def mat_ceramic(seed):    # glazed porcelain: near-white, a faint ripple in the glaze
+    a = spectral(N, 2.0, seed)
+    col = np.repeat((0.9 + 0.03 * (a - 0.5))[..., None], 3, -1) * np.array([1.0, 1.0, 0.99])
+    return col, normal_from_height(a * 0.2, 0.5), np.ones((N, N)), 0.08 + 0.04 * a, 0.0
+
+def mat_mirror(seed):
+    a = spectral(N, 1.5, seed)
+    return np.full((N, N, 3), 0.95), normal_from_height(a * 0.02, 0.2), np.ones((N, N)), 0.02 + 0.03 * (a > 0.8), 1.0
+
+def mat_books(seed):      # book spines: vertical bands of colour, titles as faint bars, worn tops
+    r = np.random.default_rng(seed); x = np.arange(N); col = np.zeros((N, N, 3)); edge = 0
+    pal = [(120, 36, 30), (30, 52, 92), (40, 80, 50), (180, 150, 90), (30, 30, 34), (140, 90, 40), (200, 190, 170), (90, 40, 80)]
+    while edge < N:
+        w = int(r.integers(18, 50)); c = np.array(srgb(pal[r.integers(0, len(pal))])) * r.uniform(0.7, 1.1)
+        col[:, edge:edge + w] = c
+        t0 = int(r.integers(int(N * 0.15), int(N * 0.5))); col[t0:t0 + 14, edge + 5:edge + w - 5] = np.array([0.85, 0.78, 0.55]) * 0.9
+        col[:, edge:edge + 2] *= 0.5; edge += w
+    h = spectral(N, 1.2, seed + 1) * 0.3
+    return col, normal_from_height(h, 1.0), ao_from_height(h, 0.3), 0.75 * np.ones((N, N)), 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
-    'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'birchbark': (mat_birchbark, 1.0), 'smoothbark': (mat_smoothbark, 1.5), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
+    'ceramic': (mat_ceramic, 1.0), 'mirror': (mat_mirror, 1.0), 'books': (mat_books, 0.5), 'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'birchbark': (mat_birchbark, 1.0), 'smoothbark': (mat_smoothbark, 1.5), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
 # ---- foliage atlases (RGBA): a leafy twig and a needle spray, drawn on transparent ground
@@ -559,7 +579,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -1504,6 +1524,68 @@ def fern(p, L, D, H, r):
         d = mathutils.Vector((math.cos(a) * (1.1 - up * 0.5), up, math.sin(a) * (1.1 - up * 0.5))).normalized()
         card(p, (cx, 0.02, cz), d, (-math.sin(a), 0, math.cos(a)), L * 0.32, H * 1.05, 'frondcard')
 
+# ------------------------------------------------------------------ home fittings (front of the piece is z = 0)
+def toilet(p, L, D, H, r):
+    cx = L / 2
+    add_cushion(p, cx - 0.18, 0, 0.1, cx + 0.18, 0.4, D - 0.18, 'ceramic', 0.15, 0.6, 8)      # pedestal and bowl
+    add_cushion(p, cx - 0.2, 0.38, 0.02, cx + 0.2, 0.43, D - 0.2, 'ceramic', 0.2, 0.7, 8)     # seat
+    add_box(p, cx - 0.21, 0.4, D - 0.2, cx + 0.21, H, D - 0.02, 'ceramic', 0.03, 3)            # cistern
+    add_box(p, cx - 0.04, H, D - 0.14, cx + 0.04, H + 0.012, D - 0.08, 'metal', 0.004)        # flush button
+
+def basin(p, L, D, H, r):
+    add_box(p, 0.05, 0, 0.12, L - 0.05, H - 0.12, D, 'tint', 0.01, 3)                          # vanity unit
+    add_cushion(p, 0, H - 0.14, 0, L, H, D, 'ceramic', 0.1, 0.45, 8)                            # the basin
+    add_box(p, L / 2 - 0.16, H - 0.03, D * 0.25, L / 2 + 0.16, H + 0.002, D * 0.65, 'rubber', 0.02)   # the hollow (dark)
+    add_cyl(p, L / 2, D - 0.06, H, H + 0.18, 0.016, 'metal', 10)                               # tap
+    add_box(p, L / 2 - 0.015, H + 0.16, D - 0.2, L / 2 + 0.015, H + 0.18, D - 0.05, 'metal', 0.005)
+    add_box(p, 0.02, H + 0.25, D - 0.03, L - 0.02, H + 0.95, D, 'mirror', 0.01)                 # mirror on the wall
+    add_box(p, 0.0, H + 0.23, D - 0.04, L, H + 0.25, D, 'metal', 0.004)
+
+def shower(p, L, D, H, r):
+    add_box(p, 0, 0, 0, L, 0.08, D, 'ceramic', 0.01, 3)                                        # tray
+    add_box(p, L / 2 - 0.05, 0.081, D / 2 - 0.05, L / 2 + 0.05, 0.083, D / 2 + 0.05, 'metal', 0)   # drain
+    for (x0, z0, x1, z1) in ((0, 0, 0.02, D), (0, 0, L * 0.45, 0.02)):                          # glass screen and a fixed panel
+        add_box(p, x0, 0.08, z0, x1, H, z1, 'glass', 0.002)
+    add_box(p, 0, H - 0.02, 0, L, H, 0.02, 'metal', 0.004); add_box(p, 0, H - 0.02, 0, 0.02, H, D, 'metal', 0.004)
+    add_box(p, L - 0.02, 0.08, 0.05, L, H, D - 0.05, 'ceramic', 0.002)                          # tiled back
+    add_cyl(p, L - 0.08, D / 2, 1.2, 1.95, 0.012, 'metal', 8)                                   # riser and head
+    add_cyl(p, L - 0.2, D / 2, 1.93, 1.96, 0.1, 'metal', 16)
+
+def tvstand(p, L, D, H, r):
+    add_box(p, 0, 0.06, 0, L, H, D, 'wood', 0.01, 3)
+    for x in (0.03, L - 0.07): add_box(p, x, 0, 0.05, x + 0.04, 0.06, D - 0.05, 'metal', 0.004)
+    add_box(p, 0.04, 0.12, -0.002, L / 2 - 0.02, H - 0.05, 0.0, 'paint', 0.004)                # doors
+    add_box(p, L / 2 + 0.02, 0.12, -0.002, L - 0.04, H - 0.05, 0.0, 'paint', 0.004)
+    tw = min(1.3, L * 0.85)
+    add_box(p, L / 2 - 0.12, H, D * 0.4, L / 2 + 0.12, H + 0.02, D * 0.75, 'plastic', 0.004)   # TV foot and stem
+    add_box(p, L / 2 - 0.025, H, D * 0.6, L / 2 + 0.025, H + 0.12, D * 0.65, 'plastic', 0.004)
+    add_box(p, L / 2 - tw / 2, H + 0.1, D * 0.58, L / 2 + tw / 2, H + 0.1 + tw * 0.58, D * 0.62, 'plastic', 0.008)
+    add_box(p, L / 2 - tw / 2 + 0.015, H + 0.115, D * 0.578, L / 2 + tw / 2 - 0.015, H + 0.085 + tw * 0.58, D * 0.58, 'screen', 0)
+
+def bookshelf(p, L, D, H, r):
+    add_box(p, 0, 0, 0, 0.025, H, D, 'wood', 0.004); add_box(p, L - 0.025, 0, 0, L, H, D, 'wood', 0.004)
+    add_box(p, 0, 0, D - 0.015, L, H, D, 'wood', 0.002)
+    n = 5
+    for i in range(n + 1):
+        y = 0.04 + i * (H - 0.06) / n
+        add_box(p, 0.025, y - 0.02, 0, L - 0.025, y, D - 0.015, 'wood', 0.003)
+        if i == n: break
+        x = 0.04
+        while x < L - 0.1:                                       # books: varied heights and widths, a gap now and then
+            w = r.uniform(0.02, 0.05); h = (H - 0.06) / n * r.uniform(0.6, 0.88)
+            if r.random() < 0.08: x += r.uniform(0.05, 0.15); continue
+            add_box(p, x, y, r.uniform(0.02, 0.06), x + w, y + h, D - 0.03, 'books', 0.002); x += w + 0.002
+            if r.random() < 0.04 and x < L - 0.3:                # a short lean
+                add_box(p, x, y, 0.05, x + 0.15, y + 0.04, D - 0.04, 'books', 0.002); x += 0.17
+
+def armchair(p, L, D, H, r):
+    for lx in (0.08, L - 0.12):
+        for lz in (0.08, D - 0.12): add_cyl(p, lx + 0.02, lz + 0.02, 0, 0.1, 0.02, 'wood', 8)
+    add_box(p, 0.02, 0.1, 0.04, L - 0.02, 0.3, D, 'tint', 0.03, 3)
+    add_cushion(p, 0.02, 0.1, D - 0.22, L - 0.02, H, D, 'tint', 0.12, 0.35)                     # back
+    for x0, x1 in ((0.0, 0.16), (L - 0.16, L)): add_cushion(p, x0, 0.1, 0.04, x1, 0.62, D, 'tint', 0.2, 0.45)
+    add_cushion(p, 0.17, 0.29, 0.03, L - 0.17, 0.46, D - 0.2, 'tint', 0.3, 0.45)                # seat
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -1524,7 +1606,9 @@ def variants():
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),
-        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('shrub', shrub, 1.8, 1.8, 1.0), ('fern', fern, 1.6, 1.6, 0.9), ('boulder', boulder, 1.6, 1.4, 1.0),
+        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('toilet', toilet, 0.45, 0.7, 0.8), ('basin', basin, 0.6, 0.45, 0.9), ('shower', shower, 0.9, 0.9, 2.1),
+        ('tvstand', tvstand, 1.6, 0.45, 0.55), ('bookshelf', bookshelf, 1.0, 0.35, 2.0), ('armchair', armchair, 0.85, 0.85, 0.95),
+        ('shrub', shrub, 1.8, 1.8, 1.0), ('fern', fern, 1.6, 1.6, 0.9), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),

@@ -101,6 +101,14 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+// inside your home: stand in a room of the given purpose, looking across it
+const roomShot = (purpose) => `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); const { buildingPlan } = await import('./js/gen/building.js'); const { buildingToWorld } = await import('./js/gen/place.js');
+    let b = O.pop.buildingByKey.get(P.home), pl = buildingPlan(O.planet, O.s, b), r = pl.rooms.find(q => q.purpose === '${purpose}' && q.unit !== undefined);
+    if (!r) for (const bb of O.s.buildings) { const pp = buildingPlan(O.planet, O.s, bb), rr = pp.rooms.find(q => q.purpose === '${purpose}'); if (rr) { b = bb; pl = pp; r = rr; break; } }
+    const [x0, z0, x1, z1] = r.rect, at = buildingToWorld(O.s, b, x0 + 0.45, r.k * pl.H, z0 + 0.45), c = buildingToWorld(O.s, b, (x0 + x1) / 2, r.k * pl.H, (z0 + z1) / 2);
+    O.ctrl.pos = at; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(c[0] - at[0], c[2] - at[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.25; O.cam.dist = 0.3; document.querySelector('.toasts')?.remove(); const hide = () => { O.avatar.object.visible = false; requestAnimationFrame(hide); }; hide(); await wait(2500);`;
+SCRIPTS.living = roomShot('living'); SCRIPTS.bathroom = roomShot('bathroom'); SCRIPTS.hall = roomShot('hall'); SCRIPTS.kitchen = roomShot('kitchen');
+SHOTS.living = 'hour=13'; SHOTS.bathroom = 'hour=13'; SHOTS.hall = 'hour=13'; SHOTS.kitchen = 'hour=13';
 SCRIPTS.talk = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), key = c => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
     let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => x.pose !== 'lie' && !x.moving && !String(x.id).startsWith('tr:') && x.person.age > 18); if (!a) { O.clock.advance(O.planet.dayLength / 24); await wait(300); } }
     O.ctrl.pos = [a.pos[0] + Math.sin(a.facing) * 1.3, a.pos[1], a.pos[2] + Math.cos(a.facing) * 1.3]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(a.pos[0] - O.ctrl.pos[0], a.pos[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.7; O.cam.pitch = 0.1; O.cam.dist = 3;

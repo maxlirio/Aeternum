@@ -56,13 +56,19 @@ export function usablesOf(planet, s, b) {
       case 'sofa': case 'table': if (seats.length) verbs.push('sit'); break;
       case 'bench': if (p === 'shopfloor-workshop') verbs.push('assemble'); else verbs.push('sit'); break;
       case 'counter':
-        if (p === 'kitchen' || p === 'studio') verbs.push('cook');
+        if (p === 'kitchen' || p === 'studio' || p === 'livingkitchen') verbs.push('cook');
         else if (p === 'shopfloor') verbs.push('sell', 'terminal');
         else verbs.push('terminal');
         break;
       case 'desk': verbs.push('terminal'); break;
       case 'machine': verbs.push(p === 'utility' ? 'wash' : 'fabricate'); break;
       case 'planter': verbs.push('water'); break;
+      case 'armchair': if (seats.length) verbs.push('sit'); break;
+      case 'shower': verbs.push('shower'); break;
+      case 'basin': verbs.push('freshen'); break;
+      case 'toilet': verbs.push('toilet'); break;
+      case 'tvstand': verbs.push('tv'); break;
+      case 'bookshelf': verbs.push('read'); break;
     }
     const machineTray = pr.kind === 'machine' && p !== 'utility';
     const c = box || (machineTray ? { pool: 'none', restock: false, label: 'Output tray' } : null);

@@ -99,7 +99,7 @@ function buildDay(pop, p, D) {
   const sleep = (child ? 20.5 : old ? 21.6 : 22.6) + p.wakeBias * 0.4 + rng.range(-0.4, 0.5);
 
   stay(bed, at(wake), 'sleeping');
-  const breakfast = homeSpot(['kitchen']) || homeSpot(['sit']);
+  const breakfast = homeSpot(['kitchen', 'livingkitchen']) || homeSpot(['sit']);
   if (breakfast && go(breakfast, 'breakfast')) stay(breakfast, t + rng.range(0.3, 0.6) * HR, 'breakfast');
   if (working) {
     const workPlace = anchorPlace(pop, job.b, job.anchor);
@@ -135,7 +135,7 @@ function buildDay(pop, p, D) {
     }
   }
   if (!child && !infant && t < at(19.5) && rng.chance(0.25 + 0.35 * p.social)) stroll();     // evening walk
-  const dinner = homeSpot(['kitchen']) || homeSpot(['sit']);
+  const dinner = homeSpot(['kitchen', 'livingkitchen']) || homeSpot(['sit']);
   if (dinner && t < at(18.2 + rng.range(-0.4, 0.8))) { if (go(dinner, 'dinner')) stay(dinner, Math.max(t, at(18.3 + rng.range(-0.3, 0.6))), 'cooking'); }
   if (dinner && t < at(sleep) - 0.8 * HR && go(dinner, 'dinner')) stay(dinner, Math.min(at(sleep) - 0.6 * HR, t + rng.range(0.4, 0.8) * HR), 'dinner');
   const evening = homeSpot(['sit', 'living']);

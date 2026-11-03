@@ -365,9 +365,9 @@ async function start(fresh) {
   }
 
   // ---- using things (sim/processes/use.js): furniture in reach, ahead of you on your floor
-  const KIND_LABEL = { bed: 'Bed', sofa: 'Sofa', chair: 'Chair', table: 'Table', desk: 'Desk', planter: 'Planter', fridge: 'Fridge', console: 'Flight console' };
+  const KIND_LABEL = { bed: 'Bed', sofa: 'Sofa', chair: 'Chair', table: 'Table', desk: 'Desk', planter: 'Planter', fridge: 'Fridge', console: 'Flight console', armchair: 'Armchair', shower: 'Shower', basin: 'Washbasin', toilet: 'Toilet', tvstand: 'Television', bookshelf: 'Bookshelf' };
   const VERB = { sleep: 'Lie down', sit: 'Sit down', open: 'Look inside', cook: 'Cook', buy: 'Browse the shelves', sell: 'Sell things at the till', terminal: 'Use the terminal',
-    fabricate: 'Run the fabricator', assemble: 'Build something', wash: 'Run a wash', water: 'Water the plant', fly: 'Take the helm' };
+    fabricate: 'Run the fabricator', assemble: 'Build something', wash: 'Run a wash', water: 'Water the plant', fly: 'Take the helm', shower: 'Take a shower', freshen: 'Wash your face', toilet: 'Use the toilet', tv: 'Watch the news', read: 'Read a book' };
   const labelOf = u => u.box && !['bench', 'counter', 'machine'].includes(u.pr.kind) ? u.box.label : KIND_LABEL[u.pr.kind]
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
@@ -419,6 +419,11 @@ async function start(fresh) {
       return;
     }
     if (verb === 'water') { water(store, b, u, t); ui.toast('You water the plant.'); return; }
+    if (verb === 'shower') { clock.advance(600); player.fatigue = Math.max(0, player.fatigue - 0.1); store.touchPlayer(); ui.toast('Ten minutes under hot water. You feel awake again.'); return; }
+    if (verb === 'freshen') { player.fatigue = Math.max(0, player.fatigue - 0.03); store.touchPlayer(); ui.toast('Cold water on your face.'); return; }
+    if (verb === 'toilet') { clock.advance(180); ui.toast('A few quiet minutes.'); return; }
+    if (verb === 'read') { const H = planet.dayLength / 24; clock.advance(H); advanceBody(player, 'sit', H, planet); store.touchPlayer(); ui.toast(`You read for an hour. ${['A history of the colony', 'A thriller set on a freighter', 'A field guide to the planet\'s plants', 'Poems', 'A manual for fabricators'][Math.floor(Math.random() * 5)]}.`); return; }
+    if (verb === 'tv') return terminalFlow(b, true);
     if (verb === 'wash') { const r = startWork(ctx, b, u, 'wash', null, t); ui.toast(r.ok ? `The wash will take ${mins(r.until - t)}.` : r.why, r.ok ? '' : 'warn'); return; }
     if (verb === 'cook' || verb === 'fabricate' || verb === 'assemble') return workFlow(b, u, verb);
     if (verb === 'terminal') return terminalFlow(b);
@@ -482,13 +487,13 @@ async function start(fresh) {
       }
     });
   }
-  async function terminalFlow(b) {
+  async function terminalFlow(b, tvOnly = false) {
     const t = clock.now(), mine = store.events.filter(e => e.who === player.id).slice(-8).reverse();
     const NEWS = ['died', 'born', 'household_arrived', 'household_left', 'case_opened', 'case_cold', 'fined', 'theft_discovered', 'break_in_discovered', 'resident_hired', 'door_repaired'];
     const news = store.events.filter(e => NEWS.includes(e.type)).slice(-10).reverse();
     const owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
     const list = es => `<ul class="events">${es.map(e => `<li>${describeEvent(e, planet)}</li>`).join('') || '<li class="none">Nothing yet.</li>'}</ul>`;
-    await modal(() => ui.terminal({ title: `${b.owner} — terminal`, sections: [
+    await modal(() => ui.terminal({ title: tvOnly ? `${s.name} news` : `${b.owner} — terminal`, sections: tvOnly ? [{ h: 'Today', html: list(news) }, { h: 'Weather', html: `<p>${weatherAt(planet, t).label}</p>` }] : [
       { h: 'Your account', html: `<p>${player.credits ?? 0} cr${owed ? ` · <b class="late">${owed} cr in fines</b>` : ''}${player.job ? ` · ${esc(player.job.employer)}, ${player.job.wage} cr/h` : ''}</p>` },
       { h: 'Messages', html: list(mine) }, { h: `${s.name} news`, html: list(news) },
       { h: 'Time', html: `<p>Day ${dayNumber(planet, t)}, ${formatHour(solarHour(planet, t))} · ${planet.name}, a ${(planet.dayLength / 3600).toFixed(1)}-hour day</p>` }] }));
@@ -944,7 +949,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, avatar, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
