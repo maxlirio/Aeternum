@@ -877,12 +877,12 @@ async function start(fresh) {
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
-    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = !flight || flight.altitude() < 60;
+    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
-    sea.update(dt, camera, origin); terrainTime.value += dt;
+    sea.update(dt, camera, origin, wx.wind); terrainTime.value += dt;
     if (player.waypoint) {
       const wp = player.waypoint, d = Math.hypot(wp.x - ctrl.pos[0], wp.z - ctrl.pos[2]);
       if (d < 6) { ui.toast(`You've arrived: ${esc(wp.label)}.`); player.waypoint = null; store.touchPlayer(); beam.visible = false; }
@@ -940,6 +940,7 @@ async function start(fresh) {
       ui.debug(`${fps} fps · ${info.calls} calls · ${(info.triangles / 1e3).toFixed(0)}k tris · tiles ${terrain.count} (+${terrain.pending}) · pos ${camW.map(v => v.toFixed(0)).join(',')} · jobs ${store.jobs.length} · deltas ${store.deltas.size}`);
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
+    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [grass.group, weatherView.rain, crowd.group, vehView.group].filter(Boolean));
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);

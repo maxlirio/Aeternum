@@ -49,6 +49,9 @@ function terrainMaterial(planet) {
       // the shoreline: ground darkens as it gets wet near the water, and a line of foam washes up and back
       float above = vWP.y - uSea;
       diffuseColor.rgb *= 1.0 - 0.45 * (1.0 - smoothstep(-0.2, 1.4, above));
+      // under water: light is absorbed on the way down and back — red first, the bed turns dark blue-green with depth
+      float uw = max(0.0, -above);
+      diffuseColor.rgb *= exp(-uw * vec3(0.9, 0.38, 0.3));
       float wash = 0.35 + 0.25 * sin(uTime * 0.7 + vWP.x * 0.05 + vWP.z * 0.04);
       float foam = smoothstep(0.18, 0.0, abs(above - wash + 0.15)) * smoothstep(0.35, 0.75, texture2D(tDirt, vWP.xz / 1.7 + uTime * 0.01).r * 1.6);
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 0.96), foam * 0.85);

@@ -120,6 +120,8 @@ SCRIPTS.sea = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms))
     if (best) { O.ctrl.pos = [best[0], best[1] + 0.2, best[2]]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = best[3]; O.cam.yaw = best[3]; O.cam.pitch = 0.15; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.sea = 'hour=17';
+SCRIPTS.shore = SCRIPTS.sea.replace('O.cam.pitch = 0.15; O.cam.dist = 5;', 'O.cam.pitch = 0.45; O.cam.dist = 4; O.ctrl.pos = [best[0] + Math.sin(best[3]) * 9, best[1], best[2] + Math.cos(best[3]) * 9];'); SHOTS.shore = 'hour=13';
+SCRIPTS.seaperf = SCRIPTS.sea.replace('await wait(5000);', 'await wait(14000);'); SCRIPTS.seaperf0 = SCRIPTS.seaperf; SHOTS.seaperf = 'hour=17'; SHOTS.seaperf0 = 'hour=17&norefl'; SCRIPTS.seaperf1 = SCRIPTS.seaperf; SHOTS.seaperf1 = 'hour=17&norefl&nograss';
 SCRIPTS.overcast = SCRIPTS.road; SHOTS.overcast = 'hour=11&road=0&weather=' + encodeURIComponent('{"cloud":0.95,"rain":0.8,"label":"rain"}');
 SCRIPTS.clouds = SCRIPTS.road; SHOTS.clouds = 'hour=16&road=0&weather=' + encodeURIComponent('{"cloud":0.55,"rain":0,"label":"cloudy"}');
 SCRIPTS.abovecloud = SCRIPTS.flying.replace('await wait(5000)', 'await wait(30000)'); SHOTS.abovecloud = 'hour=15&secs=4&weather=' + encodeURIComponent('{"cloud":0.6,"rain":0,"label":"cloudy"}');

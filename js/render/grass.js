@@ -8,9 +8,9 @@ import * as THREE from 'three';
 import { surfaceAt } from '../gen/surface.js';
 import { moisture } from '../gen/terrain.js';
 
-const PATCH = 10, NEAR = 24, FAR = 70;           // m; dense blades out to NEAR, a coarser ring to FAR
+const PATCH = 10, NEAR = 20, FAR = 60;           // m; dense blades out to NEAR, a coarser ring to FAR
 const SEG = 3;                                   // segments per near blade
-const DENS_NEAR = 95, DENS_FAR = 14;              // blades per m² at full lushness
+const DENS_NEAR = 90, DENS_FAR = 12;              // blades per m² at full lushness
 const G = 5;                                     // height-sample grid per patch side
 const sat = (c, k) => { const m = (c[0] + c[1] + c[2]) / 3; return c.map(v => Math.max(0, m + (v - m) * k)); };
 
