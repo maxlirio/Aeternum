@@ -57,6 +57,7 @@ import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
 import { trafficNear } from './gen/traffic.js';
+import { WEAPONS, strike, isDown, healthOf } from './sim/processes/combat.js';
 import { known, introduce, talked, workLine, homeLine, familyLine, smallTalk, directionsFrom } from './sim/processes/talk.js';
 import { weatherAt } from './gen/weather.js';
 import { UI, describeEvent } from './ui/ui.js';
@@ -199,14 +200,14 @@ async function start(fresh) {
   let pursuit = null;
   const isOfficer = p => !!(p?.job && pop.jobById.get(p.job).security);
   const startPursuit = (officer, why) => {
-    if (pursuit || player.custody || !officer) return;
+    if (pursuit || player.custody || !officer || isDown(store, officer.id, clock.now()) || bodies.some(b => b.id === officer.id) || officer.gone) return;   // (not someone you've just put on the ground)
     pursuit = new Pursuit(pop, officer, clock.now(), why);
     ui.toast(`<b>${officer.name}</b> of ${polity.securityName} is coming to arrest you — ${why}. <small>Stand still to go quietly, or run.</small>`, 'bad', 10000);
   };
   const nearestOfficerOnDuty = t => {
     let best = null, bd = Infinity;
     for (const p of pop.people) {
-      if (!isOfficer(p)) continue;
+      if (!isOfficer(p) || isDown(store, p.id, t)) continue;
       const w = whereAt(pop, p, t);
       if (!['on duty', 'on patrol'].includes(w.activity)) continue;
       const d = Math.hypot(w.pos[0] - ctrl.pos[0], w.pos[2] - ctrl.pos[2]);
@@ -287,6 +288,7 @@ async function start(fresh) {
     if (e.code === 'KeyE') interact();
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
+    if (e.code === 'KeyR') attack();
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
@@ -296,7 +298,7 @@ async function start(fresh) {
   });
   addEventListener('keyup', e => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
-  renderer.domElement.addEventListener('click', () => { if (!paused) renderer.domElement.requestPointerLock?.(); });
+  renderer.domElement.addEventListener('click', () => { if (paused) return; if (document.pointerLockElement === renderer.domElement) attack(); else renderer.domElement.requestPointerLock?.(); });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
@@ -512,6 +514,7 @@ async function start(fresh) {
     await modal(async () => {
       for (;;) {
         const r = await ui.inventory({ player, limit: carryLimit(player) });
+        if (r.a === 'equip') { const it = inventoryOf(player)[r.idx]; player.weapon = player.weapon === it.id ? null : it.id; store.touchPlayer(); ui.toast(player.weapon ? `${ITEMS[it.id].name} in hand. <small>Click or R to use it.</small>` : 'Put away.'); continue; }
         if (r.a !== 'eat') break;
         const it = inventoryOf(player)[r.idx], res = consume(player, r.idx); store.touchPlayer();
         if (res.ok) ui.toast(`${ITEMS[it.id].cat === 'drink' ? 'Drank' : ITEMS[it.id].cat === 'medicine' ? 'Took' : 'Ate'} the ${ITEMS[it.id].name.toLowerCase()}. Hunger ${Math.round(player.hunger * 100)}%.`);
@@ -681,6 +684,63 @@ async function start(fresh) {
       }
     });
   }
+
+  // ---- violence (sim/processes/combat.js): what's in your hand, and what happens when you use it
+  let lastAttack = -1e9;
+  const bodies = [];                 // the dead, where they fell: { id, person, pos, facing, until }
+  const downAt = new Map();          // someone knocked down stays where they fell: id → { pos, facing }
+  const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0 }));
+  tracer.frustumCulled = false; scene.add(tracer);
+  const flash = new THREE.PointLight(0xffd090, 0, 9, 2); scene.add(flash);
+  function attack() {
+    if (paused || ctrl.mode !== 'walk' || ride || flight) return;
+    const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = WEAPONS[id];
+    const now = performance.now() / 1000; if (now - lastAttack < W.every) return; lastAttack = now;
+    const t = clock.now();
+    let target = null, hitPoint = null;
+    if (!W.ranged) {
+      let bd = W.reach + 0.4;
+      for (const a of agents) {
+        if (String(a.id).startsWith('tr:') || bodies.some(b => b.id === a.id)) continue;
+        const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz);
+        if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.4 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.5) { bd = d; target = a; }
+      }
+      avatar.punch?.();
+    } else {
+      // a shot along the line of sight (camera centre), with a little spread; walls stop it
+      const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+      dir.x += (Math.random() - 0.5) * W.spread * 2; dir.y += (Math.random() - 0.5) * W.spread * 2; dir.normalize();
+      const wo = [o.x + origin[0], o.y, o.z + origin[2]];
+      let wall = W.reach;
+      for (let d = 1.5; d < W.reach; d += 0.4) if (world.solidAt(wo[0] + dir.x * d, wo[1] + dir.y * d, wo[2] + dir.z * d, 0.02)) { wall = d; break; }
+      let best = wall;
+      for (const a of agents) {
+        if (String(a.id).startsWith('tr:') || bodies.some(b => b.id === a.id)) continue;
+        const lying = a.pose === 'lie' || isDown(store, a.id, t);
+        for (const hy of lying ? [0.2] : [0.5, 1.0, 1.45]) {          // body points: legs, chest, head
+          const px = a.pos[0] - wo[0], py = a.pos[1] + hy - wo[1], pz = a.pos[2] - wo[2], along = px * dir.x + py * dir.y + pz * dir.z;
+          if (along < 0.5 || along > best) continue;
+          const off = Math.hypot(px - dir.x * along, py - dir.y * along, pz - dir.z * along);
+          if (off < (lying ? 0.45 : 0.3)) { best = along; target = a; }
+        }
+      }
+      hitPoint = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best];
+      const g = tracer.geometry.attributes.position, hp = toRender(...hitPoint), hand = toRender(ctrl.pos[0] + Math.sin(ctrl.facing) * 0.5, ctrl.pos[1] + 1.35, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.5);
+      g.setXYZ(0, ...hand); g.setXYZ(1, ...hp); g.needsUpdate = true; tracer.material.opacity = 0.9;
+      flash.position.set(...hand); flash.intensity = 25;
+    }
+    if (!target) return;
+    const p = target.person, here = world.locate(...ctrl.pos);
+    const seen = residents.witnesses(t, ctrl.pos, here?.b?.key || null, here?.k ?? null).filter(w => w.id !== p.id && !bodies.some(b => b.id === w.id));
+    if (!downAt.has(p.id)) downAt.set(p.id, { pos: target.pos.slice(), facing: target.facing });
+    const res = strike(ctx, p, id, t, seen);
+    if (res.incident) lodgeIncident(ctx, res.incident);
+    const cop = seen.find(w => isOfficer(pop.byId.get(w.id)));
+    if (cop && !pursuit) startPursuit(pop.byId.get(cop.id), res.killed ? `you killed ${p.name}` : `you attacked ${p.name}`);
+    if (res.killed) { bodies.push({ id: p.id, person: p, pos: downAt.get(p.id).pos, facing: downAt.get(p.id).facing, until: t + planet.dayLength / 24 }); downAt.delete(p.id);
+      ui.toast(`<b>${esc(p.name)}</b> is dead.${seen.length ? ` <b>${seen.length} saw it.</b>` : ''}`, 'bad', 8000); }
+    else ui.toast(`You hit ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 2500);
+  }
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -826,6 +886,7 @@ async function start(fresh) {
       avatar.object.position.set(rp[0] + fx * back, rp[1] + SPEEDER.seat - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back);
       avatar.object.rotation.set(0, ride.facing, 0);
     }
+    avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : null);
     avatar.object.visible = !flight;
     shipView.update(ships.map(sh => {
@@ -844,11 +905,21 @@ async function start(fresh) {
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
+    for (const a of agents) {           // knocked down: lying where they fell until they get up
+      const dn = isDown(store, a.id, t) && downAt.get(a.id);
+      if (dn) { a.pos = dn.pos.slice(); a.facing = dn.facing; a.pose = 'lie'; a.moving = false; a.activity = 'hurt, on the ground'; }
+      else if (downAt.has(a.id) && !isDown(store, a.id, t)) downAt.delete(a.id);
+    }
+    for (let i = bodies.length - 1; i >= 0; i--) if (bodies[i].until < t) bodies.splice(i, 1);
+    agents = agents.filter(a => !bodies.some(b => b.id === a.id)).concat(bodies.map(b => ({ id: b.id, person: b.person, age: b.person.age, pos: b.pos.slice(), facing: b.facing, pose: 'lie', moving: false, activity: 'dead' })));
+    tracer.material.opacity = Math.max(0, tracer.material.opacity - dt * 9); flash.intensity = Math.max(0, flash.intensity - dt * 400);
     if (pursuit) {
       const ev = paused ? null : pursuit.update(t, dt, { pos: ctrl.pos, speed: ctrl.speed }, world, s);
       if (ev === 'chase') ui.toast(`You ran. <b>${pursuit.person.name}</b> is chasing you.`, 'bad', 6000);
       if (ev === 'caught') {
         const cell = arrest(ctx, t, { resisted: pursuit.resisted, by: pursuit.person.name });
+        const taken = inventoryOf(player).filter(x => ITEMS[x.id].cat === 'weapon');      // weapons are taken off you
+        if (taken.length) { player.inventory = inventoryOf(player).filter(x => ITEMS[x.id].cat !== 'weapon'); player.weapon = null; store.touchPlayer(); ui.toast(`They took your ${taken.map(x => ITEMS[x.id].name.toLowerCase()).join(', ')}.`, 'bad', 6000); }
         ctrl.pos = cell.pos.slice(); ctrl.vel = [0, 0, 0];
         const e = store.events.at(-1);
         ui.toast(`<b>${pursuit.person.name}</b> arrested you.${e.paid ? ` ${e.paid} cr in fines taken from your account.` : ''} You're held in the cell for ${e.hours} planet-hour${e.hours === 1 ? '' : 's'}${pursuit.resisted ? ' — longer, for running' : ''}.`, 'bad', 12000);
@@ -949,7 +1020,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, avatar, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, avatar, attack, getBodies: () => bodies, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

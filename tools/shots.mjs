@@ -101,6 +101,15 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.fight = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && !x.uniform && !(x.person.job && O.pop.jobById.get(x.person.job).security) && !String(x.id).startsWith('tr:')); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
+    P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol';
+    const f = a.facing, at = [a.pos[0] + Math.sin(f) * 7, a.pos[1], a.pos[2] + Math.cos(f) * 7]; O.ctrl.pos = at; O.ctrl.vel = [0, 0, 0];
+    O.ctrl.facing = Math.atan2(a.pos[0] - at[0], a.pos[2] - at[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = -0.02; O.cam.dist = 2.6; await wait(700);
+    const aim = () => { const c = O.cam.camera.position; O.cam.camera.lookAt(a.pos[0], a.pos[1] + 1.1, a.pos[2]); };
+    for (let k = 0; k < 3; k++) { aim(); O.attack(); await wait(420); }
+    O.cam.yaw = O.ctrl.facing + 0.6; O.cam.pitch = 0.25; O.cam.dist = 3.5; await wait(900);`;
+SHOTS.fight = 'hour=11';
 // inside your home: stand in a room of the given purpose, looking across it
 const roomShot = (purpose) => `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); const { buildingPlan } = await import('./js/gen/building.js'); const { buildingToWorld } = await import('./js/gen/place.js');
     let b = O.pop.buildingByKey.get(P.home), pl = buildingPlan(O.planet, O.s, b), r = pl.rooms.find(q => q.purpose === '${purpose}' && q.unit !== undefined);

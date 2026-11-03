@@ -39,16 +39,16 @@ export function lodgeIncident(ctx, inc) {
     const p = pop.byId.get(w.id), officer = p?.job && pop.jobById.get(p.job).security;
     if (officer) {
       store.schedule({ at: inc.t + 20, kind: 'law.report', target: caseKey(inc.id), data: { incident: inc.id, witness: w.id, officer: true } }); reports++;
-      if (store.player?.id === inc.by && !store.player.warrant) issueWarrant(ctx, inc.t, `seen by ${p.name} ${inc.type === 'theft' ? 'stealing' : 'breaking in'}`, p.id);
+      if (store.player?.id === inc.by && !store.player.warrant) issueWarrant(ctx, inc.t, w.victim ? `attacking ${p.name}, an officer` : `seen by ${p.name} ${inc.type === 'theft' ? 'stealing' : inc.type === 'assault' ? (inc.killed ? 'killing ' + inc.victimName : 'attacking ' + inc.victimName) : 'breaking in'}`, p.id);
       continue;
     }
-    if (roll(ctx, inc.id, w.id, 'report') < polity.reportRate) {
+    if (w.victim || roll(ctx, inc.id, w.id, 'report') < (inc.type === 'assault' ? Math.min(0.97, polity.reportRate + 0.3) : polity.reportRate)) {
       store.schedule({ at: inc.t + (3 + 37 * roll(ctx, inc.id, w.id, 'delay')) * MIN, kind: 'law.report', target: caseKey(inc.id), data: { incident: inc.id, witness: w.id } });
       reports++;
     }
   }
   if (!reports) { // nobody reported it: it is found when someone next comes in
-    const f = firstPresence(pop, inc.building, inc.t + 60);
+    const f = inc.type === 'assault' ? { t: inc.t + 900 + 1800 * roll(ctx, inc.id, 'found'), person: null } : firstPresence(pop, inc.building, inc.t + 60);   // in the open, someone soon comes by
     store.schedule({ at: f ? f.t : inc.t + 24 * HOUR, kind: 'law.discover', target: caseKey(inc.id), data: { incident: inc.id, by: f?.person.id || null } });
   }
 }
@@ -66,7 +66,7 @@ function openCase(ctx, inc, t, reporter) {
   const { store, polity } = ctx;
   const k = caseKey(inc.id);
   if (store.getDelta(k)) return store.getDelta(k);
-  store.log({ t, type: 'case_opened', incident: inc.id, what: inc.type === 'theft' ? 'theft' : 'break-in', authority: polity.securityName, reporter, settlementName: inc.settlementName, owner: inc.owner });
+  store.log({ t, type: 'case_opened', incident: inc.id, what: inc.type === 'theft' ? 'theft' : inc.type === 'assault' ? (inc.killed ? 'killing' : 'assault') : 'break-in', authority: polity.securityName, reporter, settlementName: inc.settlementName, owner: inc.owner });
   store.schedule({ at: t + (24 + 24 * roll(ctx, inc.id, 'inv')) * HOUR, kind: 'law.investigate', target: k, data: { incident: inc.id } });
   return store.patchDelta(k, { status: 'open', opened: t, identified: false, reports: 0 });
 }
@@ -88,14 +88,14 @@ export function registerLawJobs(sched) {
     const c = openCase(ctx, inc, job.at, p?.name || 'a witness');
     ctx.store.patchDelta(caseKey(inc.id), { reports: (c.reports || 0) + 1 });
     const you = ctx.store.player?.id === inc.by ? ctx.store.player : null;
-    const identifies = job.data.officer || roll(ctx, inc.id, job.data.witness, 'id') < knowsYou(ctx, job.data.witness, you);
+    const identifies = job.data.officer || (inc.victim === job.data.witness && inc.type === 'assault') || roll(ctx, inc.id, job.data.witness, 'id') < knowsYou(ctx, job.data.witness, you);
     if (identifies) charge(ctx, inc, job.at, job.data.officer ? 2 * MIN : (4 + 16 * roll(ctx, inc.id, 'charge')) * HOUR);
   });
 
   sched.on('law.discover', (job, ctx) => {
     const inc = incident(ctx, job.data.incident); if (!inc) return;
     const p = job.data.by ? ctx.pop.byId.get(job.data.by) : null;
-    ctx.store.log({ t: job.at, type: inc.type === 'theft' ? 'theft_discovered' : 'break_in_discovered', incident: inc.id, by: p?.name || inc.owner, owner: inc.owner, settlementName: inc.settlementName });
+    ctx.store.log({ t: job.at, type: inc.type === 'theft' ? 'theft_discovered' : inc.type === 'assault' ? (inc.killed ? 'body_found' : 'assault_found') : 'break_in_discovered', incident: inc.id, victimName: inc.victimName, by: p?.name || inc.owner, owner: inc.owner, settlementName: inc.settlementName });
     openCase(ctx, inc, job.at, p?.name || inc.owner);
   });
 

@@ -402,6 +402,17 @@ try {
   check(tk.opened && tk.known, `talked to ${tk.title0} — introduced: now ${tk.title1} (${JSON.stringify(tk).slice(0, 200)})`);
   check(/I'm|I live|School|retired|Nothing|Looking|between/.test(tk.said), 'they answered: ' + tk.said);
   check(!!tk.waypoint, 'asked the way: waypoint to ' + tk.waypoint);
+  console.log('[combat]');
+  const cb = await ev(`(async () => {
+    const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms));
+    let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && x.pose !== 'lie' && !String(x.id).startsWith('tr:') && !(x.person.job && O.pop.jobById.get(x.person.job).security)); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
+    if (!a) return { none: true };
+    O.ctrl.mode = 'walk'; O.store.player.weapon = null;
+    const go = () => { O.ctrl.pos = [a.pos[0] - Math.sin(a.facing) * 1.0, a.pos[1], a.pos[2] - Math.cos(a.facing) * 1.0]; O.ctrl.facing = a.facing; };
+    go(); await wait(300);
+    const e0 = O.store.events.length; go(); O.attack(); await wait(200);
+    return { hurt: O.store.getDelta('hurt/' + a.person.id)?.hp, assault: O.store.events.slice(e0).some(e => e.type === 'assault') }; })()`);
+  check(cb.hurt < 100 && cb.assault, `punched someone: ${Math.round(cb.hurt)}% health, an assault is on record`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

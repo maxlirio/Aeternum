@@ -58,8 +58,12 @@ export const ITEMS = {
   soap:        { name: 'Detergent', cat: 'supply', kg: 1.0, value: 4 },
   tape:        { name: 'Sealant tape', cat: 'supply', kg: 0.2, value: 3 },
   sealant:     { name: 'Sealant gun', cat: 'supply', kg: 0.6, value: 10 },
+  knife:       { name: 'Combat knife', cat: 'weapon', kg: 0.3, value: 45 },
+  baton:       { name: 'Shock baton', cat: 'weapon', kg: 0.8, value: 90 },
+  pistol:      { name: 'Slug pistol', cat: 'weapon', kg: 1.1, value: 650 },
+  carbine:     { name: 'Pulse carbine', cat: 'weapon', kg: 3.4, value: 1900 },
 };
-export const CAT_LABEL = { food: 'Food', drink: 'Drink', ingredient: 'Ingredient', meal: 'Meal', medicine: 'Medicine', clothing: 'Clothing', tool: 'Tool', part: 'Part', valuable: 'Valuable', data: 'Data', supply: 'Supply' };
+export const CAT_LABEL = { weapon: 'Weapon', food: 'Food', drink: 'Drink', ingredient: 'Ingredient', meal: 'Meal', medicine: 'Medicine', clothing: 'Clothing', tool: 'Tool', part: 'Part', valuable: 'Valuable', data: 'Data', supply: 'Supply' };
 
 // What each kind of container holds, by where it stands: [itemId, chance, min, max]
 const POOLS = {
@@ -72,11 +76,11 @@ const POOLS = {
   desk: [['datachip', .6, 1, 3], ['caf', .4, 1, 1], ['ration', .3, 1, 1], ['painkillers', .2, 1, 1]],
   shop: [['ration', .9, 4, 12], ['bread', .7, 2, 6], ['fruit', .8, 4, 10], ['noodles', .9, 4, 10], ['rice', .6, 2, 5], ['protein', .6, 2, 6], ['vegetables', .8, 3, 8], ['eggs', .7, 2, 6], ['cheese', .5, 2, 5],
     ['water', .9, 5, 15], ['juice', .7, 3, 8], ['caf', .8, 3, 10], ['beer', .6, 4, 12], ['painkillers', .7, 2, 6], ['stim', .3, 1, 3], ['medkit', .4, 1, 2], ['soap', .7, 2, 5], ['tape', .7, 2, 6],
-    ['torch', .5, 1, 3], ['multitool', .4, 1, 2], ['shirt', .4, 1, 4], ['jacket', .25, 1, 2], ['boots', .3, 1, 2]],
+    ['torch', .5, 1, 3], ['multitool', .4, 1, 2], ['shirt', .4, 1, 4], ['jacket', .25, 1, 2], ['boots', .3, 1, 2], ['knife', .35, 1, 3], ['baton', .2, 1, 2], ['pistol', .18, 1, 2]],
   stockroom: [['ration', .6, 6, 20], ['water', .6, 6, 20], ['noodles', .5, 6, 20], ['soap', .4, 2, 8], ['caf', .4, 4, 12]],
-  workshop: [['scrap', .9, 2, 8], ['plate', .7, 1, 5], ['wiring', .6, 1, 4], ['circuit', .4, 1, 3], ['servo', .3, 1, 2], ['bracket', .4, 1, 4], ['wrench', .3, 1, 1], ['multitool', .3, 1, 1], ['cutter', .08, 1, 1], ['tape', .5, 1, 3]],
+  workshop: [['knife', .2, 1, 1], ['scrap', .9, 2, 8], ['plate', .7, 1, 5], ['wiring', .6, 1, 4], ['circuit', .4, 1, 3], ['servo', .3, 1, 2], ['bracket', .4, 1, 4], ['wrench', .3, 1, 1], ['multitool', .3, 1, 1], ['cutter', .08, 1, 1], ['tape', .5, 1, 3]],
   bench: [['wrench', .5, 1, 1], ['multitool', .5, 1, 1], ['scanner', .1, 1, 1], ['wiring', .4, 1, 2], ['tape', .6, 1, 2], ['bracket', .3, 1, 2]],
-  hangar: [['plate', .7, 2, 6], ['cell', .5, 1, 3], ['filter', .6, 1, 4], ['servo', .4, 1, 2], ['wiring', .6, 1, 4], ['scrap', .7, 2, 10], ['circuit', .3, 1, 2], ['drone', .05, 1, 1]],
+  hangar: [['pistol', .12, 1, 1], ['carbine', .05, 1, 1], ['plate', .7, 2, 6], ['cell', .5, 1, 3], ['filter', .6, 1, 4], ['servo', .4, 1, 2], ['wiring', .6, 1, 4], ['scrap', .7, 2, 10], ['circuit', .3, 1, 2], ['drone', .05, 1, 1]],
 };
 
 // The container a prop is, given where it stands — or null if it holds nothing.

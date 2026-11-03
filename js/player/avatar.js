@@ -76,7 +76,18 @@ export function createPlaceholderAvatar() {
     accent: new THREE.MeshStandardMaterial({ color: 0xc98b2a, roughness: 0.5 }),
   };
   const rig = buildRig(mats);
-  let phase = 0, blend = 0, opacity = 1;
+  let phase = 0, blend = 0, opacity = 1, swing = 0, aim = false;
+  // what's in the right hand: a few primitives per weapon, parented to the forearm
+  const held = new THREE.Group(); held.position.set(0, -0.4, 0.02); rig.armR.lower.add(held);
+  const dark = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.45, metalness: 0.6 }), steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.25, metalness: 1 });
+  const glow = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2 });
+  const box = (w, h, d, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; return o; };
+  const MODELS = {
+    knife: () => [box(0.025, 0.1, 0.03, dark, 0, 0, 0), box(0.006, 0.17, 0.03, steel, 0, -0.13, 0.005)],
+    baton: () => [box(0.035, 0.12, 0.035, dark, 0, 0, 0), box(0.025, 0.38, 0.025, dark, 0, -0.25, 0), box(0.03, 0.05, 0.03, glow, 0, -0.45, 0)],
+    pistol: () => [box(0.03, 0.11, 0.045, dark, 0, -0.02, 0.0, 0.25), box(0.032, 0.05, 0.2, dark, 0, -0.08, 0.08), box(0.012, 0.012, 0.03, steel, 0, -0.08, 0.19)],
+    carbine: () => [box(0.03, 0.1, 0.045, dark, 0, -0.02, 0, 0.25), box(0.045, 0.08, 0.55, dark, 0, -0.09, 0.12), box(0.02, 0.02, 0.18, steel, 0, -0.08, 0.45), box(0.03, 0.03, 0.08, glow, 0, -0.03, 0.25)],
+  };
   return {
     object: rig.root,
     isPlaceholder: true,
@@ -86,11 +97,25 @@ export function createPlaceholderAvatar() {
       opacity = o; rig.root.visible = o > 0.02;
       for (const m of Object.values(mats)) { m.transparent = o < 0.99; m.opacity = o; m.depthWrite = o >= 0.99; }
     },
+    // the weapon (item id) in the right hand, or nothing
+    setHeld(id) {
+      if (held.userData.id === id) return;
+      held.clear(); held.userData.id = id; aim = id === 'pistol' || id === 'carbine';
+      for (const m of (MODELS[id] || (() => []))()) held.add(m);
+    },
+    punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated
       if (pose) { blend = 0; applyPose(rig, { mode: pose, phase, blend: 0, k: 0 }); return; }
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);
       applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, speed / 5.4), lean: climb?.lean ?? 0 });
+      if (!climb) {
+        if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }          // a gun is held out in front
+        if (swing > 0) {                                                                                     // a strike: the arm drives forward and back
+          const k = Math.sin(swing * Math.PI); rig.armR.upper.rotation.x = -0.4 - 1.2 * k; rig.armR.lower.rotation.x = -1.2 + 1.1 * k; rig.torso.rotation.y = -0.35 * k;
+          swing = Math.max(0, swing - dt * 4);
+        }
+      }
     },
   };
 }

@@ -57,7 +57,7 @@ UI.prototype.inventory = function ({ player, limit }) {
   return new Promise(res => {
     const items = player.inventory || [], m = massOf(items);
     const p = this.panel(`<h2>Inventory</h2><p class="fine">${kg(m)} of ${kg(limit)} you can carry · ${player.credits ?? 0} cr · hunger ${Math.round((player.hunger ?? 0) * 100)}% · fatigue ${Math.round(player.fatigue * 100)}%</p>
-      <ul class="items">${items.map((it, i) => row(it, i, ITEMS[it.id].eat ? 'eat' : null, ['drink'].includes(ITEMS[it.id].cat) ? 'Drink' : ITEMS[it.id].cat === 'medicine' ? 'Take' : 'Eat')).join('') || '<li class="none">You aren\'t carrying anything. Open cupboards, fridges and lockers with E; shops sell what you need.</li>'}</ul>
+      <ul class="items">${items.map((it, i) => ITEMS[it.id].cat === 'weapon' ? row(it, i, 'equip', player.weapon === it.id ? 'Put away' : 'Equip', player.weapon === it.id ? ' · <b>in hand</b>' : '') : row(it, i, ITEMS[it.id].eat ? 'eat' : null, ['drink'].includes(ITEMS[it.id].cat) ? 'Drink' : ITEMS[it.id].cat === 'medicine' ? 'Take' : 'Eat')).join('') || '<li class="none">You aren\'t carrying anything. Open cupboards, fridges and lockers with E; shops sell what you need.</li>'}</ul>
       <button data-a="close" class="primary">Close <small>I / Esc</small></button>`, 'use');
     wire(this, p, res, { KeyI: 'close' });
   });

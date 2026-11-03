@@ -25,7 +25,7 @@ export class UI {
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
-    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump/climb · E use · I inventory · L light · hold F force · J work · C you · Esc menu'); this.root.append(this.hint);
+    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump/climb · E use/talk · click/R attack · I inventory · L light · hold F force · J work · C you · Esc menu'); this.root.append(this.hint);
   }
   panel(html, cls = '') {
     this.closePanel();
@@ -70,7 +70,8 @@ export class UI {
     const lw = $('.law', this.hud), owed = (player.fines || []).reduce((n, f) => n + f.amount, 0);
     lw.innerHTML = player.custody ? `<b class="late">In custody</b> until ${formatHour(solarHour(planet, player.custody.until))}`
       : player.warrant ? `<b class="late">Wanted</b> — ${esc(player.warrant.reason)}` : owed ? `Owes ${owed} cr in fines` : '';
-    const wp = player.waypoint; $('.way', this.hud).textContent = wp ? `→ ${wp.label} · ${Math.round(Math.hypot(wp.x - (g.pos || player.pos)[0], wp.z - (g.pos || player.pos)[2]))} m` : '';
+    const armed = player.weapon && (player.inventory || []).some(x => x.id === player.weapon), wp = player.waypoint, here = g.pos || player.pos;
+    $('.way', this.hud).textContent = [armed ? `In hand: ${ITEMS[player.weapon].name}` : '', wp ? `→ ${wp.label} · ${Math.round(Math.hypot(wp.x - here[0], wp.z - here[2]))} m` : ''].filter(Boolean).join(' · ');
     const jb = $('.job', this.hud), pj = player.job, sh = player.shift;
     if (!pj) jb.textContent = 'Unemployed';
     else if (sh && t >= sh.t0 && t < sh.t1) jb.innerHTML = `${esc(titleOf(pj))} · <b class="${g.atWork ? 'on' : 'late'}">${g.atWork ? 'on shift' : 'shift started — not at work'}</b> until ${formatHour(solarHour(planet, sh.t1))}`;
@@ -201,7 +202,10 @@ export function describeEvent(e, planet) {
     case 'arrested': return `${when} ${e.by ? esc(e.by) + ' of ' : ''}${esc(e.authority)} arrested ${esc(e.whoName)}${e.resisted ? ' after a chase' : ''}. ${e.paid ? `${e.paid} cr in fines taken; ` : ''}held ${e.hours} h.`;
     case 'released': return `${when} ${esc(e.whoName)} was released from the ${esc(e.authority)} cell.`;
     case 'fines_paid': return `${when} ${esc(e.whoName)} paid ${e.amount} cr in fines${e.cleared ? '; the warrant was withdrawn' : ''}.`;
-    case 'died': return `${when} ${who(e)} died, aged ${e.age}.`;
+    case 'died': return `${when} ${who(e)} ${e.cause === 'killed' ? 'was killed' : 'died'}, aged ${e.age}.`;
+    case 'assault': return `${when} ${esc(e.byName)} ${e.killed ? 'killed' : 'attacked'} ${esc(e.victimName)}. ${e.witnesses?.filter(w => !w.victim).length ? `Seen by ${e.witnesses.filter(w => !w.victim).length}.` : 'No one else saw.'}`;
+    case 'body_found': return `${when} ${esc(e.victimName)} was found dead.`;
+    case 'assault_found': return `${when} ${esc(e.victimName)} was found hurt.`;
     case 'born': return `${when} ${esc(e.whoName)} was born to ${esc(e.parents.join(' and '))}.`;
     case 'resident_hired': return `${when} ${who(e)} started work as ${esc(e.title.toLowerCase())} at ${esc(e.employer)}.`;
     case 'resident_quit': return `${when} ${who(e)} left the job of ${esc(e.title.toLowerCase())} at ${esc(e.employer)}.`;

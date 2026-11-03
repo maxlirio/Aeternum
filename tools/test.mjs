@@ -935,6 +935,48 @@ suites.talk = async () => {
   check(typeof T.smallTalk(pop, st, worker, EPOCH, { label: 'rain' }, 'shopping', 0) === 'string', 'small talk');
 };
 
+suites.combat = async () => {
+  const C = await import('../js/sim/processes/combat.js');
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { registerLawJobs, lodgeIncident } = await import('../js/sim/processes/law.js');
+  const { registerLifeJobs } = await import('../js/sim/processes/life.js');
+  const { livePopulation } = await import('../js/world/town.js');
+  const { getPolity, offenceFor } = await import('../js/gen/polity.js');
+  const { newCharacter } = await import('../js/gen/character.js');
+  const { EPOCH } = await import('../js/sim/clock.js');
+  const U = uni(7), p = makePlanet(U, HOMEWORLD), s = getSettlement(p, 0, 0), polity = getPolity(p, s);
+  const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
+  const pop = livePopulation(p, s, st, EPOCH), pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.pos = [0, 0, 0]; st.setPlayer(pl);
+  const sc = new Scheduler(st); registerLawJobs(sc); registerLifeJobs(sc);
+  const ctx = { store: st, sched: sc, planet: p, s, pop, polity, doorstepOf: () => [0, 0, 0] };
+  const victim = pop.people.find(q => q.age > 25 && q.job && !pl.family.parents.includes(q.id)), jobId = victim.job, n0 = pop.people.length;
+  const t = EPOCH + 1000;
+  const r1 = C.strike(ctx, victim, 'fists', t, []);
+  check(r1.hp < 100 && r1.hp > 80 && !r1.killed && r1.incident, `a punch: ${r1.hp}% left`);
+  lodgeIncident(ctx, r1.incident);
+  check(C.healthOf(st, p, victim.id, t + p.dayLength) === 100, 'healed a day later');
+  const r2 = C.strike(ctx, victim, 'knife', t + 5, []), r3 = C.strike(ctx, victim, 'knife', t + 6, []);
+  check(r3.down && !r3.killed && C.isDown(st, victim.id, t + 7), `two stabs: down at ${Math.round(r3.hp)}%`);
+  check(!r2.incident && !r3.incident, 'a flurry of blows is one assault, not three');
+  let r = r3; for (let k = 0; k < 6 && !r.killed; k++) r = C.strike(ctx, victim, 'pistol', t + 10 + k, []);
+  check(r.killed && pop.byId.get(victim.id)?.gone?.why === 'killed' && pop.people.length === n0 - 1, 'shot dead: gone from the town');
+  check(st.events.some(e => e.type === 'died' && e.who === victim.id && e.cause === 'killed'), 'a death in the register, by violence');
+  check(st.getDelta('job/' + jobId)?.holder === null, 'their job is open again');
+  const inc = st.events.find(e => e.type === 'assault' && e.victim === victim.id);
+  check(inc.killed && offenceFor(inc) === 'murder', 'the assault became a murder');
+  sc.runDue(t + 10 * p.dayLength, ctx);
+  check(st.events.some(e => e.type === 'case_opened' && e.what === 'killing'), 'the victim reported the attack before dying: a case is opened');
+  check(pl.fines?.some(f => /Murder/.test(f.offence)) || pl.warrant, `charged: ${pl.fines?.map(f => f.offence + ' ' + f.amount).join(', ')}`);
+  // seen by an officer: a warrant at once
+  const st2 = new WorldStore(new MemoryBackend()); st2.create(seedHex(U), EPOCH, 0);
+  const pop2 = livePopulation(p, s, st2, EPOCH), pl2 = newCharacter(U, p, s, pop2, 1, EPOCH); st2.setPlayer(pl2);
+  const ctx2 = { ...ctx, store: st2, pop: pop2 }, cop = pop2.people.find(q => q.job && pop2.jobById.get(q.job).security), v2 = pop2.people.find(q => q.age > 25 && q !== cop);
+  lodgeIncident(ctx2, C.strike(ctx2, v2, 'fists', t, [{ id: cop.id, name: cop.name, dist: 5 }]).incident);
+  check(pl2.warrant && /attacking/.test(pl2.warrant.reason), 'an officer saw it: ' + pl2.warrant?.reason);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

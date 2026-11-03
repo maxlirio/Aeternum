@@ -28,6 +28,8 @@ export function getPolity(planet, s) {
       shoplifting: { label: 'Shoplifting', fine: Math.round(150 * strict / 10) * 10, record: true },
       vehicle_theft: { label: 'Stealing a vehicle', fine: Math.round(900 * strict / 10) * 10, record: true },
       ship_theft: { label: 'Stealing a ship', fine: Math.round(6000 * strict / 10) * 10, record: true },
+      assault: { label: 'Assault', fine: Math.round(800 * strict / 10) * 10, record: true },
+      murder: { label: 'Murder', fine: Math.round(40000 * strict / 10) * 10, record: true },
     },
     reportRate: rng.range(0.45, 0.8),        // chance a civilian witness reports
     evidenceRate: rng.range(0.08, 0.25),     // chance an unwitnessed case gets solved
@@ -40,6 +42,7 @@ export function getPolity(planet, s) {
 }
 
 export function offenceFor(incident) {
+  if (incident.type === 'assault') return incident.killed ? 'murder' : 'assault';
   if (incident.type === 'theft' && incident.ship) return 'ship_theft';
   if (incident.type === 'theft' && incident.vehicle) return 'vehicle_theft';
   if (incident.type === 'theft') return incident.shop ? 'shoplifting' : incident.buildingType === 'hab' || incident.buildingType === 'house' ? 'theft_home' : 'theft_business';
