@@ -58,6 +58,7 @@ import { FloraView } from './render/flora.js';
 import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
+import { CityInteriors } from './render/cityreal.js';
 import { cityWalkers } from './gen/citytraffic.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
@@ -180,6 +181,7 @@ async function start(fresh) {
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
+  let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
@@ -503,7 +505,8 @@ async function start(fresh) {
         }
       }
     });
-    if (value) {
+    if (value && b.city) ui.toast(`You took ${value} cr worth of ${esc(own.owner || b.owner)}'s things. In the city crowd nobody stops you — <small>the city's own law isn't watching yet</small>.`, 'warn', 7000);
+    else if (value) {
       const t = clock.now(), seen = witnessesHere();
       const inc = reportTheft(ctx, b, u.room, value, stolen, t, seen);
       lodgeIncident(ctx, inc);
@@ -1125,6 +1128,8 @@ async function start(fresh) {
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
     cityTraffic.update(clock.now(), ctrl.pos, 1 - (sky.state.day ?? 1), toRender);
+    if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group); }
+    cityRooms.update(ctrl.pos);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
@@ -1199,7 +1204,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

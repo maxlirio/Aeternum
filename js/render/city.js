@@ -13,7 +13,7 @@ import { getCity, cityBlock, cityExtent, blockRect, lineAt, lineWidth, lineKind,
 const SECTOR = 4;                       // blocks per sector edge
 const PROP_R = 260;                     // street furniture drawn within this
 const SMALL_R = 110;                    // ...and the small clutter (goods, bins, junk) only this close
-const BIG = /^(lamp_|tree|tank|silo|sphere|stack|crane|billboard|cooling|tank_roof|container|monument|fountain|statue|shelter|kiosk|holo_ad|neon_|sign_|lanternline|padlights|shack|dish|antenna)/;
+const BIG = /^(lamp_|tree|palm|tank|silo|sphere|stack|crane|billboard|cooling|tank_roof|container|monument|fountain|statue|shelter|kiosk|holo_|neon_|sign_|ad_|lanternline|padlights|shack|dish|antenna|trafficlight|watertower|windturbine|radar|beacontower|gazebo|sculpture|walker|piperack|fueltank|controlbooth|newsscreen)/;
 const STYLE_P = [   // per style: [r,g,b frame], [r,g,b glass], [winFracX, winFracY, litChance, glassiness]
   [[0.24, 0.27, 0.30], [0.05, 0.08, 0.12], [0.86, 0.82, 0.55, 0.9]],   // glass
   [[0.50, 0.50, 0.48], [0.05, 0.07, 0.09], [0.98, 0.45, 0.50, 0.7]],   // ribbon
@@ -179,7 +179,7 @@ export class CityView {
     this.sectors = new Map(); this.queue = null;
     const [i0, j0, i1, j1] = cityExtent(this.city);
     this.range = [Math.floor(i0 / SECTOR), Math.floor(j0 / SECTOR), Math.floor(i1 / SECTOR), Math.floor(j1 / SECTOR)];
-    this.props = null; this.propAt = null; this.glowMats = new Set();
+    this.props = null; this.propAt = null; this.glowMats = new Set(); this.tierAt = new Map();
     this.stats = { sectors: 0, tiers: 0 };
   }
 
@@ -211,6 +211,14 @@ export class CityView {
     this.updateProps(u, v, viewer[1]);
   }
   get done() { return this.queue && !this.queue.length; }
+  // Hide (or restore) a building's ground tier in the instanced mesh — while its real, walk-in
+  // version is built (render/cityreal.js).
+  hideTier(id, hidden) {
+    const e = this.tierAt.get(id); if (!e || !e.sec.mesh) return;
+    const [r, y, h] = e.t, M = new THREE.Matrix4();
+    if (hidden) M.makeScale(0, 0, 0); else { M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); }
+    e.sec.mesh.setMatrixAt(e.k, M); e.sec.mesh.instanceMatrix.needsUpdate = true;
+  }
 
   buildSector(a, b) {
     const c = this.city, base = c.h + CURB, tiers = [], kerbs = [], crowns = {}, pads = [], beacons = [], bridges = [], doors = [], shaped = {};
@@ -219,7 +227,7 @@ export class CityView {
       kerbs.push(B);
       for (const bd of B.buildings) {
         const seed = parseInt(bd.id.replace(/\D/g, '').slice(-6), 10) % 997 / 997 + (i * 31 + j * 17) % 13;
-        for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed]);
+        for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed, bd.enter && t === bd.tiers[0] ? bd.id : null]);
         if (bd.crown) {
           const t = bd.tiers.at(-1), w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
           (crowns[bd.crown] ||= []).push([t.r, base + t.y1, s * CROWN_H[bd.crown] * (bd.crown === 'antenna' ? 3 : 1) + (bd.crown === 'spire' ? s * 0.6 : 0), bd.crown === 'vault' ? [w, d] : [s, s]]);
@@ -245,7 +253,7 @@ export class CityView {
       mesh.setMatrixAt(k, M); attr[k * 2] = st; attr[k * 2 + 1] = seed; k++;
     };
     for (const B of kerbs) put(B.rect, c.h, CURB, B.ground === 'garden' ? STYLE.garden : STYLE.paving, 0.5);
-    for (const t of tiers) put(...t);
+    for (const t of tiers) { if (t[5]) this.tierAt.set(t[5], { sec, k, t }); put(...t); }
     mesh.geometry = this.box.clone(); mesh.geometry.setAttribute('aCity', new THREE.InstancedBufferAttribute(attr, 2));
     mesh.computeBoundingSphere(); mesh.receiveShadow = true;
     sec.mesh = mesh; sec.group.add(mesh);

@@ -185,6 +185,11 @@ function tower(ctx, foot, base, height, style, nTiers) {
   }
   return tiers;
 }
+// Can the town's plan generator lay out a building on this footprint? (Then you can go in.)
+function enterable(r, type) {
+  const a = Math.max(W(r), D(r)), b = Math.min(W(r), D(r));
+  return a >= 9 && a <= 24 && b >= 8.5 && b <= 18 ? type : null;
+}
 const CROWNS = ['spire', 'ring', 'pyramid', 'dome', 'antenna', 'pad', 'crown', 'blade'];
 // Round and octagonal towers: each tier squared up about its centre (the footprint is then
 // the circle inscribed in its rect; collision treats it as that circle).
@@ -272,7 +277,7 @@ const BUILD = {
     for (const f of [[r[0], r[1], r[2], r[1] + dep], [r[0], r[3] - dep, r[2], r[3]]]) {
       for (const lot of split(rng, f, Math.max(2, Math.round(W(f) / rng.range(9, 14))), 0)) {
         const h = rng.int(2, 4) * 3.4;
-        const b = add(ctx, rng.pick(['brick', 'grime', 'hab', 'brick']), [{ r: lot, y0: 0, y1: h }], { label: 'shophouse', awning: true });
+        const b = add(ctx, rng.pick(['brick', 'grime', 'hab', 'brick']), [{ r: lot, y0: 0, y1: h }], { label: 'shophouse', awning: true, enter: enterable(lot, 'store') });
         b.top = h; roofClutter(ctx, b, 0.7);
       }
       shopfronts(ctx, f, 'market');
@@ -314,7 +319,8 @@ const BUILD = {
         tiers.push({ r: r2, y0: h0, y1 }); upper.push(tiers[1]);
         if (rng.chance(0.3) && W(r2) > 5 && D(r2) > 5) tiers.push({ r: inset(r2, rng.range(0.5, 2)), y0: tiers[1].y1, y1: tiers[1].y1 + rng.range(2.6, 6) });
       }
-      const b = add(ctx, rng.pick(['grime', 'grime', 'brick', 'hab']), tiers, { label: rng.pick(['tenement', 'flophouse', 'den', 'cantina', 'pawnshop', 'workshop', 'noodle bar', 'chop shop']), neon: rng.chance(0.6) });
+      const label = rng.pick(['tenement', 'flophouse', 'den', 'cantina', 'pawnshop', 'workshop', 'noodle bar', 'chop shop']);
+      const b = add(ctx, rng.pick(['grime', 'grime', 'brick', 'hab']), tiers, { label, neon: rng.chance(0.6), enter: enterable(q, label === 'tenement' || label === 'flophouse' ? 'hab' : 'store') });
       b.top = r1(Math.max(...tiers.map(t => t.y1)));
       roofClutter(ctx, b, 1);
       if (b.neon) { const side = rng.int(0, 3), [a0, b0, a1, b1] = q, y = rng.range(3, Math.min(9, h0 - 1));
@@ -336,7 +342,7 @@ const BUILD = {
       b.top = h; roofClutter(ctx, b, 1);
       if (rng.chance(0.6)) prop(ctx, 'stack', lot[0] + 6, lot[1] + 6, h, 0, rng.range(1, 2.4));
       if (rng.chance(0.4)) prop(ctx, 'crane', lot[2] - 8, (lot[1] + lot[3]) / 2, 0, 0, rng.range(0.9, 1.3));
-      for (let k = 0; k < 4; k++) prop(ctx, rng.pick(['container', 'container', 'pallet', 'drums', 'forklift']), rng.range(lot[0] + 2, lot[2] - 2), lot[3] + 1.4, 0, Math.PI / 2 * rng.int(0, 1));
+      for (let k = 0; k < 4; k++) prop(ctx, rng.pick(['container', 'container', 'pallet', 'drums', 'forklift', 'gastanks', 'valve', 'transformer', 'conveyor', 'walker', 'piperack']), rng.range(lot[0] + 4, lot[2] - 4), lot[3] + 1.4, 0, Math.PI / 2 * rng.int(0, 1));
     }
   },
   port(ctx, r) {
@@ -349,25 +355,27 @@ const BUILD = {
         if (rng.chance(0.5)) add(ctx, 'glass', [{ r: inset(cell, 14), y0: 22, y1: 64 }], { label: 'control tower', crown: 'ring' }); continue; }
       ctx.B.pads.push({ r: inset(cell, 2).map(r1), y: 1.6, ground: true });
       prop(ctx, 'padlights', (cell[0] + cell[2]) / 2, (cell[1] + cell[3]) / 2, 1.6);
-      prop(ctx, rng.pick(['fuelcart', 'cargoloader', 'container']), cell[2] - 3, cell[3] - 3, 1.6, rng.range(0, 6.28));
+      prop(ctx, rng.pick(['fuelcart', 'cargoloader', 'container', 'baggagecart', 'fueltank', 'controlbooth']), cell[2] - 4, cell[3] - 4, 1.6, rng.range(0, 6.28));
+      if (rng.chance(0.3)) prop(ctx, rng.pick(['radar', 'windsock', 'beacontower']), cell[0] + 2, cell[1] + 2, 1.6, 0);
     }
   },
   park(ctx, r) {
     const { rng } = ctx;
     ctx.B.ground = 'garden';
     const cu = (r[0] + r[2]) / 2, cv = (r[1] + r[3]) / 2;
-    prop(ctx, rng.pick(['fountain', 'monument', 'statue', 'fountain']), cu, cv, 0, 0, rng.range(1, 1.6));
+    prop(ctx, rng.pick(['fountain', 'monument', 'statue', 'fountain', 'gazebo', 'sculpture1', 'sculpture2', 'sculpture3', 'holo_globe']), cu, cv, 0, 0, rng.range(1, 1.6));
     for (let k = 0; k < 26; k++) {
       const u = rng.range(r[0] + 4, r[2] - 4), v = rng.range(r[1] + 4, r[3] - 4);
       if (Math.abs(u - cu) < 9 && Math.abs(v - cv) < 9) continue;
-      prop(ctx, rng.chance(0.7) ? 'tree' : rng.pick(['bench', 'lamp_park', 'planter', 'kiosk']), u, v, 0, rng.int(0, 3) * Math.PI / 2, rng.range(0.8, 1.4));
+      prop(ctx, rng.chance(0.6) ? rng.pick(['tree', 'tree', 'palm']) : rng.pick(['bench', 'lamp_ornate', 'planter', 'kiosk', 'hedge', 'flowerbed', 'picnic', 'bench_curved', 'fountain_drink', 'footbridge']), u, v, 0, rng.int(0, 3) * Math.PI / 2, rng.range(0.8, 1.4));
     }
   },
 };
-const STALLS = ['stall_canopy', 'stall_umbrella', 'stall_cart', 'stall_tent', 'stall_crate', 'stall_noodle', 'stall_fish', 'stall_cloth', 'stall_tech', 'stall_fruit', 'stall_spice', 'stall_grill'];
+const STALLS = ['stall_canopy', 'stall_umbrella', 'stall_cart', 'stall_tent', 'stall_crate', 'stall_noodle', 'stall_fish', 'stall_cloth', 'stall_tech', 'stall_fruit', 'stall_spice', 'stall_grill',
+  'stall_meat', 'stall_pots', 'stall_flowers', 'stall_juice', 'stall_droid', 'stall_weapons', 'stall_fortune', 'stall_tea', 'stall_hats'];
 const MARKET_BITS = ['sacks', 'baskets', 'crates_fruit', 'barrels', 'pots', 'rugs', 'cage', 'stool', 'scale', 'handcart'];
 const NEONS = ['neon_bar', 'neon_noodle', 'neon_eye', 'neon_arrow', 'neon_ring', 'neon_vert', 'neon_cross', 'neon_star', 'neon_fish', 'neon_glyph'];
-const ROOF = ['ac', 'ac2', 'tank_roof', 'antenna', 'dish', 'vent', 'solar', 'cooling', 'billboard', 'aerial', 'skylight', 'beacon'];
+const ROOF = ['ac', 'ac2', 'tank_roof', 'antenna', 'dish', 'vent', 'solar', 'cooling', 'billboard', 'aerial', 'skylight', 'beacon', 'roofgarden', 'watertower', 'antennacluster', 'windturbine', 'chimney', 'ad_letters', 'ad_tall'];
 function roofClutter(ctx, b, p) {
   const { rng } = ctx, top = b.tiers.at(-1);
   if (!top || W(top.r) < 4 || D(top.r) < 4) return;
@@ -376,7 +384,7 @@ function roofClutter(ctx, b, p) {
 }
 function yardJunk(ctx, q) {
   const { rng } = ctx;
-  for (let k = 0; k < 5; k++) prop(ctx, rng.pick(['dumpster', 'trashpile', 'shack', 'firebarrel', 'mattress', 'boxes', 'scrapheap', 'leanto', 'hulk']), rng.range(q[0] + 1, q[2] - 1), rng.range(q[1] + 1, q[3] - 1), 0, rng.range(0, 6.28));
+  for (let k = 0; k < 5; k++) prop(ctx, rng.pick(['dumpster', 'trashpile', 'shack', 'firebarrel', 'mattress', 'boxes', 'scrapheap', 'leanto', 'hulk', 'graffiti', 'barricade', 'burntcar', 'tent', 'generator', 'cablespool']), rng.range(q[0] + 1, q[2] - 1), rng.range(q[1] + 1, q[3] - 1), 0, rng.range(0, 6.28));
 }
 // signs and awnings along a frontage
 function shopfronts(ctx, f, kind) {
@@ -389,19 +397,24 @@ function shopfronts(ctx, f, kind) {
 }
 // street furniture on the sidewalk ring: lamps on a rhythm, then the clutter of the district
 const SIDEWALK = {
-  spire: ['bench_lux', 'planter_lux', 'holo_post', 'bollard', 'kiosk_lux', 'bin_lux', 'tree_lux'],
-  commerce: ['bench', 'bin', 'vending', 'vending2', 'terminal_post', 'planter', 'bollard', 'newsstand', 'shelter', 'kiosk', 'atm', 'bikerack'],
-  housing: ['bench', 'bin', 'planter', 'tree', 'mailbox', 'bikerack', 'hydrant', 'shelter', 'bollard'],
-  market: ['crates_fruit', 'sacks', 'handcart', 'foodcart', 'foodcart2', 'stool', 'barrels', 'vending', 'lanterns_post'],
-  undercity: ['dumpster', 'bin_rusty', 'trashpile', 'boxes', 'firebarrel', 'vending_old', 'junction', 'steamvent', 'barrier', 'hydrant'],
-  industry: ['barrier', 'drums', 'pallet', 'junction', 'bollard', 'hydrant', 'container'],
-  port: ['barrier', 'bollard', 'terminal_post', 'fuelcart'],
-  park: ['bench', 'bin', 'lamp_park'],
+  spire: ['bench_lux', 'planter_lux', 'holo_post', 'bollard_light', 'kiosk_lux', 'bin_lux', 'tree_lux', 'newsscreen', 'droid_sentry', 'droid_cleaner', 'ticketmachine', 'planter_tall'],
+  commerce: ['bench', 'bin', 'vending', 'vending2', 'terminal_post', 'planter', 'bollard', 'newsstand', 'shelter', 'kiosk', 'atm', 'bikerack', 'phonebooth', 'ticketmachine', 'parkingmeter', 'recycler', 'busstop', 'scooter', 'droid_delivery', 'newsscreen'],
+  housing: ['bench', 'bin', 'planter', 'tree', 'mailbox', 'bikerack', 'hydrant', 'shelter', 'bollard', 'recycler', 'busstop', 'scooter', 'parkingmeter', 'fountain_drink', 'planter_tall'],
+  market: ['crates_fruit', 'sacks', 'handcart', 'foodcart', 'foodcart2', 'stool', 'barrels', 'vending', 'lanterns_post', 'kiosk_noodle', 'kiosk_food', 'scooter', 'droid_delivery'],
+  undercity: ['dumpster', 'bin_rusty', 'trashpile', 'boxes', 'firebarrel', 'vending_old', 'junction', 'steamvent', 'barrier', 'hydrant', 'graffiti', 'generator', 'cablespool', 'phonebooth', 'tent'],
+  industry: ['barrier', 'drums', 'pallet', 'junction', 'bollard', 'hydrant', 'container', 'gastanks', 'valve', 'generator', 'cablespool'],
+  port: ['barrier', 'bollard', 'terminal_post', 'fuelcart', 'baggagecart', 'ticketmachine', 'windsock'],
+  park: ['bench', 'bin', 'lamp_park', 'fountain_drink', 'flowerbed', 'bench_curved'],
 };
-const LAMPS = { spire: 'lamp_lux', commerce: 'lamp_cobra', housing: 'lamp_double', market: 'lamp_lantern', undercity: 'lamp_neon', industry: 'lamp_flood', port: 'lamp_flood', park: 'lamp_park' };
+const LAMPS = { spire: 'lamp_lux', commerce: 'lamp_cobra', housing: 'lamp_double', market: 'lamp_lantern', undercity: 'lamp_neon', industry: 'lamp_flood', port: 'lamp_flood', park: 'lamp_ornate' };
 function dressSidewalk(ctx, rect, inner) {
   const { rng, B } = ctx, d = B.district, kit = SIDEWALK[d], lamp = LAMPS[d];
   const edges = [[rect[0], rect[1] + 0.7, rect[2], rect[1] + 0.7, 0], [rect[0], rect[3] - 0.7, rect[2], rect[3] - 0.7, Math.PI], [rect[0] + 0.7, rect[1], rect[0] + 0.7, rect[3], Math.PI / 2], [rect[2] - 0.7, rect[1], rect[2] - 0.7, rect[3], -Math.PI / 2]];
+  if (d !== 'park' && d !== 'undercity') {     // at the corners: traffic lights where the busier streets meet, a street sign on the others
+    const busy = lineKind(B.i) !== 'street' || lineKind(B.j) !== 'street';
+    prop(ctx, busy ? 'trafficlight' : 'streetsign', rect[0] + 0.6, rect[1] + 0.6, 0, -Math.PI * 0.75);
+    prop(ctx, busy ? 'trafficlight' : 'streetsign', rect[2] - 0.6, rect[3] - 0.6, 0, Math.PI * 0.25);
+  }
   for (const [u0, v0, u1, v1, rot] of edges) {
     const L = Math.hypot(u1 - u0, v1 - v0), du = (u1 - u0) / L, dv = (v1 - v0) / L;
     for (let a = 6; a < L - 6; a += 24) prop(ctx, lamp, u0 + du * a, v0 + dv * a, 0, rot);

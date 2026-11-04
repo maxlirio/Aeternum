@@ -1058,6 +1058,20 @@ suites.city = async () => {
       }
     }
   }
+  {   // walk-in buildings: the town's plan generator lays every one out, all rooms reachable from the street
+    const { realOf } = await import('../js/world/cityreal.js');
+    const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s1 = getSettlement(p, 0, 0), [i0, j0, i1, j1] = C.cityExtent(c);
+    let n = 0, bad = 0, unreach = 0;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const B = C.cityBlock(c, i, j); for (const b of B.buildings) {
+      if (!b.enter) continue; const r = realOf(p, s1, c, B, b); if (!r) { bad++; continue; } n++;
+      if (n % 7) continue;     // (reachability on a sample: every 7th)
+      const g = roomGraph(r.plan), seen = new Set(['outside']), q = ['outside'];
+      while (q.length) for (const k of g.get(q.pop()) || []) if (!seen.has(k)) { seen.add(k); q.push(k); }
+      if (r.plan.rooms.some(rm => !seen.has(`${rm.k}:${rm.i}`))) unreach++;
+    } }
+    check(n > 3000 && bad === 0, `${n} walk-in city buildings (${bad} the plan generator couldn't lay out)`);
+    check(unreach === 0, `every room of every sampled walk-in building is reachable from the street (${unreach} not)`);
+  }
   check(maxH > 600, `spires reach ${Math.round(maxH)} m`);
   check(kinds.size >= 100, `${kinds.size} kinds of street furniture, stalls and roof kit`);
   for (const d of C.DISTRICTS) check(dist[d] > 0, `district ${d} present (${dist[d] || 0} blocks)`);

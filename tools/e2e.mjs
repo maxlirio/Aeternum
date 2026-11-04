@@ -325,7 +325,7 @@ try {
     const other = O.getVehicles().find(x => !x.forSale && !x.owner.startsWith('you'));
     O.ctrl.pos = [other.pos[0] + 1.2, other.pos[1], other.pos[2]]; await wait(400);
     key('KeyE'); await wait(200); out.notMine = !O.getRide();
-    key('KeyF', false); await wait(3600); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' })); await wait(200);
+    key('KeyF', false); for (let i = 0; i < 40 && O.getRide()?.v.id !== other.id; i++) await wait(200); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyF' })); await wait(200);
     out.stole = O.getRide()?.v.id === other.id && O.store.events.some(e => e.type === 'theft' && e.vehicle === other.id);
     key('KeyE'); await wait(200); await O.save();
     out.id = v.id; out.pos = now.pos;
@@ -466,6 +466,19 @@ try {
     return { near, prompt: prompt.slice(0, 80), want: q.y, y: Math.round(y * 10) / 10, after: Math.round((O.ctrl.pos[1] - c.h - G.CURB) * 10) / 10 }; })()`);
   check(lf.near && /Lift/.test(lf.prompt), 'a tower\'s street door offers its lift: ' + lf.prompt);
   check(Math.abs(lf.y - lf.want) < 0.3 && Math.abs(lf.after - lf.want) < 0.3, `took the lift up to a skybridge ${lf.want} m up and stood on it (${lf.y} → ${lf.after})`);
+  const wi = await ev(`(async () => {
+    const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), R = await import('./js/world/cityreal.js');
+    let rec = null; for (let a = 0; a < 1600 && !rec; a++) { const B = G.cityBlock(c, (a % 40) - 20, Math.floor(a / 40) - 20); if (B.district !== 'market') continue; for (const b of B.buildings) if (b.enter === 'store') { rec = R.realOf(O.planet, O.s, c, B, b); if (rec) break; } }
+    const pl = rec.plan, dr = pl.doors.find(d => d.k === 0 && d.rooms.includes('outside')) || pl.doors[0];
+    const at = (x, z) => O.s.toWorld(rec.O[0] + rec.ex[0] * x + rec.ez[0] * z, rec.O[1] + rec.ex[1] * x + rec.ez[1] * z);
+    const [x, z] = at(dr.x, -2.5), [tx, tz] = at(dr.x, 3);
+    O.ctrl.pos = [x, c.h + 0.05, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 60 && !O.getCityRooms()?.live.has(rec.cityId); i++) { O.ctrl.pos = [x, c.h + 0.05, z]; await wait(200); }
+    O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing; await wait(300);
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(2200); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(300);
+    const loc = O.world.locate(...O.ctrl.pos);
+    return { live: O.getCityRooms()?.live.size, inside: !!loc?.b?.city, room: loc?.room?.purpose, label: rec.label, place: document.querySelector('.place')?.textContent }; })()`);
+  check(wi.inside, `walked in off the street into a ${wi.label} (${wi.room}; ${wi.live} walk-in buildings built nearby) — HUD: ${wi.place}`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

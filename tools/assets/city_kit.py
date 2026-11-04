@@ -460,13 +460,229 @@ def statue(p, r):
     add_cyl(p, 4.0, 0, 0.3, 1.1, 0.08, 'metal', seg=8, axis='x'); add_cyl(p, 4.1, 0, -1.1, -0.3, 0.08, 'metal', seg=8, axis='x')
     cy(p, 1.05, 0, 4.0, 5.6, 0.05, 'metal', 6)
 
+# ---------------------------------------------------------------- batch 2: more of everything
+def phonebooth(p, r):
+    for sx in (-0.5, 0.5):
+        for sz in (-0.5, 0.5): bx(p, sx, 0, sz, 0.08, 2.4, 0.08, 'tint')
+    bx(p, 0, 2.4, 0, 1.15, 0.2, 1.15, 'tint', 0.02); bx(p, 0, 2.42, -0.58, 0.9, 0.14, 0.02, 'neoncyan', 0.003)
+    for (x, z, w, d) in ((0, 0.52, 1.0, 0.03), (-0.52, 0, 0.03, 1.0), (0.52, 0, 0.03, 1.0)): bx(p, x, 0.1, z, w, 2.2, d, 'glass', 0.003)
+    bx(p, 0, 1.1, 0.46, 0.4, 0.5, 0.1, 'paint'); bx(p, 0, 1.3, 0.4, 0.25, 0.18, 0.02, 'screen', 0.003)
+def ticketmachine(p, r):
+    bx(p, 0, 0, 0, 0.7, 1.7, 0.5, 'tint', 0.04); bx(p, 0, 1.0, -0.26, 0.45, 0.4, 0.02, 'screen', 0.003)
+    bx(p, 0, 0.6, -0.27, 0.2, 0.05, 0.04, 'rubber'); bx(p, 0, 1.6, -0.26, 0.6, 0.08, 0.02, 'neonamber', 0.003)
+def parkingmeter(p, r): cy(p, 0, 0, 0, 1.1, 0.04, 'paint', 8); bx(p, 0, 1.1, 0, 0.22, 0.32, 0.16, 'paint', 0.03); bx(p, 0, 1.25, -0.085, 0.14, 0.1, 0.01, 'screen', 0.002)
+def trafficlight(p, r):
+    cy(p, 0, 0, 0, 5.4, 0.1, 'paint', 10); rod_z(p, -3.6, 0, 0, 5.2, 0.06, 'paint')
+    bx(p, 0, 4.0, -3.4, 0.36, 1.1, 0.3, 'paint', 0.03)
+    for i, m in enumerate(('navred', 'neonamber', 'navgreen')): cy(p, 0, -3.56, 4.85 - i * 0.33, 4.88 - i * 0.33, 0.11, m, 12)
+    bx(p, 0, 1.0, -0.12, 0.3, 0.4, 0.2, 'paint')
+def streetsign(p, r):
+    cy(p, 0, 0, 0, 3.0, 0.04, 'metal', 8)
+    for k, rot in ((0, 0), (1, 1)): bx(p, 0.5 if not rot else 0, 2.7 - k * 0.3, 0 if not rot else 0.5, 1.0 if not rot else 0.03, 0.22, 0.03 if not rot else 1.0, 'tint', 0.01)
+def fountain_drink(p, r): cy(p, 0, 0, 0, 0.95, 0.18, 'stone', 12); cy(p, 0, 0, 0.95, 1.0, 0.24, 'metal', 14); cy(p, 0.1, 0, 1.0, 1.1, 0.02, 'metal', 6)
+def recycler(p, r):
+    for i, x in enumerate((-0.7, 0, 0.7)): bx(p, x, 0, 0, 0.62, 1.2, 0.62, 'tint', 0.04); bx(p, x, 1.0, -0.32, 0.3, 0.06, 0.02, ('neongreen', 'neonamber', 'neoncyan')[i], 0.003)
+def bench_curved(p, r):
+    for i in range(9):
+        a = -0.8 + i * 0.2; x, z = math.sin(a) * 2.0, math.cos(a) * 2.0 - 2.0
+        bx(p, x, 0, z, 0.42, 0.45, 0.5, 'stone', 0.02)
+    for i in range(9):
+        a = -0.8 + i * 0.2; bx(p, math.sin(a) * 2.2, 0.45, math.cos(a) * 2.2 - 2.0, 0.42, 0.04, 0.1, 'wood', 0.005)
+def picnic(p, r):
+    bx(p, 0, 0.72, 0, 1.8, 0.05, 0.8, 'wood'); [bx(p, 0, 0.42, s * 0.65, 1.8, 0.04, 0.3, 'wood') for s in (-1, 1)]
+    for x in (-0.75, 0.75): bx(p, x, 0, 0, 0.06, 0.72, 1.6, 'metal')
+def palm(p, r):
+    rng = random.Random(r.random())
+    for i in range(10): cy(p, math.sin(i * 0.25) * 0.15, 0, i * 0.7, i * 0.7 + 0.72, 0.18 - i * 0.008, 'bark', 8, r2=0.17 - i * 0.008)
+    for k in range(9):
+        a = k * 2 * math.pi / 9; bm = bmesh.new(); L = rng.uniform(2.4, 3.2)
+        vs = [bm.verts.new(P(*q)) for q in ((0.12, 7.0, 0), (L * math.cos(a) - 0.3 * math.sin(a), 6.4 - L * 0.25, L * math.sin(a) + 0.3 * math.cos(a)), (L * math.cos(a) + 0.3 * math.sin(a), 6.4 - L * 0.25, L * math.sin(a) - 0.3 * math.cos(a)))]
+        bm.faces.new(vs); merge(p, bm, 'leaf')
+def hedge(p, r): add_cushion(p, -1.5, 0, -0.4, 1.5, 1.1, 0.4, 'leaf', 0.2, 0.4, 8)
+def flowerbed(p, r):
+    rng = random.Random(r.random()); bx(p, 0, 0, 0, 2.4, 0.4, 1.2, 'stone', 0.03); bx(p, 0, 0.3, 0, 2.2, 0.12, 1.0, 'soil')
+    for i in range(18): ball(p, rng.uniform(-1, 1), 0.5, rng.uniform(-0.4, 0.4), 0.1, rng.choice(['tint', 'leaf', 'neonpink']), 1)
+def lamp_ornate(p, r):
+    cy(p, 0, 0, 0, 0.5, 0.2, 'paint', 12, r2=0.12); cy(p, 0, 0, 0.5, 4.4, 0.07, 'paint', 10)
+    rod_x(p, -0.6, 0.6, 4.3, 0, 0.03, 'paint')
+    for s in (-1, 1): bx(p, s * 0.6, 3.8, 0, 0.3, 0.45, 0.3, 'glass', 0.01); bx(p, s * 0.6, 3.86, 0, 0.18, 0.32, 0.18, 'lampwarm', 0.01)
+def stall_meat(p, r):
+    stall(p, r, 'tint', 'crates', 3.0, 2.2)
+    rod_x(p, -1.3, 1.3, 2.2, -0.6, 0.02, 'metal')
+    for i in range(6): cy(p, -1.1 + i * 0.44, -0.6, 1.45, 2.15, 0.12, 'tint', 8, r2=0.06)
+def stall_pots(p, r):
+    stall(p, r, 'fabric', 'spice', 3.0, 2.2, 'tent')
+    for i in range(5): cy(p, -1.2 + i * 0.6, -1.5, 0, 0.5, 0.2, 'ceramic', 12, r2=0.12)
+def stall_flowers(p, r):
+    stall(p, r, 'tint', 'crates', 2.8, 2.0, 'umbrella'); rng = random.Random(2)
+    for i in range(14): ball(p, rng.uniform(-1.2, 1.2), 1.05, rng.uniform(-0.9, -0.3), 0.12, rng.choice(['tint', 'neonpink', 'leaf', 'hazard']), 1)
+def stall_juice(p, r):
+    stall(p, r, 'tint', 'noodle', 2.6, 2.0)
+    for i in range(3): cy(p, -0.8 + i * 0.8, 0.4, 1.0, 1.5, 0.15, 'glass', 12); cy(p, -0.8 + i * 0.8, 0.4, 1.02, 1.35, 0.13, ('neonamber', 'neonpink', 'neongreen')[i], 12)
+def stall_droid(p, r):
+    stall(p, r, 'corrugated', 'tech', 3.0, 2.4)
+    ball(p, 0.8, 1.15, -0.6, 0.22, 'metal', 2); cy(p, 0.8, -0.6, 1.3, 1.4, 0.1, 'screen', 10); rod_x(p, -0.4, 0.2, 1.05, -0.6, 0.03, 'metal')
+def stall_weapons(p, r):
+    stall(p, r, 'corrugated', 'tech', 3.0, 2.2); bx(p, 0, 1.0, 1.0, 2.6, 1.2, 0.05, 'rubber')
+    for i in range(5): bx(p, -1.0 + i * 0.5, 1.2 + (i % 2) * 0.4, 0.96, 0.4, 0.08, 0.02, 'metal')
+def stall_fortune(p, r):
+    for k in range(8):
+        a = k * math.pi / 4; bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((1.4 * math.cos(a), 0, 1.4 * math.sin(a)), (1.4 * math.cos(a + math.pi / 4), 0, 1.4 * math.sin(a + math.pi / 4)), (0, 3.0, 0))]
+        if k != 6: bm.faces.new(vs[::-1]); merge(p, bm, 'tint' if k % 2 else 'fabric')
+    cy(p, 0, 0, 0, 0.7, 0.4, 'wood', 12); ball(p, 0, 0.85, 0, 0.16, 'neonviolet', 2)
+def stall_tea(p, r):
+    stall(p, r, 'fabric', 'noodle', 2.8, 2.0, 'umbrella')
+    for i in range(3): cy(p, -0.9 + i * 0.9, -1.5, 0, 0.45, 0.25, 'wood', 10)
+def stall_hats(p, r):
+    stall(p, r, 'tint', 'cloth', 2.8, 2.0)
+    for i in range(6): cy(p, -1.0 + i * 0.4, -0.6, 1.0, 1.12, 0.16, 'tint', 12); cy(p, -1.0 + i * 0.4, -0.6, 1.12, 1.25, 0.1, 'tint', 12)
+def graffiti(p, r):
+    bx(p, 0, 0, 0, 4.0, 2.6, 0.25, 'concrete', 0.02); rng = random.Random(r.random())
+    for i in range(7): bx(p, rng.uniform(-1.6, 1.6), rng.uniform(0.3, 2.0), -0.13, rng.uniform(0.4, 1.4), rng.uniform(0.2, 0.6), 0.01, rng.choice(['tint', 'neonpink', 'hazard', 'neoncyan']), 0.002)
+def barricade(p, r):
+    rng = random.Random(r.random())
+    for i in range(7): bx(p, rng.uniform(-1.5, 1.5), rng.uniform(0, 0.8), rng.uniform(-0.3, 0.3), rng.uniform(0.5, 1.2), 0.25, 0.3, rng.choice(['wood', 'corrugated', 'paint']), 0.01)
+    cy(p, -1.2, 0, 0, 0.9, 0.29, 'tint', 12); cy(p, 1.3, 0.2, 0, 0.9, 0.29, 'corrugated', 12)
+def burntcar(p, r):
+    bx(p, 0, 0.25, 0, 4.2, 0.6, 1.8, 'rubber', 0.12); bx(p, -0.2, 0.85, 0, 2.2, 0.5, 1.6, 'corrugated', 0.1)
+    for x in (-1.4, 1.4):
+        for z in (-0.85, 0.85): add_cyl(p, 0.22, z, x - 0.12, x + 0.12, 0.22, 'metal', seg=10, axis='x')
+def tent(p, r):
+    for s in (-1, 1):
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-1.1, 0, s * 1.0), (1.1, 0, s * 1.0), (1.1, 1.3, 0), (-1.1, 1.3, 0))]
+        bm.faces.new(vs if s < 0 else vs[::-1]); merge(p, bm, 'tint')
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((1.1, 0, -1.0), (1.1, 0, 1.0), (1.1, 1.3, 0))]; bm.faces.new(vs); merge(p, bm, 'tint')
+def generator(p, r):
+    bx(p, 0, 0.2, 0, 1.6, 0.9, 0.9, 'hazard', 0.04); bx(p, 0, 0, 0, 1.8, 0.2, 1.0, 'metal')
+    cy(p, 0.6, 0.2, 1.1, 1.6, 0.06, 'metal', 8); bx(p, -0.4, 0.6, -0.46, 0.4, 0.3, 0.02, 'screen', 0.003)
+def cablespool(p, r): add_cyl(p, 0.6, 0, -0.45, 0.45, 0.6, 'wood', seg=20, axis='x'); add_cyl(p, 0.6, 0, -0.4, 0.4, 0.4, 'rubber', seg=16, axis='x')
+def droid_delivery(p, r):
+    bx(p, 0, 0.25, 0, 0.7, 0.55, 0.9, 'tint', 0.12); bx(p, 0, 0.8, 0, 0.6, 0.05, 0.8, 'metal')
+    for x in (-0.33, 0.33):
+        for z in (-0.3, 0.3): add_cyl(p, 0.12, z, x - 0.05, x + 0.05, 0.12, 'rubber', seg=10, axis='x')
+    bx(p, 0, 0.6, -0.46, 0.4, 0.12, 0.02, 'neoncyan', 0.003); cy(p, 0.25, 0.35, 0.8, 1.6, 0.01, 'metal', 4)
+def droid_cleaner(p, r): cy(p, 0, 0, 0.05, 0.35, 0.35, 'paint', 18); cy(p, 0, 0, 0.35, 0.45, 0.3, 'metal', 18); cy(p, 0, -0.2, 0.38, 0.42, 0.06, 'neongreen', 8)
+def droid_sentry(p, r):
+    cy(p, 0, 0, 0, 2.6, 0.06, 'metal', 8); ball(p, 0, 2.8, 0, 0.3, 'paint', 2); cy(p, 0, -0.28, 2.75, 2.85, 0.08, 'navred', 10)
+    rod_x(p, -0.4, 0.4, 2.8, 0, 0.03, 'metal')
+def walker(p, r):
+    bx(p, 0, 2.6, 0, 1.6, 1.0, 2.0, 'hazard', 0.08); bx(p, 0, 2.9, -1.05, 1.2, 0.5, 0.1, 'visor', 0.03)
+    for sx in (-0.6, 0.6):
+        rod_z(p, -0.2, 0.2, sx, 2.2, 0.12, 'metal'); cy(p, sx, 0, 0.2, 2.3, 0.1, 'metal', 8); bx(p, sx, 0, 0.1, 0.4, 0.2, 0.9, 'rubber', 0.03)
+def piperack(p, r):
+    for x in (-3, 0, 3):
+        for z in (-0.9, 0.9): cy(p, x, z, 0, 4.0, 0.12, 'hazard', 8)
+        rod_z(p, -1, 1, x, 4.0, 0.08, 'hazard')
+    for k in range(4): rod_x(p, -3.5, 3.5, 4.25, -0.75 + k * 0.5, 0.18 - k * 0.02, ('metal', 'paint', 'corrugated', 'metal')[k], 10)
+def transformer(p, r):
+    bx(p, 0, 0, 0, 2.4, 2.2, 1.6, 'paint', 0.04)
+    for i in range(10): bx(p, -1.0 + i * 0.22, 0.3, -0.82, 0.06, 1.6, 0.06, 'metal', 0.005)
+    for x in (-0.7, 0, 0.7): cy(p, x, 0.2, 2.2, 3.0, 0.1, 'ceramic', 10, r2=0.06)
+    bx(p, 0, 1.6, -0.81, 0.5, 0.4, 0.02, 'hazard', 0.003)
+def conveyor(p, r):
+    bx(p, 0, 1.0, 0, 6.0, 0.25, 1.0, 'rubber', 0.02)
+    for x in (-2.6, 0, 2.6): bx(p, x, 0, 0, 0.15, 1.0, 0.9, 'paint')
+    for i in range(5): bx(p, -2.4 + i * 1.2, 1.25, 0, 0.6, 0.45, 0.6, 'cardboard', 0.01)
+def gastanks(p, r):
+    for i in range(7): cy(p, -0.9 + i * 0.3, 0, 0, 1.5, 0.12, 'tint' if i % 2 else 'hazard', 10); ball(p, -0.9 + i * 0.3, 1.5, 0, 0.12, 'metal', 1)
+    rod_x(p, -1.1, 1.1, 1.1, 0.14, 0.02, 'metal')
+def valve(p, r):
+    rod_x(p, -1.5, 1.5, 0.6, 0, 0.15, 'paint', 10); cy(p, 0, 0, 0.3, 1.3, 0.22, 'paint', 10)
+    cy(p, 0, 0, 1.3, 1.36, 0.3, 'tint', 16)          # the handwheel
+def radar(p, r):
+    bx(p, 0, 0, 0, 2.0, 3.0, 2.0, 'paint', 0.04); cy(p, 0, 0, 3.0, 3.6, 0.3, 'metal', 10)
+    bx(p, 0, 3.6, 0, 4.0, 1.2, 0.2, 'ceramic', 0.05); ball(p, 0, 0.0 + 3.0, -1.02, 0.1, 'navred', 1)
+def windsock(p, r):
+    cy(p, 0, 0, 0, 5.0, 0.05, 'paint', 8); rod_x(p, 0, 1.6, 4.85, 0, 0.25, 'hazard', 10)
+def baggagecart(p, r):
+    for k in range(2): bx(p, k * 2.2 - 1.1, 0.35, 0, 2.0, 0.08, 1.2, 'metal', 0.01); bx(p, k * 2.2 - 1.1, 0.43, 0, 1.6, 0.6, 1.0, 'cardboard', 0.02)
+    for k in range(2):
+        for z in (-0.5, 0.5): add_cyl(p, 0.18, z, k * 2.2 - 1.1 - 0.7, k * 2.2 - 1.1 - 0.6, 0.18, 'rubber', seg=10, axis='x')
+def beacontower(p, r):
+    for sx in (-1, 1):
+        for sz in (-1, 1): cy(p, sx * 0.8, sz * 0.8, 0, 12, 0.08, 'hazard', 6, r2=0.05)
+    for y in range(2, 12, 2): bx(p, 0, y, 0, 1.7, 0.08, 1.7, 'hazard', 0.005)
+    ball(p, 0, 12.4, 0, 0.4, 'navred', 2)
+def controlbooth(p, r):
+    bx(p, 0, 0, 0, 2.6, 2.4, 2.4, 'paint', 0.04); bx(p, 0, 1.2, -1.21, 2.2, 0.9, 0.02, 'visor', 0.003)
+    bx(p, 0, 2.4, 0, 3.0, 0.15, 2.8, 'metal', 0.02); cy(p, 1.0, 1.0, 2.55, 3.5, 0.03, 'metal', 4)
+def fueltank(p, r): add_cyl(p, 1.6, 0, -3.5, 3.5, 1.4, 'paint', seg=24, axis='x'); [bx(p, x, 0, 0, 0.4, 0.4, 2.2, 'concrete') for x in (-2.5, 2.5)]; bx(p, 0, 3.0, 0, 0.6, 0.4, 0.6, 'hazard')
+def gazebo(p, r):
+    cy(p, 0, 0, 0, 0.3, 2.8, 'stone', 8)
+    for k in range(8): a = k * math.pi / 4; cy(p, 2.5 * math.cos(a), 2.5 * math.sin(a), 0.3, 3.0, 0.08, 'paint', 8)
+    cy(p, 0, 0, 3.0, 4.6, 3.0, 'tint', 8, r2=0.1)
+def footbridge(p, r):
+    bm_pts = [(x, 0.6 * math.cos(x / 4.0 * math.pi / 2) ) for x in (-4, -2, 0, 2, 4)]
+    for i in range(4):
+        x0, y0 = bm_pts[i]; x1, y1 = bm_pts[i + 1]; bx(p, (x0 + x1) / 2, (y0 + y1) / 2, 0, 2.1, 0.15, 1.8, 'wood', 0.01)
+    for s in (-0.85, 0.85): rod_x(p, -4, 4, 1.4, s, 0.04, 'wood'); [cy(p, x, s, 0, 1.4, 0.05, 'wood', 6) for x in (-3.6, -1.2, 1.2, 3.6)]
+def sculpture1(p, r):
+    bx(p, 0, 0, 0, 1.2, 0.6, 1.2, 'stone', 0.03)
+    for k in range(5): a = k * 1.1; bx(p, 0.2 * math.cos(a), 0.6 + k * 0.7, 0.2 * math.sin(a), 0.5, 0.7, 0.5, 'mirror', 0.08)
+def sculpture2(p, r):
+    bx(p, 0, 0, 0, 1.5, 0.5, 1.5, 'stone', 0.03); bm = bmesh.new(); bmesh.ops.create_icosphere(bm, subdivisions=3, radius=1.0)
+    for v in bm.verts: x, y, z = v.co; v.co = P(x * (1 + 0.6 * math.sin(z * 3)), 2.2 + z * 1.4, y)
+    merge(p, bm, 'metal')
+def sculpture3(p, r):
+    bx(p, 0, 0, 0, 1.0, 0.4, 1.0, 'stone', 0.03)
+    bm = bmesh.new(); bmesh.ops.create_cone(bm, cap_ends=True, segments=24, radius1=1.2, radius2=1.2, depth=0.18)
+    for v in bm.verts: x, y, z = v.co; v.co = P(x, 1.6 + y, z)
+    merge(p, bm, 'tint')
+def roofgarden(p, r):
+    rng = random.Random(r.random()); bx(p, 0, 0, 0, 4.0, 0.5, 3.0, 'wood', 0.02); bx(p, 0, 0.4, 0, 3.8, 0.12, 2.8, 'soil')
+    for i in range(10): add_blob(p, rng.uniform(-1.6, 1.6), 0.8, rng.uniform(-1.1, 1.1), rng.uniform(0.25, 0.45), 'leaf', rng, 1)
+def watertower(p, r):
+    for sx in (-1, 1):
+        for sz in (-1, 1): cy(p, sx * 1.2, sz * 1.2, 0, 4.0, 0.1, 'metal', 6)
+    cy(p, 0, 0, 4.0, 7.0, 1.8, 'paint', 24); cy(p, 0, 0, 7.0, 8.2, 1.85, 'paint', 24, r2=0.1)
+def helipadmark(p, r):
+    bx(p, 0, 0, 0, 14, 0.04, 14, 'paint', 0.002)
+    bx(p, -2, 0.04, 0, 0.6, 0.01, 5, 'neonamber', 0.001); bx(p, 2, 0.04, 0, 0.6, 0.01, 5, 'neonamber', 0.001); bx(p, 0, 0.04, 0, 4, 0.01, 0.6, 'neonamber', 0.001)
+def antennacluster(p, r):
+    rng = random.Random(r.random()); bx(p, 0, 0, 0, 1.6, 0.3, 1.6, 'concrete')
+    for i in range(6): x, z, h = rng.uniform(-0.6, 0.6), rng.uniform(-0.6, 0.6), rng.uniform(2, 6); cy(p, x, z, 0.3, h, 0.03, 'metal', 6); ball(p, x, h, z, 0.06, 'navred' if i % 2 else 'metal', 1)
+def windturbine(p, r):
+    cy(p, 0, 0, 0, 5.0, 0.12, 'paint', 10); bx(p, 0, 5.0, 0.1, 0.4, 0.4, 0.8, 'paint', 0.05)
+    for k in range(3):
+        a = k * 2 * math.pi / 3; bx(p, 1.2 * math.cos(a), 5.2 + 1.2 * math.sin(a), -0.35, 2.4 if k == 0 else 0.25, 0.25 if k == 0 else 2.4, 0.04, 'paint', 0.01)
+def chimney(p, r):
+    bx(p, 0, 0, 0, 1.0, 3.2, 1.0, 'concrete', 0.02); bx(p, 0, 3.2, 0, 1.2, 0.2, 1.2, 'concrete', 0.02)
+    for x in (-0.25, 0.25): cy(p, x, 0, 3.4, 3.9, 0.15, 'metal', 10)
+def ad_tall(p, r):
+    bx(p, 0, 0, 0, 1.8, 6.0, 0.3, 'metal', 0.03); bx(p, 0, 0.2, -0.16, 1.6, 5.6, 0.02, 'screen', 0.003)
+    for i in range(4): bx(p, 0, 1 + i * 1.3, -0.18, 1.2, 0.5, 0.01, ('neonpink', 'neoncyan', 'neonamber', 'neonviolet')[i], 0.002)
+def ad_letters(p, r):
+    for i, (w, m) in enumerate(((0.9, 'neonpink'), (0.9, 'neonpink'), (0.9, 'neonamber'), (0.9, 'neoncyan'), (0.9, 'neonpink'))):
+        bx(p, -2.0 + i * 1.0, 0.0, 0, w * 0.8, 1.4, 0.15, m, 0.02)
+    rod_x(p, -2.6, 2.6, 0.05, 0.2, 0.04, 'metal'); [cy(p, x, 0.2, -1.5, 0.05, 0.04, 'metal', 6) for x in (-2.2, 0, 2.2)]
+def holo_globe(p, r):
+    cy(p, 0, 0, 0, 0.6, 0.6, 'mirror', 20); ball(p, 0, 1.8, 0, 1.0, 'neoncyan', 2)
+def kiosk_noodle(p, r):
+    kiosk(p, r); bx(p, 0, 2.62, -1.31, 2.6, 0.16, 0.03, 'neonpink', 0.004)
+    for i in range(3): cy(p, -0.8 + i * 0.8, -1.7, 0, 0.62, 0.17, 'tint', 10)
+def busstop(p, r):
+    cy(p, 0, 0, 0, 3.0, 0.05, 'metal', 8); bx(p, 0, 2.5, 0, 0.6, 0.6, 0.06, 'tint', 0.02); bx(p, 0, 1.3, 0.04, 0.4, 0.8, 0.04, 'screen', 0.003)
+def scooter(p, r):
+    bx(p, 0, 0.25, 0, 0.3, 0.1, 1.2, 'tint', 0.03); cy(p, 0, -0.5, 0.3, 1.1, 0.03, 'metal', 6); rod_x(p, -0.25, 0.25, 1.1, -0.5, 0.02, 'rubber')
+    for z in (-0.5, 0.5): add_cyl(p, 0.12, z, -0.03, 0.03, 0.12, 'rubber', seg=12, axis='x')
+def planter_tall(p, r):
+    cy(p, 0, 0, 0, 1.2, 0.5, 'tint', 16, r2=0.4); rng = random.Random(4)
+    for i in range(5): cy(p, rng.uniform(-0.2, 0.2), rng.uniform(-0.2, 0.2), 1.1, 2.4 + rng.uniform(0, 0.8), 0.03, 'leaf', 5)
+def bollard_light(p, r): cy(p, 0, 0, 0, 0.8, 0.1, 'mirror', 12); cy(p, 0, 0, 0.6, 0.75, 0.105, 'lampwarm', 12)
+def newsscreen(p, r): cy(p, 0, 0, 0, 2.2, 0.08, 'metal', 8); bx(p, 0, 2.2, 0, 2.4, 1.4, 0.15, 'metal', 0.02); bx(p, 0, 2.28, -0.08, 2.2, 1.24, 0.02, 'screen', 0.003)
+
 KINDS = """lanternline lamp_double lamp_neon tree bollard bench hydrant stall_fish stall_canopy stall_spice stall_fruit stall_tent stall_cart stall_tech stall_grill
 stall_noodle stall_cloth stall_umbrella planter stall_crate bin bikerack shelter lamp_lantern mailbox lamp_cobra aerial antenna solar ac skylight beacon vent cooling dish
 ac2 billboard tank_roof lamp_flood awning cables barrier crates_fruit awning2 stool barrels sacks lamp_park sign_market handcart lanterns junction trashpile boxes dumpster
 firebarrel lamp_lux pipes pipes2 vending vending_old cage steamvent pots scale rugs bin_rusty baskets sign_shop sign_blade holo_ad terminal_post container neon_noodle
 neon_eye neon_cross neon_vert neon_arrow neon_bar neon_star neon_glyph neon_ring neon_fish foodcart foodcart2 lanterns_post drums pallet leanto kiosk mattress scrapheap
 shack hulk washline play tank vending2 newsstand atm bin_lux bench_lux planter_lux kiosk_lux tree_lux holo_post fuelcart sphere silo padlights forklift stack crane
-cargoloader fountain monument statue kiosk_food""".split()
+cargoloader fountain monument statue kiosk_food
+phonebooth ticketmachine parkingmeter trafficlight streetsign fountain_drink recycler bench_curved picnic palm hedge flowerbed lamp_ornate
+stall_meat stall_pots stall_flowers stall_juice stall_droid stall_weapons stall_fortune stall_tea stall_hats graffiti barricade burntcar tent
+generator cablespool droid_delivery droid_cleaner droid_sentry walker piperack transformer conveyor gastanks valve radar windsock baggagecart
+beacontower controlbooth fueltank gazebo footbridge sculpture1 sculpture2 sculpture3 roofgarden watertower helipadmark antennacluster windturbine
+chimney ad_tall ad_letters holo_globe kiosk_noodle busstop scooter planter_tall bollard_light newsscreen""".split()
 def pipes(p, r, rr=0.25, mat='metal', n=2):
     for k in range(n): rod_z(p, -7, 7, -0.35 + k * 0.7 * (1 if n > 1 else 0), 0, rr, mat, 10)
     for z in (-6, -2, 2, 6): bx(p, 0, -0.35, z, 1.0, 0.06, 0.12, 'metal')

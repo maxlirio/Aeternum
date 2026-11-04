@@ -130,6 +130,21 @@ SCRIPTS.citybridge = `const O = ORBIS, c = O.city, wait = ms => new Promise(r =>
     for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, c.h + G.CURB + Q.y + 0.05, z]; await wait(200); }
     O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing + 0.5; O.cam.pitch = 0.05; O.cam.dist = 4; await wait(2000);`;
 SHOTS.citybridge = 'hour=17.8';
+const cityRoom = (label, hour) => `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), R = await import('./js/world/cityreal.js');
+    let hit = null; for (let a = 0; a < 1600 && !hit; a++) { const B = G.cityBlock(c, (a % 40) - 20, Math.floor(a / 40) - 20); if (B.district !== 'undercity' && B.district !== 'market') continue; for (const b of B.buildings) if (b.label === '${label}' && b.enter) { const r = R.realOf(O.planet, O.s, c, B, b); if (r && r.plan.F >= 1) { hit = r; break; } } }
+    const rec = hit, pl = rec.plan, door = pl.doors.find(d => d.kind === 'entrance' || d.k === 0) || pl.doors[0];
+    const at = (x, z) => O.s.toWorld(rec.O[0] + rec.ex[0] * x + rec.ez[0] * z, rec.O[1] + rec.ex[1] * x + rec.ez[1] * z);
+    const room = pl.rooms.find(q => q.k === 0 && q.rect[1] < 1.5) || pl.rooms.find(q => q.k === 0), [rx0, rz0, rx1, rz1] = room.rect;
+    const [x, z] = at(rx0 + 0.6, rz0 + 0.8), [tx, tz] = at((rx0 + rx1) / 2 + 0.5, (rz0 + rz1) / 2 + 0.5);
+    O.ctrl.pos = [x, rec.base + 0.05, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, rec.base + 0.05, z]; await wait(200); }
+    for (let i = 0; i < 40 && !O.getCityRooms()?.live.size; i++) await wait(200);
+    O.ctrl.pos = [x, rec.base + 0.05, z]; await wait(1500);
+    O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.2; O.cam.dist = 0.3; document.querySelector('.toasts')?.remove();
+    const hide = () => { O.avatar.object.visible = false; requestAnimationFrame(hide); }; hide(); await wait(2000);`;
+SCRIPTS.citycantina = cityRoom('cantina'); SHOTS.citycantina = 'hour=20';
+SCRIPTS.cityshop = cityRoom('shophouse'); SHOTS.cityshop = 'hour=13';
+SCRIPTS.cityflop = cityRoom('tenement'); SHOTS.cityflop = 'hour=13';
 SCRIPTS.cityraid = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), A = await import('./js/sim/aircombat.js');
     let L = null; for (let a = 0; a < 900 && !L; a++) { const B = G.cityBlock(c, (a % 30) - 15, Math.floor(a / 30) - 15); L = G.liftsOf(c, B).find(l => l.stops.some(q => q.label.startsWith('Roof') && q.y > 120 && q.y < 260)); }
     const q = L.stops.find(q => q.label.startsWith('Roof') && q.y > 120), [x, z] = c.toWorld(q.u, q.v), y = c.h + G.CURB + q.y + 0.05;

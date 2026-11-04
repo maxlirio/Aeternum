@@ -25,6 +25,8 @@ export class CityTrafficView {
   }
   update(t, viewer, night, toRender) {
     const c = this.city, near = [], ships = [], P = this.pos, C = this.col;
+    const far = Math.hypot(viewer[0] - c.cx, viewer[2] - c.cz) > c.R + 2500;
+    if (far && (this.skip = ((this.skip || 0) + 1) % 4)) return;        // from out of town the streams only need updating now and then
     const close = Math.hypot(viewer[0] - c.cx, viewer[2] - c.cz) < c.R + NEAR + 400;
     let k = 0;
     // every sky-lane vehicle as a light (the same closed form as gen/citytraffic.js, without the per-vehicle objects)

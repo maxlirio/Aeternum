@@ -15,7 +15,10 @@ function cityBoxes(c, B) {
   if (B.col) return B.col;
   const base = c.h + CURB, out = [];
   if (B.district) out.push([...B.rect, c.h - 1, base]);
-  for (const b of B.buildings) for (const t of b.tiers) out.push([...t.r, base + t.y0, base + t.y1, t.shape ? 1 : 0]);    // [6] = 1: round (the circle in the rect)
+  for (const b of B.buildings) for (const t of b.tiers) {
+    if (b.enter && t === b.tiers[0] && b.real !== null) continue;      // walk-in buildings are structures of their own (world/cityreal.js)
+    out.push([...t.r, base + t.y0, base + t.y1, t.shape ? 1 : 0]);    // [6] = 1: round (the circle in the rect)
+  }
   for (const p of B.pads) out.push([...p.r, base + p.y - 1.2, base + p.y]);
   // skybridges (owned by this block or sent across from the blocks before it): deck, glass sides, roof
   for (const N of [B, cityBlockOf(c, B.i - 1, B.j), cityBlockOf(c, B.i, B.j - 1)]) for (const q of bridgesOf(c, N)) {
