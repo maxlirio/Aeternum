@@ -269,6 +269,7 @@ SCRIPTS.carhit = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(
     const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 2.5, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id), at = fut.pos.slice(); O.ctrl.pos = at.slice(); O.ctrl.vel = [0, 0, 0];
     const log = []; for (let i = 0; i < 40 && P.hp >= 100; i++) { await wait(100); const q = hold(); if (i % 5 === 0) log.push([Math.round(Math.hypot(q.pos[0] - O.ctrl.pos[0], q.pos[2] - O.ctrl.pos[2])), +(q.pos[1] - O.ctrl.pos[1]).toFixed(1), O.ctrl.mode, O.ctrl.grounded]); }
     throw new Error(JSON.stringify({ hp: P.hp, pos: O.ctrl.pos.map(Math.round), at: at.map(Math.round), stun: O.ctrl.stun, type: v.type, log, paused: document.querySelector('.panel') ? 'panel' : 'no' }));`; SHOTS.carhit = 'hour=11';
+SCRIPTS.cityworks = cityShot('works', 0.05, 8, 0.2); SHOTS.cityworks = 'hour=14';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

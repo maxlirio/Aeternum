@@ -936,20 +936,31 @@ suites.traffic = async () => {
   for (const v of a) { if (Math.hypot(v.pos[0] - s.cx, v.pos[2] - s.cz) < s.R + 60) continue; const end = routes.some(r => [r.pts[0], r.pts.at(-1)].some(e => Math.hypot(e[0] - v.pos[0], e[1] - v.pos[2]) < 8)); if (end) continue; n++; const q = routes.map(r => nearRoute(r, v.pos[0], v.pos[2])).filter(Boolean).sort((x, y) => x.d - y.d)[0]; if (!q || q.d > 3.5) off++; }
   check(n > 0 && off === 0, `${n} on the roads out of town, all within their lane (${off} off)`);
   // nobody blinks: over a long stretch every vehicle is always there, and never jumps (U-turns included)
-  const C = await import('../js/gen/city.js'), CT = await import('../js/gen/citytraffic.js'), c = C.getCity(p), all = R => { const m = new Map(); for (const v of trafficNear(p, s, R, s.cx, s.cz, 1e6)) m.set(v.id, v); return m; };
+  const C = await import('../js/gen/city.js'), c = C.getCity(p), all = R => { const m = new Map(); for (const v of trafficNear(p, s, R, s.cx, s.cz, 1e6)) m.set(v.id, v); return m; };
   let m0 = all(T), jump = 0, turn = 0, lost = 0, maxTurn = 0;
   for (let k = 1; k < 1400; k++) { const m1 = all(T + k * 0.5); if (m1.size !== m0.size) lost++;
     for (const [id, v] of m1) { const w = m0.get(id); if (!w) { lost++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > v.speed * 0.5 + 5) jump++;     /* (+ a lane's shift at a bend) */ let d = Math.abs(v.facing - w.facing); d = Math.min(d, Math.PI * 2 - d); maxTurn = Math.max(maxTurn, d); if (d > 0.3) turn++; }
     m0 = m1; }
   check(lost === 0, `town traffic: nobody appears or vanishes in 700 s (${lost})`); check(jump === 0, `town traffic: nobody teleports (${jump} jumps), U-turns taken smoothly`);
-  const cc = (R, r = Infinity) => { const m = new Map(); CT.cityTraffic(c, R, v => m.set(v.id, v)); return m; };
-  let g0 = cc(T), cj = 0, cl = 0; for (let k = 1; k <= 300; k++) { const R = T + k * 0.4, g1 = cc(R); if (g1.size !== g0.size) cl++; for (const [id, v] of g1) { const w = g0.get(id); if (!w) { cl++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > v.speed * 0.4 + 1) cj++; } g0 = g1; if (k > 12) break; }
-  check(cl === 0 && cj === 0, `city traffic: ${g0.size} vehicles, none appears, vanishes or teleports (${cl}, ${cj})`);
-  // ...and one lap of a whole lane, through both U-turns, moves smoothly
-  const L = CT.cityLanes(c).find(q => q.ground); let last = null, cjump = 0; for (let q = 0; q < L.P; q += 2) { CT.loopPoint(L, q); if (last && Math.hypot(CT.Q.u - last[0], CT.Q.v - last[1]) > 2.2) cjump++; last = [CT.Q.u, CT.Q.v]; }
-  check(cjump === 0, `a city lane's whole loop has no jump (${cjump})`);
-  // keeping right, in the city: the lane heading +v has the street centre on its left
-  { CT.loopPoint(L, 10); const lat = (L.axis ? CT.Q.v : CT.Q.u) - L.at, right = L.axis ? [-CT.Q.dv, CT.Q.du] : [-CT.Q.dv, CT.Q.du]; check(Math.sign(lat) === Math.sign(L.axis ? right[1] : right[0]) , 'city cars drive on the right, as in town'); }
+  // the city's drivers: a named person, a purpose, a route; continuous across whole days, no two trips disconnected
+  const Fl = await import('../js/gen/cityfleet.js'), F = Fl.cityFleet(p, c), q = {}, DAY = p.dayLength, T0 = T - (T % DAY);
+  let cj = 0, why = new Set(), hrMoving = {}, onStreet = 0, offStreet = 0;
+  for (let k = 0; k < F.cars.length; k += 41) { const car = F.cars[k]; let last = null; for (let t2 = T0; t2 < T0 + DAY * 0.6; t2 += 2) { Fl.vehicleAt(F, car, t2, q); if (last && Math.hypot(q.x - last[0], q.y - last[1], q.z - last[2]) > (car.kind === 'ground' ? 40 : car.kind === 'sky' ? 120 : 180)) cj++; last = [q.x, q.y, q.z]; if (q.trip?.why) why.add(q.trip.why.split(' —')[0]); } }
+  check(cj === 0, `city vehicles: ${F.cars.length}, none teleports across more than half a day (${cj})`);
+  check(why.size >= 8, `drivers have reasons to drive: ${[...why].slice(0, 10).join(', ')}`);
+  const dn = Fl.driverOf(F, F.cars[3]); check(dn.name && dn.home && dn.work, `every vehicle has a driver (${dn.name}, a ${dn.trade})`);
+  { const car = F.cars.find(x => x.kind === 'ground'); let parkedSeen = 0, movedSeen = 0; for (let t2 = T0; t2 < T0 + DAY; t2 += 30) { Fl.vehicleAt(F, car, t2, q); if (q.moving) movedSeen++; else parkedSeen++; } check(parkedSeen > 0 && movedSeen > 0, `a car spends its day driving and parked (${movedSeen} / ${parkedSeen} samples)`); }
+  // ground cars stay on the street, not through buildings
+  for (let k = 0; k < F.cars.length; k += 97) { const car = F.cars[k]; if (car.kind !== 'ground') continue; for (let t2 = T0; t2 < T0 + DAY * 0.3; t2 += 7) { Fl.vehicleAt(F, car, t2, q); if (!q.moving) continue; const [u, v] = c.toLocal(q.x, q.z), [i, j] = C.blockIndex(c, u, v), r = C.blockRect(c, i, j); if (u > r[0] + 0.2 && u < r[2] - 0.2 && v > r[1] + 0.2 && v < r[3] - 0.2) offStreet++; else onStreet++; } }
+  check(offStreet === 0 && onStreet > 50, `ground cars stay in the streets (${onStreet} samples on, ${offStreet} on a block)`);
+  // junctions: one street's green, the other's red, a moment all red
+  { let both = 0, seen = new Set(); for (let t2 = 0; t2 < 40; t2 += 0.5) { const s0 = Fl.signalAt(c, 3, 4, T + t2); seen.add(s0); if (Fl.greenFor(c, 0, 3, 4, T + t2) && Fl.greenFor(c, 1, 3, 4, T + t2)) both++; } check(both === 0 && seen.size === 3, 'traffic lights: never both streets green'); }
+  // manners: a car meets a red light, stops short of the junction, the next stops behind it
+  { const { RoadLife } = await import('../js/sim/roadlife.js'), L = new RoadLife(), v = (id, x, stop) => ({ id: `a:${id}`, type: 'sedan', pos: [0, 0, x], facing: 0, speed: 14, stop });
+    let x1 = -60, x2 = -80; for (let k = 0; k < 600; k++) { const a = v(1, x1, -x1), b = v(2, x2, -x2 + 0); L.step(1 / 30, [a, b]); x1 += 14 * L.rateOf('a:1') / 30; x2 += 14 * L.rateOf('a:2') / 30; }
+    check(x1 < 0.3 && x1 > -6, `a car stops at the red line (${x1.toFixed(1)} m from it)`); check(x1 - x2 > 4.6, `the one behind queues, not overlapping (${(x1 - x2).toFixed(1)} m centre to centre)`);
+    let x3 = -50; const M = new RoadLife(); for (let k = 0; k < 300; k++) { M.step(1 / 30, [{ id: 'b:1', type: 'sedan', pos: [0, 0, x3], facing: 0, speed: 14 }], [[0, 0, 0]]); x3 += 14 * M.rateOf('b:1') / 30; } check(x3 < -2.2, `a car with room to stop stops for someone in the road (${x3.toFixed(1)} m short)`); check(M.delayOf('b:1') > 1, 'and that puts it behind its schedule');
+    for (let k = 0; k < 2000; k++) M.step(1 / 30, []); check(M.delayOf('b:1') === 0, 'out of sight it catches up'); }
   // being in a vehicle's box
   const { struckBy } = await import('../js/gen/traffic.js'), V = { type: 'sedan', pos: [0, 0, 0], facing: 0 };
   check(struckBy(V, 0, 0, 2, 0.3) && struckBy(V, 1, 0.5, 0, 0.3), 'standing in front of or beside a car: struck'); check(!struckBy(V, 3, 0, 0, 0.3) && !struckBy(V, 0, 0, 4, 0.3) && !struckBy(V, 0, 5, 0, 0.3), 'clear of it, or above it: not struck');

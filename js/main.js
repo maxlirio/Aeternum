@@ -59,7 +59,8 @@ import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
-import { cityWalkers, cityTraffic as cityCars } from './gen/citytraffic.js';
+import { cityWalkers } from './gen/citytraffic.js';
+import { signalAt } from './gen/cityfleet.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
@@ -180,7 +181,7 @@ async function start(fresh) {
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
-  const cityTraffic = new CityTrafficView(cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
+  const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
@@ -410,6 +411,17 @@ async function start(fresh) {
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
   let cityLift = null;
+  // the traffic lights near you show what their junction's doing
+  function showCityLights() {
+    const c = cityView.city, out = []; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 300) { cityTraffic.showLights(out); return; }
+    const [u, v] = c.toLocal(ctrl.pos[0], ctrl.pos[2]), t = clock.now(), base = c.h + CITY_CURB, RED = [1, 0.1, 0.06], AMB = [1, 0.6, 0.1], GRN = [0.1, 1, 0.3];
+    blocksNear(c, u, v, 150, B => { for (const p of B.props) { if (p.k !== 'trafficlight' || Math.hypot(p.u - u, p.v - v) > 170) continue;
+      const lu = p.u - 3.56 * Math.sin(p.rot), lv = p.v - 3.56 * Math.cos(p.rot), i = p.u < (B.rect[0] + B.rect[2]) / 2 ? B.i : B.i + 1, j = p.v < (B.rect[1] + B.rect[3]) / 2 ? B.j : B.j + 1, st = signalAt(c, i, j, t);
+      const axis = p.u < (B.rect[0] + B.rect[2]) / 2 ? 0 : 1, y = st === axis ? 4.19 : st === -1 ? 4.52 : 4.85, [wx, wz] = c.toWorld(lu, lv);
+      out.push({ pos: toRender(wx, base + y, wz), col: st === axis ? GRN : st === -1 ? AMB : RED });
+    } });
+    cityTraffic.showLights(out);
+  }
   const usableAhead = () => {
     if (ctrl.mode !== 'walk') return null;
     const loc = world.locate(...ctrl.pos); if (!loc?.plan) return null;
@@ -1110,7 +1122,7 @@ async function start(fresh) {
     }
     if (!paused && !flight && t > hitUntil && (ride || ctrl.mode === 'walk')) {       // traffic doesn't stop for you
       const me = ride ? ride.pos : ctrl.pos, near = traffic.filter(v => Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12);
-      cityCars(cityView.city, t, v => { if (!v.air) near.push(v); }, me[0], me[2], 12);
+      for (const v of cityTraffic.nearby) if (!v.parked && !v.ship && Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12) near.push(v);
       const v = near.find(q => struckBy(q, me[0], me[1], me[2], ride ? 0.7 : 0.32));
       if (v) {
         hitUntil = t + 2;
@@ -1143,7 +1155,8 @@ async function start(fresh) {
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
-    cityTraffic.update(clock.now(), ctrl.pos, 1 - (sky.state.day ?? 1), toRender);
+    { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : []); }
+    showCityLights();
     if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group); }
     cityRooms.update(ctrl.pos);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
@@ -1220,7 +1233,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

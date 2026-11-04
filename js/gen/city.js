@@ -22,9 +22,9 @@ import { placeName } from './names.js';
 export const PITCH = 150;                  // street-line spacing (m)
 export const FALL = 700;                   // graded falloff beyond the rim (m)
 export const CURB = 0.18;                  // sidewalk kerb height
-export const DISTRICTS = ['spire', 'commerce', 'housing', 'market', 'undercity', 'industry', 'port', 'park'];
+export const DISTRICTS = ['spire', 'commerce', 'housing', 'market', 'undercity', 'industry', 'port', 'park', 'works'];
 export const DISTRICT_LABEL = { spire: 'Spire core', commerce: 'Commercial district', housing: 'Residential blocks', market: 'Market quarter',
-  undercity: 'The Warrens', industry: 'Foundry district', port: 'Skyport', park: 'Gardens' };
+  undercity: 'The Warrens', industry: 'Foundry district', port: 'Skyport', park: 'Gardens', works: 'Building site' };
 
 // facade styles: [name, floor height, bay width, window width and height (fractions of a
 // bay and a storey), climbable]. The shader draws these and the climber holds on to them.
@@ -120,6 +120,7 @@ export function districtAt(city, u, v, i, j) {
   if (hf > 0.42) return h < 0.05 ? 'park' : 'spire';
   if (rn > 0.5 && angDist(ang, city.industryAngle) < 0.42) return h < 0.18 ? 'undercity' : 'industry';
   if (h < 0.035) return 'park';
+  if (h < 0.06 && rn < 0.85) return 'works';
   const na = city.noise.a.fbm(u / 900, v / 900, 3), nb = city.noise.b.fbm(u / 650 + 7, v / 650 - 3, 3);
   if (na > 0.34 && rn < 0.85) return 'market';
   if (nb > 0.28 || rn > 0.9 && nb > -0.1) return 'undercity';
@@ -361,6 +362,15 @@ const BUILD = {
       if (rng.chance(0.3)) prop(ctx, rng.pick(['radar', 'windsock', 'beacontower']), cell[0] + 2, cell[1] + 2, 1.6, 0);
     }
   },
+  works(ctx, r) {     // a tower going up: a frame so far, scaffolding, a crane, the site's clutter behind a hoarding
+    const { rng, hf } = ctx, cu = (r[0] + r[2]) / 2, cv = (r[1] + r[3]) / 2, s = Math.min(W(r), D(r)) * rng.range(0.32, 0.45), H = 12 + (10 + hf * 90) * rng.next();
+    const b = add(ctx, rng.pick(['grid', 'podium', 'hab']), [{ r: [cu - s, cv - s, cu + s, cv + s], y0: 0, y1: H }], { label: 'tower under construction' }); b.top = r1(H);
+    prop(ctx, 'towercrane', cu + s + 7, cv - s - 3, 0, rng.int(0, 3) * Math.PI / 2);
+    for (let u = cu - s + 3; u < cu + s - 2; u += 6) prop(ctx, 'scaffold', u, cv - s - 0.9, 0, 0);
+    for (let v = cv - s + 3; v < cv + s - 2; v += 6) prop(ctx, 'scaffold', cu - s - 0.9, v, 0, Math.PI / 2);
+    for (const [u0, v0, u1, v1, rot] of [[r[0], r[1], r[2], r[1], 0], [r[0], r[3], r[2], r[3], 0], [r[0], r[1], r[0], r[3], Math.PI / 2], [r[2], r[1], r[2], r[3], Math.PI / 2]]) { const L = Math.hypot(u1 - u0, v1 - v0), n = Math.floor(L / 6); for (let k = 0; k < n; k++) { const f = (k + 0.5) / n; prop(ctx, 'sitefence', u0 + (u1 - u0) * f, v0 + (v1 - v0) * f, 0, rot); } }
+    for (let k = 0; k < 16; k++) { const a = rng.range(0, 6.28), d = s * 1.45 + rng.range(2, 12), u = clamp(cu + Math.cos(a) * d, r[0] + 3, r[2] - 3), v = clamp(cv + Math.sin(a) * d, r[1] + 3, r[3] - 3); if (Math.abs(u - cu) < s + 2 && Math.abs(v - cv) < s + 2) continue; prop(ctx, rng.pick(['excavator', 'mixer', 'portaloo', 'bricks', 'sandheap', 'girders', 'skip_bin', 'conegroup', 'pallet', 'drums', 'generator', 'cablespool', 'container']), u, v, 0, rng.range(0, 6.28)); }
+  },
   park(ctx, r) {
     const { rng } = ctx;
     ctx.B.ground = 'garden';
@@ -399,16 +409,17 @@ function shopfronts(ctx, f, kind) {
 }
 // street furniture on the sidewalk ring: lamps on a rhythm, then the clutter of the district
 const SIDEWALK = {
-  spire: ['bench_lux', 'planter_lux', 'holo_post', 'bollard_light', 'kiosk_lux', 'bin_lux', 'tree_lux', 'newsscreen', 'droid_sentry', 'droid_cleaner', 'ticketmachine', 'planter_tall'],
-  commerce: ['bench', 'bin', 'vending', 'vending2', 'terminal_post', 'planter', 'bollard', 'newsstand', 'shelter', 'kiosk', 'atm', 'bikerack', 'phonebooth', 'ticketmachine', 'parkingmeter', 'recycler', 'busstop', 'scooter', 'droid_delivery', 'newsscreen'],
-  housing: ['bench', 'bin', 'planter', 'tree', 'mailbox', 'bikerack', 'hydrant', 'shelter', 'bollard', 'recycler', 'busstop', 'scooter', 'parkingmeter', 'fountain_drink', 'planter_tall'],
-  market: ['crates_fruit', 'sacks', 'handcart', 'foodcart', 'foodcart2', 'stool', 'barrels', 'vending', 'lanterns_post', 'kiosk_noodle', 'kiosk_food', 'scooter', 'droid_delivery'],
-  undercity: ['dumpster', 'bin_rusty', 'trashpile', 'boxes', 'firebarrel', 'vending_old', 'junction', 'steamvent', 'barrier', 'hydrant', 'graffiti', 'generator', 'cablespool', 'phonebooth', 'tent'],
-  industry: ['barrier', 'drums', 'pallet', 'junction', 'bollard', 'hydrant', 'container', 'gastanks', 'valve', 'generator', 'cablespool'],
-  port: ['barrier', 'bollard', 'terminal_post', 'fuelcart', 'baggagecart', 'ticketmachine', 'windsock'],
-  park: ['bench', 'bin', 'lamp_park', 'fountain_drink', 'flowerbed', 'bench_curved'],
+  spire: ['bench_lux', 'planter_lux', 'holo_post', 'bollard_light', 'kiosk_lux', 'bin_lux', 'tree_lux', 'newsscreen', 'droid_sentry', 'droid_cleaner', 'ticketmachine', 'planter_tall', 'flagpole', 'banner', 'bollard_chain', 'bigclock', 'manhole'],
+  commerce: ['bench', 'bin', 'vending', 'vending2', 'terminal_post', 'planter', 'bollard', 'newsstand', 'shelter', 'kiosk', 'atm', 'bikerack', 'phonebooth', 'ticketmachine', 'parkingmeter', 'recycler', 'busstop', 'scooter', 'droid_delivery', 'newsscreen', 'tramstop', 'postbox', 'banner', 'manhole', 'sewergrate', 'cone'],
+  housing: ['bench', 'bin', 'planter', 'tree', 'mailbox', 'bikerack', 'hydrant', 'shelter', 'bollard', 'recycler', 'busstop', 'scooter', 'parkingmeter', 'fountain_drink', 'planter_tall', 'postbox', 'wallsegment', 'gate', 'manhole', 'sewergrate', 'skip_bin'],
+  market: ['crates_fruit', 'sacks', 'handcart', 'foodcart', 'foodcart2', 'stool', 'barrels', 'vending', 'lanterns_post', 'kiosk_noodle', 'kiosk_food', 'scooter', 'droid_delivery', 'foodtruck', 'banner', 'sewergrate', 'cone'],
+  undercity: ['dumpster', 'bin_rusty', 'trashpile', 'boxes', 'firebarrel', 'vending_old', 'junction', 'steamvent', 'barrier', 'hydrant', 'graffiti', 'generator', 'cablespool', 'phonebooth', 'tent', 'sewergrate', 'manhole', 'chainfence', 'wallac', 'drainpipe', 'ladder_wall', 'police_barrier', 'barricade'],
+  industry: ['barrier', 'drums', 'pallet', 'junction', 'bollard', 'hydrant', 'container', 'gastanks', 'valve', 'generator', 'cablespool', 'chainfence', 'skip_bin', 'gate', 'sewergrate'],
+  port: ['barrier', 'bollard', 'terminal_post', 'fuelcart', 'baggagecart', 'ticketmachine', 'windsock', 'checkpoint', 'toll', 'turnstile', 'police_barrier', 'flagpole'],
+  park: ['bench', 'bin', 'lamp_park', 'fountain_drink', 'flowerbed', 'bench_curved', 'bigclock', 'gate'],
+  works: ['cone', 'conegroup', 'police_barrier', 'skip_bin', 'sewergrate', 'chainfence'],
 };
-const LAMPS = { spire: 'lamp_lux', commerce: 'lamp_cobra', housing: 'lamp_double', market: 'lamp_lantern', undercity: 'lamp_neon', industry: 'lamp_flood', port: 'lamp_flood', park: 'lamp_ornate' };
+const LAMPS = { spire: 'lamp_lux', commerce: 'lamp_cobra', housing: 'lamp_double', market: 'lamp_lantern', undercity: 'lamp_neon', industry: 'lamp_flood', port: 'lamp_flood', park: 'lamp_ornate', works: 'lamp_flood' };
 function dressSidewalk(ctx, rect, inner) {
   const { rng, B } = ctx, d = B.district, kit = SIDEWALK[d], lamp = LAMPS[d];
   const edges = [[rect[0], rect[1] + 0.7, rect[2], rect[1] + 0.7, 0], [rect[0], rect[3] - 0.7, rect[2], rect[3] - 0.7, Math.PI], [rect[0] + 0.7, rect[1], rect[0] + 0.7, rect[3], Math.PI / 2], [rect[2] - 0.7, rect[1], rect[2] - 0.7, rect[3], -Math.PI / 2]];

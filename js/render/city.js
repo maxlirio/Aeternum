@@ -13,7 +13,7 @@ import { getCity, cityBlock, cityExtent, blockRect, lineAt, lineWidth, lineKind,
 const SECTOR = 4;                       // blocks per sector edge
 const PROP_R = 260;                     // street furniture drawn within this
 const SMALL_R = 110;                    // ...and the small clutter (goods, bins, junk) only this close
-const BIG = /^(lamp_|tree|palm|tank|silo|sphere|stack|crane|billboard|cooling|tank_roof|container|monument|fountain|statue|shelter|kiosk|holo_|neon_|sign_|ad_|lanternline|padlights|shack|dish|antenna|trafficlight|watertower|windturbine|radar|beacontower|gazebo|sculpture|walker|piperack|fueltank|controlbooth|newsscreen)/;
+const BIG = /^(lamp_|tree|palm|tank|silo|sphere|stack|crane|billboard|cooling|tank_roof|container|monument|fountain|statue|shelter|kiosk|holo_|neon_|sign_|ad_|lanternline|padlights|shack|dish|antenna|trafficlight|watertower|windturbine|radar|beacontower|gazebo|sculpture|walker|piperack|fueltank|controlbooth|newsscreen|towercrane|scaffold|sitefence|excavator|tramstop|foodtruck|bigclock|flagpole|gate|wallsegment|checkpoint|toll)/;
 const STYLE_P = [   // per style: [r,g,b frame], [r,g,b glass], [winFracX, winFracY, litChance, glassiness]
   [[0.24, 0.27, 0.30], [0.05, 0.08, 0.12], [0.86, 0.82, 0.55, 0.9]],   // glass
   [[0.50, 0.50, 0.48], [0.05, 0.07, 0.09], [0.98, 0.45, 0.50, 0.7]],   // ribbon

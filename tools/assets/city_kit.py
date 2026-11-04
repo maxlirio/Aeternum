@@ -474,7 +474,7 @@ def parkingmeter(p, r): cy(p, 0, 0, 0, 1.1, 0.04, 'paint', 8); bx(p, 0, 1.1, 0, 
 def trafficlight(p, r):
     cy(p, 0, 0, 0, 5.4, 0.1, 'paint', 10); rod_z(p, -3.6, 0, 0, 5.2, 0.06, 'paint')
     bx(p, 0, 4.0, -3.4, 0.36, 1.1, 0.3, 'paint', 0.03)
-    for i, m in enumerate(('navred', 'neonamber', 'navgreen')): cy(p, 0, -3.56, 4.85 - i * 0.33, 4.88 - i * 0.33, 0.11, m, 12)
+    for i in range(3): cy(p, 0, -3.56, 4.85 - i * 0.33, 4.88 - i * 0.33, 0.11, 'rubber', 12)        # (lit by the game: render/citytraffic.js)
     bx(p, 0, 1.0, -0.12, 0.3, 0.4, 0.2, 'paint')
 def streetsign(p, r):
     cy(p, 0, 0, 0, 3.0, 0.04, 'metal', 8)
