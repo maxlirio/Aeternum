@@ -310,6 +310,10 @@ SCRIPTS.speed = `const O = ORBIS, P = O.store.player, c = O.city, wait = ms => n
     out.walk = await run(['KeyW']); out.run = await run(['KeyW', 'ShiftLeft']); throw new Error(JSON.stringify(out));`; SHOTS.speed = 'hour=11';
 SCRIPTS.gundbg = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && x.pose !== 'lie' && !String(x.id).startsWith('tr:')); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
     P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol'; O.ctrl.pos = [a.pos[0] + 6, a.pos[1], a.pos[2]]; await wait(600); O.attack(); await wait(2500); throw new Error(JSON.stringify({ running: O.getAgents().filter(x => x.activity === 'running from gunfire').length, all: O.getAgents().length }));`; SHOTS.gundbg = 'hour=11';
+SCRIPTS.outpost = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), { sitesNear } = await import('./js/gen/outposts.js'), want = new URLSearchParams(location.search).get('kind');
+    let site = null; sitesNear(O.planet, O.s.cx, O.s.cz, 16000, s => { if (s.kind === want && (!site || Math.hypot(s.x - O.s.cx, s.z - O.s.cz) < Math.hypot(site.x - O.s.cx, site.z - O.s.cz))) site = s; }); if (!site) throw new Error('none: ' + want);
+    const a = 2.2, x = site.x + Math.sin(a) * 38, z = site.z + Math.cos(a) * 38, { surfaceHeight } = await import('./js/gen/surface.js'); O.ctrl.pos = [x, surfaceHeight(O.planet, x, z) + 0.2, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(site.x - x, site.z - z); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.5; O.cam.dist = 34; await wait(4000);`;
+for (const k of ['farm', 'mine', 'wind', 'ruin']) { SCRIPTS['out' + k] = SCRIPTS.outpost; SHOTS['out' + k] = 'hour=14&kind=' + k; }
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

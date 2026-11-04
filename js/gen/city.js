@@ -18,6 +18,7 @@ import { hash01, derive } from '../core/hash.js';
 import { Simplex2, clamp, smoothstep } from '../core/noise.js';
 import { rawHeight } from './terrain.js';
 import { placeName } from './names.js';
+import { cultureOf } from './culture.js';
 
 export const PITCH = 150;                  // street-line spacing (m)
 export const FALL = 700;                   // graded falloff beyond the rim (m)
@@ -65,6 +66,7 @@ export function getCity(planet) {
   };
   c.industryAngle = c.portAngle + rng.range(1.6, 2.6);
   for (let k = 0; k < 4; k++) { const a = c.portAngle + 0.9 + k * 1.45 + rng.range(-0.3, 0.3), d = R * rng.range(0.38, 0.62); c.cores.push([Math.cos(a) * d, Math.sin(a) * d, rng.range(0.55, 0.85)]); }
+  c.culture = cultureOf(planet);
   c.toWorld = (u, v) => [c.cx + u * c.cos - v * c.sin, c.cz + u * c.sin + v * c.cos];
   c.toLocal = (x, z) => { const dx = x - c.cx, dz = z - c.cz; return [dx * c.cos + dz * c.sin, -dx * c.sin + dz * c.cos]; };
   c.noise = { a: new Simplex2(derive(seed, 'districts-a')), b: new Simplex2(derive(seed, 'districts-b')), rim: new Simplex2(derive(seed, 'rim')) };
@@ -119,8 +121,8 @@ export function districtAt(city, u, v, i, j) {
   if (rn > 0.7 && angDist(ang, city.portAngle) < 0.22) return 'port';
   if (hf > 0.42) return h < 0.05 ? 'park' : 'spire';
   if (rn > 0.5 && angDist(ang, city.industryAngle) < 0.42) return h < 0.18 ? 'undercity' : 'industry';
-  if (h < 0.035) return 'park';
-  if (h < 0.06 && rn < 0.85) return 'works';
+  if (h < city.culture.green) return 'park';
+  if (h < city.culture.green + 0.025 && rn < 0.85) return 'works';
   const na = city.noise.a.fbm(u / 900, v / 900, 3), nb = city.noise.b.fbm(u / 650 + 7, v / 650 - 3, 3);
   if (na > 0.34 && rn < 0.85) return 'market';
   if (nb > 0.28 || rn > 0.9 && nb > -0.1) return 'undercity';
@@ -156,9 +158,11 @@ function makeBlock(city, i, j) {
 }
 const inset = (r, m) => [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
 const W = r => r[2] - r[0], D = r => r[3] - r[1];
+// a facade this people would build, for this kind of building
+const favoured = (ctx, kind) => ctx.rng.weighted(Object.entries(ctx.city.culture[kind]));
 function add(ctx, style, tiers, extra = {}) {
   const n = ctx.n, h1 = hash01(ctx.city.seed, [ctx.B.i, ctx.B.j, n, 71]), h2 = hash01(ctx.city.seed, [ctx.B.i, ctx.B.j, n, 72]);
-  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], floor: r1(STYLES[STYLE[style]][1] * (0.92 + 0.16 * h1)), bay: r1(STYLES[STYLE[style]][2] * (0.85 + 0.3 * h2)), tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1), ...(t.shape ? { shape: t.shape } : {}) })), ...extra };
+  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], floor: r1(STYLES[STYLE[style]][1] * (0.92 + 0.16 * h1) * ctx.city.culture.storey), bay: r1(STYLES[STYLE[style]][2] * (0.85 + 0.3 * h2) * ctx.city.culture.bay), tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1), ...(t.shape ? { shape: t.shape } : {}) })), ...extra };
   ctx.B.buildings.push(b); return b;
 }
 const prop = (ctx, k, u, v, y = 0, rot = 0, s = 1) => ctx.B.props.push({ k, u: r1(u), v: r1(v), y: r1(y), rot, s });
@@ -182,7 +186,7 @@ function tower(ctx, foot, base, height, style, nTiers) {
     const last = k === nTiers - 1, th = last ? height - (y - base) : (height - (y - base)) * rng.range(0.3, 0.55);
     if (th < 6) break;
     tiers.push({ r: r.slice(), y0: y, y1: y + th }); y += th;
-    const step = Math.min(W(r), D(r)) * rng.range(0.08, 0.18);
+    const step = Math.min(W(r), D(r)) * rng.range(0.08, 0.18) * ctx.city.culture.steps;
     if (Math.min(W(r), D(r)) - 2 * step < 10) break;
     r = rng.chance(0.25) ? [r[0] + step * 2, r[1], r[2], r[3] - step * 2] : inset(r, step);
   }
@@ -214,9 +218,9 @@ const BUILD = {
     for (const f of feet) {
       const s = Math.min(W(f), D(f));
       const foot = s > 70 ? inset(f, (s - rng.range(44, 70)) / 2) : f;
-      const H = clamp(hf * rng.range(560, 920) + rng.range(-60, 60), 140, 960) * (n === 2 ? rng.range(0.55, 0.85) : 1);
-      const shape = rng.chance(0.24) ? rng.pick(['round', 'oct', 'round']) : null, tt = tower(ctx, foot, podH, H, 'glass', rng.int(3, 6));
-      const b = add(ctx, rng.pick(['glass', 'glass', 'bronze', 'white', 'ribbon']), shape ? roundify(tt, shape) : tt,
+      const H = clamp((hf * rng.range(560, 920) + rng.range(-60, 60)) * ctx.city.culture.height, 90, 960) * (n === 2 ? rng.range(0.55, 0.85) : 1);
+      const shape = rng.chance(ctx.city.culture.round) ? rng.pick(['round', 'oct', 'round']) : null, tt = tower(ctx, foot, podH, H, 'glass', rng.int(3, 6));
+      const b = add(ctx, favoured(ctx, 'tower'), shape ? roundify(tt, shape) : tt,
         { crown: rng.pick(CROWNS), label: 'spire' });
       b.top = r1(b.tiers.at(-1).y1);
       // landing pads cantilevered off the shaft every couple of hundred metres
@@ -235,12 +239,12 @@ const BUILD = {
     const lots = split(rng, r, W(r) * D(r) > 9000 ? rng.int(2, 4) : rng.int(1, 2), rng.range(6, 14));
     for (const lot of lots) {
       const s = Math.min(W(lot), D(lot));
-      const H = clamp((hf * 2.2 + 0.25) * rng.range(70, 260), 30, 340);
+      const H = clamp((hf * 2.2 + 0.25) * rng.range(70, 260) * ctx.city.culture.height, 24, 340);
       const slab = rng.chance(0.4);
       const foot = slab ? lot : s > 50 ? inset(lot, (s - rng.range(30, 48)) / 2) : lot;
-      const style = rng.pick(['glass', 'ribbon', 'grid', 'grid', 'bronze', 'white']);
+      const style = favoured(ctx, 'office');
       const tiers = rng.chance(0.4) ? [{ r: lot, y0: 0, y1: rng.range(8, 16) }, ...tower(ctx, inset(foot, 2), 0, H, style, rng.int(1, 3)).map(t => ({ ...t, y0: Math.max(t.y0, 0) }))] : tower(ctx, foot, 0, H, style, rng.int(1, 3));
-      const shape = !slab && rng.chance(0.2) ? rng.pick(['round', 'oct']) : null;
+      const shape = !slab && rng.chance(ctx.city.culture.round * 0.8) ? rng.pick(['round', 'oct']) : null;
       const b = add(ctx, style, shape ? roundify(tiers, shape, tiers[0].r === lot ? 1 : 0) : tiers, { crown: rng.chance(0.4) ? rng.pick(CROWNS) : null, label: 'offices' });
       b.top = r1(Math.max(...b.tiers.map(t => t.y1)));
       roofClutter(ctx, b, 0.6);
@@ -249,8 +253,8 @@ const BUILD = {
   },
   housing(ctx, r) {
     const { rng } = ctx;
-    const dep = rng.range(13, 18), H = rng.range(28, 95);
-    const style = rng.pick(['hab', 'hab', 'brick', 'grid', 'white']);
+    const dep = rng.range(13, 18), H = rng.range(28, 95) * Math.min(1.2, ctx.city.culture.height + 0.15);
+    const style = favoured(ctx, 'home');
     const ring = [[r[0], r[1], r[2], r[1] + dep], [r[0], r[3] - dep, r[2], r[3]], [r[0], r[1] + dep + 4, r[0] + dep, r[3] - dep - 4], [r[2] - dep, r[1] + dep + 4, r[2], r[3] - dep - 4]];
     ring.forEach((f, k) => {
       if (k >= 2 && rng.chance(0.2)) return;                           // an open side: the courtyard opens to the street
@@ -280,7 +284,7 @@ const BUILD = {
     for (const f of [[r[0], r[1], r[2], r[1] + dep], [r[0], r[3] - dep, r[2], r[3]]]) {
       for (const lot of split(rng, f, Math.max(2, Math.round(W(f) / rng.range(9, 14))), 0)) {
         const h = rng.int(2, 4) * 3.4;
-        const b = add(ctx, rng.pick(['brick', 'grime', 'hab', 'brick']), [{ r: lot, y0: 0, y1: h }], { label: 'shophouse', awning: true, enter: enterable(lot, 'store') });
+        const b = add(ctx, favoured(ctx, 'low'), [{ r: lot, y0: 0, y1: h }], { label: 'shophouse', awning: true, enter: enterable(lot, 'store') });
         b.top = h; roofClutter(ctx, b, 0.7);
       }
       shopfronts(ctx, f, 'market');
@@ -308,7 +312,7 @@ const BUILD = {
     };
     cut(r, 0);
     const tall = 8 + hf * 60, upper = [];
-    const ov = (a, b) => a[0] < b[2] - 0.01 && a[2] > b[0] + 0.01 && a[1] < b[3] - 0.01 && a[3] > b[1] + 0.01;
+    const ov = (a, b) => a[0] < b[2] + 0.12 && a[2] > b[0] - 0.12 && a[1] < b[3] + 0.12 && a[3] > b[1] - 0.12;      // (with room for rounding)
     // an overhang may reach over an alley, never into a neighbour's footprint or another overhang
     const fits = (q, r2, y0, y1) => !cells.some(o => o !== q && ov(o, r2)) && !upper.some(u => ov(u.r, r2) && u.y0 < y1 && y0 < u.y1);
     for (const q of cells) {
@@ -323,7 +327,7 @@ const BUILD = {
         if (rng.chance(0.3) && W(r2) > 5 && D(r2) > 5) tiers.push({ r: inset(r2, rng.range(0.5, 2)), y0: tiers[1].y1, y1: tiers[1].y1 + rng.range(2.6, 6) });
       }
       const label = rng.pick(['tenement', 'flophouse', 'den', 'cantina', 'pawnshop', 'workshop', 'noodle bar', 'chop shop']);
-      const b = add(ctx, rng.pick(['grime', 'grime', 'brick', 'hab']), tiers, { label, neon: rng.chance(0.6), enter: enterable(q, label === 'tenement' || label === 'flophouse' ? 'hab' : 'store') });
+      const b = add(ctx, favoured(ctx, 'low'), tiers, { label, neon: rng.chance(0.6 * ctx.city.culture.neon), enter: enterable(q, label === 'tenement' || label === 'flophouse' ? 'hab' : 'store') });
       b.top = r1(Math.max(...tiers.map(t => t.y1)));
       roofClutter(ctx, b, 1);
       if (b.neon) { const side = rng.int(0, 3), [a0, b0, a1, b1] = q, y = rng.range(3, Math.min(9, h0 - 1));

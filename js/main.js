@@ -60,6 +60,7 @@ import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
 import { HoldsView } from './render/holds.js';
+import { OutpostView } from './render/outposts.js';
 import { Goods } from './render/goods.js';
 import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
@@ -187,6 +188,7 @@ async function start(fresh) {
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
+  const outposts = new OutpostView(planet, propLib, k => cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
   const doorView = new DoorView(s, town.doors);
@@ -366,9 +368,11 @@ async function start(fresh) {
     const c = cityView.city; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 200) return null;
     const [u, v] = c.toLocal(ctrl.pos[0], ctrl.pos[2]), y = ctrl.pos[1] - c.h - CITY_CURB;
     let best = null, bd = 2.6;
-    blocksNear(c, u, v, 6, B => { for (const L of liftsOf(c, B)) for (const st of L.stops) { const d = Math.hypot(st.u - u, st.v - v); if (d < bd && Math.abs(st.y - y) < 1.6) { bd = d; best = { L, st }; } } });
+    blocksNear(c, u, v, 6, B => { for (const L of liftsOf(c, B)) for (const st of L.stops) { const d = Math.hypot(st.u - u, st.v - v); if (d < bd && Math.abs(st.y - y) < 1.6) { bd = d; best = { L, st, d }; } } });
     return best;
   }
+  // what E means here: the door you're at beats a car that merely happens to be parked by it; whichever is nearer. The prompt and the key use this same answer.
+  const carToTake = t => { const c = mayhem?.takeable(ctrl, t); if (!c || c.on) return c || null; const lf = liftNear(); return lf && lf.d <= c.d ? null : c; };
   async function liftFlow({ L, st }) {
     let pick = null;
     await modal(async () => { pick = await ui.choose({ title: `${L.b.label[0].toUpperCase() + L.b.label.slice(1)} — lift`, sub: `${L.stops.length} stops. You're at: ${st.label.toLowerCase()}.`,
@@ -380,7 +384,7 @@ async function start(fresh) {
     ui.toast(`The lift ${q.y > st.y ? 'climbs' : 'drops'} ${Math.round(Math.abs(q.y - st.y))} m. <small>${q.label}</small>`, '', 3500);
   }
   function interact() {
-    const tk = mayhem?.takeable(ctrl, clock.now()); if (tk && !(nearVehicle() && isYours(nearVehicle(), player))) { takeCar(tk); return; }
+    const tk = carToTake(clock.now()); if (tk && !(nearVehicle() && isYours(nearVehicle(), player))) { takeCar(tk); return; }
     const lf = liftNear();
     if (lf) { liftFlow(lf); return; }
     if (ctrl.mode === 'walk' && ctrl.grounded && ctrl.where?.roof !== false && ctrl.climbDown()) return;
@@ -1268,6 +1272,7 @@ async function start(fresh) {
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
+    outposts.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
@@ -1315,7 +1320,7 @@ async function start(fresh) {
         const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
         ui.showPrompt(st.held ? `Holding cell — locked until your release${player.custody ? ' at ' + formatHour(solarHour(planet, player.custody.until)) : ''}` : st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
           : res.ok || (door.kind !== 'interior' && insideBuilding(b)) ? `<kbd>E</kbd> Open ${what}${res.key ? ' <small>(your key)</small>' : ''}` : `${res.why} · <kbd>E</kbd> try · hold <kbd>F</kbd> force`);
-      } else if (forceHold === 0 && mayhem && (cityTake = mayhem.takeable(ctrl, t))) { const c = cityTake, d = driverOf(cityTraffic.fleet, c.car), T = typeOf(c.car); ui.showPrompt(c.on ? `On <b>${esc(d.name)}</b>'s ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small> · <kbd>E</kbd> force your way in · <kbd>Space</kbd> jump` : c.parked ? `<kbd>E</kbd> Steal ${esc(d.name)}'s ${T.name.toLowerCase()}` : `<kbd>E</kbd> Drag <b>${esc(d.name)}</b> out of the ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small>`); }
+      } else if (forceHold === 0 && mayhem && (cityTake = carToTake(t))) { const c = cityTake, d = driverOf(cityTraffic.fleet, c.car), T = typeOf(c.car); ui.showPrompt(c.on ? `On <b>${esc(d.name)}</b>'s ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small> · <kbd>E</kbd> force your way in · <kbd>Space</kbd> jump` : c.parked ? `<kbd>E</kbd> Steal ${esc(d.name)}'s ${T.name.toLowerCase()}` : `<kbd>E</kbd> Drag <b>${esc(d.name)}</b> out of the ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small>`); }
       else if (forceHold === 0 && (cityLift = liftNear())) ui.showPrompt(`<kbd>E</kbd> Lift — ${esc(cityLift.L.b.label)} <small>· ${cityLift.L.stops.filter(q => q !== cityLift.st).map(q => q.label.split(' —')[0].toLowerCase()).filter((q, i, a) => a.indexOf(q) === i).join(' · ')}</small>`);
       else if (forceHold === 0) {
         // the person in front of you
@@ -1344,7 +1349,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

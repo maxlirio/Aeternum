@@ -3,6 +3,7 @@
 // slope, height above the sea and below the treeline) and stays off towns and roads.
 // A plant is logical data — species, position, size, and for trees and boulders a solid
 // radius the collision world blocks — so the models (tools/assets/build.py) can change freely.
+import { sitesNear } from './outposts.js';
 import { hashInts, hashStr } from '../core/hash.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
@@ -58,6 +59,7 @@ export function floraTile(planet, ti, tj) {
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 2) continue;
     if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
+    if (onSite(planet, x, z)) continue;       // nothing grows through a farm or a mine
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;
     const ny = e / Math.hypot(hx, e, hz);                                         // 1 = flat
     const moist = moisture(planet, x, z), above = s.h - planet.seaLevel;
@@ -89,6 +91,7 @@ export function floraTile(planet, ti, tj) {
 }
 
 // Plants within radius R of (x, z): calls fn(plant) for each.
+const onSite = (planet, x, z) => { let on = false; sitesNear(planet, x, z, 70, S => { if (Math.hypot(S.x - x, S.z - z) < 62) on = true; }); return on; };
 export function floraNear(planet, x, z, R, fn) {
   const t0 = Math.floor((x - R) / TILE), t1 = Math.floor((x + R) / TILE), u0 = Math.floor((z - R) / TILE), u1 = Math.floor((z + R) / TILE);
   for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const p of floraTile(planet, ti, tj)) if ((p.x - x) ** 2 + (p.z - z) ** 2 <= R * R) fn(p);

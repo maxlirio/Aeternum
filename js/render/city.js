@@ -44,7 +44,7 @@ export function cityMaterial(shape = 'box') {
   }
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0 });
   const uni = {
-    uNight: { value: 0 }, uGround: { value: 0 }, uTime: { value: 0 },
+    uNight: { value: 0 }, uGround: { value: 0 }, uTime: { value: 0 }, uTint: { value: new THREE.Vector3(1, 1, 1) },
     uFrame: { value: STYLE_P.map(s => new THREE.Vector3(...s[0])) },
     uGlass: { value: STYLE_P.map(s => new THREE.Vector3(...s[1])) },
     uWin: { value: STYLE_P.map(s => new THREE.Vector4(...s[2])) },
@@ -74,7 +74,7 @@ export function cityMaterial(shape = 'box') {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vFac; varying vec4 vCity; varying float vSpan;
-        uniform float uNight; uniform float uTime;
+        uniform float uNight; uniform float uTime; uniform vec3 uTint;
         uniform vec3 uFrame[13]; uniform vec3 uGlass[13]; uniform vec4 uWin[13]; uniform vec2 uBay[13];
         float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
         float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -83,7 +83,7 @@ export function cityMaterial(shape = 'box') {
       .replace('#include <map_fragment>', `#include <map_fragment>
         {
           int st = int(vCity.x + 0.5); float seed = vCity.y;
-          vec3 frame = uFrame[st], glass = uGlass[st]; vec4 W = uWin[st]; vec2 bay = uBay[st];
+          vec3 frame = uFrame[st] * uTint, glass = uGlass[st]; vec4 W = uWin[st]; vec2 bay = uBay[st];
           float tint = h21(vec2(seed, 7.7)), hue = h21(vec2(seed, 4.4));
           vec3 pal = hue < 0.2 ? vec3(1.08, 0.98, 0.86) : hue < 0.4 ? vec3(0.86, 0.94, 1.06) : hue < 0.52 ? vec3(1.12, 0.88, 0.76) : hue < 0.62 ? vec3(0.84, 1.0, 0.96) : vec3(1.0);
           frame *= (0.7 + 0.5 * tint) * pal; glass *= mix(vec3(1.0), pal, 0.8);
@@ -190,7 +190,7 @@ export class CityView {
   constructor(planet, propLib = null) {
     this.planet = planet; this.city = getCity(planet); this.propLib = propLib;
     this.group = new THREE.Group(); this.group.name = 'city';
-    this.mat = cityMaterial(); this.mat.userData.uni.uGround.value = this.city.h + CURB;
+    this.mat = cityMaterial(); this.mat.userData.uni.uGround.value = this.city.h + CURB; this.mat.userData.uni.uTint.value.set(...this.city.culture.tint); setKitPalette(this.city.culture.paints);
     this.box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
     this.shapes = { round: new THREE.CylinderGeometry(0.5, 0.5, 1, 40, 1).translate(0, 0.5, 0),
       oct: (() => { const g = new THREE.CylinderGeometry(0.5 / Math.cos(Math.PI / 8), 0.5 / Math.cos(Math.PI / 8), 1, 8, 1).rotateY(Math.PI / 8).translate(0, 0.5, 0).toNonIndexed(); g.computeVertexNormals(); return g; })() };
@@ -438,9 +438,10 @@ const SIZES = {   // w, h, d, colour, shape
   tank: [9, 10, 9, 0xb0b0a8, 'cyl'], silo: [7, 18, 7, 0xa0a098, 'cyl'], sphere: [10, 10, 10, 0xc0c0b8, 'ball'], stack: [3, 30, 3, 0x6a5a50, 'cyl'], crane: [2, 28, 2, 0xd0a020], forklift: [1.4, 2, 2.6, 0xe0b020],
   fountain: [8, 1.2, 8, 0x8a9aa0, 'cyl'], monument: [3, 12, 3, 0xa0a0a0], statue: [2, 6, 2, 0x8a7a5a], play: [3, 2, 3, 0xc04040], washline: [6, 2.2, 0.2, 0xd0d0c0], kiosk_food: [2.4, 2.8, 2, 0xa06040],
 };
-const TINTS = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6]];
+let TINTS = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6]];
 const MUTED = [[0.16, 0.17, 0.18], [0.12, 0.2, 0.16], [0.13, 0.16, 0.24], [0.3, 0.14, 0.1], [0.24, 0.24, 0.22]];
 // a kit part's colour: 'bright' parts vary piece by piece; 'muted' street steel is one colour per kind
+export const setKitPalette = p => { TINTS = p; };
 export function kitTint(mode, k, u, v) {
   if (mode === 'muted') { let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return MUTED[h % MUTED.length]; }
   const h = Math.abs(Math.sin(u * 12.9898 + v * 78.233) * 43758.5453) % 1; return TINTS[Math.floor(h * TINTS.length)];

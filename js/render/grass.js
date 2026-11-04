@@ -76,7 +76,7 @@ export class GrassField {
           vec3 local = vec3(position.x * w, 0.0, 0.0);
           local = vec3(local.x * c, 0.0, -local.x * s);                      // the blade faces its own way
           vHead = step(1.5, uv.x);
-          if (vHead > 0.5) local = vec3(position.x, 0.0, position.z) * aShape.y * 1.6;   // a flower head: a flat star at the stalk's top
+          if (vHead > 0.5) local = vec3(position.x, 0.0, position.z) * aShape.y * 0.62;   // a flower head: a flat star at the stalk's top
           float b = bendAmt * t * t * h;                                       // it curves over as it rises
           vec3 transformed = vec3(aPos.x + local.x + wdir.x * b + s * aShape.z * t * t * h * 0.4,
                                   aPos.y + h * t * (1.0 - 0.35 * bendAmt * t),

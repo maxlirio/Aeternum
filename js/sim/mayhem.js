@@ -81,7 +81,7 @@ export class Mayhem {
     for (const v of this.view.nearby) {
       if (v.car.ship || (v.speed || 0) > 4) continue;
       const d = Math.hypot(v.pos[0] - ctrl.pos[0], v.pos[2] - ctrl.pos[2]) - box(v.car).L / 2 + 0.8;
-      if (d < bd && Math.abs(v.pos[1] - ctrl.pos[1]) < 2) { bd = d; best = { car: v.car, on: false, parked: v.parked }; }
+      if (d < bd && Math.abs(v.pos[1] - ctrl.pos[1]) < 2) { bd = d; best = { car: v.car, on: false, parked: v.parked, d }; }
     }
     return best;
   }

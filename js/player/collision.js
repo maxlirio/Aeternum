@@ -6,6 +6,7 @@ import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
+import { sitesNear } from '../gen/outposts.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
 const inBox = (b, u, v, m = 0) => b[6] ? Math.hypot(u - (b[0] + b[2]) / 2, v - (b[1] + b[3]) / 2) <= (b[2] - b[0]) / 2 + m : u >= b[0] - m && u <= b[2] + m && v >= b[1] - m && v <= b[3] + m;
@@ -202,6 +203,11 @@ export class CollisionWorld {
         for (const pbox of c.props) test(pbox, false);
       }
       // tree trunks and boulders out in the open (gen/flora.js): circles
+      if (this.flora) sitesNear(this.planet, x, z, 14, S => { if (Math.abs(S.x - x) > 110 || Math.abs(S.z - z) > 110) return; for (const it of S.items) {     // the country's barns and masts (gen/outposts.js)
+        if (!it.r || yFeet > it.y + 12 || yFeet + h < it.y) continue;
+        const dx = x - it.x, dz = z - it.z, d = Math.hypot(dx, dz), R = r + it.r; if (d >= R) continue;
+        const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = it.x + ux * R; z = it.z + uz * R; moved = true;
+      } });
       if (this.flora) floraNear(this.planet, x, z, r + 1.4, p => {
         if (!p.solid || yFeet > p.y + (p.sp === 'boulder' ? p.size * 0.8 : p.size) || yFeet + h < p.y) return;
         const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), R = r + p.solid;

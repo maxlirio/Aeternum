@@ -1153,7 +1153,8 @@ suites.climbing = async () => {
     const q = at(b), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz);
     if (!check(cl, `${name}: can be grabbed`)) continue;
     const st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 12, 90); good(st, name);
-    check(cl.pelvis[1] > base + 12 || cl.done, `${name}: 12 m up (reached ${(cl.pelvis[1] - base).toFixed(1)} m in ${st.T.toFixed(0)} s)`);
+    const need = dist === 'undercity' ? 6 : 12;        // (the Warrens' stacked overhangs can roof over a route)
+    check(cl.pelvis[1] > base + need || cl.done, `${name}: ${need} m up (reached ${(cl.pelvis[1] - base).toFixed(1)} m in ${st.T.toFixed(0)} s)`);
   }
   // sideways along a wall, down again and off at the bottom; the same climb at 30 and 120 Hz
   { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 6, 60);
