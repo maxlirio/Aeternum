@@ -671,6 +671,158 @@ def planter_tall(p, r):
 def bollard_light(p, r): cy(p, 0, 0, 0, 0.8, 0.1, 'mirror', 12); cy(p, 0, 0, 0.6, 0.75, 0.105, 'lampwarm', 12)
 def newsscreen(p, r): cy(p, 0, 0, 0, 2.2, 0.08, 'metal', 8); bx(p, 0, 2.2, 0, 2.4, 1.4, 0.15, 'metal', 0.02); bx(p, 0, 2.28, -0.08, 2.2, 1.24, 0.02, 'screen', 0.003)
 
+# ---------------------------------------------------------------- batch 3: building sites, transit, bars and shops, civic
+def cone(p, r): cy(p, 0, 0, 0.03, 0.7, 0.14, 'hazard', 12, r2=0.03); bx(p, 0, 0, 0, 0.36, 0.03, 0.36, 'rubber')
+def conegroup(p, r):
+    rng = random.Random(r.random())
+    for i in range(5): x, z = -1.6 + i * 0.8, rng.uniform(-0.1, 0.1); cy(p, x, z, 0.03, 0.7, 0.14, 'hazard', 10, r2=0.03); bx(p, x, 0, z, 0.36, 0.03, 0.36, 'rubber')
+def scaffold(p, r):
+    for x in (-3, 0, 3):
+        for z in (-0.6, 0.6): cy(p, x, z, 0, 8, 0.03, 'metal', 6)
+    for y in (2, 4, 6, 8):
+        rod_x(p, -3, 3, y, -0.6, 0.025, 'metal', 5); rod_x(p, -3, 3, y, 0.6, 0.025, 'metal', 5); bx(p, 0, y, 0, 6, 0.04, 1.1, 'wood', 0.003)
+        for x in (-3, 0, 3): rod_z(p, -0.6, 0.6, x, y, 0.025, 'metal', 5)
+def excavator(p, r):
+    for s in (-1, 1): bx(p, 0, 0, s * 1.05, 4.2, 0.8, 0.6, 'rubber', 0.1)
+    bx(p, 0, 0.8, 0, 3.2, 1.0, 2.2, 'hazard', 0.06); bx(p, 0.6, 1.8, -0.5, 1.1, 1.3, 1.1, 'visor', 0.05); bx(p, -1.0, 1.8, 0.2, 1.2, 0.6, 1.5, 'hazard', 0.04)
+    for (a, b2) in (((1, 1.9), (3.4, 3.8)), ((3.4, 3.8), (5.2, 1.6))):
+        n = 5
+        for i in range(n): f = i / (n - 1); bx(p, a[0] + (b2[0] - a[0]) * f, a[1] + (b2[1] - a[1]) * f, 0, 0.5, 0.42, 0.34, 'hazard', 0.02)
+    bx(p, 5.3, 0.9, 0, 0.8, 0.7, 0.9, 'metal', 0.03)
+def mixer(p, r):
+    bx(p, 0, 0.3, 0, 1.6, 0.1, 0.9, 'metal'); add_cyl(p, 0.22, 0.42, -0.5, -0.42, 0.22, 'rubber', seg=12, axis='x'); add_cyl(p, 0.22, 0.42, 0.42, 0.5, 0.22, 'rubber', seg=12, axis='x')
+    cy(p, 0.1, 0, 0.45, 1.0, 0.45, 'hazard', 16); cy(p, 0.1, 0, 1.0, 1.4, 0.45, 'hazard', 16, r2=0.22); bx(p, -0.7, 0.4, 0, 0.4, 0.5, 0.5, 'paint', 0.03)
+def portaloo(p, r):
+    bx(p, 0, 0, 0, 1.15, 2.2, 1.15, 'tint', 0.04); bx(p, 0, 2.2, 0, 1.25, 0.1, 1.25, 'plastic', 0.03); bx(p, 0, 0.05, -0.59, 0.85, 2.0, 0.03, 'tint', 0.01); bx(p, 0.3, 1.0, -0.62, 0.1, 0.1, 0.03, 'rubber')
+def bricks(p, r):
+    for y in range(4):
+        for x in range(3):
+            for z in range(2): bx(p, -0.6 + x * 0.6, y * 0.26, -0.3 + z * 0.6, 0.56, 0.24, 0.56, 'tint', 0.01)
+    bx(p, 0, 0, 0, 1.9, 0.08, 1.3, 'wood')
+def sandheap(p, r): cy(p, 0, 0, 0, 1.4, 2.4, 'soil', 20, r2=0.25)
+def girders(p, r):
+    for i in range(6): y = i // 3 * 0.32; z = -0.5 + (i % 3) * 0.5; bx(p, 0, y, z, 6.0, 0.07, 0.3, 'hazard', 0.005); bx(p, 0, y + 0.07, z, 6.0, 0.16, 0.05, 'hazard', 0.003); bx(p, 0, y + 0.23, z, 6.0, 0.07, 0.3, 'hazard', 0.005)
+def sitefence(p, r):
+    for x in (-3, 0, 3): bx(p, x, 0, 0, 0.08, 2.2, 0.08, 'metal'); bx(p, x, 0, 0, 0.5, 0.1, 0.8, 'concrete')
+    bx(p, 0, 0.1, 0, 6, 2.0, 0.03, 'tint', 0.003); bx(p, 0, 1.0, -0.02, 2.0, 0.6, 0.01, 'hazard', 0.002)
+def towercrane(p, r):
+    for sx in (-1, 1):
+        for sz in (-1, 1): cy(p, sx * 1.1, sz * 1.1, 0, 44, 0.09, 'hazard', 5)
+    for y in range(3, 44, 4): bx(p, 0, y, 0, 2.3, 0.1, 2.3, 'hazard', 0.005)
+    bx(p, 0, 0, 0, 5, 0.8, 5, 'concrete', 0.02); bx(p, 13, 44.5, 0, 30, 0.8, 0.8, 'hazard', 0.01); bx(p, -7, 44.2, 0, 10, 1.3, 1.1, 'concrete', 0.02); bx(p, 0.8, 44, -1.2, 1.5, 2.1, 1.5, 'visor', 0.03)
+    cy(p, 22, 0, 26, 44.5, 0.03, 'metal', 4); bx(p, 22, 25.4, 0, 1.0, 0.6, 1.0, 'hazard', 0.02)
+def tramstop(p, r):
+    bx(p, 0, 0, 0, 9, 0.28, 2.6, 'stone', 0.02); bx(p, 0, 0.28, 0.9, 8.6, 2.6, 0.05, 'glass', 0.005); bx(p, 0, 2.95, 0.1, 9.2, 0.12, 2.4, 'metal', 0.02)
+    for x in (-4, 0, 4): bx(p, x, 0.28, 1.0, 0.1, 2.7, 0.1, 'metal')
+    bx(p, -2.2, 0.28, 0.65, 2.5, 0.45, 0.45, 'wood'); bx(p, 2.5, 0.8, 0.82, 2.2, 1.3, 0.04, 'screen', 0.003); bx(p, 0, 2.8, -1.05, 3.4, 0.22, 0.03, 'neoncyan', 0.004)
+def monopylon(p, r):
+    cy(p, 0, 0, 0, 12, 0.8, 'concrete', 20, r2=0.55); bx(p, 0, 12, 0, 1.6, 1.0, 5.4, 'concrete', 0.1); bx(p, 0, 0, 0, 2.2, 0.4, 2.2, 'concrete', 0.03)
+def turnstile(p, r):
+    for x in (-0.6, 0.6): bx(p, x, 0, 0, 0.18, 1.0, 1.2, 'mirror', 0.03); bx(p, x, 1.0, -0.4, 0.14, 0.03, 0.2, 'neongreen', 0.003)
+    for z in (-0.1, 0.1): rod_x(p, -0.5, 0.5, 0.82, z, 0.02, 'metal', 6)
+def bigclock(p, r):
+    cy(p, 0, 0, 0, 5.2, 0.14, 'paint', 12); add_cyl(p, 5.5, 0, -0.08, 0.08, 0.5, 'paint', seg=24, axis='z'); add_cyl(p, 5.5, 0, -0.1, -0.07, 0.44, 'ceramic', seg=24, axis='z')
+    bx(p, 0.14, 5.5, -0.12, 0.28, 0.03, 0.01, 'rubber', 0.001); bx(p, 0, 5.62, -0.12, 0.03, 0.24, 0.01, 'rubber', 0.001)
+def postbox(p, r): cy(p, 0, 0, 0, 1.5, 0.28, 'tint', 16); cy(p, 0, 0, 1.5, 1.68, 0.3, 'tint', 16, r2=0.22); bx(p, 0, 1.2, -0.28, 0.3, 0.04, 0.02, 'rubber', 0.002)
+def flagpole(p, r): cy(p, 0, 0, 0, 10, 0.06, 'metal', 8, r2=0.03); bx(p, 0.7, 8.6, 0, 1.4, 0.9, 0.02, 'tint', 0.003); bx(p, 0, 0, 0, 0.9, 0.3, 0.9, 'stone', 0.03)
+def banner(p, r): cy(p, 0, 0, 0, 7, 0.07, 'paint', 8); bx(p, 0, 7, -0.45, 0.04, 0.04, 0.9, 'metal'); bx(p, 0, 4.3, -0.45, 0.02, 2.7, 0.8, 'tint', 0.003)
+def gate(p, r):
+    for x in (-2.4, 2.4): bx(p, x, 0, 0, 0.6, 3.6, 0.6, 'stone', 0.03)
+    for i in range(14): bx(p, -1.95 + i * 0.3, 0, 0, 0.04, 2.8, 0.04, 'paint')
+    bx(p, 0, 2.8, 0, 4.2, 0.1, 0.06, 'paint'); bx(p, 0, 1.0, 0, 4.2, 0.08, 0.05, 'paint')
+def wallsegment(p, r): bx(p, 0, 0, 0, 5, 2.2, 0.35, 'concrete', 0.02); bx(p, 0, 2.2, 0, 5.1, 0.12, 0.45, 'stone', 0.02)
+def chainfence(p, r):
+    for x in (-2.5, 0, 2.5): cy(p, x, 0, 0, 2.3, 0.04, 'metal', 6)
+    rod_x(p, -2.5, 2.5, 2.25, 0, 0.02, 'metal', 5); rod_x(p, -2.5, 2.5, 0.05, 0, 0.02, 'metal', 5)
+    for i in range(17): cy(p, -2.4 + i * 0.3, 0, 0.05, 2.25, 0.006, 'metal', 3)
+    for y in (0.5, 1.0, 1.5, 2.0): rod_x(p, -2.5, 2.5, y, 0, 0.006, 'metal', 3)
+def toll(p, r):
+    bx(p, -1.6, 0, 0, 1.2, 2.5, 1.6, 'tint', 0.03); bx(p, -1.6, 1.2, -0.81, 1.0, 0.9, 0.02, 'visor', 0.003); bx(p, -1.6, 2.5, 0, 1.6, 0.14, 2.2, 'metal', 0.02)
+    rod_x(p, -1.0, 2.4, 1.05, -0.4, 0.04, 'hazard', 8); bx(p, -0.95, 0, -0.4, 0.2, 1.15, 0.2, 'paint', 0.02)
+def bar_counter(p, r):
+    bx(p, 0, 0, 0, 4.2, 1.05, 0.7, 'wood', 0.02); bx(p, 0, 1.05, -0.03, 4.4, 0.05, 0.85, 'stone', 0.01); rod_x(p, -2.1, 2.1, 0.2, -0.42, 0.02, 'metal', 6)
+    for x in (-1.2, 0.6): cy(p, x, 0.1, 1.1, 1.45, 0.03, 'metal', 8); rod_z(p, -0.14, 0.1, x, 1.45, 0.02, 'metal', 6)
+    for i in range(3): cy(p, -0.3 + i * 0.3, 0, 1.1, 1.22, 0.04, 'glass', 8)
+def bar_shelf(p, r):
+    rng = random.Random(r.random()); bx(p, 0, 0, 0, 3.4, 2.4, 0.3, 'wood', 0.01); bx(p, 0, 0.9, -0.12, 3.2, 1.3, 0.04, 'mirror', 0.003)
+    for y in (1.0, 1.6):
+        bx(p, 0, y - 0.03, -0.14, 3.2, 0.03, 0.24, 'wood')
+        for i in range(13): x = -1.5 + i * 0.25; h = rng.uniform(0.2, 0.34); cy(p, x, -0.16, y, y + h, 0.04, rng.choice(['glass', 'tint', 'neonamber', 'visor']), 8, r2=0.02)
+def barstool(p, r): cy(p, 0, 0, 0.03, 0.75, 0.03, 'metal', 8); cy(p, 0, 0, 0, 0.04, 0.2, 'metal', 14); cy(p, 0, 0, 0.75, 0.84, 0.18, 'tint', 14); add_cyl(p, 0.3, 0, -0.14, 0.14, 0.012, 'metal', seg=5, axis='x')
+def booth(p, r):
+    for s in (-1, 1):
+        add_cushion(p, -0.8, 0.3, s * 0.82 - 0.26, 0.8, 0.52, s * 0.82 + 0.26, 'tint', 0.2, 0.3, 6); add_cushion(p, -0.8, 0.5, s * 1.05 - 0.1, 0.8, 1.2, s * 1.05 + 0.1, 'tint', 0.2, 0.3, 6); bx(p, 0, 0, s * 0.82, 1.6, 0.3, 0.5, 'wood')
+    bx(p, 0, 0.72, 0, 1.4, 0.05, 0.75, 'wood', 0.01); cy(p, 0, 0, 0, 0.72, 0.06, 'metal', 8)
+def jukebox(p, r):
+    bx(p, 0, 0, 0, 0.9, 1.1, 0.55, 'wood', 0.03); add_cyl(p, 1.1, 0, -0.27, 0.27, 0.44, 'neonamber', seg=20, axis='z'); bx(p, 0, 0.7, -0.28, 0.6, 0.34, 0.02, 'screen', 0.003)
+    for i in range(4): bx(p, -0.3 + i * 0.2, 0.15, -0.28, 0.1, 0.42, 0.01, 'neonpink', 0.002)
+def pooltable(p, r):
+    bx(p, 0, 0.72, 0, 2.5, 0.12, 1.4, 'wood', 0.02); bx(p, 0, 0.84, 0, 2.3, 0.01, 1.2, 'tint', 0.002)
+    for sx in (-1, 1):
+        for sz in (-1, 1): bx(p, sx * 1.05, 0, sz * 0.55, 0.14, 0.72, 0.14, 'wood', 0.01)
+    rng = random.Random(1)
+    for i in range(9): ball(p, rng.uniform(-0.8, 0.8), 0.875, rng.uniform(-0.4, 0.4), 0.028, rng.choice(['tint', 'ceramic', 'rubber']), 1)
+def arcade(p, r):
+    bx(p, 0, 0, 0, 0.75, 1.75, 0.7, 'tint', 0.03); bx(p, 0, 1.15, -0.2, 0.6, 0.45, 0.02, 'screen', 0.003); bx(p, 0, 0.9, -0.25, 0.65, 0.05, 0.3, 'rubber', 0.01); ball(p, -0.15, 0.97, -0.28, 0.03, 'navred', 1); bx(p, 0, 1.68, -0.36, 0.7, 0.12, 0.02, 'neonviolet', 0.003)
+def dartboard(p, r): bx(p, 0, 1.3, 0, 0.8, 0.8, 0.04, 'wood'); add_cyl(p, 1.7, -0.03, -0.03, 0.0, 0.24, 'rubber', seg=20, axis='z'); add_cyl(p, 1.7, -0.04, -0.04, -0.03, 0.07, 'navred', seg=12, axis='z')
+def clothesrack(p, r):
+    rng = random.Random(r.random()); cy(p, -0.8, 0, 0, 1.5, 0.02, 'metal', 6); cy(p, 0.8, 0, 0, 1.5, 0.02, 'metal', 6); rod_x(p, -0.8, 0.8, 1.5, 0, 0.015, 'metal', 6)
+    for i in range(9): bx(p, -0.7 + i * 0.175, 0.65, 0, 0.13, 0.85, 0.42, 'tint' if rng.random() > 0.4 else 'fabric', 0.02)
+def mannequin(p, r):
+    bx(p, 0, 0, 0, 0.36, 0.03, 0.36, 'metal'); cy(p, 0, 0, 0.03, 0.9, 0.025, 'metal', 6); cy(p, 0, 0, 0.9, 1.45, 0.17, 'plastic', 12, r2=0.2); ball(p, 0, 1.6, 0, 0.11, 'plastic', 2)
+def displaycase(p, r):
+    bx(p, 0, 0, 0, 1.6, 0.85, 0.6, 'wood', 0.02); bx(p, 0, 0.85, 0, 1.6, 0.55, 0.6, 'glass', 0.005); rng = random.Random(r.random())
+    for i in range(6): ball(p, -0.6 + i * 0.24, 0.92, rng.uniform(-0.1, 0.1), 0.05, rng.choice(['mirror', 'tint', 'neonamber']), 1)
+def freezer(p, r): bx(p, 0, 0, 0, 2.0, 0.85, 0.85, 'ceramic', 0.03); bx(p, 0, 0.85, 0, 1.9, 0.03, 0.75, 'glass', 0.003); bx(p, 0, 0.3, -0.43, 1.6, 0.12, 0.01, 'neoncyan', 0.002)
+def hospitalbed(p, r):
+    bx(p, 0, 0.55, 0, 2.0, 0.1, 0.9, 'metal', 0.01); add_cushion(p, -0.95, 0.65, -0.42, 0.95, 0.82, 0.42, 'fabric', 0.1, 0.3, 6); bx(p, -1.0, 0.55, 0, 0.04, 0.55, 0.88, 'metal')
+    for sx in (-0.9, 0.9):
+        for sz in (-0.38, 0.38): cy(p, sx, sz, 0.08, 0.55, 0.02, 'metal', 6); ball(p, sx, 0.06, sz, 0.05, 'rubber', 1)
+def medscanner(p, r):
+    bx(p, 0, 0, 0, 2.2, 0.75, 0.8, 'ceramic', 0.04); add_cyl(p, 0.95, 0, 0.6, 1.1, 0.72, 'ceramic', seg=28, axis='x'); add_cyl(p, 0.95, 0, 0.6, 1.11, 0.45, 'rubber', seg=24, axis='x'); bx(p, 1.0, 1.3, -0.65, 0.1, 0.1, 0.02, 'neoncyan', 0.002)
+def gymbench(p, r):
+    bx(p, 0, 0.42, 0, 1.2, 0.08, 0.3, 'fabric', 0.02); [bx(p, x, 0, 0, 0.08, 0.42, 0.5, 'metal') for x in (-0.5, 0.5)]; [cy(p, -0.55, z, 0, 1.1, 0.02, 'metal', 6) for z in (-0.4, 0.4)]
+    rod_z(p, -0.8, 0.8, -0.55, 1.1, 0.012, 'metal', 6); [add_cyl(p, -0.55, 1.1, z - 0.03, z + 0.03, 0.2, 'rubber', seg=16, axis='z') for z in (-0.7, 0.7)]
+def treadmill(p, r):
+    bx(p, 0, 0.05, 0, 0.75, 0.1, 1.7, 'rubber', 0.02); [cy(p, x, -0.75, 0.1, 1.3, 0.025, 'metal', 6) for x in (-0.33, 0.33)]; bx(p, 0, 1.3, -0.8, 0.7, 0.3, 0.1, 'screen', 0.01)
+def serverrack(p, r):
+    bx(p, 0, 0, 0, 0.7, 2.1, 0.9, 'rubber', 0.01); rng = random.Random(r.random())
+    for i in range(14):
+        bx(p, 0, 0.1 + i * 0.14, -0.46, 0.6, 0.11, 0.01, 'metal', 0.001)
+        for k in range(4): bx(p, -0.25 + k * 0.1, 0.13 + i * 0.14, -0.47, 0.025, 0.025, 0.005, rng.choice(['neongreen', 'neonamber', 'neoncyan']), 0.001)
+def officepod(p, r): bx(p, 0, 0.72, -0.1, 1.4, 0.04, 0.7, 'laminate'); [bx(p, x, 0, -0.1, 0.04, 0.72, 0.65, 'metal') for x in (-0.65, 0.65)]; bx(p, 0, 0.72, 0.28, 1.5, 0.7, 0.05, 'fabric', 0.01); bx(p, 0, 0.8, 0.05, 0.55, 0.36, 0.02, 'screen', 0.003)
+def lockerbank(p, r):
+    for i in range(5): bx(p, -1.0 + i * 0.5, 0, 0, 0.48, 1.9, 0.5, 'tint', 0.008); bx(p, -1.0 + i * 0.5, 1.5, -0.26, 0.25, 0.04, 0.01, 'rubber', 0.001); bx(p, -0.82 + i * 0.5, 0.9, -0.26, 0.02, 0.1, 0.01, 'metal', 0.001)
+def police_barrier(p, r): bx(p, 0, 0.05, 0, 2.4, 0.9, 0.08, 'hazard', 0.01); [bx(p, x, 0, 0, 0.1, 0.1, 0.6, 'rubber') for x in (-1, 1)]; bx(p, 0, 1.0, 0, 0.3, 0.1, 0.1, 'navred', 0.01)
+def checkpoint(p, r):
+    bx(p, 0, 0, 0, 2.2, 2.6, 2.2, 'paint', 0.04); bx(p, 0, 1.3, -1.11, 1.8, 0.9, 0.02, 'visor', 0.003); bx(p, 0, 2.6, 0, 2.8, 0.12, 2.8, 'metal'); cy(p, 0.9, 0.9, 2.7, 3.8, 0.02, 'metal', 4); ball(p, 0.9, 3.85, 0.9, 0.09, 'navred', 1)
+    bx(p, 0, 2.7, -1.4, 1.6, 0.2, 0.03, 'neonamber', 0.003)
+def sewergrate(p, r):
+    bx(p, 0, 0, 0, 1.0, 0.04, 0.7, 'metal', 0.005)
+    for i in range(8): bx(p, -0.42 + i * 0.12, 0.04, 0, 0.05, 0.01, 0.6, 'rubber', 0.001)
+def manhole(p, r): cy(p, 0, 0, 0, 0.03, 0.42, 'metal', 20); cy(p, 0, 0, 0.03, 0.035, 0.32, 'rubber', 16)
+def bollard_chain(p, r):
+    for x in (-1.5, 0, 1.5): cy(p, x, 0, 0, 0.8, 0.05, 'paint', 8); ball(p, x, 0.82, 0, 0.06, 'paint', 1)
+    for x0 in (-1.5, 0):
+        for i in range(6): f = i / 5; ball(p, x0 + f * 1.5, 0.7 - 0.2 * math.sin(f * math.pi), 0, 0.015, 'metal', 0)
+def skip_bin(p, r):
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-1.8, 0, -0.8), (1.8, 0, -0.8), (2.3, 1.2, -1.0), (-2.3, 1.2, -1.0))]; bm.faces.new(vs[::-1]); merge(p, bm, 'tint')
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-1.8, 0, 0.8), (1.8, 0, 0.8), (2.3, 1.2, 1.0), (-2.3, 1.2, 1.0))]; bm.faces.new(vs); merge(p, bm, 'tint')
+    bx(p, 0, 0, 0, 3.6, 0.06, 1.6, 'tint'); bx(p, 0, 0.5, 0, 3.8, 0.6, 1.5, 'corrugated', 0.05)
+def ladder_wall(p, r):
+    for x in (-0.22, 0.22): bx(p, x, 0, 0, 0.04, 4, 0.04, 'metal')
+    for i in range(13): rod_x(p, -0.22, 0.22, 0.2 + i * 0.3, 0, 0.012, 'metal', 5)
+def drainpipe(p, r):
+    cy(p, 0, 0, 0, 8, 0.05, 'paint', 8)
+    for y in range(1, 8, 2): bx(p, 0, y, 0.05, 0.14, 0.04, 0.05, 'metal')
+def wallac(p, r): bx(p, 0, 0, 0, 0.9, 0.6, 0.35, 'paint', 0.02); add_cyl(p, 0.3, -0.18, -0.01, 0.01, 0.24, 'rubber', seg=16, axis='z'); bx(p, 0, -0.22, 0.1, 0.5, 0.04, 0.3, 'metal')
+def foodtruck(p, r):
+    bx(p, 0, 0.5, 0, 5.2, 2.2, 2.1, 'tint', 0.08); bx(p, 2.4, 0.5, 0, 0.8, 1.5, 2.0, 'visor', 0.06); bx(p, -0.5, 1.3, -1.06, 2.6, 0.9, 0.03, 'rubber', 0.005); bx(p, -0.5, 1.2, -1.2, 2.7, 0.06, 0.32, 'metal')
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-1.8, 2.25, -1.06), (0.8, 2.25, -1.06), (0.8, 2.0, -1.9), (-1.8, 2.0, -1.9))]; bm.faces.new(vs); merge(p, bm, 'tint')
+    for x in (-1.6, 1.6):
+        for z in (-1.0, 1.0): add_cyl(p, 0.4, z, x - 0.14, x + 0.14, 0.4, 'rubber', seg=14, axis='x')
+    bx(p, -0.5, 2.3, -1.08, 2.0, 0.3, 0.03, 'neonpink', 0.004)
+
 KINDS = """lanternline lamp_double lamp_neon tree bollard bench hydrant stall_fish stall_canopy stall_spice stall_fruit stall_tent stall_cart stall_tech stall_grill
 stall_noodle stall_cloth stall_umbrella planter stall_crate bin bikerack shelter lamp_lantern mailbox lamp_cobra aerial antenna solar ac skylight beacon vent cooling dish
 ac2 billboard tank_roof lamp_flood awning cables barrier crates_fruit awning2 stool barrels sacks lamp_park sign_market handcart lanterns junction trashpile boxes dumpster
@@ -682,7 +834,10 @@ phonebooth ticketmachine parkingmeter trafficlight streetsign fountain_drink rec
 stall_meat stall_pots stall_flowers stall_juice stall_droid stall_weapons stall_fortune stall_tea stall_hats graffiti barricade burntcar tent
 generator cablespool droid_delivery droid_cleaner droid_sentry walker piperack transformer conveyor gastanks valve radar windsock baggagecart
 beacontower controlbooth fueltank gazebo footbridge sculpture1 sculpture2 sculpture3 roofgarden watertower helipadmark antennacluster windturbine
-chimney ad_tall ad_letters holo_globe kiosk_noodle busstop scooter planter_tall bollard_light newsscreen""".split()
+chimney ad_tall ad_letters holo_globe kiosk_noodle busstop scooter planter_tall bollard_light newsscreen
+cone conegroup scaffold excavator mixer portaloo bricks sandheap girders sitefence towercrane tramstop monopylon turnstile bigclock postbox flagpole banner gate wallsegment chainfence toll
+bar_counter bar_shelf barstool booth jukebox pooltable arcade dartboard clothesrack mannequin displaycase freezer hospitalbed medscanner gymbench treadmill serverrack officepod lockerbank
+police_barrier checkpoint sewergrate manhole bollard_chain skip_bin ladder_wall drainpipe wallac foodtruck""".split()
 def pipes(p, r, rr=0.25, mat='metal', n=2):
     for k in range(n): rod_z(p, -7, 7, -0.35 + k * 0.7 * (1 if n > 1 else 0), 0, rr, mat, 10)
     for z in (-6, -2, 2, 6): bx(p, 0, -0.35, z, 1.0, 0.06, 0.12, 'metal')

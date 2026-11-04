@@ -59,12 +59,12 @@ import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
-import { cityWalkers } from './gen/citytraffic.js';
+import { cityWalkers, cityTraffic as cityCars } from './gen/citytraffic.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
-import { trafficNear, airTraffic } from './gen/traffic.js';
+import { trafficNear, airTraffic, struckBy } from './gen/traffic.js';
 import { WEAPONS, strike, isDown, healthOf } from './sim/processes/combat.js';
 import { known, introduce, talked, workLine, homeLine, familyLine, smallTalk, directionsFrom } from './sim/processes/talk.js';
 import { weatherAt } from './gen/weather.js';
@@ -729,7 +729,7 @@ async function start(fresh) {
 
   // ---- you can be hurt too: health heals over a day or so; at nothing you go down
   player.hp ??= 100;
-  let lastShotAt = -1e9;
+  let lastShotAt = -1e9, hitUntil = -1e9;
   const fleeing = new Map();     // id → { pos, until }: bystanders running from gunfire
   function clearShot(a, b) { const n = 10; for (let i = 1; i < n; i++) { const f = i / n; if (world.solidAt(a[0] + (b[0] - a[0]) * f, a[1] + 1.3 + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, 0.05)) return false; } return true; }
   function showShot(from, to) {
@@ -1029,7 +1029,7 @@ async function start(fresh) {
       avatar.object.rotation.set(0, ride.facing, 0);
     }
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
-    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : null);
+    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
     avatar.object.visible = !flight;
     shipView.update(ships.map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
@@ -1042,7 +1042,7 @@ async function start(fresh) {
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
       .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
-    const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 450);
+    const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400);
     vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
@@ -1106,6 +1106,22 @@ async function start(fresh) {
       if (d < 0.6) { // exactly on top of each other: step back the way they came
         const ux = d > 1e-4 ? dx / d : -Math.sin(a.facing), uz = d > 1e-4 ? dz / d : -Math.cos(a.facing);
         ctrl.pos[0] = a.pos[0] + ux * 0.6; ctrl.pos[2] = a.pos[2] + uz * 0.6;
+      }
+    }
+    if (!paused && !flight && t > hitUntil && (ride || ctrl.mode === 'walk')) {       // traffic doesn't stop for you
+      const me = ride ? ride.pos : ctrl.pos, near = traffic.filter(v => Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12);
+      cityCars(cityView.city, t, v => { if (!v.air) near.push(v); }, me[0], me[2], 12);
+      const v = near.find(q => struckBy(q, me[0], me[1], me[2], ride ? 0.7 : 0.32));
+      if (v) {
+        hitUntil = t + 2;
+        const T = typeOf(v), fx = Math.sin(v.facing), fz = Math.cos(v.facing), dx = me[0] - v.pos[0], dz = me[2] - v.pos[2], side = dx * fz - dz * fx >= 0 ? 1 : -1;
+        const hit = ride ? Math.hypot(Math.sin(ride.facing) * ride.speed - fx * v.speed, Math.cos(ride.facing) * ride.speed - fz * v.speed) : v.speed;
+        if (ride) { ride.speed *= 0.2; hurtPlayer(Math.min(90, hit * 2), `a ${T.name.toLowerCase()} hit you`); }
+        else {
+          ctrl.knock(fx * hit * 0.75 + fz * side * 2, fz * hit * 0.75 - fx * side * 2, 2.5 + hit * 0.18, 1.2 + hit * 0.06);
+          hurtPlayer(Math.min(95, hit * hit * 0.22 * (T.L > 5.5 ? 1.5 : 1) + 6), `a ${T.name.toLowerCase()} hit you`);
+          scare(me, t);
+        }
       }
     }
     const riders = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 160).map(v => {   // the riders of passing traffic (seated, a little behind the bike's centre)

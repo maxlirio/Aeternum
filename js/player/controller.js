@@ -30,11 +30,14 @@ export class Controller {
   // Sit or lie at a spot (world position, facing); getting up returns you to `standAt`.
   seatAt(pos, facing, pose, standAt) { this.mode = 'seat'; this.seat = { pose, standAt: standAt.slice() }; this.pos = pos.slice(); this.facing = facing; this.vel = [0, 0, 0]; }
   standUp() { if (this.mode !== 'seat') return; this.mode = 'walk'; this.pos = this.seat.standAt.slice(); this.vel = [0, 0, 0]; this.seat = null; }
+  // Hit by something: thrown along (vx, vz), off your feet for a moment.
+  knock(vx, vz, up, stun) { if (this.mode !== 'walk') return; this.vel = [vx, up, vz]; this.grounded = false; this.pos[1] += 0.05; this.stun = stun; }
   mantleTo(to, dur) { this.mode = 'mantle'; this.mantle = { from: this.pos.slice(), to, t: 0, dur }; this.vel = [0, 0, 0]; }
 
   // input: { fwd, right, run, jump, yaw, tired } — yaw is the camera heading
   step(dt, input, speedFactor = 1) {
     this.climbing = false;
+    if (this.stun > 0) { this.stun -= dt; input = { ...input, fwd: 0, right: 0, run: false, jump: false }; }      // knocked over: no say in the matter
     if (this.mode === 'mantle') return this.stepMantle(dt);
     if (this.mode === 'ladder') return this.stepLadder(dt, input, speedFactor);
     if (this.mode === 'seat') { this.speed = 0; this.grounded = true; if (input.fwd || input.right || input.jump) this.standUp(); return; }

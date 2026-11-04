@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>climb lab</title>
+<style>html,body{margin:0;background:#20242a}canvas{display:block}</style>
+<script type="importmap">IMPORTMAP</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search), RIG = q.get('rig') || 'placeholder', SCEN = q.get('scene') || 'up';
+const { makePlanet } = await import('../js/gen/planet.js'), { HOMEWORLD } = await import('../js/core/address.js'), { seedFromString } = await import('../js/core/hash.js');
+const C = await import('../js/gen/city.js'), { getSettlement } = await import('../js/gen/settlement.js'), { CollisionWorld } = await import('../js/player/collision.js');
+const { Climber } = await import('../js/player/climber.js'), { captureRest, applyClimbPose } = await import('../js/player/limbik.js'), { buildRig } = await import('../js/player/avatar.js');
+const { holdsNear } = await import('../js/gen/holds.js');
+const p = makePlanet(seedFromString('test-universe-1'), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+let b; for (let a = 0; a < 3600 && !b; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district !== 'housing') continue; b = B.buildings.find(q => q.top > 30 && q.top < 50 && q.tiers.length === 1 && C.STYLES[q.style][5]); }
+const t = b.tiers[0], vm = SCEN === 'corner' ? t.r[3] - 1.2 : (t.r[1] + t.r[3]) / 2, [x, z] = c.toWorld(t.r[0] - 0.6, vm), [tx, tz] = c.toWorld(t.r[0] + 2, vm), l = Math.hypot(tx - x, tz - z), fx = (tx - x) / l, fz = (tz - z) / l, yaw = Math.atan2(fx, fz);
+const cl = Climber.grab(W, x, base, z, fx, fz), O = [x, base, z], toR = (a, b2, e) => [a - O[0], b2 - O[1], e - O[2]];
+const NX = +(q.get('nx') || 8), NY = 2, TW = 200, TH = 300;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setSize(NX * TW, NY * TH); document.body.append(renderer.domElement); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.autoClear = false; renderer.setScissorTest(true);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8a97a3); scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 1.6)); const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(-3, 6, -5); scene.add(sun);
+// the wall: a plain face, its hold rows as bars, so limb contact can be judged
+const f = cl.face, wallG = new THREE.Group(); scene.add(wallG);
+const pt = (a, y, o = 0) => { const P = [f.o[0] + f.t[0] * a + f.n[0] * o, y, f.o[1] + f.t[1] * a + f.n[1] * o]; return new THREE.Vector3(...toR(...P)); };
+const heading = Math.atan2(f.t[0], f.t[1]);
+{ const m = new THREE.Mesh(new THREE.BoxGeometry(60, 60, 1), new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.95 })), c0 = pt(cl.limb.lh.hold.a, base + 20, -0.5); m.position.copy(c0); m.rotation.y = heading + Math.PI / 2; wallG.add(m);
+  const bar = new THREE.MeshStandardMaterial({ color: 0x565a5e, roughness: 0.7 });
+  for (const r of f.rows) { if (r.y > base + 30) continue; const g = new THREE.Mesh(new THREE.BoxGeometry(60, 0.05, 0.12), bar); g.position.copy(pt(cl.limb.lh.hold.a, r.y - 0.025, 0.06)); g.rotation.y = heading + Math.PI / 2; wallG.add(g); } }
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x555a5e })); scene.add(ground);
+// the rig
+let rig;
+if (RIG === 'real') {
+  const g = await new GLTFLoader().loadAsync('../out/lab/adventurer_body.glb'); scene.add(g.scene); const by = {}; g.scene.traverse(o => { if (o.isBone || o.name) by[o.name] = by[o.name] || o; });
+  const fing = sd => ['index', 'middle', 'ring', 'pinky'].map(n => [`${n}_01_${sd}`, `${n}_02_${sd}`, `${n}_03_${sd}`].map(k => by[k]));
+  rig = { root: g.scene, pelvis: by.pelvis, spine: [by.spine_01, by.spine_02, by.spine_03], head: by.head, arms: { l: [by.upperarm_l, by.lowerarm_l, by.hand_l], r: [by.upperarm_r, by.lowerarm_r, by.hand_r] }, legs: { l: [by.thigh_l, by.calf_l, by.foot_l], r: [by.thigh_r, by.calf_r, by.foot_r] },
+    fingers: { l: fing('l'), r: fing('r') }, palm: { l: { middle: by.middle_01_l, thumb: by.thumb_01_l }, r: { middle: by.middle_01_r, thumb: by.thumb_01_r } }, toe: { l: by.ball_l, r: by.ball_r } };
+  for (const nm of ['Cards_Beard']) void nm;
+} else {
+  const mk = col => new THREE.MeshStandardMaterial({ color: col, roughness: 0.7 }), mats = { suit: mk(0x46505a), pad: mk(0x2a2e33), hair: mk(0x2a2e33), skin: mk(0xb48a6e), accent: mk(0xc98b2a) }, R = buildRig(mats); scene.add(R.root);
+  const end = (L, y) => { const g = new THREE.Group(); g.position.y = y; L.lower.add(g); return g; };
+  rig = { root: R.root, pelvis: R.hips, spine: [R.torso], arms: { l: [R.armL.upper, R.armL.lower, end(R.armL, -0.36)], r: [R.armR.upper, R.armR.lower, end(R.armR, -0.36)] }, legs: { l: [R.legL.upper, R.legL.lower, end(R.legL, -0.48)], r: [R.legR.upper, R.legR.lower, end(R.legR, -0.48)] } };
+}
+captureRest(rig);
+const mark = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2288, depthTest: false }), 4); mark.renderOrder = 9; scene.add(mark);
+// run: to get off the ground, then sample a stretch of climbing
+const input = SCEN === 'corner' ? null : { fwd: 1, right: 0, yaw }, dt = 1 / 60; let T = 0, worst = 0;
+const ups = { fwd: 1, right: 0, yaw }; while (cl.pelvis[1] < base + (SCEN === 'top' ? b.top - 3.2 : 3.2) && T < 300) { cl.step(dt, ups); T += dt; }
+const R0 = cl.right(), dr = (f.t[0] * R0[0] + f.t[1] * R0[2]) > 0 ? -1 : 1, inp = SCEN === 'corner' ? { fwd: 0, right: dr, yaw } : SCEN === 'side' ? { fwd: 0, right: 1, yaw } : SCEN === 'leap' ? { fwd: 1, right: 0, yaw } : ups;
+const stepEach = (+(q.get('span') || 2.4)) / NX;
+const cam = new THREE.PerspectiveCamera(46, TW / TH, 0.05, 200), V = new THREE.Vector3();
+const report = [];
+for (let i = 0; i < NX; i++) {
+  if (SCEN === 'leap' && i === 1) cl.step(dt, { ...inp, jump: true });
+  for (let k = 0; k < stepEach / dt && !cl.done; k++) cl.step(dt, SCEN === 'leap' ? { fwd: 0, right: 0, yaw } : inp);
+  const P = cl.pose(), miss = applyClimbPose(rig, P, toR); worst = Math.max(worst, miss); rig.root.updateMatrixWorld(true);
+  let g = 0; const M = new THREE.Matrix4(); for (const k of ['lh', 'rh', 'lf', 'rf']) { const e = P.limbs[k].p; M.makeTranslation(...toR(...e)); mark.setMatrixAt(g++, M); } mark.instanceMatrix.needsUpdate = true;
+  const c1 = new THREE.Vector3(...toR(...P.pelvis)), n = new THREE.Vector3(...[-P.forward[0], 0, -P.forward[2]]), side = new THREE.Vector3(...P.right);
+  for (let row = 0; row < NY; row++) {
+    const yy = (NY - 1 - row) * TH; renderer.setViewport(i * TW, yy, TW, TH); renderer.setScissor(i * TW, yy, TW, TH); renderer.clear();
+    if (row === 0) cam.position.copy(c1).addScaledVector(n, 2.9).addScaledVector(side, 0.9).add(V.set(0, 0.5, 0)); else cam.position.copy(c1).addScaledVector(side, 3.2).addScaledVector(n, 1.0).add(V.set(0, 0.35, 0));
+    cam.lookAt(c1.x, c1.y + 0.45, c1.z); renderer.render(scene, cam);
+  }
+  report.push({ state: P.state, moving: cl.moving || '-', miss: +miss.toFixed(3) });
+}
+window.LAB = { done: true, worst, report, y: cl.pelvis[1] - base, climberDone: cl.done?.kind };
+</script>

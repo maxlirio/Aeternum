@@ -14,8 +14,9 @@ export const SKY_SHIPS = ['runabout0', 'runabout1', 'runabout2', 'racer0', 'race
 const GROUND_TYPES = ['sedan', 'compact', 'taxi', 'van', 'truck', 'speeder', 'estate', 'pickup', 'minibus', 'hauler', 'coupe', 'tanker'];
 
 const laneCache = new WeakMap();
-// Every lane: { axis (0: runs along v at u = line; 1: along u at v = line), at (the line's
-// coordinate), off (lateral), alt (metres above the street), dir (±1), speed, gap, a0, a1, key }
+// Each lane is a loop: along the right of a street, a U-turn at its end, back along the other
+// side, a U-turn at the near end. So nothing appears or vanishes. { axis (0: runs along v at u = at; 1: along u at v = at),
+// at, off (lane centre off the street's centre), alt, altBack, speed, gap, a0, a1, L, P, key }
 export function cityLanes(city) {
   if (laneCache.has(city)) return laneCache.get(city);
   const out = [], n = Math.ceil(city.R / PITCH) + 1;
@@ -24,50 +25,53 @@ export function cityLanes(city) {
     if (Math.abs(at) > city.R * 0.9) continue;
     const half = Math.sqrt(Math.max(0, (city.R * 0.86) ** 2 - at * at)), kind = lineKind(i), w = lineWidth(i);
     if (half < 300) continue;
-    const add = (alt, off, dir, speed, gap, ground) => out.push({ axis, at, off, alt, dir, speed, gap, a0: -half, a1: half, key: out.length, ground, kind });
-    // on the street: drive on the right, one or two lanes each way
-    for (const dir of [1, -1]) {
-      const lanes = kind === 'street' ? 1 : 2;
-      for (let k = 0; k < lanes; k++) add(0.45, dir * (w / 4 + (k - (lanes - 1) / 2) * 3.4) * (axis ? -1 : 1), dir, 13 + 6 * hash01(city.seed, [axis, i, k, dir]), 55 + 50 * hash01(city.seed, [axis, i, k, 9]), true);
-    }
+    const add = (alt, altBack, off, speed, gap, ground, ships) => { const L = 2 * half, P = 2 * L + 2 * Math.PI * off; out.push({ axis, at, off, alt, altBack, speed, gap, a0: -half, a1: half, L, P, n: Math.floor(P / gap), key: out.length, ground, ships, kind }); };
+    // on the street, keeping right: one or two lanes each way. (Each street keeps one pace per lane.)
+    const lanes = kind === 'street' ? 1 : 2;
+    for (let k = 0; k < lanes; k++) add(0.45, 0.45, w / 4 + (k - (lanes - 1) / 2) * 3.4, 13 + 6 * hash01(city.seed, [axis, i, k, 1]), 55 + 50 * hash01(city.seed, [axis, i, k, 9]), true, false);
     // the sky lanes above the wider streets: tighter, faster streams going up
-    for (const alt of AIR[kind] || []) for (const dir of [1, -1]) {
+    for (const alt of AIR[kind] || []) {
       if (hash01(city.seed, [axis, i, alt, 3]) < 0.25) continue;
       const ships = alt >= 120;
-      add(alt + (dir > 0 ? 0 : (ships ? 14 : 7)), dir * (ships ? 13 : 7) * (axis ? -1 : 1), dir, 34 + alt * 0.12 + 14 * hash01(city.seed, [axis, i, alt, dir]), (ships ? 110 : 38) + (ships ? 90 : 30) * hash01(city.seed, [axis, i, alt]), false);
-      out.at(-1).ships = ships;
+      add(alt, alt + (ships ? 14 : 7), ships ? 13 : 7, 34 + alt * 0.12 + 14 * hash01(city.seed, [axis, i, alt, 1]), (ships ? 110 : 38) + (ships ? 90 : 30) * hash01(city.seed, [axis, i, alt]), false, ships);
     }
   }
   laneCache.set(city, out);
   return out;
 }
+export const lanePhase = (city, L) => L.ph ??= hash01(city.seed, [L.key, 77]) * L.P;
 
-export const lanePhase = (city, L) => L.ph ??= hash01(city.seed, [L.key, 77]) * (L.a1 - L.a0);
+// Where along its loop a vehicle is: sets Q.u, Q.v (city-local), Q.alt, Q.du, Q.dv (heading).
+// (One shared result object: this runs for tens of thousands of vehicles a frame.)
+export const Q = { u: 0, v: 0, alt: 0, du: 0, dv: 0 };
+export function loopPoint(L, s) {
+  // outbound along +v (axis 0) or +u (axis 1). Your right is -u heading +v, and +v heading +u.
+  const sr = L.axis ? 1 : -1, arc = Math.PI * L.off;
+  let a, lat, h, t = 1, n = 0;
+  if (s < L.L) { a = L.a0 + s; lat = sr * L.off; h = L.alt; }
+  else if (s < L.L + arc) { const th = (s - L.L) / L.off, c = Math.cos(th), si = Math.sin(th); a = L.a1 + si * L.off; lat = sr * c * L.off; h = L.alt + (L.altBack - L.alt) * (th / Math.PI); t = c; n = -si * sr; }
+  else if (s < 2 * L.L + arc) { a = L.a1 - (s - L.L - arc); lat = -sr * L.off; h = L.altBack; t = -1; }
+  else { const th = (s - 2 * L.L - arc) / L.off, c = Math.cos(th), si = Math.sin(th); a = L.a0 - si * L.off; lat = -sr * c * L.off; h = L.altBack + (L.alt - L.altBack) * (th / Math.PI); t = -c; n = si * sr; }
+  if (L.axis) { Q.u = a; Q.v = L.at + lat; Q.du = t; Q.dv = n; } else { Q.u = L.at + lat; Q.v = a; Q.du = n; Q.dv = t; }
+  Q.alt = h;
+  return Q;
+}
 
 // Call fn(vehicle) for each vehicle on the lanes at time t (world coordinates), optionally
-// only those within r of (x, z). vehicle: { id, type, pos:[x, y, z], facing, colour, air }
+// only those within r of (x, z). vehicle: { id, type, ship, pos:[x, y, z], facing, colour, air, speed }
 export function cityTraffic(city, t, fn, x = 0, z = 0, r = Infinity) {
   const lanes = cityLanes(city), base = city.h + CURB;
   const [qu, qv] = r < Infinity ? city.toLocal(x, z) : [0, 0];
-  const fx = city.cos, fz = city.sin;
+  const cs = city.cos, sn = city.sin;
   for (const L of lanes) {
-    // a lane is a line: skip it whole if it doesn't pass within r
-    const lat = L.at + L.off;
-    if (r < Infinity && Math.abs((L.axis ? qv : qu) - lat) > r) continue;
-    const len = L.a1 - L.a0, n = Math.floor(len / L.gap), phase = lanePhase(city, L);
-    // heading: along +v (axis 0) or +u (axis 1), times dir; city local → world
-    const du = L.axis ? L.dir : 0, dv = L.axis ? 0 : L.dir;
-    const wx = du * fx - dv * fz, wz = du * fz + dv * fx, facing = Math.atan2(wx, wz);
-    const along = L.axis ? qu : qv;
-    for (let k = 0; k < n; k++) {
-      let s = ((k * L.gap + phase + L.dir * L.speed * t) % len + len) % len;
-      const a = L.a0 + s;
-      if (r < Infinity && Math.abs(a - along) > r) continue;
-      const u = L.axis ? a : lat, v = L.axis ? lat : a;
-      const h = hash01(city.seed, [L.key, k]);
-      const T = L.ground ? GROUND_TYPES : L.ships ? SKY_SHIPS : AIR_TYPES;
-      fn({ id: `ct:${L.key}:${k}`, type: T[Math.floor(h * T.length)], ship: L.ships ? T[Math.floor(h * T.length)] : null, pos: [city.cx + u * fx - v * fz, base + L.alt - (L.ground ? CURB : 0) + (L.ground ? 0 : Math.sin(t * 0.7 + k) * 0.6), city.cz + u * fz + v * fx],
-        facing, colour: Math.floor(h * 997), air: !L.ground, speed: L.speed });
+    if (r < Infinity && Math.abs((L.axis ? qv : qu) - L.at) > r + L.off + 1) continue;      // not near this street at all
+    const ph = lanePhase(city, L) + L.speed * t;
+    for (let k = 0; k < L.n; k++) {
+      loopPoint(L, ((k * L.gap + ph) % L.P + L.P) % L.P);
+      if (r < Infinity && (Math.abs(Q.u - qu) > r || Math.abs(Q.v - qv) > r)) continue;
+      const h = hash01(city.seed, [L.key, k]), T = L.ground ? GROUND_TYPES : L.ships ? SKY_SHIPS : AIR_TYPES, type = T[Math.floor(h * T.length)];
+      fn({ id: `ct:${L.key}:${k}`, type, ship: L.ships ? type : null, pos: [city.cx + Q.u * cs - Q.v * sn, base + Q.alt - (L.ground ? CURB : 0) + (L.ground ? 0 : Math.sin(t * 0.7 + k) * 0.6), city.cz + Q.u * sn + Q.v * cs],
+        facing: Math.atan2(Q.du * cs - Q.dv * sn, Q.du * sn + Q.dv * cs), colour: Math.floor(h * 997), air: !L.ground, speed: L.speed });
     }
   }
 }

@@ -933,8 +933,26 @@ suites.traffic = async () => {
   for (const v of a) { const w = byId.get(v.id); if (w) worst = Math.max(worst, Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2])); }
   check(worst < 20, `half a second later each has moved at most ${worst.toFixed(1)} m`);
   const routes = outRoutes(p, s); let off = 0, n = 0;
-  for (const v of a.filter(v => v.id.startsWith('tr:r'))) { n++; const q = routes.map(r => nearRoute(r, v.pos[0], v.pos[2])).filter(Boolean).sort((x, y) => x.d - y.d)[0]; if (!q || q.d > 3.5) off++; }
+  for (const v of a) { if (Math.hypot(v.pos[0] - s.cx, v.pos[2] - s.cz) < s.R + 60) continue; const end = routes.some(r => [r.pts[0], r.pts.at(-1)].some(e => Math.hypot(e[0] - v.pos[0], e[1] - v.pos[2]) < 8)); if (end) continue; n++; const q = routes.map(r => nearRoute(r, v.pos[0], v.pos[2])).filter(Boolean).sort((x, y) => x.d - y.d)[0]; if (!q || q.d > 3.5) off++; }
   check(n > 0 && off === 0, `${n} on the roads out of town, all within their lane (${off} off)`);
+  // nobody blinks: over a long stretch every vehicle is always there, and never jumps (U-turns included)
+  const C = await import('../js/gen/city.js'), CT = await import('../js/gen/citytraffic.js'), c = C.getCity(p), all = R => { const m = new Map(); for (const v of trafficNear(p, s, R, s.cx, s.cz, 1e6)) m.set(v.id, v); return m; };
+  let m0 = all(T), jump = 0, turn = 0, lost = 0, maxTurn = 0;
+  for (let k = 1; k < 1400; k++) { const m1 = all(T + k * 0.5); if (m1.size !== m0.size) lost++;
+    for (const [id, v] of m1) { const w = m0.get(id); if (!w) { lost++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > v.speed * 0.5 + 5) jump++;     /* (+ a lane's shift at a bend) */ let d = Math.abs(v.facing - w.facing); d = Math.min(d, Math.PI * 2 - d); maxTurn = Math.max(maxTurn, d); if (d > 0.3) turn++; }
+    m0 = m1; }
+  check(lost === 0, `town traffic: nobody appears or vanishes in 700 s (${lost})`); check(jump === 0, `town traffic: nobody teleports (${jump} jumps), U-turns taken smoothly`);
+  const cc = (R, r = Infinity) => { const m = new Map(); CT.cityTraffic(c, R, v => m.set(v.id, v)); return m; };
+  let g0 = cc(T), cj = 0, cl = 0; for (let k = 1; k <= 300; k++) { const R = T + k * 0.4, g1 = cc(R); if (g1.size !== g0.size) cl++; for (const [id, v] of g1) { const w = g0.get(id); if (!w) { cl++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > v.speed * 0.4 + 1) cj++; } g0 = g1; if (k > 12) break; }
+  check(cl === 0 && cj === 0, `city traffic: ${g0.size} vehicles, none appears, vanishes or teleports (${cl}, ${cj})`);
+  // ...and one lap of a whole lane, through both U-turns, moves smoothly
+  const L = CT.cityLanes(c).find(q => q.ground); let last = null, cjump = 0; for (let q = 0; q < L.P; q += 2) { CT.loopPoint(L, q); if (last && Math.hypot(CT.Q.u - last[0], CT.Q.v - last[1]) > 2.2) cjump++; last = [CT.Q.u, CT.Q.v]; }
+  check(cjump === 0, `a city lane's whole loop has no jump (${cjump})`);
+  // keeping right, in the city: the lane heading +v has the street centre on its left
+  { CT.loopPoint(L, 10); const lat = (L.axis ? CT.Q.v : CT.Q.u) - L.at, right = L.axis ? [-CT.Q.dv, CT.Q.du] : [-CT.Q.dv, CT.Q.du]; check(Math.sign(lat) === Math.sign(L.axis ? right[1] : right[0]) , 'city cars drive on the right, as in town'); }
+  // being in a vehicle's box
+  const { struckBy } = await import('../js/gen/traffic.js'), V = { type: 'sedan', pos: [0, 0, 0], facing: 0 };
+  check(struckBy(V, 0, 0, 2, 0.3) && struckBy(V, 1, 0.5, 0, 0.3), 'standing in front of or beside a car: struck'); check(!struckBy(V, 3, 0, 0, 0.3) && !struckBy(V, 0, 0, 4, 0.3) && !struckBy(V, 0, 5, 0, 0.3), 'clear of it, or above it: not struck');
 };
 
 suites.talk = async () => {
@@ -1078,6 +1096,80 @@ suites.city = async () => {
   console.log(`  ${total} buildings in 3 cities, tallest ${Math.round(maxH)} m, ${kinds.size} object kinds,`, JSON.stringify(dist));
 };
 const CURBV = C => C.CURB + 0.02;
+suites.climbing = async () => {
+  const C = await import('../js/gen/city.js');
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { Climber, BODY } = await import('../js/player/climber.js');
+  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  const find = (dist, test) => { for (let a = 0; a < 3600; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district !== dist) continue; for (const b of B.buildings) if (test(b)) return b; } return null; };
+  // stand at a wall (the -u side of a tier) and grab it
+  const at = (b, ti = 0, v = 0.5) => { const t = b.tiers[ti], vm = t.r[1] + (t.r[3] - t.r[1]) * v, [x, z] = c.toWorld(t.r[0] - 0.6, vm), [tx, tz] = c.toWorld(t.r[0] + 2, vm), l = Math.hypot(tx - x, tz - z), fx = (tx - x) / l, fz = (tz - z) / l; return { x, z, fx, fz, yaw: Math.atan2(fx, fz), y: base + t.y0 }; };
+  const LEN = { h: BODY.upperArm + BODY.foreArm, f: BODY.thigh + BODY.shin };
+  // run with invariants checked every frame; returns stats
+  const run = (cl, input, until, maxT, hz = 60) => {
+    const st = { T: 0, stretch: 0, minPlanted: 4, slid: 0, minOut: 9, stuck: 0, moves: 0 }, prev = {};
+    while (st.T < maxT && !cl.done && !until(cl)) {
+      const m0 = cl.moving; cl.step(1 / hz, input); st.T += 1 / hz; if (cl.moving && cl.moving !== m0) st.moves++;
+      if (cl.done) break;
+      if (cl.state === 'hold') {
+        let pl = 0;
+        for (const k of ['lh', 'rh', 'lf', 'rf']) {
+          const L = cl.limb[k], planted = !L.free && k !== cl.moving; if (planted) pl++;
+          if (planted && prev[k]?.planted && prev[k].h === L.hold && Math.hypot(L.p[0] - prev[k].p[0], L.p[1] - prev[k].p[1], L.p[2] - prev[k].p[2]) > 1e-9) st.slid++;
+          if (!L.free) { const J = cl.jointOf(k, cl.pelvis), d = Math.hypot(L.p[0] - J[0], L.p[1] - J[1], L.p[2] - J[2]); if (d / LEN[k[1]] > st.stretch) { st.stretch = d / LEN[k[1]]; st.worst = `${k}${k === cl.moving ? ' moving f=' + L.f.toFixed(2) : ''} at ${st.T.toFixed(1)} s`; } }
+          prev[k] = { planted, h: L.hold, p: L.p.slice() };
+        }
+        st.minPlanted = Math.min(st.minPlanted, pl);
+        st.minOut = Math.min(st.minOut, Math.max(...[...new Set(['lh', 'rh', 'lf', 'rf'].map(k => cl.limb[k].hold?.face).filter(Boolean))].map(f => (cl.pelvis[0] - f.o[0]) * f.n[0] + (cl.pelvis[2] - f.o[1]) * f.n[1])));
+      }
+      st.stuck = cl.blocked ? st.stuck + 1 : 0; if (st.stuck > 240) break;
+    }
+    return st;
+  };
+  const good = (st, tag) => {
+    check(st.stretch <= 1.01, `${tag}: no limb stretched past its length (${st.stretch.toFixed(3)}, ${st.worst})`);
+    check(st.minPlanted >= 3, `${tag}: always three limbs on (${st.minPlanted})`);
+    check(st.slid === 0, `${tag}: planted hands and feet never slide (${st.slid} frames)`);
+    check(st.minOut >= 0.19, `${tag}: the body stays off the wall (${st.minOut.toFixed(2)} m)`);
+  };
+  const up = yaw => ({ fwd: 1, right: 0, yaw });
+  // up a whole residential block, then over the parapet onto the roof
+  const hab = find('housing', b => b.top > 30 && b.top < 50 && b.tiers.length === 1 && C.STYLES[b.style][5]);
+  { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz);
+    if (check(cl, 'a hab block can be grabbed')) { const st = run(cl, up(q.yaw), () => false, 400); good(st, 'hab block');
+      check(cl.done?.kind === 'walk' && Math.abs(cl.done.pos[1] - (base + hab.top)) < 1, `climbed ${hab.top} m and stepped onto the roof (${cl.done?.kind}, ${st.T.toFixed(0)} s, ${(hab.top / st.T).toFixed(2)} m/s, ${st.moves} moves)`); console.log(`  ${hab.top} m hab block in ${st.T.toFixed(0)} s (${(hab.top / st.T).toFixed(2)} m/s), ${st.moves} moves, peak stretch ${st.stretch.toFixed(3)}`); } }
+  // every climbable style of facade can be climbed 12 m
+  for (const [dist, name] of [['undercity', 'grime'], ['commerce', 'grid'], ['commerce', 'ribbon'], ['commerce', 'bronze'], ['housing', 'brick'], ['industry', 'shed']]) {
+    const b = find(dist, q => C.STYLES[q.style][0] === name && !q.tiers[0].shape && q.tiers[0].y0 === 0 && q.tiers[0].y1 > 12); if (!b) { console.log('  (no ' + name + ')'); continue; }
+    const q = at(b), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz);
+    if (!check(cl, `${name}: can be grabbed`)) continue;
+    const st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 12, 90); good(st, name);
+    check(cl.pelvis[1] > base + 12 || cl.done, `${name}: 12 m up (reached ${(cl.pelvis[1] - base).toFixed(1)} m in ${st.T.toFixed(0)} s)`);
+  }
+  // sideways along a wall, down again and off at the bottom; the same climb at 30 and 120 Hz
+  { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 6, 60);
+    const a0 = cl.limb.lh.hold.a, st = run(cl, { fwd: 0, right: 1, yaw: q.yaw }, k => Math.abs(k.limb.lh.hold.a - a0) > 3, 40); good(st, 'traverse');
+    check(Math.abs(cl.limb.lh.hold.a - a0) > 3, `traversed 3 m along the wall (${Math.abs(cl.limb.lh.hold.a - a0).toFixed(1)} m)`);
+    const sd = run(cl, { fwd: -1, right: 0, yaw: q.yaw }, () => false, 90); good(sd, 'down-climb'); check(cl.done?.kind === 'walk' && Math.abs(cl.done.pos[1] - base) < 0.2, `climbed back down and stepped off (${cl.done?.kind})`); }
+  for (const hz of [30, 120]) { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz), st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 10, 90, hz); good(st, hz + ' Hz'); check(cl.pelvis[1] > base + 10, `${hz} Hz: same climb works`); }
+  // round an outside corner
+  { const q = at(hab, 0, 0.5), t = hab.tiers[0], vm = t.r[3] - 1.2, [x, z] = c.toWorld(t.r[0] - 0.6, vm), cl = Climber.grab(W, x, base, z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 5, 60);
+    const f0 = cl.face, R = cl.right(), dirRight = (f0.t[0] * R[0] + f0.t[1] * R[2]) > 0 ? -1 : 1;     // (toward a = 0, the corner we started by)
+    const st = run(cl, { fwd: 0, right: dirRight, yaw: q.yaw }, k => k.face !== f0, 40); good(st, 'corner'); check(cl.face !== f0, `went round a corner onto the next wall (${f0.key} → ${cl.face.key})`); }
+  // leap: both hands off, catch a hold higher up
+  { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 5 && !k.moving, 60); const y0 = Math.min(cl.limb.lh.hold.y, cl.limb.rh.hold.y);
+    cl.step(1 / 60, { fwd: 1, right: 0, jump: true, yaw: q.yaw }); check(cl.state === 'leap', 'Space leaps'); let T = 0; while (cl.state === 'leap' && T < 3) { cl.step(1 / 60, { fwd: 0, right: 0, yaw: q.yaw }); T += 1 / 60; }
+    check(cl.state === 'hold' && cl.limb.lh.hold.y > y0 + 0.9, `caught a hold ${(cl.limb.lh.hold?.y - y0).toFixed(1)} m higher, in ${T.toFixed(2)} s`); const st = run(cl, up(q.yaw), k => !k.limb.lf.free && !k.limb.rf.free, 6); check(!cl.limb.lf.free && !cl.limb.rf.free, 'the feet found holds again'); }
+  // nothing to hold: glass towers and round towers refuse; too tired, your grip goes and you fall
+  { const g = find('spire', b => C.STYLES[b.style][0] === 'glass'), pod = find('commerce', b => C.STYLES[b.style][0] === 'glass' && b.tiers[0].y0 === 0 && !b.tiers[0].shape);
+    if (pod) { const q = at(pod); check(!Climber.grab(W, q.x, base, q.z, q.fx, q.fz), 'a glass curtain wall has nothing to hold'); }
+    const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 4, 40); const st = run(cl, { fwd: 0, right: 0, yaw: q.yaw, exhausted: true }, () => false, 10); check(cl.done?.kind === 'fall' && cl.done.slipped, `exhausted, the grip goes after ${st.T.toFixed(1)} s`);
+    const q2 = at(hab), c2 = Climber.grab(W, q2.x, base, q2.z, q2.fx, q2.fz); run(c2, up(q2.yaw), k => k.pelvis[1] > base + 3, 40); c2.step(1 / 60, { fwd: 0, right: 0, drop: true, yaw: q2.yaw }); check(c2.done?.kind === 'fall' && !c2.done.slipped, 'Q lets go'); }
+  // town buildings: climb a real building at home, onto its roof
+  { const b = s.buildings.find(q => q.type === 'hab' || q.type === 'office'), pl = W.colliders(b).plan, [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 - b.ez[0] * 0.6, b.O[1] + b.ex[1] * b.w / 2 - b.ez[1] * 0.6), [dx, dz] = (() => { const [a, e] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0], b.O[1] + b.ex[1] * b.w / 2 + b.ez[1]); return [a - x, e - z]; })(), l = Math.hypot(dx, dz);
+    const yb = W.baseOf(b), cl = Climber.grab(W, x, yb, z, dx / l, dz / l);
+    if (check(cl, `a ${b.type} in town can be grabbed`)) { const st = run(cl, up(Math.atan2(dx, dz)), () => false, 200); good(st, 'town'); check(cl.done?.kind === 'walk' && cl.done.pos[1] > yb + pl.F * pl.H - 1, `climbed the ${b.type} onto its roof (${cl.done?.kind}, ${st.T.toFixed(0)} s)`); } }
+};
 suites.aircombat = async () => {
   const { AirWar, raidAt, raidIndex } = await import('../js/sim/aircombat.js');
   const { CollisionWorld } = await import('../js/player/collision.js');

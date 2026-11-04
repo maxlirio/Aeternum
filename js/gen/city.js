@@ -26,11 +26,12 @@ export const DISTRICTS = ['spire', 'commerce', 'housing', 'market', 'undercity',
 export const DISTRICT_LABEL = { spire: 'Spire core', commerce: 'Commercial district', housing: 'Residential blocks', market: 'Market quarter',
   undercity: 'The Warrens', industry: 'Foundry district', port: 'Skyport', park: 'Gardens' };
 
-// facade styles (the renderer's shader reads the index): [name, floor height, bay width]
+// facade styles: [name, floor height, bay width, window width and height (fractions of a
+// bay and a storey), climbable]. The shader draws these and the climber holds on to them.
 export const STYLES = [
-  ['glass', 4.2, 1.6], ['ribbon', 3.9, 3.2], ['grid', 3.6, 2.4], ['hab', 3.0, 3.4], ['brick', 3.2, 2.6],
-  ['grime', 3.0, 2.2], ['shed', 6.0, 8.0], ['podium', 5.0, 6.0], ['terminal', 6.5, 4.0], ['paving', 1, 1],
-  ['bronze', 4.4, 2.0], ['white', 4.0, 2.8], ['garden', 1, 1],
+  ['glass', 4.2, 1.6, 0.86, 0.82, 0], ['ribbon', 3.9, 3.2, 0.98, 0.45, 1], ['grid', 3.6, 2.4, 0.55, 0.55, 1], ['hab', 3.0, 3.4, 0.42, 0.50, 1], ['brick', 3.2, 2.6, 0.38, 0.50, 1],
+  ['grime', 3.0, 2.2, 0.40, 0.45, 1], ['shed', 6.0, 8.0, 0.10, 0.12, 1], ['podium', 5.0, 6.0, 0.80, 0.55, 1], ['terminal', 6.5, 4.0, 0.90, 0.70, 1], ['paving', 1, 1, 0, 0, 0],
+  ['bronze', 4.4, 2.0, 0.80, 0.78, 1], ['white', 4.0, 2.8, 0.60, 0.62, 1], ['garden', 1, 1, 0, 0, 0],
 ];
 export const STYLE = Object.fromEntries(STYLES.map((s, i) => [s[0], i]));
 
@@ -155,7 +156,8 @@ function makeBlock(city, i, j) {
 const inset = (r, m) => [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
 const W = r => r[2] - r[0], D = r => r[3] - r[1];
 function add(ctx, style, tiers, extra = {}) {
-  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1), ...(t.shape ? { shape: t.shape } : {}) })), ...extra };
+  const n = ctx.n, h1 = hash01(ctx.city.seed, [ctx.B.i, ctx.B.j, n, 71]), h2 = hash01(ctx.city.seed, [ctx.B.i, ctx.B.j, n, 72]);
+  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], floor: r1(STYLES[STYLE[style]][1] * (0.92 + 0.16 * h1)), bay: r1(STYLES[STYLE[style]][2] * (0.85 + 0.3 * h2)), tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1), ...(t.shape ? { shape: t.shape } : {}) })), ...extra };
   ctx.B.buildings.push(b); return b;
 }
 const prop = (ctx, k, u, v, y = 0, rot = 0, s = 1) => ctx.B.props.push({ k, u: r1(u), v: r1(v), y: r1(y), rot, s });
