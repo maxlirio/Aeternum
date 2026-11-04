@@ -18,8 +18,9 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city'))
+DO_CITY = 'city' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -579,7 +580,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated', 'lampwarm', 'neonpink', 'neoncyan', 'neonamber', 'neongreen', 'neonviolet']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -1999,3 +2000,6 @@ def build_props():
 SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
 if DO_TEX: build_textures()
 if DO_PROPS: build_props()
+if DO_CITY:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'city_kit.py')).read())
+    build_city()

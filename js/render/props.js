@@ -16,10 +16,11 @@ const HULLED = { has: k => /^(shuttle|freighter|courier|patrol|yacht|speeder|run
 export const PAINTS_VEHICLE = [[0.62, 0.12, 0.08], [0.85, 0.55, 0.12], [0.16, 0.3, 0.52], [0.82, 0.82, 0.8], [0.12, 0.13, 0.14], [0.25, 0.42, 0.3], [0.5, 0.52, 0.56]];
 
 export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
-  const [gltf, craft, index] = await Promise.all([
+  const [gltf, craft, index, city] = await Promise.all([
     new GLTFLoader().loadAsync(base + 'props.glb'),
     new GLTFLoader().loadAsync(base + 'craft.glb').catch(() => null),      // ships and vehicles
     fetch(base + 'materials/index.json').then(r => r.json()),
+    new GLTFLoader().loadAsync(base + 'city.glb').catch(() => null),       // the megacity kit (tools/assets/city_kit.py)
   ]);
   if (craft) for (const o of [...craft.scene.children]) gltf.scene.add(o);
   const tl = new THREE.TextureLoader(), mats = new Map();
@@ -41,6 +42,8 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     else if (name.startsWith('nav')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { navred: 0xff2a1a, navgreen: 0x1aff4a, navwhite: 0xfff4e0 }[name], emissiveIntensity: 3 });
     else if (name === 'visor') m = new THREE.MeshStandardMaterial({ color: 0x0b1218, roughness: 0.06, metalness: 0.6 });
     else if (name === 'glow') m = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2.2, roughness: 0.3 });
+ else if (name === 'lampwarm') m = new THREE.MeshStandardMaterial({ color: 0x2a2620, emissive: 0xffd9a8, emissiveIntensity: 1, roughness: 0.3 });
+    else if (name.startsWith('neon')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { neonpink: 0xff2a8a, neoncyan: 0x29e0ff, neonamber: 0xffa21a, neongreen: 0x3aff6a, neonviolet: 0xa64bff }[name] || 0xffffff, emissiveIntensity: 2.4, roughness: 0.3 });
     else if (name === 'glass') m = new THREE.MeshStandardMaterial({ color: 0xb8d0dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2, depthWrite: false });
     else {
       const base = name.replace(/^tint-/, ''), tile = index[base]?.tile || 1, orm = tex(base + '_orm.webp', false, tile);
@@ -65,7 +68,21 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     p.tinted = p.slot === 'tint';
     p.material = surface(p.tinted ? 'tint-' + (SOFT.has(v.kind) ? 'fabric' : HULLED.has(v.kind) ? 'hull' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
   }
-  return { variants, surface };
+  // the city kit: kind → parts (geometry in the kit's own frame, its surface, tinted?)
+  const cityKit = new Map();
+  if (city) {
+    city.scene.updateMatrixWorld(true);
+    city.scene.traverse(o => {
+      if (!o.isMesh) return;
+      let top = o; while (top.parent && top.parent !== city.scene) top = top.parent;
+      const k = String(top.userData.kind || top.name).replace(/^city_/, '');
+      const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
+      const slot = o.material.name, tinted = slot === 'tint';
+      (cityKit.get(k) || cityKit.set(k, []).get(k)).push({ geometry: g, material: surface(tinted ? 'tint-paint' : slot), matrix: new THREE.Matrix4(), tinted,
+        cast: !(slot === 'lampwarm' || slot.startsWith('neon') || slot === 'glass') });
+    });
+  }
+  return { variants, surface, cityKit, cityPart: k => cityKit.get(k) || null };
 }
 
 const key = (kind, a, b, c) => `${kind}_${+a.toFixed(2)}x${+b.toFixed(2)}x${+c.toFixed(2)}`;

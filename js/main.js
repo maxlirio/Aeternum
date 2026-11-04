@@ -56,6 +56,8 @@ import { CombatView } from './render/combat.js';
 import { ShipView } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { CityView } from './render/city.js';
+import { CityTrafficView } from './render/citytraffic.js';
+import { cityWalkers } from './gen/citytraffic.js';
 import { getCity, cityPlace } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
@@ -176,6 +178,7 @@ async function start(fresh) {
   const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
+  const cityTraffic = new CityTrafficView(cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
@@ -1071,7 +1074,7 @@ async function start(fresh) {
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
       const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders), dt);
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
@@ -1085,6 +1088,7 @@ async function start(fresh) {
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
+    cityTraffic.update(clock.now(), ctrl.pos, 1 - (sky.state.day ?? 1), toRender);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
@@ -1157,7 +1161,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

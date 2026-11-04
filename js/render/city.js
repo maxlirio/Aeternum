@@ -11,7 +11,9 @@ import { materials } from './materials.js';
 import { getCity, cityBlock, cityExtent, blockRect, lineAt, lineWidth, lineKind, PITCH, CURB, STYLES, STYLE, blockExists } from '../gen/city.js';
 
 const SECTOR = 4;                       // blocks per sector edge
-const PROP_R = 380;                     // street furniture drawn within this
+const PROP_R = 260;                     // street furniture drawn within this
+const SMALL_R = 110;                    // ...and the small clutter (goods, bins, junk) only this close
+const BIG = /^(lamp_|tree|tank|silo|sphere|stack|crane|billboard|cooling|tank_roof|container|monument|fountain|statue|shelter|kiosk|holo_ad|neon_|sign_|lanternline|padlights|shack|dish|antenna)/;
 const STYLE_P = [   // per style: [r,g,b frame], [r,g,b glass], [winFracX, winFracY, litChance, glassiness]
   [[0.24, 0.27, 0.30], [0.05, 0.08, 0.12], [0.86, 0.82, 0.55, 0.9]],   // glass
   [[0.50, 0.50, 0.48], [0.05, 0.07, 0.09], [0.98, 0.45, 0.50, 0.7]],   // ribbon
@@ -100,14 +102,20 @@ export function cityMaterial() {
             float lit = mix(litP, step(r, litP), aa);
             vec3 warm = vec3(1.0, 0.66, 0.36), cool = vec3(0.62, 0.8, 1.0);
             vec3 lc = mix(warm, cool, step(0.62, h21(id + 3.1)));
-            if (shop > 0.5) lc = mix(lc, vec3(0.3 + 0.7 * h21(id + 5.0), 0.3 + 0.7 * h21(id + 6.0), 0.3 + 0.7 * h21(id + 8.0)), 0.6);
+            if (shop > 0.5) lc = mix(lc, vec3(0.2 + 0.8 * h21(id + 5.0), 0.2 + 0.6 * h21(id + 6.0), 0.2 + 0.8 * h21(id + 8.0)), 0.5) * (0.45 + 0.55 * f.y);   // a shop's light falls off toward the floor
             lc *= 0.55 + 0.9 * h21(id + 9.3);
             lc = mix(vec3(1.0, 0.62, 0.3) * 0.55 * (h21(vec2(seed, 5.5)) < 0.3 ? vec3(0.75, 1.0, 1.6) : vec3(1.0)), lc, aa);   // far away: the building's average glow, no sparkle
             float streak = vn(vec2(vFac.x * 0.35, vFac.y * 0.04 + seed)) * 0.3;    // weathering down the face
-            col = mix(frame * (1.0 - streak * (st == 5 || st == 4 ? 1.6 : 0.6)), glass * (0.8 + 0.4 * r), win);
+            vec3 fr = frame * (1.0 - streak * (st == 5 || st == 4 ? 1.6 : 0.6));
+            // depth cues up close: the lintel's shadow across the top of each opening, a pale sill under it
+            float wy = (f.y - ((shop > 0.5 ? 0.42 : 0.55) - fy * 0.5)) / fy;          // 0 at the sill, 1 at the head
+            float head = smoothstep(0.78, 0.98, wy) * ex * ey * aa;
+            float sill = (1.0 - step(0.0, wy)) * step(-0.07 / fy, wy) * ex * aa * (shop > 0.5 ? 0.0 : 1.0);
+            fr = mix(fr, fr * 1.25 + 0.05, sill);
+            col = mix(fr, glass * (0.8 + 0.4 * r), win) * (1.0 - 0.55 * head);
             gGlass = win * W.w;
             if (shop > 0.5) { float mul = step(0.06, abs(fract(vFac.x / 1.4) - 0.5) * 2.0 - 0.0) * step(0.05, 1.0 - abs(f.y - 0.42) * 2.0); win *= mix(1.0, 0.82 + 0.18 * mul, aa); }
-            gEmit = lc * win * lit * (shop > 0.5 ? 1.3 : 1.5) * uNight;
+            gEmit = lc * win * lit * (shop > 0.5 ? 0.75 : 1.5) * uNight * (1.0 - 0.6 * head);
             col *= 1.0 - 0.55 * uNight * (1.0 - win);                    // facades fall dark at night (only rooms glow)
             if (shop > 0.5 && st != 9) gEmit += vec3(0.2, 0.18, 0.14) * win * 0.5 * (1.0 - uNight);   // shops lit by day too
           }
@@ -157,7 +165,7 @@ export class CityView {
     this.sectors = new Map(); this.queue = null;
     const [i0, j0, i1, j1] = cityExtent(this.city);
     this.range = [Math.floor(i0 / SECTOR), Math.floor(j0 / SECTOR), Math.floor(i1 / SECTOR), Math.floor(j1 / SECTOR)];
-    this.props = null; this.propAt = null;
+    this.props = null; this.propAt = null; this.glowMats = new Set();
     this.stats = { sectors: 0, tiers: 0 };
   }
 
@@ -165,6 +173,7 @@ export class CityView {
   update(viewer, night, budgetMs = 6) {
     const c = this.city, uni = this.mat.userData.uni;
     uni.uNight.value = night;
+    for (const m of this.glowMats) m.emissiveIntensity = m.name === 'lampwarm' ? 0.12 + 2.6 * night : 0.9 + 2.2 * night;
     this.group.position.set(c.cx, 0, c.cz);
     this.group.rotation.y = -c.angle;
     this.beaconMat.color.setScalar(0).setRGB(1, 0.16, 0.1).multiplyScalar(0.3 + 0.7 * (Math.sin(performance.now() / 260) > 0.6 ? 1 : 0.15));
@@ -289,7 +298,7 @@ export class CityView {
   // Street furniture, stalls and rooftop kit within PROP_R: instanced per kind, rebuilt when
   // you've moved a block's width.
   updateProps(u, v, y) {
-    if (this.propAt && Math.hypot(this.propAt[0] - u, this.propAt[1] - v) < PITCH * 0.5) return;
+    if (this.propAt && Math.hypot(this.propAt[0] - u, this.propAt[1] - v) < 40) return;
     this.propAt = [u, v];
     if (this.props) { this.group.remove(this.props); this.props.traverse(o => o.isInstancedMesh && o.dispose()); }
     this.props = new THREE.Group(); this.group.add(this.props);
@@ -298,14 +307,15 @@ export class CityView {
     const [i0, j0] = [Math.floor((u - PROP_R) / PITCH) - 1, Math.floor((v - PROP_R) / PITCH) - 1];
     for (let i = i0; i <= i0 + Math.ceil(2 * PROP_R / PITCH) + 2; i++) for (let j = j0; j <= j0 + Math.ceil(2 * PROP_R / PITCH) + 2; j++) {
       const B = cityBlock(c, i, j); if (!B.district) continue;
-      for (const p of B.props) { if (Math.hypot(p.u - u, p.v - v) > PROP_R) continue; let l = byKind.get(p.k); if (!l) byKind.set(p.k, l = []); l.push(p); }
+      for (const p of B.props) { const d = Math.hypot(p.u - u, p.v - v); if (d > PROP_R || (d > SMALL_R && !BIG.test(p.k))) continue; let l = byKind.get(p.k); if (!l) byKind.set(p.k, l = []); l.push(p); }
     }
-    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), P = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
+    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), P = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
     for (const [k, list] of byKind) {
       const proto = this.kit(k); if (!proto) continue;
       for (const part of proto) {
         const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-        list.forEach((p, q) => { Q.setFromAxisAngle(up, p.rot); S.setScalar(p.s || 1); P.set(p.u, base + p.y, p.v); M.compose(P, Q, S).multiply(part.matrix); im.setMatrixAt(q, M); });
+        list.forEach((p, q) => { Q.setFromAxisAngle(up, p.rot); S.setScalar(p.s || 1); P.set(p.u, base + p.y, p.v); M.compose(P, Q, S).multiply(part.matrix); im.setMatrixAt(q, M);
+          if (part.tinted) { const h = Math.abs(Math.sin(p.u * 12.9898 + p.v * 78.233) * 43758.5453) % 1; im.setColorAt(q, col.setRGB(...TINTS[Math.floor(h * TINTS.length)])); } });
         im.computeBoundingSphere(); im.castShadow = part.cast; im.receiveShadow = true; this.props.add(im);
       }
     }
@@ -317,6 +327,7 @@ export class CityView {
     if (this.kits.has(k)) return this.kits.get(k);
     let parts = this.propLib?.cityPart?.(k) || null;
     if (!parts) parts = standIn(k);
+    for (const pt of parts) if (pt.material.name === 'lampwarm' || pt.material.name?.startsWith('neon')) this.glowMats.add(pt.material);
     this.kits.set(k, parts);
     return parts;
   }
@@ -347,6 +358,7 @@ const SIZES = {   // w, h, d, colour, shape
   tank: [9, 10, 9, 0xb0b0a8, 'cyl'], silo: [7, 18, 7, 0xa0a098, 'cyl'], sphere: [10, 10, 10, 0xc0c0b8, 'ball'], stack: [3, 30, 3, 0x6a5a50, 'cyl'], crane: [2, 28, 2, 0xd0a020], forklift: [1.4, 2, 2.6, 0xe0b020],
   fountain: [8, 1.2, 8, 0x8a9aa0, 'cyl'], monument: [3, 12, 3, 0xa0a0a0], statue: [2, 6, 2, 0x8a7a5a], play: [3, 2, 3, 0xc04040], washline: [6, 2.2, 0.2, 0xd0d0c0], kiosk_food: [2.4, 2.8, 2, 0xa06040],
 };
+const TINTS = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6]];
 const standInCache = new Map();
 function standIn(k) {
   if (standInCache.has(k)) return standInCache.get(k);
