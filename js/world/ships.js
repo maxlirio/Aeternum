@@ -9,7 +9,7 @@ import { surfaceHeight } from '../gen/surface.js';
 export const shipKey = id => `ship/${id}`;
 // With t, a firm's ship carries `trip` (gen/ships.js tripOf): it is off its pad while on a cargo run.
 export function shipsIn(store, planet, s, t = null) {
-  return shipsAt(planet, s).map(sh => {
+  return shipsAt(planet, s).filter(sh => !store.getDelta(shipKey(sh.id))?.destroyed).map(sh => {
     const d = store.getDelta(shipKey(sh.id)), cur = d ? { ...sh, ...d } : sh;
     if (t !== null && cur.owner?.startsWith('firm:') && !cur.flying) cur.trip = tripOf(planet, cur, t, centreOf(s, cur), cur.skip);
     return cur;

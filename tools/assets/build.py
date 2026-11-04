@@ -1443,6 +1443,100 @@ def dress_generated(p, look, xc, cy, hh, hw, hz0, hz1, noseLen, top_y, r):
     elif S_ == 'chevron':
         for s_ in (-1, 1): add_box(p, xc + s_ * hw * 0.98 - 0.03, cy - 0.3, hz1 - 1.5, xc + s_ * hw * 0.98 + 0.03, cy + 0.3, hz1 - 0.3, 'hazard', 0.005)
 SHIPCAT = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'catalog.json')))
+FIGHTERS = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'fighters.json')))
+SHIPCAT.update(FIGHTERS)
+
+def jet(p, L_, D_, H_, r, model):
+    """A fighter: a slim fuselage with a bubble canopy over the cockpit (exactly where the
+    layout puts it), intakes, wings, tails and nozzles by its 'jet' spec, missiles on pylons."""
+    lay = SHIPCAT[model]; J = lay['jet']; W, D = lay['W'], lay['D']; xc = W / 2
+    hx0, cz0, hx1, cz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']
+    fy = deck + 0.55; fr = 1.05                                                # fuselage centreline height and radius
+    wing_y = fy - 0.15
+    if J['wing'] == 'flying':      # a flying wing: the whole thing is a blended lifting body
+        add_loft(p, [(0.3, fy, 0.25, xc, W * 0.18, 2.6), (D * 0.3, fy + 0.1, 0.55, xc, W * 0.48, 2.8), (D * 0.62, fy + 0.15, 0.7, xc, W * 0.32, 2.6), (D * 0.9, fy, 0.35, xc, W * 0.09, 2.2), (D, fy - 0.1, 0.04, xc, 0.08, 2)], 'tint', 40, axis='z')
+    else:
+        add_loft(p, [(0.0, fy, fr * 0.55, xc, fr * 0.7, 2.4), (D * 0.12, fy, fr * 0.85, xc, fr * 1.05, 2.6), (D * 0.5, fy, fr, xc, fr * 1.1, 2.8),
+                     (cz1, fy + 0.05, fr * 0.85, xc, fr * 0.85, 2.4), (D * 0.9, fy - 0.05, fr * 0.4, xc, fr * 0.35, 2.2), (D, fy - 0.1, 0.03, xc, 0.03, 2)], 'tint', 36, axis='z')
+    # the cockpit tub around the layout's cockpit, then the bubble canopy over it
+    add_loft(p, [(cz0 - 0.3, deck + 0.6, 1.0, xc, 0.95, 2.6), (cz1, deck + 0.6, 1.0, xc, 0.95, 2.6)], 'tint', 28, axis='z', cap=False)
+    add_loft(p, [(cz0 - 0.5, ceil - 0.25, 0.05, xc, 0.6, 2.2), (cz0 + 0.4, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 - 0.6, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 + 1.1, ceil - 0.6, 0.05, xc, 0.4, 2)], 'visor', 32, axis='z')
+    add_box(p, xc - 0.79, ceil - 0.25, cz0 + 0.9, xc + 0.79, ceil + 0.42, cz0 + 0.98, 'metal', 0.01)   # canopy bow
+    ne = J['engines']
+    for k in range(ne):              # intakes beside the cockpit, engines and nozzles at the tail
+        ex = xc + (0 if ne == 1 else (-0.75 if k == 0 else 0.75))
+        if J['wing'] != 'flying':
+            for s_ in ((-1, 1) if ne == 1 else ((-1,) if k == 0 else (1,))):
+                ix = xc + s_ * (fr + 0.25)
+                add_loft(p, [(cz0 - 2.4, fy - 0.15, 0.42, ix, 0.32, 3), (cz0 + 0.6, fy - 0.15, 0.45, ix, 0.35, 3)], 'tint', 20, axis='z')
+                add_box(p, ix - 0.28, fy - 0.5, cz0 + 0.55, ix + 0.28, fy + 0.22, cz0 + 0.62, 'rubber', 0.01)
+        add_cyl(p, ex, fy, -0.9, 0.1, 0.48 if ne == 2 else 0.62, 'metal', 24, axis='z', r2=0.42 if ne == 2 else 0.55)
+        add_cyl(p, ex, fy, -0.75, -0.65, 0.38 if ne == 2 else 0.5, 'glow', 24, axis='z')
+        for j in range(12):          # nozzle petals
+            a = j * math.pi / 6; rr = 0.5 if ne == 2 else 0.64
+            add_box(p, ex + math.cos(a) * rr - 0.05, fy + math.sin(a) * rr - 0.05, -1.05, ex + math.cos(a) * rr + 0.05, fy + math.sin(a) * rr + 0.05, -0.6, 'metal', 0.005)
+    def plank(pts, mat='tint', t=0.12):
+        bm = bmesh.new(); top = [bm.verts.new(P(x, y + t / 2, z)) for (x, y, z) in pts]; bot = [bm.verts.new(P(x, y - t / 2, z)) for (x, y, z) in pts]
+        bm.faces.new(top); bm.faces.new(bot[::-1])
+        for k in range(len(pts)): bm.faces.new([top[k], bot[k], bot[(k + 1) % len(pts)], top[(k + 1) % len(pts)]])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
+    def finplate(pts, mat='tint'):
+        bm = bmesh.new(); bm.faces.new([bm.verts.new(P(*v)) for v in pts]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.1); merge(p, bm, mat)
+    half = W / 2
+    for s_ in (-1, 1):
+        root = xc + s_ * fr * 0.8; tip = xc + s_ * half
+        if J['wing'] == 'delta': pts = [(root, wing_y, D * 0.62), (root, wing_y, D * 0.08), (tip, wing_y, D * 0.06), (tip, wing_y, D * 0.16)]
+        elif J['wing'] == 'swept': pts = [(root, wing_y, D * 0.55), (root, wing_y, D * 0.25), (tip, wing_y - 0.1, D * 0.08), (tip, wing_y - 0.1, D * 0.2)]
+        elif J['wing'] == 'forward': pts = [(root, wing_y, D * 0.32), (root, wing_y, D * 0.12), (tip, wing_y + 0.1, D * 0.42), (tip, wing_y + 0.1, D * 0.5)]
+        elif J['wing'] == 'straight': pts = [(root, wing_y + 0.3, D * 0.55), (root, wing_y + 0.3, D * 0.4), (tip, wing_y + 0.3, D * 0.42), (tip, wing_y + 0.3, D * 0.54)]
+        else: pts = None
+        if pts:
+            plank(pts)
+            add_cyl(p, tip, pts[3][1], pts[3][2] - 0.2, pts[3][2] + 0.1, 0.06, 'navgreen' if s_ > 0 else 'navred', 8, axis='z')
+        # missiles on pylons under the wings
+        nm = lay['weapons']['missiles'] // 2
+        for m in range(nm):
+            mx = root + (tip - root) * (0.3 + 0.55 * (m + 0.5) / max(1, nm)); mz = D * (0.3 if J['wing'] != 'forward' else 0.28)
+            if J['wing'] == 'flying': mx = xc + s_ * (1.4 + m * 1.1); mz = D * 0.45
+            my = (pts[0][1] if pts else fy) - 0.45
+            add_box(p, mx - 0.04, my + 0.12, mz - 0.4, mx + 0.04, my + 0.4, mz + 0.4, 'paint', 0.01)
+            add_cyl(p, mx, my, mz - 1.4, mz + 1.4, 0.11, 'navwhite' if False else 'paint', 12, axis='z')
+            add_cyl(p, mx, my, mz + 1.4, mz + 1.7, 0.11, 'metal', 12, axis='z', r2=0.01)
+            for a in range(4): ang = a * math.pi / 2 + math.pi / 4; add_box(p, mx + math.cos(ang) * 0.12 - 0.01, my + math.sin(ang) * 0.12 - 0.01, mz - 1.4, mx + math.cos(ang) * 0.26 + 0.01, my + math.sin(ang) * 0.26 + 0.01, mz - 1.0, 'paint', 0.002)
+        if J['tails'] == 'twin': finplate([(xc + s_ * 0.9, fy + 0.4, 0.2), (xc + s_ * 0.9, fy + 0.4, 3.2), (xc + s_ * 1.5, fy + 2.6, 1.0), (xc + s_ * 1.5, fy + 2.6, -0.2)])
+        if J['tails'] in ('twin', 'single', 'boom'):
+            plank([(xc + s_ * fr * 0.7, fy, 2.6), (xc + s_ * fr * 0.7, fy, 0.2), (xc + s_ * (fr + 2.4), fy - 0.05, -0.1), (xc + s_ * (fr + 2.4), fy - 0.05, 1.0)])
+        if J['tails'] == 'canard': plank([(xc + s_ * fr * 0.7, fy + 0.2, D * 0.82), (xc + s_ * fr * 0.7, fy + 0.2, D * 0.72), (xc + s_ * (fr + 1.5), fy + 0.25, D * 0.7), (xc + s_ * (fr + 1.5), fy + 0.25, D * 0.76)])
+        if J['tails'] == 'boom':
+            bx = xc + s_ * half * 0.55
+            add_loft(p, [(-0.2, wing_y + 0.3, 0.3, bx, 0.3, 2), (D * 0.48, wing_y + 0.3, 0.35, bx, 0.35, 2), (D * 0.56, wing_y + 0.3, 0.1, bx, 0.1, 2)], 'tint', 16, axis='z')
+            finplate([(bx, wing_y + 0.5, 0.0), (bx, wing_y + 0.5, 2.2), (bx, wing_y + 2.3, 0.7), (bx, wing_y + 2.3, -0.3)])
+    if J['tails'] in ('single', 'canard'): finplate([(xc, fy + 0.6, 0.3), (xc, fy + 0.6, 4.0), (xc, fy + 3.0, 1.2), (xc, fy + 3.0, 0.0)])
+    if J['wing'] == 'flying':
+        for s_ in (-1, 1): finplate([(xc + s_ * W * 0.36, fy + 0.4, D * 0.18), (xc + s_ * W * 0.36, fy + 0.4, D * 0.4), (xc + s_ * W * 0.4, fy + 1.4, D * 0.22), (xc + s_ * W * 0.4, fy + 1.4, D * 0.12)])
+    # guns in the nose / wing roots
+    for g in range(lay['weapons']['guns']):
+        gx = xc + (g - (lay['weapons']['guns'] - 1) / 2) * 0.5
+        add_cyl(p, gx, fy - 0.35, D * 0.78, D * 0.9, 0.05, 'metal', 8, axis='z')
+    # landing gear (tricycle), panel lines, hazard by the ladder
+    for (gx, gz) in ((xc, D * 0.78), (xc - 1.6, D * 0.32), (xc + 1.6, D * 0.32)):
+        add_cyl(p, gx, gz, 0.25, fy - 0.6, 0.07, 'metal', 10); add_cyl(p, 0.22, gz, gx - 0.12, gx + 0.12, 0.22, 'rubber', 14, axis='x')   # (x-axis cylinder: centre given as (y, z))
+    add_box(p, xc - 0.38, deck - 0.15, cz0 - 0.08, xc + 0.38, deck, cz0, 'hazard', 0.005)
+    ship_interior(p, lay) if False else None
+    # the cockpit inside: a floor, the seat and the console from the layout
+    add_box(p, hx0, deck - 0.12, cz0, hx1, deck, cz1, 'metal', 0.01)
+    B = {'console': console, 'chair': chair}
+    for pr in lay['props']:
+        across = pr['face'] in (0, 2); L, Dd = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
+        place_in(p, B[pr['kind']], L, Dd, pr['h'], pr, deck)
+
+def ladder(p, L_, D_, H_, r, model):
+    lay = SHIPCAT[model]; rp = lay['ramp']; deck = lay['deck']
+    for x in (rp['x0'], rp['x1'] - 0.04):
+        bm = bmesh.new(); vs = [bm.verts.new(P(*v)) for v in [(x, 0, rp['z0']), (x, deck, rp['z1']), (x + 0.04, deck, rp['z1']), (x + 0.04, 0, rp['z0'])]]
+        bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.04); merge(p, bm, 'metal')
+    for k in range(7):
+        f = (k + 0.5) / 7; add_box(p, rp['x0'], deck * f - 0.02, rp['z0'] + (rp['z1'] - rp['z0']) * f - 0.03, rp['x1'], deck * f + 0.02, rp['z0'] + (rp['z1'] - rp['z0']) * f + 0.03, 'metal', 0.004)
 
 def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
     fp = os.path.join(ROOT, 'assets', 'ships', model + '.json'); lay = json.load(open(fp)) if os.path.exists(fp) else SHIPCAT[model]
@@ -1875,7 +1969,8 @@ def variants():
         ('courier', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'courier'), 7, 13, 3.9), ('courier_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'courier'), 7, 13, 3.9),
         ('patrol', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'patrol'), 7, 13, 3.9), ('patrol_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'patrol'), 7, 13, 3.9),
         ('yacht', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'yacht'), 9, 27, 5.0), ('yacht_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'yacht'), 9, 27, 5.0),
-        *[x for k, d in SHIPCAT.items() for x in ((k, (lambda kk: lambda p, L, D, H, r: styled_ship(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
+        *[x for k, d in FIGHTERS.items() for x in ((k, (lambda kk: lambda p, L, D, H, r: jet(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: ladder(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
+        *[x for k, d in SHIPCAT.items() if k not in FIGHTERS for x in ((k, (lambda kk: lambda p, L, D, H, r: styled_ship(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]

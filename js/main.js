@@ -51,6 +51,8 @@ import { VehicleView } from './render/vehicles.js';
 import { SHIP_PRICE, PRICES, tripOf } from './gen/ships.js';
 import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
+import { AirWar, raidAt, raidIndex } from './sim/aircombat.js';
+import { CombatView } from './render/combat.js';
 import { ShipView } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { GrassField } from './render/grass.js';
@@ -289,6 +291,8 @@ async function start(fresh) {
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
     if (e.code === 'KeyR') attack();
+    if (e.code === 'KeyF' && myCraft) { if (myCraft.lockT < 1.2 || !war.fireMissile(myCraft)) ui.toast(myCraft.missiles ? (myCraft.lock && myCraft.lockT > 1.2 ? 'Reloading.' : 'No lock: keep a target ahead of you, from behind, for a second.') : 'No missiles left.', 'warn', 2000); else if (myCraft.lockT < 1.2) {} }
+    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft);
     if (e.code === 'KeyX' && flight) { flight.assist = !flight.assist; ui.toast(flight.assist ? 'Flight assist on: wings level themselves, the hover holds height.' : 'Flight assist <b>off</b>. Nothing will catch you.', flight.assist ? '' : 'warn', 4000); }
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
@@ -628,22 +632,23 @@ async function start(fresh) {
     launch(store, sh); setRamp(store, sh, false);
     ships = shipsIn(store, planet, s, clock.now());
     flight = new Flight(world, planet, shipById(sh.id), c, facing);
-    ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = 30; cam.pitch = 0.25;
-    ui.toast(`<kbd>Space</kbd> climb · <kbd>Q</kbd> descend · <kbd>W</kbd>/<kbd>S</kbd> thrust · <kbd>A</kbd>/<kbd>D</kbd> turn · <kbd>Shift</kbd> boost`, '', 8000);
+    ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25;
+    joinWar();
+    ui.toast(`<kbd>Space</kbd> lift · <kbd>W</kbd>/<kbd>S</kbd> throttle · mouse to fly · <kbd>X</kbd> assist${myCraft?.guns ? ' · <b>click</b> guns · <kbd>F</kbd> missile · <kbd>G</kbd> flares' : ''}`, '', 9000);
   }
   function setDown() {
     const why = flight.landingProblem();
     if (why) { ui.toast(`Can't land: ${why}.`, 'warn', 2500); return; }
     const sh = flight.ship;
     land(store, sh, flight.pos, flight.facing); setRamp(store, sh, false);
-    flight = null; cam.dist = camDist; syncShips();
+    leaveWar(); flight = null; cam.dist = camDist; syncShips();
     const b = placed.get(sh.id), a = b.plan.anchors.find(x => x.kind === 'pilot');
     ctrl.mode = 'walk'; ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', buildingToWorld(s, b, a.x, b.plan.layout.deck, a.z - 0.8));
     ui.toast('Landed. Get up, and <kbd>E</kbd> at the top of the ramp to lower it.', '', 6000);
   }
   if (player.piloting) { // you were flying when you left: you're still at the helm
     const sh = shipById(player.piloting);
-    if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; }
+    if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; joinWar(); }
   }
 
   // ---- people: the one in front of you, and talking to them (sim/processes/talk.js)
@@ -744,6 +749,62 @@ async function start(fresh) {
       ui.toast(`<b>${esc(p.name)}</b> is dead.${seen.length ? ` <b>${seen.length} saw it.</b>` : ''}`, 'bad', 8000); }
     else ui.toast(`You hit ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 2500);
   }
+
+  // ---- air combat (sim/aircombat.js): your ship in the fight, raids, and Civic Security's fighters
+  const war = new AirWar(world, planet), combatView = new CombatView(scene);
+  let myCraft = null, raid = null, firing = false;
+  function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
+  function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
+  renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0 && flight && document.pointerLockElement) firing = true; });
+  addEventListener('mouseup', () => { firing = false; });
+  function eject() {     // your ship is gone: out you go, down on a parachute
+    const sh = flight.ship, at = flight.pos.slice();
+    store.patchDelta(shipKey(sh.id), { destroyed: true, flying: undefined, at: { c: at, facing: flight.facing } });
+    store.log({ t: clock.now(), type: 'ship_lost', who: player.id, whoName: player.name, ship: sh.name });
+    leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk';
+    const g = world.groundAt(at[0], at[2], at[1]).h; ctrl.pos = [at[0] + 20, Math.max(g, planet.seaLevel), at[2] + 20]; ctrl.vel = [0, 0, 0];
+    player.fatigue = Math.min(1, player.fatigue + 0.35); store.touchPlayer(); syncShips();
+    ui.toast(`The ${esc(sh.name)} is going down — you <b>eject</b> and come down on a parachute.`, 'bad', 9000);
+  }
+  // raids: every few hours raiders come in over the hills; security scrambles
+  function raidTick(t) {
+    const k = raidIndex(planet, t), R = raidAt(planet, s, k);
+    if (!raid && t >= R.t && t < R.t + 200 && !store.getDelta('raid/' + k)) {
+      const dist = 7000, bx = Math.sin(R.bearing), bz = Math.cos(R.bearing);
+      raid = { k, t0: t, raiders: [], defenders: [] };
+      for (let i = 0; i < R.n; i++) raid.raiders.push(Object.assign(war.spawn(R.models[i], 'raider', [s.cx + bx * dist + (i - R.n / 2) * 140, s.h + 1300 + i * 90, s.cz + bz * dist + i * 60], R.bearing + Math.PI, 170), { groundTarget: [s.cx, s.h, s.cz] }));
+      const hq = pop.buildingByKey.get(polity.security), at = hq ? buildingToWorld(s, hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
+      for (let i = 0; i < R.defenders; i++) raid.defenders.push(war.spawn(R.defModels[i], 'security', [at[0] + i * 60, s.h + 260 + i * 40, at[2] - 80], R.bearing, 140));
+      const dir = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((-R.bearing + Math.PI * 2.5) % (Math.PI * 2)) / (Math.PI / 4)) % 8];
+      ui.toast(`<b>Raiders inbound</b> — ${R.n} fighters from the ${dir}. ${esc(polity.securityName)} is scrambling ${R.defenders}.`, 'bad', 10000);
+    }
+    if (raid && (raid.raiders.every(c => !c.alive) || t - raid.t0 > 300)) {
+      const downed = raid.raiders.filter(c => !c.alive).length, lost = raid.defenders.filter(c => !c.alive).length;
+      store.patchDelta('raid/' + raid.k, { done: true, downed, lost });
+      store.log({ t, type: 'raid', downed, n: raid.raiders.length, lost, authority: polity.securityName, settlementName: s.name });
+      ui.toast(downed === raid.raiders.length ? `The raid is over: all ${downed} raiders shot down${lost ? `, ${lost} of ours lost` : ''}.` : `The raiders pull back — ${downed} of ${raid.raiders.length} shot down${lost ? `, ${lost} of ours lost` : ''}.`, '', 8000);
+      for (const c of raid.raiders.concat(raid.defenders)) if (c.alive) war.craft = war.craft.filter(x => x !== c);
+      raid = null;
+    }
+  }
+  sched.add(TIER.NEAR, { update: () => raidTick(clock.now()) });
+  // markers over every combatant you can see: who, how far, locked
+  const markers = document.createElement('div'); markers.className = 'markers'; document.getElementById('ui').append(markers);
+  function drawMarkers() {
+    markers.innerHTML = '';
+    if (!war.craft.some(c => c.alive && c.side !== 'player')) return;
+    const v = new THREE.Vector3();
+    for (const c of war.craft) {
+      if (!c.alive || c === myCraft) continue;
+      const d = Math.hypot(c.f.pos[0] - ctrl.pos[0], c.f.pos[1] - ctrl.pos[1], c.f.pos[2] - ctrl.pos[2]); if (d > 9000) continue;
+      v.set(...toRender(...c.f.pos)).project(camera); if (v.z > 1) continue;
+      const el = document.createElement('div'), foe = c.side === 'raider', locked = myCraft?.lock === c;
+      el.className = 'mk ' + (foe ? 'foe' : 'friend') + (locked ? (myCraft.lockT > 1.2 ? ' locked' : ' locking') : '');
+      el.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - v.y) / 2 * innerHeight) + 'px';
+      el.innerHTML = `<i></i><span>${foe ? 'raider' : 'security'} · ${c.name} · ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}${locked && myCraft.lockT > 1.2 ? ' · LOCK' : ''}</span>`;
+      markers.append(el);
+    }
+  }
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
@@ -824,6 +885,7 @@ async function start(fresh) {
           yaw: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: weatherAt(planet, t).wind });
         ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;
         if (flight.impact > 15) { player.fatigue = Math.min(1, player.fatigue + 0.1); ui.toast(`Impact at ${Math.round(flight.impact * 3.6)} km/h.`, 'bad', 3000); }
+        if (myCraft && firing) war.fireGuns(myCraft, dt);
         // chase camera: behind and a little above, following the heading and part of the pitch
         cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
         cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3);
@@ -907,7 +969,8 @@ async function start(fresh) {
       }
       const { c, facing } = centreOf(s, sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
-    }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) }))), dt);
+    }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
+      .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 450);
     vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
@@ -959,6 +1022,8 @@ async function start(fresh) {
       const p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z), p1 = toRender(flight.pos[0] + ahead.x, flight.pos[1] + ahead.y, flight.pos[2] + ahead.z);
       camera.position.set(...p0); camera.lookAt(...p1);
     } else if (!shot) cam.update(dt, ctrl.pos, toRender);
+    war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
+    if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
@@ -987,7 +1052,7 @@ async function start(fresh) {
       const rpn = !ride && !flight && !ua ? nearRamp() : null;
       if (flight) {
         const why = flight.onGround ? flight.landingProblem() : null, f = flight;
-        ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${Math.round(f.altitude())}</b> m · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
+        ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${Math.round(f.altitude())}</b> m · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${myCraft ? ` · hull <b class="${myCraft.hp / myCraft.maxHp < 0.35 ? 'late' : ''}">${Math.max(0, Math.round(myCraft.hp / myCraft.maxHp * 100))}%</b>${myCraft.guns ? ` · msl ${myCraft.missiles} · flares ${myCraft.flares}` : ''}` : ''}${war.missiles.some(m => m.target === myCraft) ? ' · <b class="late">MISSILE</b>' : ''}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
           <small>W/S throttle · mouse/arrows stick · A/D rudder · Space/Q lift · Shift burner · B brakes · X assist · V view${f.onGround ? (why ? ` · can't land: ${why}` : ' · <b>E</b> land') : ''}</small>`);
       }
       else if (rampHold > 0) {}
@@ -1033,7 +1098,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, weatherView, avatar, attack, getBodies: () => bodies, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

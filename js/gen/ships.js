@@ -9,18 +9,22 @@ import COURIER from '../../assets/ships/courier.json' with { type: 'json' };
 import PATROL from '../../assets/ships/patrol.json' with { type: 'json' };
 import YACHT from '../../assets/ships/yacht.json' with { type: 'json' };
 import CATALOG from '../../assets/ships/catalog.json' with { type: 'json' };
+import FIGHTERS from '../../assets/ships/fighters.json' with { type: 'json' };
 import { surfaceAt } from './surface.js';
 import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { derive, hashStr, hashInts } from '../core/hash.js';
 import { dayIndex, dayStart } from './schedule.js';
 
-export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG };
+export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG, ...FIGHTERS };
+export const FIGHTER_MODELS = Object.keys(FIGHTERS);
+// armed hulls: fighters carry their own; gunships, dropships and the patrol ship are armed too
+for (const [k, L] of Object.entries(LAYOUTS)) if (!L.weapons) L.weapons = L.cls === 'gunship' ? { guns: 2, missiles: 4 } : L.cls === 'dropship' ? { guns: 1, missiles: 0 } : k === 'patrol' ? { guns: 2, missiles: 2 } : { guns: 0, missiles: 0 };
 // designs that fit a 22 m pad, and those that need a field
-export const PAD_DESIGNS = Object.keys(LAYOUTS).filter(k => LAYOUTS[k].D <= 21 && LAYOUTS[k].W <= 12 && k !== 'patrol' && k !== 'freighter' && k !== 'yacht');
+export const PAD_DESIGNS = Object.keys(LAYOUTS).filter(k => LAYOUTS[k].D <= 21 && LAYOUTS[k].W <= 12 && k !== 'patrol' && k !== 'freighter' && k !== 'yacht' && !FIGHTERS[k]);
 export const FIELD_DESIGNS = Object.keys(CATALOG).filter(k => CATALOG[k].field);
 export const SHIP_PRICE = 9500;
-export const PRICES = { shuttle: 9500, freighter: 42000, courier: 6800, yacht: 68000, patrol: 0, ...Object.fromEntries(Object.entries(CATALOG).map(([k, d]) => [k, d.price])) };
+export const PRICES = { shuttle: 9500, freighter: 42000, courier: 6800, yacht: 68000, patrol: 0, ...Object.fromEntries(Object.entries({ ...CATALOG, ...FIGHTERS }).map(([k, d]) => [k, d.price])) };
 const PAD = 22;
 
 // The layout as a building-format plan (gen/building.js), in the ship's frame.
@@ -85,6 +89,7 @@ export function shipsAt(planet, s) {
     out.push({ id: `ship:${s.key}:field${taken.length}`, model, field: true, at, name: shipName(rng), colour: rng.int(0, 6), ...extra });
   };
   if (rng.chance(0.55)) field('yacht', { owner: 'dealer', ownerName: 'a private seller', forSale: true });
+  if (rng.chance(0.7)) field(rng.pick(Object.keys(FIGHTERS)), { owner: 'dealer', ownerName: 'a surplus dealer', forSale: true });          // an ex-military fighter, for sale
   for (let k = rng.int(2, 3); k > 0; k--) { const f2 = firms.length ? rng.pick(firms) : null; field(rng.pick(FIELD_DESIGNS), f2 && rng.chance(0.75) ? { owner: 'firm:' + f2.key, ownerName: f2.owner, firmB: f2.key } : { owner: 'dealer', ownerName: 'a private seller', forSale: true }); }
   cache.set(ck, out);
   return out;

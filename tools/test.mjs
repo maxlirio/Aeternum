@@ -1008,6 +1008,36 @@ suites.combat = async () => {
   check(pl2.warrant && /attacking/.test(pl2.warrant.reason), 'an officer saw it: ' + pl2.warrant?.reason);
 };
 
+suites.aircombat = async () => {
+  const { AirWar, raidAt, raidIndex } = await import('../js/sim/aircombat.js');
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false); world.flora = false;
+  let wins = { security: 0, raider: 0 }, crashes = 0, gunKills = 0, mslKills = 0, fights = 0;
+  const pairs = [['striker', 'needle'], ['interceptor', 'shade'], ['warden', 'gunship0'], ['needle', 'interceptor'], ['shade', 'striker'], ['interceptor', 'interceptor']];
+  for (const [a, b] of pairs) {
+    const war = new AirWar(world, p), A = war.spawn(a, 'security', [s.cx, s.h + 1500, s.cz], 0, 150), B = war.spawn(b, 'raider', [s.cx + 300, s.h + 1600, s.cz + 4000], Math.PI, 150);
+    for (let t = 0; t < 240 && A.alive && B.alive; t += 1 / 60) war.step(1 / 60);
+    fights++;
+    const dead = [A, B].find(c => !c.alive); if (dead) { wins[dead === A ? 'raider' : 'security']++; const e = war.events.find(e => e.type === 'killed'); if (e && !e.by) crashes++; }
+  }
+  check(wins.security + wins.raider >= 4, `${fights} dogfights: ${wins.security} won by security, ${wins.raider} by raiders, ${fights - wins.security - wins.raider} still going after 4 min`);
+  check(crashes <= 1, `AI pilots fly into the ground at most rarely (${crashes})`);
+  // a missile against a target that can't dodge or flare it kills it
+  const w2 = new AirWar(world, p), shooter = w2.spawn('striker', 'security', [s.cx, s.h + 2000, s.cz], 0, 150, 'player'), tgt = w2.spawn('courier', 'raider', [s.cx, s.h + 2000, s.cz + 1500], 0, 120, 'player');
+  shooter.f.assist = tgt.f.assist = true; tgt.flares = 0;
+  for (let t = 0; t < 3; t += 1 / 60) { w2.step(1 / 60, true); shooter.f.step(1 / 60, { throttle: 1 }); tgt.f.step(1 / 60, { throttle: 1 }); }
+  check(shooter.lock === tgt && shooter.lockT > 1.2, 'locked a target ahead, from behind');
+  check(w2.fireMissile(shooter), 'missile away');
+  for (let t = 0; t < 10 && tgt.alive; t += 1 / 60) { w2.step(1 / 60, true); shooter.f.step(1 / 60, { throttle: 1 }); tgt.f.step(1 / 60, { throttle: 1 }); }
+  check(!tgt.alive || tgt.hp < tgt.maxHp, `it hit: ${Math.max(0, Math.round(tgt.hp))}/${tgt.maxHp} left`);
+  // head-on, a heat-seeker can't lock
+  const w3 = new AirWar(world, p), h1 = w3.spawn('striker', 'security', [s.cx, s.h + 2000, s.cz], 0, 150), h2 = w3.spawn('striker', 'raider', [s.cx, s.h + 2000, s.cz + 2000], Math.PI, 150);
+  check(w3.seekerTarget(h1) === null, 'no lock head-on (it has to see the engines)');
+  // raids are pure in time
+  const r1 = raidAt(p, s, raidIndex(p, 3.3e9)), r2 = raidAt(p, s, raidIndex(p, 3.3e9));
+  check(JSON.stringify(r1) === JSON.stringify(r2) && r1.n >= 2, `raids are deterministic: ${r1.n} raiders, ${r1.defenders} defenders`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

@@ -48,6 +48,10 @@
   ul.events { list-style: none; padding: 0; margin: 0; max-height: 40vh; overflow: auto; } ul.events li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
   .when { color: var(--dim); font: 11px ui-monospace, Menlo, monospace; margin-right: 6px; } li.none { color: var(--dim); }
   pre { white-space: pre-wrap; font-size: 11px; }
+  .markers { position: absolute; inset: 0; pointer-events: none; }
+  .mk { position: absolute; transform: translate(-50%, -50%); } .mk i { display: block; width: 18px; height: 18px; border: 2px solid; transform: rotate(45deg); margin: 0 auto; }
+  .mk span { display: block; margin-top: 6px; font: 600 11px ui-monospace, Menlo, monospace; white-space: nowrap; text-shadow: 0 1px 2px #000; }
+  .mk.foe { color: #ff6a5a; } .mk.friend { color: #7ad0ff; } .mk.locking i { border-style: dashed; } .mk.locked i { border-width: 3px; width: 26px; height: 26px; box-shadow: 0 0 10px #ff4a3a; }
   .fltape { font: 600 13px ui-monospace, Menlo, monospace; display: block; } .warnc { color: #e8b24a; }
   .panel.wide .card { width: min(820px, 100%); }
   .talk { margin-top: 10px; border-left: 2px solid var(--line); padding-left: 10px; color: var(--ink); font-size: 13px; } .talk p { margin: 4px 0; }

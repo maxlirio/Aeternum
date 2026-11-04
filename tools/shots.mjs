@@ -101,6 +101,13 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.raid = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const A = await import('./js/sim/aircombat.js');
+    const k = A.raidIndex(O.planet, O.clock.now()) + 1, R = A.raidAt(O.planet, O.s, k); O.clock.advance(R.t + 1 - O.clock.now()); O.raidTick(O.clock.now());
+    const dur = +(new URLSearchParams(location.search).get('secs') || 22); await wait(dur * 1000);
+    const live = O.war.craft.filter(c => c.alive && c.side === 'raider'), c = live[0] || O.war.craft[0];
+    O.ctrl.pos = [c.f.pos[0] - 260, Math.max(c.f.pos[1] - 140, O.s.h + 5), c.f.pos[2] - 260];
+    const yaw = Math.atan2(c.f.pos[0] - O.ctrl.pos[0], c.f.pos[2] - O.ctrl.pos[2]); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = -0.4; O.cam.dist = 3; document.querySelector('.toasts')?.remove(); await wait(600);`;
+SHOTS.raid = 'hour=15&secs=22';
 SCRIPTS.dogfight = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = O.store.player, key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
     const { structureOf } = await import('./js/world/ships.js'); const { buildingToWorld } = await import('./js/gen/place.js'); const { shipPlan } = await import('./js/gen/ships.js');
     const sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true, O.planet), L = shipPlan(sh.model).layout, seat = L.seats.find(q => q.kind === 'pilot');
