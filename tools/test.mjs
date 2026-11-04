@@ -775,7 +775,7 @@ suites.ships = async () => {
   const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.credits = 20000; st.setPlayer(pl);
   const world = new CollisionWorld(p, s, () => false);
   let down = true;
-  const sh = S.shipsIn(st, p, s).find(x => x.model === 'shuttle'), b = S.structureOf(s, sh, id => id !== 0 || down, p);
+  const sh = (S.shipsIn(st, p, s).find(x => x.model === 'shuttle') || (() => { const x = S.shipsIn(st, p, s).find(y => !y.field && !y.patrol); st.patchDelta(S.shipKey(x.id), { model: 'shuttle' }); return S.shipsIn(st, p, s).find(y => y.id === x.id); })()), b = S.structureOf(s, sh, id => id !== 0 || down, p);
   world.addStructure(b);
   const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
   const L = shipPlan().layout, toW = (x, y, z) => buildingToWorld(s, b, x, y, z);
@@ -872,12 +872,12 @@ suites.ships = async () => {
   const back = S.shipsIn(R, p, s).find(x => x.id === sh.id);
   check(back.at && Math.hypot(back.at.c[0] - fl.pos[0], back.at.c[2] - fl.pos[2]) < 0.01 && S.shipIsYours(back, pl), 'landed where you left it, after reloading');
   // every hull: walkable from its ramp to its cockpit, and flies with its own handling
-  for (const model of ['courier', 'patrol', 'yacht']) {
+  for (const model of ['courier', 'patrol', 'yacht', ...Object.keys((await import('../js/gen/ships.js')).LAYOUTS).filter(k => /[0-9]$/.test(k))]) {
     const L = shipPlan(model).layout, fake = { id: 'test:' + model, model, at: { c: [s.cx + 900, surfaceHeight(p, s.cx + 900, s.cz + 900), s.cz + 900], facing: 0.3 } };
     const bb = S.structureOf(s, fake, () => true, p); world.addStructure(bb);
     const W2 = (x, z) => buildingToWorld(s, bb, x, 0, z), mx = (L.ramp.x0 + L.ramp.x1) / 2, cock = L.rooms.find(q => q.purpose === 'cockpit');
     const cc = new Controller(world, W2(mx, -1.5)); run(cc, {}, 0.3);
-    const steps = [[mx, (L.hull[1] + L.partitions[0].z) / 2], ...L.partitions.map(q => [L.doors[q.door].x, q.z + 0.8]), [mx, (cock.rect[1] + cock.rect[3]) / 2 - 0.4]];
+    const steps = [[mx, (L.hull[1] + (L.partitions[0]?.z ?? L.hull[1] + 2)) / 2], ...L.partitions.map(q => [L.doors[q.door].x, q.z + 0.8]), [mx, (cock.rect[1] + cock.rect[3]) / 2 - 0.4]];
     for (const [x, z] of steps) for (let t = 0; t < 14; t += 1 / 120) { const w = W2(x, z); if (Math.hypot(w[0] - cc.pos[0], w[2] - cc.pos[2]) < 0.3) break; cc.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.atan2(w[0] - cc.pos[0], w[2] - cc.pos[2]) }); }
     check(world.locate(...cc.pos)?.room?.purpose === 'cockpit', `${model}: ramp to cockpit (${world.locate(...cc.pos)?.room?.label})`);
     world.removeStructure(bb);

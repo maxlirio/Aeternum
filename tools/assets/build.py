@@ -1203,6 +1203,7 @@ def ship_interior(p, lay):
             add_box(p, x0, deck, z, x0 + 0.04, ceil, z + 0.08, 'metal', 0.004)
     B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine,
          'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'),
+         'desk': desk, 'cabinet': cabinet,
          'rack': lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 'chair': chair, 'console': console}
     for pr in lay['props']:                  # each piece built to its own footprint in the layout
         across = pr['face'] in (0, 2)
@@ -1304,13 +1305,17 @@ def styled_ship(p, L_, D_, H_, r, model):
     """A hull wrapped round a layout (assets/ships/<model>.json), dressed by its style:
     courier — compact and fast, twin nacelles; patrol — the courier armoured, light bar, chin guns;
     yacht — long and sleek, swept fins, a glowing waist line."""
-    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json'))); st = lay['style']
+    fp = os.path.join(ROOT, 'assets', 'ships', model + '.json')
+    lay = json.load(open(fp)) if os.path.exists(fp) else SHIPCAT[model]; st = lay['style']; look = lay.get('look', {})
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; D = lay['D']
-    hw = (hx1 - hx0) / 2 + 0.55; cy = (deck - 0.25 + ceil + 0.2) / 2; hh = (ceil + 0.2 - (deck - 0.25)) / 2 + 0.35
+    bulk = look.get('bulk', 1.0)
+    hw = ((hx1 - hx0) / 2 + 0.55) * bulk; cy = (deck - 0.25 + ceil + 0.2) / 2; hh = ((ceil + 0.2 - (deck - 0.25)) / 2 + 0.35) * (0.5 + 0.5 * bulk)
     nose = D - 0.2; noseLen = nose - hz1
     e = 3.4 if st == 'patrol' else 2.7 if st == 'courier' else 2.4
+    if st == 'generated': e = {'pointed': 2.5, 'blunt': 3.6, 'hammer': 4.2, 'chisel': 3.0}[look['nose']]
+    tip = {'pointed': (0.06, 0.1), 'blunt': (hh * 0.35, hw * 0.4), 'hammer': (hh * 0.25, hw * 0.95), 'chisel': (0.08, hw * 0.55)}.get(look.get('nose'), (0.06, 0.1))
     secs = [(hz0, cy, hh * 0.95, xc, hw * 0.95, e), (hz0 + 1.2, cy, hh, xc, hw, e), (hz1 - 0.6, cy, hh, xc, hw, e),
-            (hz1 + noseLen * 0.35, cy - 0.1, hh * 0.85, xc, hw * 0.8, e), (hz1 + noseLen * 0.7, cy - 0.25, hh * 0.5, xc, hw * 0.45, max(2, e - 0.6)), (nose, cy - 0.35, 0.06, xc, 0.1, 2)]
+            (hz1 + noseLen * 0.35, cy - 0.1, hh * 0.85, xc, hw * (0.95 if look.get('nose') == 'hammer' else 0.8), e), (hz1 + noseLen * 0.7, cy - 0.25, hh * 0.5 + tip[0] * 0.5, xc, hw * 0.45 + tip[1] * 0.5, max(2, e - 0.6)), (nose, cy - 0.35, tip[0], xc, tip[1], 2)]
     hull_loft(p, secs, 'tint', (xc, cy, (hz0 + hz1) / 2))
     def sect(z):
         for (za, *A), (zb, *B) in zip(secs, secs[1:]):
@@ -1373,7 +1378,8 @@ def styled_ship(p, L_, D_, H_, r, model):
         bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.12); merge(p, bm, 'tint')
         add_cyl(p, xc, cy, hz0 - 1.0, hz0 - 0.1, hw * 0.75, 'metal', 32, axis='z', r2=hw * 0.62)
         add_cyl(p, xc, cy, hz0 - 0.7, hz0 - 0.6, hw * 0.55, 'glow', 32, axis='z')
-    for k in range(40 if st != 'yacht' else 12):        # greebles (few on the yacht: it's smooth)
+    if st == 'generated': dress_generated(p, look, xc, cy, hh, hw, hz0, hz1, noseLen, top_y, r)
+    for k in range(int((40 if st != 'yacht' else 12) * look.get('greeble', 1.0))):        # greebles (few on the yacht: it's smooth)
         z = r.uniform(hz0 + 0.4, hz1 - 0.6); x = xc + r.choice([-1, 1]) * r.uniform(0.3, hw * 0.75)
         y = top_y(x, z); w_, d_, h_ = r.uniform(0.15, 0.6), r.uniform(0.2, 1.0), r.uniform(0.04, 0.15)
         add_box(p, x - w_ / 2, y - 0.2, z, x + w_ / 2, y + h_ - 0.05, z + d_, r.choice(['metal', 'paint', 'tint']), 0.01)
@@ -1382,8 +1388,64 @@ def styled_ship(p, L_, D_, H_, r, model):
         add_cyl(p, gx, gz, 0.0, 0.08, 0.28, 'rubber', 16)
     ship_interior(p, lay)
 
+def dress_generated(p, look, xc, cy, hh, hw, hz0, hz1, noseLen, top_y, r):
+    """Engines, fins, wings and markings for a designed ship (tools/gen-ships.mjs 'look')."""
+    def nacelle(nx, ny, rad, z0, z1):
+        add_loft(p, [(z0 - 0.3, ny, rad * 0.8, nx, rad * 0.8, 2), (z0 + 0.4, ny, rad, nx, rad, 2), (z1 - 0.6, ny, rad, nx, rad, 2), (z1, ny, rad * 0.35, nx, rad * 0.35, 2)], 'tint', 24, axis='z')
+        add_cyl(p, nx, ny, z0 - 0.9, z0 - 0.25, rad * 0.95, 'metal', 24, axis='z', r2=rad * 0.75); add_cyl(p, nx, ny, z0 - 0.6, z0 - 0.5, rad * 0.7, 'glow', 24, axis='z')
+        for z in (z0 + 0.6, z0 + 1.3): add_cyl(p, nx, ny, z, z + 0.08, rad * 1.02, 'metal', 24, axis='z')
+    L_ = hz1 - hz0; E = look['engines']
+    if E == 'twin':
+        for s_ in (-1, 1): nacelle(xc + s_ * (hw + 0.5), cy, 0.55, hz0, hz0 + L_ * 0.45); add_box(p, min(xc + s_ * hw * 0.8, xc + s_ * (hw + 0.5)), cy - 0.08, hz0 + 0.6, max(xc + s_ * hw * 0.8, xc + s_ * (hw + 0.5)), cy + 0.08, hz0 + L_ * 0.3, 'paint', 0.02)
+    elif E == 'quad':
+        for s_ in (-1, 1):
+            for dy in (-0.55, 0.55): nacelle(xc + s_ * (hw + 0.35), cy + dy, 0.38, hz0, hz0 + L_ * 0.35)
+            add_box(p, min(xc + s_ * hw * 0.8, xc + s_ * (hw + 0.35)), cy - 0.6, hz0 + 0.4, max(xc + s_ * hw * 0.8, xc + s_ * (hw + 0.35)), cy + 0.6, hz0 + 0.9, 'paint', 0.02)
+    elif E == 'single':
+        add_cyl(p, xc, cy, hz0 - 1.3, hz0 - 0.1, hw * 0.7, 'metal', 32, axis='z', r2=hw * 0.55); add_cyl(p, xc, cy, hz0 - 1.0, hz0 - 0.9, hw * 0.5, 'glow', 32, axis='z')
+        for a in range(6): ang = a * math.pi / 3; add_box(p, xc + math.cos(ang) * hw * 0.6 - 0.06, cy + math.sin(ang) * hh * 0.6 - 0.06, hz0 - 1.2, xc + math.cos(ang) * hw * 0.6 + 0.06, cy + math.sin(ang) * hh * 0.6 + 0.06, hz0, 'metal', 0.01)
+    elif E == 'pods':
+        for s_ in (-1, 1):
+            px, py = xc + s_ * (hw * 0.75), top_y(xc + s_ * hw * 0.5, hz0 + L_ * 0.3) + 0.6
+            nacelle(px, py, 0.5, hz0 + 0.3, hz0 + L_ * 0.4)
+            add_box(p, px - 0.08, py - 0.9, hz0 + 1.2, px + 0.08, py - 0.3, hz0 + 2.4, 'paint', 0.02)
+    elif E == 'ring':
+        for a in range(8):
+            ang = a * math.pi / 4; nx, ny = xc + math.cos(ang) * (hw + 0.2), cy + math.sin(ang) * (hh + 0.2)
+            add_cyl(p, nx, ny, hz0 - 0.6, hz0 + 0.8, 0.28, 'metal', 14, axis='z'); add_cyl(p, nx, ny, hz0 - 0.7, hz0 - 0.6, 0.2, 'glow', 14, axis='z')
+    F = look['fins']; ty = cy + hh * 0.9
+    def fin(x, y0, z0, h, sweep, lean=0.0, mat='tint'):
+        bm = bmesh.new(); q = [(x, y0, z0), (x, y0, z0 + 2.4), (x + lean, y0 + h, z0 + 2.4 - sweep), (x + lean, y0 + h, z0 - sweep * 0.3)]
+        bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.1); merge(p, bm, mat)
+    if F == 'twin':
+        for s_ in (-1, 1): fin(xc + s_ * hw * 0.45, ty - 0.1, hz0 + 0.2, 1.4, 1.2, s_ * 0.35)
+    elif F == 'single': fin(xc, ty - 0.1, hz0 + 0.1, 1.8, 1.6)
+    elif F == 'swept':
+        for s_ in (-1, 1): fin(xc + s_ * hw * 0.85, cy, hz0 + 0.2, 0.15, 2.0, s_ * 2.0)
+    elif F == 'ventral': fin(xc, cy - hh * 0.9, hz0 + 0.3, -1.2, 1.0)
+    Wg = look['wings']
+    if Wg != 'none':
+        span = {'stub': 1.4, 'delta': 3.4, 'forward': 2.6, 'gull': 2.6}[Wg]
+        for s_ in (-1, 1):
+            root = xc + s_ * hw * 0.9; tip = root + s_ * span; y0 = cy - hh * 0.2; ty_ = y0 + (0.9 if Wg == 'gull' else 0.15)
+            if Wg == 'forward': pts = [(root, y0, hz0 + L_ * 0.15), (root, y0, hz0 + L_ * 0.55), (tip, ty_, hz0 + L_ * 0.75), (tip, ty_, hz0 + L_ * 0.6)]
+            elif Wg == 'delta': pts = [(root, y0, hz0 + 0.3), (root, y0, hz0 + L_ * 0.75), (tip, ty_, hz0 + 0.6), (tip, ty_, hz0 + 0.1)]
+            else: pts = [(root, y0, hz0 + L_ * 0.25), (root, y0, hz0 + L_ * 0.6), (tip, ty_, hz0 + L_ * 0.5), (tip, ty_, hz0 + L_ * 0.3)]
+            bm = bmesh.new(); top = [bm.verts.new(P(x, y + 0.1, z)) for (x, y, z) in pts]; bot = [bm.verts.new(P(x, y - 0.1, z)) for (x, y, z) in pts]
+            bm.faces.new(top); bm.faces.new(bot[::-1])
+            for k in range(4): bm.faces.new([top[k], bot[k], bot[(k + 1) % 4], top[(k + 1) % 4]])
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'tint')
+            add_cyl(p, tip, ty_, pts[2][2] - 0.1, pts[2][2] + 0.1, 0.07, 'navgreen' if s_ > 0 else 'navred', 8, axis='z')
+    S_ = look['stripe']
+    if S_ == 'band': add_cyl(p, xc, cy, hz0 + L_ * 0.55, hz0 + L_ * 0.6, hw * 1.01, 'glow', 40, axis='z') if False else add_loft(p, [(hz0 + L_ * 0.55, cy, hh * 1.01, xc, hw * 1.01, 3.0), (hz0 + L_ * 0.6, cy, hh * 1.01, xc, hw * 1.01, 3.0)], 'hazard', 40, axis='z', cap=False)
+    elif S_ == 'twin':
+        for dx in (-0.45, 0.45): add_box(p, xc + dx - 0.12, top_y(xc + dx, hz0 + L_ * 0.5) - 0.04, hz0 + 0.3, xc + dx + 0.12, top_y(xc + dx, hz0 + L_ * 0.5) + 0.02, hz1 + noseLen * 0.3, 'navwhite', 0.005)
+    elif S_ == 'chevron':
+        for s_ in (-1, 1): add_box(p, xc + s_ * hw * 0.98 - 0.03, cy - 0.3, hz1 - 1.5, xc + s_ * hw * 0.98 + 0.03, cy + 0.3, hz1 - 0.3, 'hazard', 0.005)
+SHIPCAT = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'catalog.json')))
+
 def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
-    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json')))
+    fp = os.path.join(ROOT, 'assets', 'ships', model + '.json'); lay = json.load(open(fp)) if os.path.exists(fp) else SHIPCAT[model]
     rp = lay['ramp']; deck = lay['deck']
     bm = bmesh.new()      # the plate, hinged at the deck edge (z1, deck), resting on the ground at z0
     t = 0.1
@@ -1813,6 +1875,7 @@ def variants():
         ('courier', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'courier'), 7, 13, 3.9), ('courier_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'courier'), 7, 13, 3.9),
         ('patrol', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'patrol'), 7, 13, 3.9), ('patrol_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'patrol'), 7, 13, 3.9),
         ('yacht', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'yacht'), 9, 27, 5.0), ('yacht_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'yacht'), 9, 27, 5.0),
+        *[x for k, d in SHIPCAT.items() for x in ((k, (lambda kk: lambda p, L, D, H, r: styled_ship(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]
@@ -1825,12 +1888,19 @@ def build_props():
         p = Part(); fn(p, L, D, H, random.Random(name)); ob = finish(p, name)
         ob['kind'] = kind; ob['dims'] = [L, D, H]
         made.append(ob); print('prop', name, len(ob.data.polygons), 'faces')
-    out = os.path.join(ROOT, 'assets', 'props.glb')
-    bpy.ops.object.select_all(action='DESELECT')
-    for ob in made: ob.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', use_selection=True, export_materials='EXPORT',
-                              export_extras=True, export_apply=True, export_yup=True, export_normals=True, export_texcoords=True)
-    print('wrote', out, os.path.getsize(out) // 1024, 'KB')
+    # two files: furniture, plants and fittings; and the big things — ships and vehicles
+    big = lambda ob: ob['kind'].startswith('veh_') or ob['kind'].endswith('_ramp') or ob['kind'] in SHIPKINDS
+    for fname, sel in (('props.glb', lambda ob: not big(ob)), ('craft.glb', big)):
+        group = [ob for ob in made if sel(ob)]
+        if not group: continue
+        out = os.path.join(ROOT, 'assets', fname)
+        if ONLY and os.path.exists(out): print('(partial build: not overwriting', fname, ')'); continue
+        bpy.ops.object.select_all(action='DESELECT')
+        for ob in group: ob.select_set(True)
+        bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', use_selection=True, export_materials='EXPORT',
+                                  export_extras=True, export_apply=True, export_yup=True, export_normals=True, export_texcoords=True)
+        print('wrote', out, os.path.getsize(out) // 1024, 'KB')
 
+SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
 if DO_TEX: build_textures()
 if DO_PROPS: build_props()

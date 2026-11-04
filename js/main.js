@@ -56,7 +56,7 @@ import { FloraView } from './render/flora.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
-import { trafficNear } from './gen/traffic.js';
+import { trafficNear, airTraffic } from './gen/traffic.js';
 import { WEAPONS, strike, isDown, healthOf } from './sim/processes/combat.js';
 import { known, introduce, talked, workLine, homeLine, familyLine, smallTalk, directionsFrom } from './sim/processes/talk.js';
 import { weatherAt } from './gen/weather.js';
@@ -898,7 +898,7 @@ async function start(fresh) {
       }
       const { c, facing } = centreOf(s, sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
-    }).filter(Boolean), dt);
+    }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) }))), dt);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 450);
     vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));

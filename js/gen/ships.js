@@ -8,15 +8,19 @@ import FREIGHTER from '../../assets/ships/freighter.json' with { type: 'json' };
 import COURIER from '../../assets/ships/courier.json' with { type: 'json' };
 import PATROL from '../../assets/ships/patrol.json' with { type: 'json' };
 import YACHT from '../../assets/ships/yacht.json' with { type: 'json' };
+import CATALOG from '../../assets/ships/catalog.json' with { type: 'json' };
 import { surfaceAt } from './surface.js';
 import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { derive, hashStr, hashInts } from '../core/hash.js';
 import { dayIndex, dayStart } from './schedule.js';
 
-export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT };
+export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG };
+// designs that fit a 22 m pad, and those that need a field
+export const PAD_DESIGNS = Object.keys(LAYOUTS).filter(k => LAYOUTS[k].D <= 21 && LAYOUTS[k].W <= 12 && k !== 'patrol' && k !== 'freighter' && k !== 'yacht');
+export const FIELD_DESIGNS = Object.keys(CATALOG).filter(k => CATALOG[k].field);
 export const SHIP_PRICE = 9500;
-export const PRICES = { shuttle: 9500, freighter: 42000, courier: 6800, yacht: 68000, patrol: 0 };
+export const PRICES = { shuttle: 9500, freighter: 42000, courier: 6800, yacht: 68000, patrol: 0, ...Object.fromEntries(Object.entries(CATALOG).map(([k, d]) => [k, d.price])) };
 const PAD = 22;
 
 // The layout as a building-format plan (gen/building.js), in the ship's frame.
@@ -60,7 +64,7 @@ export function shipsAt(planet, s) {
   const secKey = getPolity(planet, s).security, sec = s.buildings.find(b => b.key === secKey);
   const patrolPad = sec && s.pads.length > 2 ? s.pads.slice(1).sort((a, b) => Math.hypot(a.O[0] - sec.O[0], a.O[1] - sec.O[1]) - Math.hypot(b.O[0] - sec.O[0], b.O[1] - sec.O[1]))[0].n : -1;
   const out = s.pads.map((pad, i) => {
-    const firm = firms.length ? rng.pick(firms) : null, model = pad.n === patrolPad ? 'patrol' : rng.chance(0.4) ? 'courier' : 'shuttle', L = LAYOUTS[model];
+    const firm = firms.length ? rng.pick(firms) : null, model = pad.n === patrolPad ? 'patrol' : rng.pick(PAD_DESIGNS), L = LAYOUTS[model];
     // centred on the pad, ramp toward the road (the pad's ez points away from it)
     const O = [pad.O[0] + pad.ex[0] * (PAD - L.W) / 2 + pad.ez[0] * (PAD - L.D) / 2, pad.O[1] + pad.ex[1] * (PAD - L.W) / 2 + pad.ez[1] * (PAD - L.D) / 2];
     return { id: `ship:${s.key}:${pad.n}`, model, pad: pad.n, O, ex: pad.ex.slice(), ez: pad.ez.slice(),
@@ -73,14 +77,22 @@ export function shipsAt(planet, s) {
   const spot = cargoField(planet, s, FREIGHTER);
   if (spot && firm) out.push({ id: `ship:${s.key}:field0`, model: 'freighter', field: true, at: spot, name: shipName(rng), colour: rng.int(0, 6), owner: 'firm:' + firm.key, ownerName: firm.owner, firmB: firm.key });
   // and a yacht on a second field, for sale, in about half the towns
-  const spot2 = rng.chance(0.55) && cargoField(planet, s, YACHT, spot ? [spot.c[0], spot.c[2], 40] : null);
-  if (spot2) out.push({ id: `ship:${s.key}:field1`, model: 'yacht', field: true, at: spot2, name: shipName(rng), colour: rng.int(0, 6), owner: 'dealer', ownerName: 'a private seller', forSale: true });
+  // more fields further out: a yacht for sale in about half the towns, and two or three working ships
+  const taken = spot ? [[spot.c[0], spot.c[2]]] : [];
+  const field = (model, extra) => {
+    const at = cargoField(planet, s, LAYOUTS[model], taken.map(([x, z]) => [x, z, 45]));
+    if (!at) return; taken.push([at.c[0], at.c[2]]);
+    out.push({ id: `ship:${s.key}:field${taken.length}`, model, field: true, at, name: shipName(rng), colour: rng.int(0, 6), ...extra });
+  };
+  if (rng.chance(0.55)) field('yacht', { owner: 'dealer', ownerName: 'a private seller', forSale: true });
+  for (let k = rng.int(2, 3); k > 0; k--) { const f2 = firms.length ? rng.pick(firms) : null; field(rng.pick(FIELD_DESIGNS), f2 && rng.chance(0.75) ? { owner: 'firm:' + f2.key, ownerName: f2.owner, firmB: f2.key } : { owner: 'dealer', ownerName: 'a private seller', forSale: true }); }
   cache.set(ck, out);
   return out;
 }
 
 // Level ground near the edge of town, off roads, where a ship of this layout fits.
-function cargoField(planet, s, L, avoid = null) {
+function cargoField(planet, s, L, avoid = []) {
+  if (avoid && !Array.isArray(avoid[0])) avoid = avoid ? [avoid] : [];
   let best = null;
   for (let k = 0; k < 1500; k++) {
     const a = k * 2.39996, r = s.R + 40 + (k % 100) * 9;
@@ -89,7 +101,7 @@ function cargoField(planet, s, L, avoid = null) {
     const pts = [];
     for (const u of [-0.5, -0.17, 0.17, 0.5]) for (const v of [-0.5, 0, 0.5]) pts.push(surfaceAt(planet, cx + fx * u * L.D + rx * v * L.W, cz + fz * u * L.D + rz * v * L.W));
     if (pts.some(p => p.town > 0.01 || p.road > 0.01 || p.h < planet.seaLevel + 2)) continue;
-    if (avoid && Math.hypot(cx - avoid[0], cz - avoid[1]) < avoid[2]) continue;
+    if (avoid.some(a => Math.hypot(cx - a[0], cz - a[1]) < a[2])) continue;
     const hs = pts.map(p => p.h), spread = Math.max(...hs) - Math.min(...hs);
     if (spread <= 2.0) return { c: [cx, Math.max(...hs), cz], facing };
     if (spread < 3.2 && (!best || spread < best.spread)) best = { c: [cx, Math.max(...hs), cz], facing, spread };   // the flattest seen, as a fallback

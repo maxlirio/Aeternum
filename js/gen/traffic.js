@@ -49,3 +49,22 @@ export function trafficNear(planet, s, t, x, z, R = 500) {
   }
   return res;
 }
+
+// Air traffic: ships crossing the sky over a town on straight lanes at a few altitudes,
+// in both directions, every design in the catalogue. Pure in time, like the road traffic.
+import { LAYOUTS } from './ships.js';
+const AIR = Object.keys(LAYOUTS).filter(k => k !== 'patrol');
+export function airTraffic(planet, s, t, x, z, R = 4000) {
+  const out = [], seed = planet.universeSeed[1] ^ 0x41a7;
+  for (let k = 0; k < 14; k++) {
+    const h = j => hashInts(seed, [hashStr(6, s.key), k, j]) / 4294967296;
+    const ang = h(1) * Math.PI, off = (h(2) - 0.5) * 2400, alt = s.h + 160 + 520 * h(3), speed = 70 + 110 * h(4), span = 9000;
+    const model = AIR[Math.floor(h(5) * AIR.length)], dir = h(6) < 0.5 ? 1 : -1;
+    const along = ((t * speed / span + h(7)) % 1) * span - span / 2;
+    const ux = Math.cos(ang), uz = Math.sin(ang);
+    const px = s.cx + ux * along * dir - uz * off, pz = s.cz + uz * along * dir + ux * off;
+    if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
+    out.push({ id: `air:${k}`, model, c: [px, alt, pz], facing: Math.atan2(ux * dir, uz * dir), colour: Math.floor(h(8) * 7), pitch: 0, roll: 0, rampDown: false });
+  }
+  return out;
+}
