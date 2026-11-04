@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { surfaceAt } from '../gen/surface.js';
 import { moisture } from '../gen/terrain.js';
+import { workedGround, workedNear } from '../gen/outposts.js';
 
 const PATCH = 10, NEAR = 20, FAR = 60;           // m; dense blades out to NEAR, a coarser ring to FAR
 const SEG = 3;                                   // segments per near blade
@@ -116,8 +117,10 @@ export class GrassField {
     const n = Math.round(PATCH * PATCH * (far ? DENS_FAR : DENS_NEAR)), out = new Float32Array(n * 11);
     let seed = (Math.imul(pi, 73856093) ^ Math.imul(pj, 19349663) ^ (far ? 0x55 : 0)) >>> 0, k = 0;
     const rnd = () => { seed = (Math.imul(seed ^ (seed >>> 15), 2246822519) + 0x9e3779b9) >>> 0; seed ^= seed >>> 13; return (seed >>> 0) / 4294967296; };
+    const worked = workedNear(P, x0 + PATCH / 2, z0 + PATCH / 2, 130);   // who's working land near this patch; usually nobody
     for (let i = 0; i < n; i++) {
       const u = rnd(), v = rnd(), lush = at(ls, u, v), cover = at(os, u, v), keep = rnd(), reed = at(rs, u, v);
+      if (worked.length && workedGround(worked, x0 + u * PATCH, z0 + v * PATCH)) continue;
       if (reed > 0.25 && rnd() < reed * 0.9) {        // a reed: tall, stiff, dark olive, in the shallows and the wet margin
         out.set([x0 + u * PATCH, at(hs, u, v) - 0.05, z0 + v * PATCH, rnd() * 6.283, 1.1 + 0.9 * rnd(), far ? 0.07 : 0.03, 0.05 + 0.15 * rnd(), rnd(),
           0.07 + 0.04 * rnd(), 0.1 + 0.04 * rnd(), 0.035], k * 11); k++; continue;

@@ -205,7 +205,7 @@ export class CollisionWorld {
       // tree trunks and boulders out in the open (gen/flora.js): circles
       if (this.flora) sitesNear(this.planet, x, z, 14, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) {     // the country's barns and masts (gen/outposts.js)
         if (it.box) {                                               // a building: its own walls, turned with it
-          if (yFeet > it.y + it.box[2] + 2.5 || yFeet + h < it.y - 1) continue;
+          if (yFeet > it.y + (it.top ?? it.box[2] + 2.5) || yFeet + h < it.y - 1) continue;     // (a fence you can get over)
           const c = Math.cos(it.rot), s = Math.sin(it.rot), dx = x - it.x, dz = z - it.z, lx = dx * c - dz * s, lz = dx * s + dz * c, px = it.box[0] + r - Math.abs(lx), pz = it.box[1] + r - Math.abs(lz);
           if (px <= 0 || pz <= 0) continue;
           const ox = px < pz ? Math.sign(lx || 1) * px : 0, oz = px < pz ? 0 : Math.sign(lz || 1) * pz; x += ox * c + oz * s; z += -ox * s + oz * c; moved = true; continue;

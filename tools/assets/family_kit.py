@@ -488,24 +488,20 @@ def fam_spheretank(p, r, W):
     return (R * 0.95, R * 0.95, 8)
 
 # ------------------------------------------------------------------ food, livestock, water, and the edges of a place
-def fam_cropfield(p, r, W):
-    """Rows of something growing, on tilled soil. What it is differs by way, so a planet farms its own crop."""
-    k = [w['name'] for w in WAYS_F].index(W['name']); A, B = 15, 11; rows = 9; bx(p, 0, -0.5, 0, 2 * A, 0.56, 2 * B, 'soil', 0.05)
-    for j in range(rows):
-        z = -B + (j + 0.5) * 2 * B / rows; bx(p, 0, 0.04, z, 2 * A - 0.6, 0.1, 0.5, 'soil', 0.03)
-        n = 26 if k != 3 else 18
-        for i in range(n):
-            x = -A + 0.8 + i * (2 * A - 1.6) / (n - 1) + r.uniform(-0.1, 0.1); h = r.uniform(0.75, 1.15)
-            if k in (0, 5):                                          # grain: a tuft of stalks
-                for q in range(3): beam(p, x + r.uniform(-0.1, 0.1), 0.1, z + r.uniform(-0.12, 0.12), x + r.uniform(-0.2, 0.2), 0.1 + h * 1.05, z + r.uniform(-0.2, 0.2), 0.012, 'thatch', 3)
-            elif k in (1, 6):                                        # leaf crop: low mounded heads
-                add_blob(p, x, 0.14 + 0.18 * h, z, 0.25 * h, 'leaf', r, 1, 0.8)
-            elif k == 2:                                             # staked vine
-                cy(p, x, z, 0, 1.5, 0.018, 'wood', 4); add_blob(p, x, 0.95 * h, z, 0.24, 'leaf', r, 1, 1.6)
-            elif k == 3:                                             # tall stems with a seed head
-                cy(p, x, z, 0.1, 0.1 + 1.9 * h, 0.022, 'leaf', 4); add_blob(p, x, 0.1 + 1.95 * h, z, 0.12, 'tint', r, 1, 1.3)
-            else:                                                    # bushes in rows
-                add_blob(p, x, 0.36 * h, z, 0.4 * h, 'leaf', r, 1, 0.95)
+def fam_crop(p, r, W):
+    """One plant of a field's crop, which differs by way, so a planet farms its own. The game plants them in rows on the land."""
+    k = [w['name'] for w in WAYS_F].index(W['name']); h = r.uniform(0.85, 1.1)
+    if k in (0, 5):                                              # grain: a tuft of stalks with heavy heads
+        for q in range(7):
+            x, z = r.uniform(-0.22, 0.22), r.uniform(-0.22, 0.22); tx, tz = x + r.uniform(-0.14, 0.14), z + r.uniform(-0.14, 0.14); beam(p, x, 0, z, tx, 0.95 * h, tz, 0.009, 'thatch', 3); add_blob(p, tx, 1.0 * h, tz, 0.035, 'thatch', r, 1, 2.2)
+    elif k in (1, 6):                                            # leaf crop: a head of leaves
+        add_blob(p, 0, 0.17, 0, 0.24, 'leaf', r, 1, 0.8); add_blob(p, 0.12, 0.1, 0.1, 0.13, 'leaf', r, 1, 0.7); add_blob(p, -0.13, 0.1, -0.05, 0.12, 'leaf', r, 1, 0.7)
+    elif k == 2:                                                 # staked vine, with fruit
+        cy(p, 0, 0, 0, 1.55, 0.018, 'wood', 4); add_blob(p, 0, 0.95, 0, 0.25, 'leaf', r, 1, 2.1); add_blob(p, 0.08, 0.52, 0.1, 0.17, 'leaf', r, 1, 1.2); [ball(p, 0.17 * math.cos(q * 2.1), 0.7 + q * 0.17, 0.17 * math.sin(q * 2.1), 0.035, 'tint') for q in range(3)]
+    elif k == 3:                                                 # tall stems with a seed head
+        for q in range(2): x = q * 0.14 - 0.07; cy(p, x, 0, 0, 1.9 * h, 0.018, 'leaf', 4); add_blob(p, x, 1.95 * h, 0, 0.11, 'tint', r, 1, 1.3); add_blob(p, x, 0.9, 0, 0.12, 'leaf', r, 1, 0.45)
+    else:                                                        # a low round bush
+        add_blob(p, 0, 0.36 * h, 0, 0.4 * h, 'leaf', r, 1, 0.95)
     return None
 
 def fam_scarecrow(p, r, W):
@@ -591,8 +587,8 @@ def fam_stockfence(p, r, W):
     elif k == 'brick':
         bx(p, 0, -0.2, 0, L, 1.3, 0.24, 'brick', 0.005); bx(p, 0, 1.1, 0, L + 0.05, 0.06, 0.32, 'stone', 0.005)
     elif k == 'concrete':
-        for x in (-L / 2, 0, L / 2): bx(p, x, -0.2, 0, 0.18, 1.8, 0.18, 'concrete', 0.006)
-        bx(p, 0, 0, 0, L, 1.5, 0.08, 'concrete', 0.003)
+        for x in (-L / 2, 0, L / 2): bx(p, x, -0.2, 0, 0.16, 1.3, 0.16, 'concrete', 0.006)
+        for y in (0.35, 0.8): bx(p, 0, y, 0, L, 0.14, 0.07, 'concrete', 0.003)
     else:
         m = 'wood' if k in ('timber', 'render') else 'metal'
         for x in (-L / 2, 0, L / 2): cy(p, x, 0, -0.2, 1.35, 0.055 if m == 'wood' else 0.03, m, 7)
@@ -602,7 +598,7 @@ def fam_stockfence(p, r, W):
             for y in (0.3, 0.55, 0.8, 1.05, 1.3): rod_x(p, -L / 2, L / 2, y, 0.03, 0.004, 'metal', 3)
     return None
 
-FAMILIES = 'cottage hut shed longhouse shop stable shrine monument fountain villagewell marketcross watertower windpump pumphouse dam footbridge jetty boat graves pavilion picnic swings gate cart lamp bench cropfield scarecrow beehives trough bandstall stockfence coolingtower column spheretank'.split()
+FAMILIES = 'cottage hut shed longhouse shop stable shrine monument fountain villagewell marketcross watertower windpump pumphouse dam footbridge jetty boat graves pavilion picnic swings gate cart lamp bench crop scarecrow beehives trough bandstall stockfence coolingtower column spheretank'.split()
 
 def build_family():
     import json

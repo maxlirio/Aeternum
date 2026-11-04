@@ -15,13 +15,13 @@ const TILE = 900, FAM = new Set(FAMILIES);
 const r_ = { barn: 7, grainsilo: 3, tractor: 2, harvester: 3.2, animalpen: 3.2, greenhouse: 4.6, headframe: 5, drillrig: 3.6, workcamp: 3.2, generatorset: 1.7, substation: 4.2, pylon: 3.4, windmillbig: 1.6, solarfield: 0, pumpjack: 3, watchtower: 2, radiomast: 1.4, bunker: 4, ruinwall: 0, lighthouse: 2.5, wellhead: 0.8, waterwheel: 1.6, fuelcanopy: 0, fuelpump: 0.5, irrigator: 0, watertankfarm: 1, haybale: 0.7, orecart: 1.1, cairn: 0.7 };
 // site kinds: [center piece, ring items [kind, count, radius], weight fn of the land]
 const KINDS = {
-  farm: { label: 'a farm', fit: l => l.flat * l.wet * l.low, core: 'barn', ring: [['cottage', 1, 24], ['shed', 1, 19], ['windpump', 1, 32], ['grainsilo', 2, 14], ['tractor', 1, 12], ['animalpen', 1, 20], ['haybale', 5, 24], ['greenhouse', 2, 28], ['irrigator', 1, 42], ['harvester', 1, 26], ['fencepanel', 8, 34], ['watertankfarm', 1, 16], ['washingline', 1, 11]] },
+  farm: { label: 'a farm', fit: l => l.flat * l.wet * l.low, core: 'barn', ring: [['cropfield', 4, 48], ['cottage', 1, 24], ['stable', 1, 25], ['shed', 1, 19], ['windpump', 1, 32], ['scarecrow', 2, 44], ['beehives', 1, 22], ['trough', 2, 21], ['grainsilo', 2, 14], ['tractor', 1, 12], ['animalpen', 1, 20], ['haybale', 5, 24], ['greenhouse', 2, 28], ['irrigator', 1, 42], ['harvester', 1, 26], ['watertankfarm', 1, 16], ['washingline', 1, 11]] },
   mine: { label: 'a mine', fit: l => l.steep * (1 - l.wet * 0.5) * 0.3, core: 'headframe', ring: [['drillrig', 1, 22], ['orecart', 3, 14], ['railtrack', 3, 12], ['workcamp', 2, 26], ['generatorset', 1, 18], ['gascan', 3, 9], ['pallettruck', 1, 16], ['sandbag', 2, 20], ['container', 2, 20]] },
   wind: { label: 'a wind farm', fit: l => l.flat * l.high, core: 'windmillbig', ring: [['windmillbig', 3, 70], ['substation', 1, 26], ['pylon', 2, 60]] },
   solar: { label: 'a solar field', fit: l => l.flat * (1 - l.wet), core: 'substation', ring: [['solarfield', 12, 30], ['workcamp', 1, 22], ['pylon', 1, 50]] },
   oil: { label: 'a well field', fit: l => l.flat * (1 - l.wet) * 0.6, core: 'pumpjack', ring: [['pumpjack', 3, 34], ['gastanks', 2, 12], ['tank', 1, 20], ['generatorset', 1, 12]] },
   well: { label: 'a well', fit: l => (1 - l.wet) * l.flat * 0.5, core: 'villagewell', ring: [['windpump', 1, 12], ['fencepanel', 4, 8], ['bucket', 2, 2], ['campfire', 1, 7], ['tent', 2, 10], ['washingline', 1, 9]] },
-  mill: { label: 'a water mill', fit: l => l.wet * l.shore, core: 'waterwheel', ring: [['barn', 1, 16], ['fencepanel', 4, 14], ['haybale', 3, 12]] },
+  mill: { label: 'a water mill', fit: l => l.wet * l.shore, core: 'waterwheel', ring: [['pumphouse', 1, 14], ['barn', 1, 16], ['fencepanel', 4, 14], ['haybale', 3, 12]] },
   watch: { label: 'a watch post', fit: l => l.high * 0.3, core: 'watchtower', ring: [['bunker', 1, 16], ['radiomast', 1, 22], ['sandbag', 4, 8], ['barricade', 2, 12]] },
   light: { label: 'a lighthouse', fit: l => l.shore * 1.4, core: 'lighthouse', ring: [['cottage', 1, 15], ['fencepanel', 3, 9], ['radiomast', 1, 18]] },
   ruin: { label: 'ruins', fit: () => 0.22, core: 'ruinwall', ring: [['ruinwall', 6, 16], ['cairn', 3, 22], ['stonewall', 4, 24], ['scrapheap', 2, 12]] },
@@ -46,6 +46,9 @@ function village(put, x, z, a, rng) {
   { const [px, pz] = at(0, -10); put(rng.next() < 0.5 ? 'fountain' : 'villagewell', px, pz, rng.range(0, 6.28)); }
   const big = rng.next() < 0.5 ? 'shrine' : 'monument'; { const [px, pz] = at(rng.next() < 0.5 ? 15 : -15, -20); put(big, px, pz, 0); }
   { const [px, pz] = at(0, 16); put('pavilion', px, pz, rng.range(0, 6.28)); }
+  { const [px, pz] = at(-9, -6.5); put('marketcross', px, pz, facing(uz, -ux)); }
+  for (const s of [9, 13.5]) { const [px, pz] = at(s, -6.5); put('bandstall', px, pz, facing(-uz, ux)); }     // what they grew, sold by the lane
+  for (const [s, o] of [[L * 0.3, 54], [-L * 0.3, -56], [L * 0.75, -58]]) { const [px, pz] = at(s, o); put('cropfield', px, pz, a + rng.range(-0.1, 0.1)); }
   for (const s of [-L, L]) { const [px, pz] = at(s + (s < 0 ? 5 : -5), 0); put('gate', px, pz, along(ux, uz)); }
   for (const side of [-1, 1]) for (let i = -n; i <= n; i++) {
     if (Math.abs(i) < 2) continue;                                            // the green
@@ -57,14 +60,14 @@ function village(put, x, z, a, rng) {
     if (i % 2 === 0) { const [bx, bz] = at(s + gap * 0.5, side * 4); put('lamp', bx, bz, facing(lx, lz)); }
     if (rng.next() < 0.12) { const [bx, bz] = at(s + gap * 0.5, side * 7); put(rng.next() < 0.5 ? 'bench' : 'cart', bx, bz, facing(lx, lz)); }
   }
-  for (const [k, s, o] of [['watertower', L * 0.55, 30], ['graves', -L * 0.6, 36], ['swings', 26, -24], ['picnic', -9, 11], ['bench', 6, -9], ['bench', -6, -9], ['haybale', L * 0.7, -30], ['animalpen', -L * 0.3, -36]]) { const [px, pz] = at(s, o); put(k, px, pz, rng.range(0, 6.28)); }
+  for (const [k, s, o] of [['watertower', L * 0.55, 30], ['graves', -L * 0.6, 36], ['swings', 26, -24], ['picnic', -9, 11], ['bench', 6, -9], ['bench', -6, -9], ['haybale', L * 0.7, -30], ['animalpen', -L * 0.3, -36], ['stable', L * 0.4, -34], ['pumphouse', L * 0.75, 30], ['trough', L * 0.2, -28]]) { const [px, pz] = at(s, o); put(k, px, pz, rng.range(0, 6.28)); }
   return lanes;
 }
 function hamlet(put, x, z, a, rng) {
   const n = rng.int(3, 5), ux = Math.cos(a), uz = Math.sin(a), lanes = [[x - ux * 30, z - uz * 30, x + ux * 30, z + uz * 30, 2.6]];
   for (let i = 0; i < n; i++) { const s = (i - (n - 1) / 2) * 15, o = i % 2 ? 11 : -11, px = x + ux * s - uz * o, pz = z + uz * s + ux * o; put(rng.next() < 0.3 ? 'hut' : 'cottage', px, pz, facing(uz * o, -ux * o)); }
   put('villagewell', x - uz * 6.2, z + ux * 6.2, 0);
-  for (const [k, s, o] of [['shed', 8, 21], ['cart', -10, 6], ['haybale', 18, -20], ['fencepanel', 26, 12], ['bench', 2, 5]]) put(k, x + ux * s - uz * o, z + uz * s + ux * o, rng.range(0, 6.28));
+  for (const [k, s, o] of [['shed', 8, 21], ['cart', -10, 6], ['haybale', 18, -20], ['fencepanel', 26, 12], ['bench', 2, 5], ['cropfield', 0, 40], ['scarecrow', 4, 42], ['beehives', -17, 17], ['trough', -14, -18]]) put(k, x + ux * s - uz * o, z + uz * s + ux * o, rng.range(0, 6.28));
   return lanes;
 }
 // a landing goes out over the water from the nearest shore: a jetty, boats tied up or drawn out, huts behind
@@ -101,8 +104,22 @@ export function sitesInTile(planet, ti, tj) {
       let road = 0; for (let k = 0; k < 8 && !road; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * 40, z + Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
       const land = { flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
       const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), K = KINDS[pick], rot0 = rng.range(0, 6.28), items = [];
+      const fields = [];
       // one thing placed: a family becomes this planet's version of it, with its own footing and walls; on land, or over water if it says so
       const place = (k0, px, pz, rot, opt = {}) => {
+        // a field isn't a thing but a stretch of land: soil and rows that follow the ground (render/outposts.js), and a fence round some of them
+        if (k0 === 'cropfield') {
+          const A = rng.range(11, 20), B = rng.range(8, 14), yard = { x: px, z: pz, rot, box: [A, B] }, Q0 = surfaceAt(planet, px, pz);
+          const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => surfaceAt(planet, px + a * A * c + b * B * s, pz - a * A * s + b * B * c));
+          if (Q0.town > 0.01 || hs.some(q => q.road > 0.01 || q.town > 0.01 || q.h < planet.seaLevel + 0.6) || Math.max(...hs.map(q => q.h)) - Math.min(...hs.map(q => q.h)) > 7) return;
+          if (items.some(o => (o.box || o.r) && overlaps(yard, { x: o.x, z: o.z, rot: o.rot, box: o.box || [o.r, o.r] })) || fields.some(f => overlaps(yard, f))) return;
+          fields.push({ ...yard, crop: designOf(planet, 'crop', 1, 0.12) });
+          if (rng.next() < 0.6) { const fence = designOf(planet, 'stockfence', 2, 0);
+            for (const [u0, v0, u1, v1] of [[-A, -B, A, -B], [A, -B, A, B], [A, B, -A, B], [-A, B, -A, -B]]) { const L = Math.hypot(u1 - u0, v1 - v0), n = Math.round(L / 6), du = (u1 - u0) / L, dv = (v1 - v0) / L;
+              for (let i = 0; i < n; i++) { if (i === 0 && u0 === -A && v0 === -B) continue;   // the way in
+                const q = (i + 0.5) * L / n, v = v0 + dv * q, fu = u0 + du * q, X = px + fu * c + v * s, Z = pz - fu * s + v * c, Q = surfaceAt(planet, X, Z); if (Q.h < planet.seaLevel + 0.5 || Q.road > 0.01) continue; items.push({ k: fence, x: X, y: Q.h, z: Z, rot: rot + (du ? 0 : 1.5708), r: 0, s: L / n / 6, box: [L / n / 2, 0.15, 0], top: 1.1 }); } } }
+          return;
+        }
         let k = k0, foot = 0;
         if (FAM.has(k0)) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k); }
         const Q = surfaceAt(planet, px, pz);
@@ -117,7 +134,8 @@ export function sitesInTile(planet, ti, tj) {
         }
         const it = { k, x: px, y, z: pz, rot, r: r_[k] ?? 0, s: 1 }; if (foot) { it.box = foot; it.r = 0; }
         const hit = it.box || [Math.max(0.4, it.r), Math.max(0.4, it.r)], me = { x: px, z: pz, rot, box: hit };   // nobody builds through their neighbour
-        if (items.some(o => o.box && overlaps(me, o))) return;
+        if (items.some(o => (o.box || o.r > 0) && overlaps(me, { x: o.x, z: o.z, rot: o.rot, box: o.box || [o.r, o.r] }))) return;
+        if (foot && fields.some(f => overlaps(me, f))) return;
         items.push(it);
       };
       let lanes = [];
@@ -126,7 +144,7 @@ export function sitesInTile(planet, ti, tj) {
         place(K.core, x, z, rot0);
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
       }
-      if (items.length) out.push({ kind: pick, label: K.label, x, y: S.h, z, items, lanes, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
+      if (items.length) out.push({ kind: pick, label: K.label, x, y: S.h, z, items, lanes, fields, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
     }
   }
   cache.set(ck, out);
@@ -135,4 +153,13 @@ export function sitesInTile(planet, ti, tj) {
 export function sitesNear(planet, x, z, R, fn) {
   const i0 = Math.floor((x - R) / TILE), i1 = Math.floor((x + R) / TILE), j0 = Math.floor((z - R) / TILE), j1 = Math.floor((z + R) / TILE);
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const s of sitesInTile(planet, i, j)) fn(s);
+}
+// the sites working the land near a spot, then: is this ground tilled or walked bare? (a field, a lane). Grass doesn't grow on it.
+export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R, S => { if ((S.fields.length || S.lanes.length) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
+export function workedGround(sites, x, z) {
+  for (const S of sites) {
+    for (const f of S.fields) { const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z; if (Math.abs(dx * c - dz * s) < f.box[0] && Math.abs(dx * s + dz * c) < f.box[1]) return true; }
+    for (const [x0, z0, x1, z1, w] of S.lanes) { const L = Math.hypot(x1 - x0, z1 - z0), u = ((x - x0) * (x1 - x0) + (z - z0) * (z1 - z0)) / L; if (u < 0 || u > L) continue; const wob = Math.sin(u * 0.09) * 1.1 + Math.sin(u * 0.031 + 2) * 1.6, o = ((x - x0) * (z1 - z0) - (z - z0) * (x1 - x0)) / L; if (Math.abs(o + wob) < w * 0.7) return true; }
+  }
+  return false;
 }
