@@ -12,7 +12,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const FABRICS = [[0.32, 0.38, 0.46], [0.5, 0.33, 0.28], [0.42, 0.44, 0.40], [0.62, 0.58, 0.50], [0.22, 0.24, 0.27], [0.55, 0.5, 0.42], [0.3, 0.34, 0.3]];
 const PAINTS = [[0.55, 0.58, 0.6], [0.7, 0.7, 0.66], [0.42, 0.5, 0.55], [0.86, 0.86, 0.84], [0.36, 0.42, 0.36], [0.6, 0.4, 0.28], [0.3, 0.32, 0.36]];
 const SOFT = new Set(['bed', 'sofa', 'chair', 'armchair']);       // their 'tint' parts are upholstery; everyone else's are paint
-const HULLED = new Set(['shuttle', 'shuttle_ramp', 'freighter', 'freighter_ramp', 'speeder']);      // their 'tint' parts are panelled hull plating
+const HULLED = new Set(['shuttle', 'shuttle_ramp', 'freighter', 'freighter_ramp', 'courier', 'courier_ramp', 'patrol', 'patrol_ramp', 'yacht', 'yacht_ramp', 'speeder']);      // their 'tint' parts are panelled hull plating
 export const PAINTS_VEHICLE = [[0.62, 0.12, 0.08], [0.85, 0.55, 0.12], [0.16, 0.3, 0.52], [0.82, 0.82, 0.8], [0.12, 0.13, 0.14], [0.25, 0.42, 0.3], [0.5, 0.52, 0.56]];
 
 export async function loadPropLibrary(base = './assets/', anisotropy = 8) {

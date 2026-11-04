@@ -13,6 +13,8 @@ export class Flight {
   constructor(world, planet, sh, c, facing) {
     this.world = world; this.planet = planet; this.ship = sh;
     this.L = shipPlan(sh.model).layout;
+    const F = this.L.flight || {};       // each hull handles differently
+    this.F = { top: F.top ?? TOP, boost: F.boost ?? TOP_BOOST, thrust: F.thrust ?? THRUST, yaw: F.yaw ?? YAW, lift: F.lift ?? LIFT };
     this.pos = c.slice(); this.facing = facing; this.vel = [0, 0, 0];
     this.pitch = 0; this.roll = 0; this.yawRate = 0;
     this.onGround = true; this.impact = 0;
@@ -27,19 +29,19 @@ export class Flight {
     const f = this.facing, fx = Math.sin(f), fz = Math.cos(f);
     // heading-relative velocity
     let fwd = this.vel[0] * fx + this.vel[2] * fz, side = this.vel[0] * -fz + this.vel[2] * fx;
-    const top = input.boost ? TOP_BOOST : TOP;
-    if (input.fwd > 0) fwd += (fwd < top ? THRUST * (input.boost ? BOOST : 1) : -THRUST) * dt;
+    const top = input.boost ? this.F.boost : this.F.top, TH = this.F.thrust;
+    if (input.fwd > 0) fwd += (fwd < top ? TH * (input.boost ? BOOST : 1) : -TH) * dt;
     else if (input.fwd < 0) fwd -= (fwd > -20 ? BACK : 0) * dt;
     fwd *= Math.exp(-dt * (input.fwd ? 0.02 : 0.25));       // coast down when you let go
     side *= Math.exp(-dt * 2.2);
-    const want = -input.right * YAW / (1 + Math.abs(fwd) / 140);
+    const want = -input.right * this.F.yaw / (1 + Math.abs(fwd) / 140);
     this.yawRate += (want - this.yawRate) * Math.min(1, dt * 3);
     if (!this.onGround || fwd > 0.5) this.facing += this.yawRate * dt;
     const nf = this.facing, nfx = Math.sin(nf), nfz = Math.cos(nf);
     this.vel[0] = nfx * fwd - nfz * side; this.vel[2] = nfz * fwd + nfx * side;
     // vertical: lift and descent; otherwise hold altitude
-    if (input.up) this.vel[1] += LIFT * dt;
-    else if (input.down) this.vel[1] -= LIFT * dt;
+    if (input.up) this.vel[1] += this.F.lift * dt;
+    else if (input.down) this.vel[1] -= this.F.lift * dt;
     else this.vel[1] *= Math.exp(-dt * 1.6);
     this.vel[1] = Math.max(-40, Math.min(40, this.vel[1]));
     let x = this.pos[0] + this.vel[0] * dt, y = this.pos[1] + this.vel[1] * dt, z = this.pos[2] + this.vel[2] * dt;

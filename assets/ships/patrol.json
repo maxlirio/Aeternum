@@ -1,0 +1,167 @@
+{
+ "name": "Patrol ship",
+ "note": "Civic Security patrol ship: the courier hull, armoured.",
+ "W": 7,
+ "D": 13,
+ "H": 3.9,
+ "deck": 1.0,
+ "ceiling": 3.2,
+ "hull": [
+  1.6,
+  3.0,
+  5.4,
+  10.6
+ ],
+ "partitions": [
+  {
+   "z": 7.4,
+   "door": 1
+  }
+ ],
+ "ramp": {
+  "x0": 2.7,
+  "x1": 4.3,
+  "z0": 0.7,
+  "z1": 3.0
+ },
+ "doors": [
+  {
+   "id": 0,
+   "kind": "ramp",
+   "rooms": [
+    0,
+    "outside"
+   ],
+   "x": 3.5,
+   "z": 3.0,
+   "width": 1.5,
+   "height": 2.0
+  },
+  {
+   "id": 1,
+   "kind": "hatch",
+   "rooms": [
+    0,
+    1
+   ],
+   "x": 3.5,
+   "z": 7.4,
+   "width": 1.0,
+   "height": 2.0
+  }
+ ],
+ "rooms": [
+  {
+   "i": 0,
+   "purpose": "hold",
+   "label": "cabin",
+   "rect": [
+    1.6,
+    3.0,
+    5.4,
+    7.4
+   ]
+  },
+  {
+   "i": 1,
+   "purpose": "cockpit",
+   "label": "cockpit",
+   "rect": [
+    1.6,
+    7.4,
+    5.4,
+    10.6
+   ]
+  }
+ ],
+ "props": [
+  {
+   "kind": "bench",
+   "room": 0,
+   "x0": 1.7,
+   "z0": 3.6,
+   "x1": 2.2,
+   "z1": 5.4,
+   "h": 0.45,
+   "face": 1
+  },
+  {
+   "kind": "locker",
+   "room": 0,
+   "x0": 4.75,
+   "z0": 5.8,
+   "x1": 5.3,
+   "z1": 6.7,
+   "h": 2.0,
+   "face": 3
+  },
+  {
+   "kind": "crate",
+   "room": 0,
+   "x0": 4.3,
+   "z0": 3.2,
+   "x1": 5.3,
+   "z1": 4.2,
+   "h": 0.8,
+   "face": 3
+  },
+  {
+   "kind": "console",
+   "room": 1,
+   "x0": 2.0,
+   "z0": 9.8,
+   "x1": 5.0,
+   "z1": 10.5,
+   "h": 0.95,
+   "face": 0
+  },
+  {
+   "kind": "chair",
+   "room": 1,
+   "x0": 2.55,
+   "z0": 8.7,
+   "x1": 3.05,
+   "z1": 9.2,
+   "h": 0.9,
+   "face": 2,
+   "soft": true
+  },
+  {
+   "kind": "chair",
+   "room": 1,
+   "x0": 3.95,
+   "z0": 8.7,
+   "x1": 4.45,
+   "z1": 9.2,
+   "h": 0.9,
+   "face": 2,
+   "soft": true
+  }
+ ],
+ "seats": [
+  {
+   "kind": "pilot",
+   "pose": "sit",
+   "prop": 4,
+   "x": 2.8,
+   "z": 8.95,
+   "facing": 0
+  },
+  {
+   "kind": "sit",
+   "pose": "sit",
+   "prop": 5,
+   "x": 4.2,
+   "z": 8.95,
+   "facing": 0
+  }
+ ],
+ "flight": {
+  "top": 260,
+  "boost": 460,
+  "thrust": 28,
+  "yaw": 1.4,
+  "lift": 15
+ },
+ "style": "patrol"
+}

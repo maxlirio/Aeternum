@@ -26,9 +26,11 @@ export function rampDown(sh, planet, t, player) {
   if (sh.forced) return true;
   if (sh.ramp) return sh.ramp === 'down';
   if (sh.forSale || shipIsYours(sh, player)) return true;
+  if (sh.patrol) return false;
   return within([6, 18], solarHour(planet, t));
 }
 export const rampLocked = (sh, player) => !sh.forSale && !shipIsYours(sh, player) && !sh.forced;
+// (Civic Security's patrol ship is never left open)
 export function setRamp(store, sh, down) { store.patchDelta(shipKey(sh.id), { ramp: down ? 'down' : 'up' }); }
 
 // The ship's frame in settlement space: on its pad, or wherever it last landed.

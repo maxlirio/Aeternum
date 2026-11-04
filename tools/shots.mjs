@@ -101,6 +101,12 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+const shipShot = model => `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { centreOf } = await import('./js/world/ships.js');
+    const sh = O.getShips().find(x => x.model === '${model}'); const { c, facing } = centreOf(O.s, sh), L = (await import('./js/gen/ships.js')).shipPlan('${model}').layout;
+    const a = facing + 2.3, r = L.D * 0.95 + 4; O.ctrl.pos = [c[0] + Math.sin(a) * r, c[1], c[2] + Math.cos(a) * r]; O.ctrl.vel = [0, 0, 0]; await wait(500);
+    O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.1; O.cam.dist = 5; document.querySelector('.toasts')?.remove(); await wait(3500);`;
+SCRIPTS.courier = shipShot('courier'); SCRIPTS.patrol = shipShot('patrol'); SCRIPTS.yacht = shipShot('yacht').replace('const a = facing + 2.3, r = L.D * 0.95 + 4;', 'const a = facing + 1.9, r = L.D * 0.75;').replace('O.cam.pitch = 0.1; O.cam.dist = 5;', 'O.cam.pitch = 0.12; O.cam.dist = 8;');
+SHOTS.courier = 'hour=10'; SHOTS.patrol = 'hour=10'; SHOTS.yacht = 'hour=10';
 SCRIPTS.fight = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
     let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && !x.uniform && !(x.person.job && O.pop.jobById.get(x.person.job).security) && !String(x.id).startsWith('tr:')); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
     P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol';

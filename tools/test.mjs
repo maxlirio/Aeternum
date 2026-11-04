@@ -754,7 +754,7 @@ suites.ships = async () => {
   const { CollisionWorld } = await import('../js/player/collision.js');
   const { Controller } = await import('../js/player/controller.js');
   const { Flight } = await import('../js/player/flight.js');
-  const { shipsAt, shipPlan, SHIP_PRICE } = await import('../js/gen/ships.js');
+  const { shipsAt, shipPlan, SHIP_PRICE, PRICES } = await import('../js/gen/ships.js');
   const S = await import('../js/world/ships.js');
   const { usablesOf } = await import('../js/sim/processes/use.js');
   const { buildingToWorld } = await import('../js/gen/place.js');
@@ -773,7 +773,7 @@ suites.ships = async () => {
   const pl = newCharacter(U, p, s, pop, 1, EPOCH); pl.credits = 20000; st.setPlayer(pl);
   const world = new CollisionWorld(p, s, () => false);
   let down = true;
-  const sh = S.shipsIn(st, p, s).find(x => x.forSale), b = S.structureOf(s, sh, id => id !== 0 || down, p);
+  const sh = S.shipsIn(st, p, s).find(x => x.model === 'shuttle'), b = S.structureOf(s, sh, id => id !== 0 || down, p);
   world.addStructure(b);
   const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
   const L = shipPlan().layout, toW = (x, y, z) => buildingToWorld(s, b, x, y, z);
@@ -857,7 +857,9 @@ suites.ships = async () => {
     check(S.onRun(live), 'the live list knows it is away');
   }
   // owning one: buy it; steal another; it all persists
-  check(S.buyShip(st, sh, EPOCH).ok && pl.credits === 20000 - SHIP_PRICE && S.shipIsYours(S.shipsIn(st, p, s).find(x => x.id === sh.id), pl), `bought the ${sh.name} for ${SHIP_PRICE} cr`);
+  const sale = S.shipsIn(st, p, s).find(x => x.forSale);
+  check(S.buyShip(st, sale, EPOCH).ok && pl.credits === 20000 - PRICES[sale.model] && S.shipIsYours(S.shipsIn(st, p, s).find(x => x.id === sale.id), pl), `bought the ${sale.name} (${sale.model}) for ${PRICES[sale.model]} cr`);
+  S.land(st, sh, fl.pos, fl.facing); st.patchDelta(S.shipKey(sh.id), { owner: 'you:' + pl.id, ownerName: 'you', forSale: false });
   const firm = S.shipsIn(st, p, s).find(x => !x.forSale && !S.shipIsYours(x, pl));
   check(S.rampLocked(firm, pl), `${firm.ownerName}'s ship is locked to you`);
   S.forceRamp(st, firm); check(S.rampDown(S.shipsIn(st, p, s).find(x => x.id === firm.id), p, EPOCH + 0.9 * p.dayLength, pl), 'forced ramp stays open');
@@ -867,6 +869,19 @@ suites.ships = async () => {
   const R = new WorldStore(new MemoryBackend()); await R.importJSON(st.exportJSON());
   const back = S.shipsIn(R, p, s).find(x => x.id === sh.id);
   check(back.at && Math.hypot(back.at.c[0] - fl.pos[0], back.at.c[2] - fl.pos[2]) < 0.01 && S.shipIsYours(back, pl), 'landed where you left it, after reloading');
+  // every hull: walkable from its ramp to its cockpit, and flies with its own handling
+  for (const model of ['courier', 'patrol', 'yacht']) {
+    const L = shipPlan(model).layout, fake = { id: 'test:' + model, model, at: { c: [s.cx + 900, surfaceHeight(p, s.cx + 900, s.cz + 900), s.cz + 900], facing: 0.3 } };
+    const bb = S.structureOf(s, fake, () => true, p); world.addStructure(bb);
+    const W2 = (x, z) => buildingToWorld(s, bb, x, 0, z), mx = (L.ramp.x0 + L.ramp.x1) / 2, cock = L.rooms.find(q => q.purpose === 'cockpit');
+    const cc = new Controller(world, W2(mx, -1.5)); run(cc, {}, 0.3);
+    const steps = [[mx, (L.hull[1] + L.partitions[0].z) / 2], ...L.partitions.map(q => [L.doors[q.door].x, q.z + 0.8]), [mx, (cock.rect[1] + cock.rect[3]) / 2 - 0.4]];
+    for (const [x, z] of steps) for (let t = 0; t < 14; t += 1 / 120) { const w = W2(x, z); if (Math.hypot(w[0] - cc.pos[0], w[2] - cc.pos[2]) < 0.3) break; cc.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.atan2(w[0] - cc.pos[0], w[2] - cc.pos[2]) }); }
+    check(world.locate(...cc.pos)?.room?.purpose === 'cockpit', `${model}: ramp to cockpit (${world.locate(...cc.pos)?.room?.label})`);
+    world.removeStructure(bb);
+  }
+  const sp = m => { const f2 = new Flight(world, p, { model: m }, [s.cx, 2000, s.cz], 0); f2.onGround = false; for (let t = 0; t < 30; t += 1 / 60) f2.step(1 / 60, { fwd: 1 }); return f2.speed; };
+  check(sp('courier') > sp('shuttle') && sp('shuttle') > sp('freighter'), `top speeds: courier ${Math.round(sp('courier') * 3.6)}, shuttle ${Math.round(sp('shuttle') * 3.6)}, freighter ${Math.round(sp('freighter') * 3.6)} km/h`);
 };
 
 suites.flora = async () => {

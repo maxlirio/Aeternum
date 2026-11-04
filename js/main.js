@@ -610,7 +610,7 @@ async function start(fresh) {
       opts.push({ a: 'steal', label: 'Override the lockout and take off', note: `It belongs to ${esc(sh.ownerName)}. <b>That's stealing a ship.</b>` });
     }
     let pick = null;
-    await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} ${sh.model === 'freighter' ? 'A cargo freighter: a high hold, a crew deck with two bunks, a two-seat flight deck.' : 'A short-range shuttle: a cargo hold, a bunk and a galley.'}`, options: opts }); });
+    await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} ${({ freighter: 'A cargo freighter: a high hold, a crew deck with two bunks, a two-seat flight deck.', courier: 'A small fast courier: a cabin and a two-seat cockpit.', patrol: 'Civic Security\'s patrol ship.', yacht: 'A private yacht: a lounge, a galley, a stateroom and a bridge.' })[sh.model] || 'A short-range shuttle: a cargo hold, a bunk and a galley.'}`, options: opts }); });
     if (!pick || pick.a === 'close') return;
     if (pick.a === 'buy') { const r = buyShip(store, sh, t); ui.toast(r.ok ? `The ${esc(sh.name)} is yours. Sit at the helm again to take off.` : r.why, r.ok ? '' : 'warn'); syncShips(); return; }
     if (pick.a === 'steal') {
@@ -978,7 +978,7 @@ async function start(fresh) {
       const rpn = !ride && !flight && !ua ? nearRamp() : null;
       if (flight) { const why = flight.onGround ? flight.landingProblem() : null; ui.showPrompt(`<b>${Math.round(flight.speed * 3.6)} km/h</b> · ${Math.round(flight.altitude())} m up · <kbd>Space</kbd>/<kbd>Q</kbd> climb/descend · <kbd>V</kbd> ${cockpitView ? 'chase view' : 'cockpit view'}${flight.onGround ? (why ? ` · can't land: ${why}` : ' · <kbd>E</kbd> land') : ''}`); }
       else if (rampHold > 0) {}
-      else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${SHIP_PRICE} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
+      else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
       else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
       else if (hotwire > 0) {}
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? '<kbd>E</kbd> Ride your speeder' : nv.forSale ? `<kbd>E</kbd> Speeder for sale — ${SPEEDER.price} cr` : `${esc(nv.ownerName)}'s speeder · hold <kbd>F</kbd> hotwire`);

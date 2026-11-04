@@ -1202,6 +1202,7 @@ def ship_interior(p, lay):
         for z in range(int(hz0) + 1, int(hz1)):
             add_box(p, x0, deck, z, x0 + 0.04, ceil, z + 0.08, 'metal', 0.004)
     B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine,
+         'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'),
          'rack': lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 'chair': chair, 'console': console}
     for pr in lay['props']:                  # each piece built to its own footprint in the layout
         across = pr['face'] in (0, 2)
@@ -1297,6 +1298,88 @@ def freighter(p, L_, D_, H_, r, model='freighter'):
             add_box(p, gx - 0.06, 0.7, gz - 0.18, gx + 0.06, 0.88, gz + 0.18, 'hazard', 0.005)
             add_cyl(p, gx, gz, 0.0, 0.14, 0.55, 'rubber', 20); add_cyl(p, gx, gz, 0.12, 0.2, 0.42, 'metal', 20)
             add_box(p, gx - 0.4, 1.7, gz - 0.4, gx + 0.4, 2.0, gz + 0.4, 'metal', 0.03)
+    ship_interior(p, lay)
+
+def styled_ship(p, L_, D_, H_, r, model):
+    """A hull wrapped round a layout (assets/ships/<model>.json), dressed by its style:
+    courier — compact and fast, twin nacelles; patrol — the courier armoured, light bar, chin guns;
+    yacht — long and sleek, swept fins, a glowing waist line."""
+    lay = json.load(open(os.path.join(ROOT, 'assets', 'ships', model + '.json'))); st = lay['style']
+    hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; D = lay['D']
+    hw = (hx1 - hx0) / 2 + 0.55; cy = (deck - 0.25 + ceil + 0.2) / 2; hh = (ceil + 0.2 - (deck - 0.25)) / 2 + 0.35
+    nose = D - 0.2; noseLen = nose - hz1
+    e = 3.4 if st == 'patrol' else 2.7 if st == 'courier' else 2.4
+    secs = [(hz0, cy, hh * 0.95, xc, hw * 0.95, e), (hz0 + 1.2, cy, hh, xc, hw, e), (hz1 - 0.6, cy, hh, xc, hw, e),
+            (hz1 + noseLen * 0.35, cy - 0.1, hh * 0.85, xc, hw * 0.8, e), (hz1 + noseLen * 0.7, cy - 0.25, hh * 0.5, xc, hw * 0.45, max(2, e - 0.6)), (nose, cy - 0.35, 0.06, xc, 0.1, 2)]
+    hull_loft(p, secs, 'tint', (xc, cy, (hz0 + hz1) / 2))
+    def sect(z):
+        for (za, *A), (zb, *B) in zip(secs, secs[1:]):
+            if za <= z <= zb: t = (z - za) / (zb - za); return [a + (b - a) * t for a, b in zip(A, B)]
+        return list(secs[-1][1:])
+    def top_y(x, z):
+        c_, ry, cx, rx, ee = sect(z); q = 1 - min(1, abs((x - cx) / rx)) ** ee; return c_ + ry * max(q, 0) ** (1 / ee)
+    # stern bulkhead in strips round the ramp door
+    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
+    c0, ry0, _, rx0, e0 = secs[0][1:]
+    for k in range(60):
+        y0_, y1_ = c0 - ry0 + k * 2 * ry0 / 60, c0 - ry0 + (k + 1) * 2 * ry0 / 60; ym = (y0_ + y1_) / 2
+        q = 1 - abs((ym - c0) / ry0) ** e0
+        if q <= 0: continue
+        w_ = rx0 * q ** (1 / e0)
+        if deck < ym < dtop: add_box(p, xc - w_, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'tint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'tint', 0)
+        else: add_box(p, xc - w_, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'tint', 0)
+    for x in (dx0 - 0.16, dx1 + 0.06): add_box(p, x, deck, hz0 - 0.16, x + 0.1, dtop, hz0 - 0.1, 'hazard' if st != 'yacht' else 'metal', 0.005)
+    # windscreen: a dark band on the nose in front of the cockpit (outward faces only), and a visor over it
+    bm = bmesh.new(); rows = []
+    for z in (hz1 + 0.05, hz1 + noseLen * 0.22, hz1 + noseLen * 0.42):
+        c_, ry, cx, rx, ee = sect(z); rows.append([bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(math.cos(a)) ** (2 / ee), math.cos(a)), c_ + 1.012 * ry * math.copysign(abs(math.sin(a)) ** (2 / ee), math.sin(a)), z))
+                                                for a in (math.radians(25 + 130 * k / 16) for k in range(17))])
+    for r0, r1 in zip(rows, rows[1:]):
+        for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
+    for f in bm.faces:
+        if (f.calc_center_median() - mathutils.Vector(P(xc, cy, (hz0 + hz1) / 2))).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, 'visor')
+    # belly
+    add_loft(p, [(hz0 + 0.05, cy - hh * 0.85, 0.18, xc, hw * 0.75, 3), (hz1, cy - hh * 0.9, 0.2, xc, hw * 0.8, 3), (hz1 + noseLen * 0.6, cy - hh * 0.55, 0.12, xc, hw * 0.4, 2.5)], 'heatshield', 28, axis='z')
+    gear = [(xc - hw * 0.6, hz0 + 1.2), (xc + hw * 0.6, hz0 + 1.2), (xc - hw * 0.5, hz1 - 0.6), (xc + hw * 0.5, hz1 - 0.6)]
+    ty = cy + hh * 0.9
+    if st in ('courier', 'patrol'):
+        for s_ in (-1, 1):                            # twin nacelles on short pylons
+            nx = xc + s_ * (hw + 0.55); ny = cy + 0.1
+            add_loft(p, [(hz0 - 0.4, ny, 0.42, nx, 0.42, 2), (hz0 + 0.4, ny, 0.55, nx, 0.55, 2), (hz0 + 3.6, ny, 0.55, nx, 0.55, 2), (hz0 + 4.6, ny, 0.3, nx, 0.3, 2), (hz0 + 5.0, ny, 0.08, nx, 0.08, 2)], 'tint', 24, axis='z')
+            add_cyl(p, nx, ny, hz0 - 0.9, hz0 - 0.35, 0.5, 'metal', 24, axis='z', r2=0.4); add_cyl(p, nx, ny, hz0 - 0.6, hz0 - 0.55, 0.38, 'glow', 24, axis='z')
+            add_box(p, min(nx, xc + s_ * hw * 0.8), ny - 0.08, hz0 + 0.8, max(nx, xc + s_ * hw * 0.8), ny + 0.08, hz0 + 3.0, 'paint', 0.02)
+            add_cyl(p, nx, ny + 0.56, hz0 + 4.4, hz0 + 4.55, 0.05, 'navgreen' if s_ > 0 else 'navred', 8, axis='z')
+            bm = bmesh.new(); q = [(nx, ny + 0.4, hz0 - 0.2), (nx, ny + 0.4, hz0 + 1.6), (nx + s_ * 0.1, ny + 1.4, hz0 - 0.1), (nx + s_ * 0.1, ny + 1.45, hz0 - 0.6)]
+            bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.08); merge(p, bm, 'tint')
+    if st == 'patrol':
+        add_box(p, xc - 0.7, ty - 0.05, hz1 - 2.2, xc + 0.7, ty + 0.18, hz1 - 1.9, 'metal', 0.02)
+        add_box(p, xc - 0.65, ty + 0.18, hz1 - 2.18, xc - 0.02, ty + 0.3, hz1 - 1.92, 'navred', 0.01); add_box(p, xc + 0.02, ty + 0.18, hz1 - 2.18, xc + 0.65, ty + 0.3, hz1 - 1.92, 'glow', 0.01)
+        for s_ in (-1, 1):
+            gx = xc + s_ * hw * 0.45; gy = cy - hh * 0.85
+            add_box(p, gx - 0.15, gy - 0.25, hz1 - 0.5, gx + 0.15, gy, hz1 + 0.6, 'metal', 0.03)
+            add_cyl(p, gx, gy - 0.12, hz1 + 0.6, hz1 + 1.6, 0.05, 'metal', 10, axis='z')
+        for z in range(int(hz0) + 1, int(hz1) - 1): add_box(p, xc - hw * 0.98, cy - 0.05, z, xc - hw * 0.9, cy + 0.6, z + 0.6, 'metal', 0.02); add_box(p, xc + hw * 0.9, cy - 0.05, z, xc + hw * 0.98, cy + 0.6, z + 0.6, 'metal', 0.02)
+    if st == 'yacht':
+        for s_ in (-1, 1):                            # swept fins, a long glowing waist line, a fat engine at the tail
+            bm = bmesh.new(); q = [(xc + s_ * hw * 0.8, cy, hz0 + 0.5), (xc + s_ * hw * 0.8, cy, hz0 + 7.0), (xc + s_ * (hw + 2.6), cy - 0.4, hz0 + 1.0), (xc + s_ * (hw + 2.8), cy - 0.4, hz0 - 0.4)]
+            top = [bm.verts.new(P(x, y + 0.07, z)) for (x, y, z) in q]; bot = [bm.verts.new(P(x, y - 0.07, z)) for (x, y, z) in q]
+            bm.faces.new(top); bm.faces.new(bot[::-1])
+            for k in range(4): bm.faces.new([top[k], bot[k], bot[(k + 1) % 4], top[(k + 1) % 4]])
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'tint')
+            add_box(p, xc + s_ * hw * 0.999 - 0.02, cy - 0.05, hz0 + 0.5, xc + s_ * hw * 0.999 + 0.02, cy + 0.02, hz1 + noseLen * 0.3, 'glow', 0.005)
+            add_cyl(p, xc + s_ * (hw + 2.75), cy - 0.4, hz0 - 0.3, hz0 - 0.1, 0.06, 'navgreen' if s_ > 0 else 'navred', 8, axis='z')
+        bm = bmesh.new(); q = [(xc, ty - 0.1, hz0 + 0.3), (xc, ty - 0.1, hz0 + 5.0), (xc, ty + 1.6, hz0 + 0.2), (xc, ty + 1.7, hz0 - 0.6)]
+        bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.12); merge(p, bm, 'tint')
+        add_cyl(p, xc, cy, hz0 - 1.0, hz0 - 0.1, hw * 0.75, 'metal', 32, axis='z', r2=hw * 0.62)
+        add_cyl(p, xc, cy, hz0 - 0.7, hz0 - 0.6, hw * 0.55, 'glow', 32, axis='z')
+    for k in range(40 if st != 'yacht' else 12):        # greebles (few on the yacht: it's smooth)
+        z = r.uniform(hz0 + 0.4, hz1 - 0.6); x = xc + r.choice([-1, 1]) * r.uniform(0.3, hw * 0.75)
+        y = top_y(x, z); w_, d_, h_ = r.uniform(0.15, 0.6), r.uniform(0.2, 1.0), r.uniform(0.04, 0.15)
+        add_box(p, x - w_ / 2, y - 0.2, z, x + w_ / 2, y + h_ - 0.05, z + d_, r.choice(['metal', 'paint', 'tint']), 0.01)
+    for (gx, gz) in gear:
+        add_cyl(p, gx, gz, 0.3, cy - hh * 0.6, 0.08, 'paint', 10); add_cyl(p, gx, gz, 0.05, 0.45, 0.05, 'metal', 10)
+        add_cyl(p, gx, gz, 0.0, 0.08, 0.28, 'rubber', 16)
     ship_interior(p, lay)
 
 def shuttle_ramp(p, L_, D_, H_, r, model='shuttle'):
@@ -1611,6 +1694,9 @@ def variants():
         ('shrub', shrub, 1.8, 1.8, 1.0), ('fern', fern, 1.6, 1.6, 0.9), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
+        ('courier', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'courier'), 7, 13, 3.9), ('courier_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'courier'), 7, 13, 3.9),
+        ('patrol', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'patrol'), 7, 13, 3.9), ('patrol_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'patrol'), 7, 13, 3.9),
+        ('yacht', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'yacht'), 9, 27, 5.0), ('yacht_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'yacht'), 9, 27, 5.0),
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]

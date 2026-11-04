@@ -298,5 +298,12 @@
    "facing": 0,
    "top": 0.55
   }
- ]
+ ],
+ "flight": {
+  "top": 120,
+  "boost": 220,
+  "thrust": 10,
+  "yaw": 0.6,
+  "lift": 8
+ }
 }
