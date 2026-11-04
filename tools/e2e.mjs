@@ -341,15 +341,17 @@ try {
     const key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
     const { buildingToWorld } = await import('./js/gen/place.js'); const { structureOf } = await import('./js/world/ships.js');
     const out = {}, sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true, O.planet), W = (a, c, d) => buildingToWorld(O.s, b, a, c, d);
+    const Lay = (await import('./js/gen/ships.js')).shipPlan(sh.model).layout, seat = Lay.seats.find(q => q.kind === 'pilot'), mx = (Lay.ramp.x0 + Lay.ramp.x1) / 2, dk = Lay.deck;
     // walk up the ramp from the pad
-    O.ctrl.mode = 'walk'; O.ctrl.pos = W(5, 0, -1); O.ctrl.vel = [0, 0, 0]; await wait(400);
-    const tgt = W(5, 1.6, 16.1); O.ctrl.facing = O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]);
-    key('KeyW', false); for (let i = 0; i < 120 && O.world.locate(...O.ctrl.pos)?.room?.purpose !== 'cockpit'; i++) { O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]); await wait(100); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    O.ctrl.mode = 'walk'; O.ctrl.pos = W(mx, 0, -1); O.ctrl.vel = [0, 0, 0]; await wait(400);
+    const tgt = W(seat.x, dk, seat.z - 0.7); O.ctrl.facing = O.cam.yaw = Math.atan2(tgt[0] - O.ctrl.pos[0], tgt[2] - O.ctrl.pos[2]);
+    const way = [...Lay.partitions.flatMap(q => [W(Lay.doors[q.door].x, dk, q.z - 0.9), W(Lay.doors[q.door].x, dk, q.z + 0.9)]), tgt];
+    key('KeyW', false); for (let i = 0, k = 0; i < 160 && O.world.locate(...O.ctrl.pos)?.room?.purpose !== 'cockpit'; i++) { const g = way[Math.min(k, way.length - 1)]; if (Math.hypot(g[0] - O.ctrl.pos[0], g[2] - O.ctrl.pos[2]) < 0.4) k++; O.cam.yaw = Math.atan2(g[0] - O.ctrl.pos[0], g[2] - O.ctrl.pos[2]); await wait(80); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
     out.walkedIn = O.world.locate(...O.ctrl.pos)?.room?.purpose;
     out.hud = document.querySelector('.hud .place')?.textContent;
     // the helm: buy it, then take off
-    P.credits = 20000; O.ctrl.pos = W(5, 1.6, 16.1); const c = W(5, 1.6, 18); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); await wait(300);
-    key('KeyE'); await wait(300); key('Digit1'); await wait(300); out.paid = 20000 - P.credits;
+    P.credits = 200000; O.ctrl.pos = W(seat.x, dk, seat.z - 0.7); const c = W(seat.x, dk, seat.z + 1); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); await wait(300);
+    key('KeyE'); await wait(300); key('Digit1'); await wait(300); out.paid = 200000 - P.credits; out.price = (await import('./js/gen/ships.js')).PRICES[sh.model];
     key('KeyE'); await wait(300); key('Digit1'); await wait(300);
     out.flying = !!O.getFlight();
     key('Space', false); await wait(4000); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
@@ -365,7 +367,7 @@ try {
     out.moved = out.at ? Math.round(Math.hypot(out.at[0] - b.O[0] - O.s.cx, 0)) : 0;
     await O.save(); out.id = sh.id; return out; })()`);
   check(sp.walkedIn === 'cockpit' && /cockpit/.test(sp.hud || ''), `walked up the ramp into the cockpit (HUD: ${sp.hud})`);
-  check(sp.paid === 9500 && sp.flying, 'bought the ship at the helm and took off');
+  check(sp.paid === sp.price && sp.flying, `bought the ship at the helm (${sp.price} cr) and took off`);
   check(sp.alt > 15, `climbed to ${sp.alt} m`);
   check(sp.refusedInAir, "can't land in mid-air");
   check(sp.landed && sp.at, `landed (${sp.why ?? 'ok'})`);
