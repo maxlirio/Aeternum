@@ -6,6 +6,7 @@ import { rawHeight } from './terrain.js';
 import { settlementNear } from './settlement.js';
 import { outRoutes, nearRoute } from './highways.js';
 import { lerp, smoothstep } from '../core/noise.js';
+import { getCity, cityWeight, CURB } from './city.js';
 
 export function plateauWeight(s, u, v) {
   const r = Math.hypot(u, v);
@@ -15,6 +16,8 @@ export function plateauWeight(s, u, v) {
 // Returns { h, town } — town ∈ [0,1] is how much the ground is graded/compacted.
 export function surfaceAt(planet, x, z) {
   const raw = rawHeight(planet, x, z);
+  const c = getCity(planet), cw = cityWeight(c, x, z);
+  if (cw > 0) return { h: lerp(raw, c.h, cw), town: cw, road: 0, city: cw };     // the megacity stands on one graded level
   const s = settlementNear(planet, x, z);
   if (!s) return { h: raw, town: 0, road: 0 };
   const [u, v] = s.toLocal(x, z);

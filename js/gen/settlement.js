@@ -10,6 +10,7 @@ import { Rng } from '../core/prng.js';
 import { hash01, derive } from '../core/hash.js';
 import { REGION } from '../core/units.js';
 import { rawHeight } from './terrain.js';
+import { getCity } from './city.js';
 import { placeName, personName, companyName, streetWord, streetSuffix } from './names.js';
 
 export const TYPES = {
@@ -80,6 +81,7 @@ function generate(planet, rx, rz) {
     if (!best || score < best.score) best = { x, z, h: f.mean, score };
   }
   if (!best) return null;                       // all water: no town in this cell
+  { const c = getCity(planet); if (Math.hypot(best.x - c.cx, best.z - c.cz) < c.R + 1200 + R) return null; }   // the megacity has swallowed this ground
   const angle = rng.range(0, Math.PI / 2);
   const s = {
     address, seed, key: address.key, rx, rz, R,

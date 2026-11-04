@@ -6,6 +6,18 @@ import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
+import { getCity, blocksNear, CURB } from '../gen/city.js';
+
+// The megacity's solids as city-local boxes [u0, v0, u1, v1, y0, y1] (absolute heights):
+// every building tier, each block's kerb slab, the landing pads. Cached on the block.
+function cityBoxes(c, B) {
+  if (B.col) return B.col;
+  const base = c.h + CURB, out = [];
+  if (B.district) out.push([...B.rect, c.h - 1, base]);
+  for (const b of B.buildings) for (const t of b.tiers) out.push([...t.r, base + t.y0, base + t.y1]);
+  for (const p of B.pads) out.push([...p.r, base + p.y - 1.2, base + p.y]);
+  return (B.col = out);
+}
 
 export const STEP = 0.5;
 const GRID = 16;
@@ -15,6 +27,7 @@ export class CollisionWorld {
     this.planet = planet; this.s = s; this.doorPassable = doorPassable;
     this.base = s.h + PLINTH;
     this.flora = true;           // trees and boulders block (tests of town-only collision can turn it off)
+    this.city = getCity(planet);
     this.cols = new Map();       // building n (or structure key) -> collider set
     this.grid = new Map();
     for (const b of s.buildings) this.index(b, true);
@@ -73,11 +86,19 @@ export class CollisionWorld {
     return c;
   }
 
+  // City boxes near (x, z) within reach r, in city-local coordinates: calls fn(box, u, v).
+  cityNear(x, z, r, fn) {
+    const c = this.city;
+    if (Math.abs(x - c.cx) > c.R + 400 || Math.abs(z - c.cz) > c.R + 400) return;
+    const [u, v] = c.toLocal(x, z);
+    blocksNear(c, u, v, r, B => { for (const box of cityBoxes(c, B)) if (u > box[0] - r && u < box[2] + r && v > box[1] - r && v < box[3] + r) fn(box, u, v); });
+  }
   inside(b, lx, lz, m = 0) { return lx >= -m && lz >= -m && lx <= b.w + m && lz <= b.d + m; }
 
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
     let best = surfaceHeight(this.planet, x, z), where = null;
+    this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && u >= box[0] && u <= box[2] && v >= box[1] && v <= box[3]) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, 0.05)) continue;
@@ -108,6 +129,7 @@ export class CollisionWorld {
   // Lowest ceiling above the head at (x, z), or Infinity.
   ceilingAt(x, z, yFeet) {
     let c = Infinity;
+    this.cityNear(x, z, 0, (box, u, v) => { if (box[4] >= yFeet + 0.3 && u >= box[0] && u <= box[2] && v >= box[1] && v <= box[3]) c = Math.min(c, box[4]); });
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
@@ -124,8 +146,20 @@ export class CollisionWorld {
 
   // Push a vertical capsule (radius r, height h) out of walls and furniture.
   resolve(x, z, yFeet, r = 0.32, h = 1.75) {
+    const C = this.city;
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
+      this.cityNear(x, z, r + 0.2, (box, u, v) => {
+        if (yFeet + h <= box[4] || yFeet + 0.3 >= box[5]) return;
+        const [lu, lv] = C.toLocal(x, z);
+        const nu = Math.max(box[0], Math.min(lu, box[2])), nv = Math.max(box[1], Math.min(lv, box[3]));
+        let du = lu - nu, dv = lv - nv, d2 = du * du + dv * dv, pu, pv;
+        if (d2 >= r * r) return;
+        if (d2 < 1e-10) { const pen = [lu - box[0], box[2] - lu, lv - box[1], box[3] - lv], m = Math.min(...pen), i = pen.indexOf(m);
+          pu = (i === 0 ? -1 : i === 1 ? 1 : 0) * (m + r); pv = (i === 2 ? -1 : i === 3 ? 1 : 0) * (m + r); }
+        else { const d = Math.sqrt(d2); pu = du / d * (r - d); pv = dv / d * (r - d); }
+        x += pu * C.cos - pv * C.sin; z += pu * C.sin + pv * C.cos; moved = true;
+      });
       for (const b of this.near(x, z)) {
         let [lx, lz] = this.toB(b, x, z);
         if (!this.inside(b, lx, lz, r + 0.5)) continue;
@@ -184,6 +218,9 @@ export class CollisionWorld {
   // Is the point inside solid geometry (camera collision)?
   solidAt(x, y, z, pad = 0.15) {
     if (y < surfaceHeight(this.planet, x, z) + 0.15) return true;
+    let hit = false;
+    this.cityNear(x, z, pad, (box, u, v) => { if (!hit && y > box[4] - pad && y < box[5] + pad && u > box[0] - pad && u < box[2] + pad && v > box[1] - pad && v < box[3] + pad) hit = true; });
+    if (hit) return true;
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, pad + 0.5)) continue;

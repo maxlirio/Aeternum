@@ -175,6 +175,29 @@ SCRIPTS.freighter = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r
     O.ctrl.facing = Math.atan2(f.at.c[0] - O.ctrl.pos[0], f.at.c[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.12; O.cam.dist = 6; await wait(4000);`;
 SCRIPTS.freighter2 = SCRIPTS.freighter; SHOTS.freighter = 'hour=10&view=0'; SHOTS.freighter2 = 'hour=10&view=1';
 SHOTS.ship = 'hour=10'; SHOTS.shipside = 'hour=10'; SHOTS.cockpit = 'hour=10'; SHOTS.hold = 'hour=10'; SHOTS.flying = 'hour=10&secs=5';
+// the megacity (gen/city.js): stand at a street corner of a block of the given district and look across it
+const cityShot = (dist, pitch, d, off = 0, pickFar = false) => `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)); const G = await import('./js/gen/city.js');
+    let best = null, bd = ${pickFar ? '-1' : 'Infinity'}; for (let i = -32; i <= 32; i++) for (let j = -32; j <= 32; j++) { const B = G.cityBlock(c, i, j); if (B.district !== '${dist}') continue; const r = Math.hypot(i, j); if (${pickFar ? 'r > bd' : 'r < bd'}) { bd = r; best = B; } }
+    const R = best.rect, cu = (R[0] + R[2]) / 2, cv = (R[1] + R[3]) / 2, [x, z] = c.toWorld(R[0] - 6, R[1] - 6), [tx, tz] = c.toWorld(cu, cv);
+    O.ctrl.pos = [x, c.h + 0.1, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(tx - x, tz - z);
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, c.h + 0.1, z]; await wait(250); }
+    O.cam.yaw = O.ctrl.facing + ${off}; O.cam.pitch = ${pitch}; O.cam.dist = ${d}; await wait(2500);`;
+SCRIPTS.cityspire = cityShot('spire', -0.35, 6, 0); SHOTS.cityspire = 'hour=15';
+SCRIPTS.cityspiren = SCRIPTS.cityspire; SHOTS.cityspiren = 'hour=21.5';
+SCRIPTS.citymarket = cityShot('market', 0.08, 7, 0.3); SHOTS.citymarket = 'hour=11';
+SCRIPTS.citywarrens = cityShot('undercity', -0.05, 6, 0.4); SHOTS.citywarrens = 'hour=20.5';
+SCRIPTS.cityhousing = cityShot('housing', -0.12, 7, 0.2); SHOTS.cityhousing = 'hour=9';
+SCRIPTS.citywarrensd = SCRIPTS.citywarrens; SHOTS.citywarrensd = 'hour=12';
+SCRIPTS.cityindustry = cityShot('industry', 0.05, 9, 0.2); SHOTS.cityindustry = 'hour=16';
+SCRIPTS.cityport = cityShot('port', 0.15, 10, 0.2); SHOTS.cityport = 'hour=13';
+SCRIPTS.cityaerial = cityShot('housing', 0.35, 1400, 0, true).replace("O.cam.dist = 1400;", "O.cam.dist = 1400; O.ctrl.facing = Math.atan2(c.cx - x, c.cz - z); O.cam.yaw = O.ctrl.facing;"); SHOTS.cityaerial = 'hour=17.6';
+SCRIPTS.cityaerialn = SCRIPTS.cityaerial; SHOTS.cityaerialn = 'hour=21';
+SCRIPTS.skyline = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms));
+    const d = Math.hypot(c.cx - O.s.cx, c.cz - O.s.cz), ux = (c.cx - O.s.cx) / d, uz = (c.cz - O.s.cz) / d, { surfaceHeight } = await import('./js/gen/surface.js');
+    const x = c.cx - ux * (c.R + 900), z = c.cz - uz * (c.R + 900); O.ctrl.pos = [x, surfaceHeight(O.planet, x, z) + 0.2, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, surfaceHeight(O.planet, x, z) + 0.2, z]; await wait(250); }
+    O.ctrl.facing = Math.atan2(ux, uz); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.0; O.cam.dist = 5; await wait(2500);`;
+SHOTS.skyline = 'hour=18.2'; SCRIPTS.skylinen = SCRIPTS.skyline; SHOTS.skylinen = 'hour=21';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

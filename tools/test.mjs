@@ -1008,6 +1008,62 @@ suites.combat = async () => {
   check(pl2.warrant && /attacking/.test(pl2.warrant.reason), 'an officer saw it: ' + pl2.warrant?.reason);
 };
 
+suites.city = async () => {
+  const C = await import('../js/gen/city.js');
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  let total = 0, maxH = 0; const kinds = new Set(), dist = {};
+  for (let n = 1; n <= 3; n++) {
+    const p = makePlanet(uni(n), HOMEWORLD), c = C.getCity(p), c2 = C.getCity(makePlanet(uni(n), HOMEWORLD));
+    check(c.cx === c2.cx && c.cz === c2.cz && c.name === c2.name, 'city site repeatable');
+    check(digest(C.cityBlock(c, 1, 2)) === digest(C.cityBlock(c2, 1, 2)), 'block repeatable');
+    const d0 = Math.hypot(c.cx, c.cz); check(d0 > c.R + 3000, `city clear of the home town (${Math.round(d0)} m, R ${c.R})`);
+    // no town inside the city
+    for (let rx = -6; rx <= 6; rx++) for (let rz = -6; rz <= 6; rz++) { const s = getSettlement(p, rx, rz); if (s) check(Math.hypot(s.cx - c.cx, s.cz - c.cz) > c.R + s.R, `town ${s.name} outside the city`); }
+    const [i0, j0, i1, j1] = C.cityExtent(c);
+    let bad = 0, overlaps = 0;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const B = C.cityBlock(c, i, j); if (!B.district) continue;
+      dist[B.district] = (dist[B.district] || 0) + 1;
+      const R = B.rect; check(R[2] - R[0] > 60 && R[3] - R[1] > 60, 'blocks have room');
+      const boxes = [];
+      for (const b of B.buildings) { total++; maxH = Math.max(maxH, b.top || 0);
+        for (const t of b.tiers) { if (t.r[0] < R[0] - 0.01 || t.r[1] < R[1] - 0.01 || t.r[2] > R[2] + 0.01 || t.r[3] > R[3] + 0.01 || t.y1 <= t.y0 || t.r[2] <= t.r[0] || t.r[3] <= t.r[1]) bad++; boxes.push([b.id, t]); } }
+      for (let a = 0; a < boxes.length; a++) for (let q = a + 1; q < boxes.length; q++) {
+        const [ia, A] = boxes[a], [ib, Bx] = boxes[q]; if (ia === ib) continue;
+        if (rectsOverlap(A.r, Bx.r, -0.05) && A.y0 < Bx.y1 - 0.05 && Bx.y0 < A.y1 - 0.05) overlaps++;
+      }
+      for (const pr of B.props) kinds.add(pr.k);
+    }
+    check(bad === 0, `every tier inside its block (${bad} outside)`);
+    check(overlaps === 0, `no two buildings intersect (${overlaps})`);
+    if (n === 1) {
+      // walk the streets: along a street centre line nothing blocks; into a tower you're stopped; a pad holds you up
+      const W = new CollisionWorld(p, getSettlement(p, 0, 0), () => true); W.flora = false;
+      const i = 2, u = C.lineAt(c, 0, i); let v = C.lineAt(c, 1, -3), [x, z] = c.toWorld(u, v), y = W.groundAt(x, z, c.h + 1).h, blocked = 0;
+      check(Math.abs(y - c.h) < 0.05, `street level is the city ground (${y.toFixed(2)} vs ${c.h})`);
+      for (let k = 0; k < 400; k++) { v += 1.5; const [tx, tz] = c.toWorld(u, v), [rx, rz] = W.resolve(tx, tz, y); if (Math.hypot(rx - tx, rz - tz) > 0.01) blocked++; }
+      check(blocked === 0, `600 m down the middle of a street unobstructed (${blocked})`);
+      let B = null; for (let a = 0; a < 30 && !B; a++) { const b = C.cityBlock(c, a % 6, Math.floor(a / 6)); if (b.district && b.buildings.some(q => q.tiers[0].y0 === 0 && q.tiers[0].y1 > 20)) B = b; }
+      const bd = B.buildings.find(q => q.tiers[0].y0 === 0 && q.tiers[0].y1 > 20), t = bd.tiers[0];
+      const mid = [(t.r[0] + t.r[2]) / 2, (t.r[1] + t.r[3]) / 2], [ox, oz] = c.toWorld(t.r[0] - 3, mid[1]);
+      let px = ox, pz = oz;
+      for (let k = 0; k < 60; k++) { const [fx, fz] = c.toWorld(...[c.toLocal(px, pz)[0] + 0.25, mid[1]]); [px, pz] = W.resolve(fx, fz, c.h + CURBV(C)); }
+      const [lu] = c.toLocal(px, pz);
+      check(lu < t.r[0] && lu > t.r[0] - 0.6, `walking into a ${bd.label} stops you at its wall (${(lu - t.r[0]).toFixed(2)} m)`);
+      check(W.solidAt(...c.toWorld(...mid).flatMap((q, k) => k ? [c.h + 5, q] : [q])) === true, 'inside a building is solid');
+      const pads = []; for (let a = -8; a <= 8; a++) for (let b = -8; b <= 8; b++) for (const pd of C.cityBlock(c, a, b).pads) if (!pd.ground) pads.push(pd);
+      if (check(pads.length > 0, 'spires have landing pads')) {
+        const pd = pads[0], [qx, qz] = c.toWorld((pd.r[0] + pd.r[2]) / 2, (pd.r[1] + pd.r[3]) / 2), top = c.h + C.CURB + pd.y;
+        check(Math.abs(W.groundAt(qx, qz, top + 0.3).h - top) < 0.01, `standing on a landing pad ${Math.round(pd.y)} m up`);
+      }
+    }
+  }
+  check(maxH > 600, `spires reach ${Math.round(maxH)} m`);
+  check(kinds.size >= 100, `${kinds.size} kinds of street furniture, stalls and roof kit`);
+  for (const d of C.DISTRICTS) check(dist[d] > 0, `district ${d} present (${dist[d] || 0} blocks)`);
+  console.log(`  ${total} buildings in 3 cities, tallest ${Math.round(maxH)} m, ${kinds.size} object kinds,`, JSON.stringify(dist));
+};
+const CURBV = C => C.CURB + 0.02;
 suites.aircombat = async () => {
   const { AirWar, raidAt, raidIndex } = await import('../js/sim/aircombat.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
