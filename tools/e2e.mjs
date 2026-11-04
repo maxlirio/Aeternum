@@ -418,6 +418,20 @@ try {
     const e0 = O.store.events.length; go(); O.attack(); await wait(200);
     return { hurt: O.store.getDelta('hurt/' + a.person.id)?.hp, assault: O.store.events.slice(e0).some(e => e.type === 'assault') }; })()`);
   check(cb.hurt < 100 && cb.assault, `punched someone: ${Math.round(cb.hurt)}% health, an assault is on record`);
+  const gf = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
+    P.custody = null; P.warrant = null; P.hp = 100;
+    P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol';
+    const t = O.clock.now(); O.ctx.onServe(t); const pu = O.getPursuit(); if (!pu) return { none: true };
+    // stand 18 m from the officer, out in the open where there's a clear line
+    let best = null; for (let k = 0; k < 24 && !best; k++) { const a = k / 24 * Math.PI * 2, x = pu.pos[0] + Math.sin(a) * 18, z = pu.pos[2] + Math.cos(a) * 18, y = O.world.groundAt(x, z, pu.pos[1] + 2).h; if (Math.abs(y - pu.pos[1]) < 1.5) best = [x, y, z]; }
+    O.ctrl.pos = best || [pu.pos[0] + 18, pu.pos[1], pu.pos[2]]; O.ctrl.vel = [0, 0, 0];
+    for (let k = 0; k < 40 && P.hp >= 100 && !P.custody; k++) { O.ctrl.pos = best || O.ctrl.pos; await wait(250); }
+    const shot = P.hp < 100 || !!O.getPursuit()?.drawn;
+    O.hurtPlayer(500, 'test'); await wait(200);
+    return { shot, drawn: !!pu.drawn, hp: P.hp, custody: !!P.custody, armed: P.inventory.some(x => x.id === 'pistol') }; })()`);
+  check(gf.drawn && gf.shot, `armed and wanted, the officer draws and fires (${JSON.stringify(gf)})`);
+  check(gf.custody && !gf.armed && gf.hp > 0, 'shot down by the law: you wake in the cell, weapons gone');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

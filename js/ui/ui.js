@@ -18,6 +18,7 @@ export class UI {
     this.hud.innerHTML = `<div class="where"><div class="place"></div><div class="sub"></div></div>
       <div class="clock"><div class="time"></div><div class="sub"></div></div>
       <div class="stats"><div class="who"></div>
+        <div class="bar"><span>Health</span><i><b class="health"></b></i></div>
         <div class="bar"><span>Fatigue</span><i><b class="fatigue"></b></i></div>
         <div class="bar"><span>Hunger</span><i><b class="hunger"></b></i></div>
         <div class="bar"><span>Fitness</span><i><b class="fitness"></b></i></div>
@@ -64,6 +65,7 @@ export class UI {
     $('.clock .sub', this.hud).textContent = `Day ${dayNumber(planet, t)} · ${(planet.dayLength / 3600).toFixed(1)} h day${g.weather ? ' · ' + g.weather.label : ''}`;
     $('.who', this.hud).textContent = `${player.name}, ${player.age}`;
     $('.fatigue', this.hud).style.width = Math.round(player.fatigue * 100) + '%';
+    const hb = $('.health', this.hud); hb.style.width = Math.round(player.hp ?? 100) + '%'; hb.style.background = (player.hp ?? 100) < 35 ? '#e0675a' : '';
     $('.fitness', this.hud).style.width = Math.round(player.fitness * 100) + '%';
     $('.hunger', this.hud).style.width = Math.round((player.hunger ?? 0) * 100) + '%';
     const cr = $('.credits', this.hud); cr.textContent = `${player.credits ?? 0} cr`; cr.classList.toggle('debt', (player.credits ?? 0) < 0);
