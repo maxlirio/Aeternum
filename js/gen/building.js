@@ -209,6 +209,8 @@ function generatePlan(planet, s, b) {
 
   // ---- furniture
   for (const r of plan.rooms) furnish(plan, r, rng, H);
+  const drng = new Rng(Address.parse(b.key).seed(planet.universeSeed).map(v => v ^ 0x5eed));   // (its own stream: dressing never moves the furniture)
+  for (const r of plan.rooms) dressSurfaces(plan, r, drng);
   plan.anchors = anchorsFor(plan, rng);
   return plan;
 }
@@ -362,6 +364,26 @@ const CENTRE_PROPS = {
   shopfloor: [['shelf', 2.4, 0.9, 1.5]], 'shopfloor-workshop': [['bench', 2.4, 1.0, 0.95]],
   hangar: [['crate', 1.6, 1.6, 1.4]], reception: [['planter', 0.8, 0.8, 1.0]],
 };
+
+// Small things on the surfaces of a room's furniture: drawn only (soft — nothing collides
+// with them, nobody uses them), so rooms look lived in.
+const DRESS = { counter: [['kettle', 0.24, 0.18, 0.26], ['mugs', 0.24, 0.12, 0.11], ['bowl', 0.32, 0.32, 0.13]], table: [['bowl', 0.32, 0.32, 0.13], ['vase', 0.18, 0.18, 0.5], ['books', 0.26, 0.19, 0.14]],
+  desk: [['lamp', 0.28, 0.28, 0.5], ['mugs', 0.24, 0.12, 0.11], ['books', 0.26, 0.19, 0.14]], cabinet: [['lamp', 0.28, 0.28, 0.5], ['potplant', 0.3, 0.3, 0.45], ['vase', 0.18, 0.18, 0.5]],
+  bench: [['books', 0.26, 0.19, 0.14]] };
+function dressSurfaces(plan, room, rng) {
+  const home = room.unit !== undefined || plan.type === 'ship';
+  for (const pr of plan.props.slice()) {
+    if (pr.room !== room.i || pr.k !== room.k || pr.soft || !DRESS[pr.kind] || pr.h > 1.2) continue;
+    if (pr.kind === 'bench' && room.purpose !== 'shopfloor-workshop') continue;
+    const n = rng.next() < (home ? 0.85 : 0.45) ? (rng.next() < 0.4 ? 2 : 1) : 0;
+    for (let k = 0; k < n; k++) {
+      const [kind, l, d, h] = rng.pick(DRESS[pr.kind]);
+      const w = pr.x1 - pr.x0, dd = pr.z1 - pr.z0; if (w < l + 0.1 || dd < d + 0.1) continue;
+      const x0 = pr.x0 + 0.05 + rng.next() * (w - l - 0.1), z0 = pr.z0 + 0.05 + rng.next() * (dd - d - 0.1);
+      plan.props.push({ kind, k: pr.k, x0, z0, x1: x0 + l, z1: z0 + d, y: pr.y + pr.h, h, face: rng.int(0, 3), room: pr.room, soft: true, decor: true });
+    }
+  }
+}
 
 function furnish(plan, room, rng, H) {
   const [x0, z0, x1, z1] = room.rect;

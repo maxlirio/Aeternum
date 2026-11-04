@@ -595,7 +595,7 @@ suites.items = async () => {
   };
   // every building offers things to do; count verbs across the town
   const verbs = {}; let props = 0, used = 0;
-  for (const b of s.buildings) { const pl = buildingPlan(p, s, b); props += pl.props.length; for (const u of U2.usablesOf(p, s, b)) { used++; for (const v of u.verbs) verbs[v] = (verbs[v] || 0) + 1; } }
+  for (const b of s.buildings) { const pl = buildingPlan(p, s, b); props += pl.props.filter(q => !q.decor).length; for (const u of U2.usablesOf(p, s, b)) { used++; for (const v of u.verbs) verbs[v] = (verbs[v] || 0) + 1; } }
   check(used / props > 0.95, `${used}/${props} pieces of furniture can be used`);
   for (const v of ['sleep', 'sit', 'open', 'cook', 'buy', 'sell', 'terminal', 'fabricate', 'assemble', 'wash', 'water']) check(verbs[v] > 0, `someone can ${v} (${verbs[v] || 0})`);
   const find = (pred, from = s.buildings) => { for (const b of from) for (const u of U2.usablesOf(p, s, b)) if (pred(b, u)) return { b, u }; return null; };

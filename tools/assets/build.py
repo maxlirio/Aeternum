@@ -1669,6 +1669,41 @@ def armchair(p, L, D, H, r):
     for x0, x1 in ((0.0, 0.16), (L - 0.16, L)): add_cushion(p, x0, 0.1, 0.04, x1, 0.62, D, 'tint', 0.2, 0.45)
     add_cushion(p, 0.17, 0.29, 0.03, L - 0.17, 0.46, D - 0.2, 'tint', 0.3, 0.45)                # seat
 
+# ------------------------------------------------------------------ small things on surfaces (origin: the surface, front z = 0)
+def vase(p, L, D, H, r):
+    cx, cz = L / 2, D / 2
+    add_cyl(p, cx, cz, 0, H * 0.45, L * 0.32, 'ceramic', 20, r2=L * 0.22); add_cyl(p, cx, cz, H * 0.45, H * 0.55, L * 0.22, 'ceramic', 20, r2=L * 0.28)
+    for k in range(9):                                     # stems and flower heads
+        a = k * 2.4; x1, z1 = cx + math.cos(a) * L * 0.35 * r.random(), cz + math.sin(a) * D * 0.35 * r.random(); y1 = H * r.uniform(0.85, 1.0)
+        bm = bmesh.new(); vs = [bm.verts.new(P(cx, H * 0.5, cz)), bm.verts.new(P(x1, y1, z1)), bm.verts.new(P(x1 + 0.006, y1, z1))]; bm.faces.new(vs); merge(p, bm, 'leaf')
+        add_blob(p, x1, y1, z1, 0.028, 'tint', r, sub=1)
+def kettle(p, L, D, H, r):
+    add_cyl(p, L / 2, D / 2, 0, H * 0.08, L * 0.42, 'plastic', 20)
+    add_cyl(p, L / 2, D / 2, H * 0.08, H * 0.85, L * 0.4, 'metal', 20, r2=L * 0.3)
+    add_box(p, L * 0.82, H * 0.3, D * 0.42, L * 0.95, H * 0.8, D * 0.58, 'plastic', 0.01)
+    add_cyl(p, L / 2, D / 2, H * 0.85, H, L * 0.1, 'plastic', 12)
+def books(p, L, D, H, r):
+    y = 0
+    while y < H - 0.02:
+        t = r.uniform(0.02, 0.04); w = L * r.uniform(0.75, 1.0); d = D * r.uniform(0.75, 1.0)
+        add_box(p, (L - w) / 2, y, (D - d) / 2, (L + w) / 2, y + t, (D + d) / 2, 'books', 0.003); y += t
+def lamp(p, L, D, H, r):
+    add_cyl(p, L / 2, D / 2, 0, 0.03, L * 0.35, 'metal', 20)
+    add_cyl(p, L / 2, D / 2, 0.03, H * 0.62, 0.012, 'metal', 8)
+    add_cyl(p, L / 2, D / 2, H * 0.58, H, L * 0.48, 'fabric', 24, r2=L * 0.32)
+def bowl(p, L, D, H, r):
+    add_cyl(p, L / 2, D / 2, 0, H * 0.6, L * 0.48, 'ceramic', 24, r2=L * 0.3) if False else add_cyl(p, L / 2, D / 2, 0, H * 0.6, L * 0.3, 'ceramic', 24, r2=L * 0.48)
+    for k in range(6): add_blob(p, L / 2 + r.uniform(-L * 0.2, L * 0.2), H * 0.7, D / 2 + r.uniform(-D * 0.2, D * 0.2), L * 0.11, 'tint', r, sub=2)
+def mugs(p, L, D, H, r):
+    for k in range(2):
+        cx = L * (0.27 + 0.46 * k); add_cyl(p, cx, D / 2, 0, H, L * 0.2, 'tint', 16)
+        add_box(p, cx + L * 0.19, H * 0.3, D / 2 - 0.006, cx + L * 0.25, H * 0.75, D / 2 + 0.006, 'tint', 0.004)
+def potplant(p, L, D, H, r):
+    add_cyl(p, L / 2, D / 2, 0, H * 0.35, L * 0.3, 'ceramic', 16, r2=L * 0.38)
+    for k in range(10):
+        d = mathutils.Vector((r.uniform(-1, 1), r.uniform(0.5, 1), r.uniform(-1, 1))).normalized()
+        card(p, (L / 2, H * 0.3, D / 2), d, (r.uniform(-1, 1), 0.2, r.uniform(-1, 1)), L * 0.35, H * 0.75, 'leafcard')
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -1691,6 +1726,8 @@ def variants():
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),
         *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('toilet', toilet, 0.45, 0.7, 0.8), ('basin', basin, 0.6, 0.45, 0.9), ('shower', shower, 0.9, 0.9, 2.1),
         ('tvstand', tvstand, 1.6, 0.45, 0.55), ('bookshelf', bookshelf, 1.0, 0.35, 2.0), ('armchair', armchair, 0.85, 0.85, 0.95),
+        ('vase', vase, 0.18, 0.18, 0.5), ('kettle', kettle, 0.24, 0.18, 0.26), ('books', books, 0.26, 0.19, 0.14), ('lamp', lamp, 0.28, 0.28, 0.5),
+        ('bowl', bowl, 0.32, 0.32, 0.13), ('mugs', mugs, 0.24, 0.12, 0.11), ('potplant', potplant, 0.3, 0.3, 0.45),
         ('shrub', shrub, 1.8, 1.8, 1.0), ('fern', fern, 1.6, 1.6, 0.9), ('boulder', boulder, 1.6, 1.4, 1.0),
         ('conifer_far', conifer_far, 4.5, 4.5, 10), ('broadleaf_far', broadleaf_far, 7, 7, 10),
         ('shuttle', shuttle, 10, 21, 5.4), ('shuttle_ramp', shuttle_ramp, 10, 21, 5.4),
