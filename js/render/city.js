@@ -405,7 +405,7 @@ export class CityView {
   kit(k) {
     this.kits ||= new Map();
     if (this.kits.has(k)) return this.kits.get(k);
-    let parts = this.propLib?.cityPart?.(k) || null;
+    let parts = this.propLib?.cityPart?.(k) || this.propLib?.cityPart?.('common_' + k) || this.propLib?.cityPart?.('item_' + k) || null;
     if (!parts) parts = standIn(k);
     for (const pt of parts) if (pt.material.name === 'lampwarm' || pt.material.name?.startsWith('neon')) this.glowMats.add(pt.material);
     this.kits.set(k, parts);

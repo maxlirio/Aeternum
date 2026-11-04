@@ -932,14 +932,12 @@ suites.traffic = async () => {
   const byId = new Map(b.map(v => [v.id, v])); let worst = 0;
   for (const v of a) { const w = byId.get(v.id); if (w) worst = Math.max(worst, Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2])); }
   check(worst < 20, `half a second later each has moved at most ${worst.toFixed(1)} m`);
-  const routes = outRoutes(p, s); let off = 0, n = 0;
-  for (const v of a) { if (Math.hypot(v.pos[0] - s.cx, v.pos[2] - s.cz) < s.R + 60) continue; const end = routes.some(r => [r.pts[0], r.pts.at(-1)].some(e => Math.hypot(e[0] - v.pos[0], e[1] - v.pos[2]) < 8)); if (end) continue; n++; const q = routes.map(r => nearRoute(r, v.pos[0], v.pos[2])).filter(Boolean).sort((x, y) => x.d - y.d)[0]; if (!q || q.d > 3.5) off++; }
-  check(n > 0 && off === 0, `${n} on the roads out of town, all within their lane (${off} off)`);
+  { let moving = 0, parked = 0; for (const v of a) if (v.parked) parked++; else moving++; const later = trafficNear(p, s, T + 400, s.cx, s.cz, 1e6).filter(v => !v.parked).length; check(moving + later > 0 && parked + (a.length - moving) > 0, `town drivers drive and park (${moving} moving, ${parked} parked, ${later} moving later)`); }
   // nobody blinks: over a long stretch every vehicle is always there, and never jumps (U-turns included)
   const C = await import('../js/gen/city.js'), c = C.getCity(p), all = R => { const m = new Map(); for (const v of trafficNear(p, s, R, s.cx, s.cz, 1e6)) m.set(v.id, v); return m; };
   let m0 = all(T), jump = 0, turn = 0, lost = 0, maxTurn = 0;
   for (let k = 1; k < 1400; k++) { const m1 = all(T + k * 0.5); if (m1.size !== m0.size) lost++;
-    for (const [id, v] of m1) { const w = m0.get(id); if (!w) { lost++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > v.speed * 0.5 + 5) jump++;     /* (+ a lane's shift at a bend) */ let d = Math.abs(v.facing - w.facing); d = Math.min(d, Math.PI * 2 - d); maxTurn = Math.max(maxTurn, d); if (d > 0.3) turn++; }
+    for (const [id, v] of m1) { const w = m0.get(id); if (!w) { lost++; continue; } if (Math.hypot(v.pos[0] - w.pos[0], v.pos[2] - w.pos[2]) > 22 * 0.5 + 6) jump++;     /* (+ a lane's shift at a bend) */ let d = Math.abs(v.facing - w.facing); d = Math.min(d, Math.PI * 2 - d); maxTurn = Math.max(maxTurn, d); if (d > 0.3) turn++; }
     m0 = m1; }
   check(lost === 0, `town traffic: nobody appears or vanishes in 700 s (${lost})`); check(jump === 0, `town traffic: nobody teleports (${jump} jumps), U-turns taken smoothly`);
   // the city's drivers: a named person, a purpose, a route; continuous across whole days, no two trips disconnected

@@ -8,6 +8,7 @@ import { buildBuilding } from './building-mesh.js';
 import { blocksNear } from '../gen/city.js';
 import { realOf } from '../world/cityreal.js';
 import { PropView } from './props.js';
+import { kitTint } from './city.js';
 
 const NEAR = 130, FAR = 190;
 export class CityInteriors {
@@ -19,6 +20,19 @@ export class CityInteriors {
   frame(rec) {
     const s = this.s, rot = ([u, v]) => [u * s.cos - v * s.sin, 0, u * s.sin + v * s.cos], o = rot(rec.O);
     return [[o[0], rec.base, o[2]], rot(rec.ex), rot(rec.ez)];
+  }
+  // Its furniture, built only when you're close (a few draw calls per building you might walk into).
+  decor(L, pos) {
+    const rec = L.rec, near = pos && rec.decor && Math.hypot(pos[0] - this.s.toWorld((rec.rect[0] + rec.rect[2]) / 2, (rec.rect[1] + rec.rect[3]) / 2)[0], pos[2] - this.s.toWorld((rec.rect[0] + rec.rect[2]) / 2, (rec.rect[1] + rec.rect[3]) / 2)[1]) < 35;
+    if (!near) { if (L.items) { for (const m of L.items) { this.group.remove(m); m.dispose(); } L.items = null; } return; }
+    if (L.items) return;
+    L.items = [];
+    const [o, ex, ez] = this.frame(rec), X = new THREE.Vector3(...ex), Z = new THREE.Vector3(...ez), Y = new THREE.Vector3(0, 1, 0), base = new THREE.Matrix4().makeBasis(X, Y, Z), M = new THREE.Matrix4(), col = new THREE.Color();
+    for (const d of rec.decor) for (const part of this.cityView.kit(d.k) || this.cityView.kit('common_' + d.k)) {
+      const P = new THREE.Vector3(...o).addScaledVector(X, d.x).addScaledVector(Z, d.z);
+      const im = new THREE.InstancedMesh(part.geometry, part.material, 1); M.copy(base).multiply(new THREE.Matrix4().makeRotationY(d.rot)).setPosition(P); im.setMatrixAt(0, M);
+      if (part.tinted) im.setColorAt(0, col.setRGB(...kitTint(part.tinted, d.k, d.x, d.z))); im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; this.group.add(im); L.items.push(im);
+    }
   }
   update(pos) {
     const c = this.city, [u, v] = c.toLocal(pos[0], pos[2]);
@@ -44,9 +58,10 @@ export class CityInteriors {
     const lx = pos[0] - this.s.cx, lz = pos[2] - this.s.cz;
     for (const [id, L] of this.live) {
       if (L.pv) L.pv.update(lx, pos[1], lz);
+      this.decor(L, pos);
       const t = L.rec, [cu, cv] = c.toLocal(...this.s.toWorld((t.rect[0] + t.rect[2]) / 2, (t.rect[1] + t.rect[3]) / 2));
       if (Math.hypot(cu - u, cv - v) < FAR) continue;
-      for (const m of L.meshes) { this.group.remove(m); m.geometry?.dispose(); }
+      this.decor(L, null); for (const m of L.meshes) { this.group.remove(m); m.geometry?.dispose(); }
       this.world.removeStructure(t); this.world.cols.delete(t.key); this.cityView.hideTier(id, false); this.live.delete(id);
     }
   }

@@ -142,6 +142,8 @@ const cityRoom = (label, hour) => `const O = ORBIS, c = O.city, wait = ms => new
     O.ctrl.pos = [x, rec.base + 0.05, z]; await wait(1500);
     O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.2; O.cam.dist = 0.3; document.querySelector('.toasts')?.remove();
     const hide = () => { O.avatar.object.visible = false; requestAnimationFrame(hide); }; hide(); await wait(2000);`;
+const roomOverview = label => cityRoom(label).replace("O.cam.pitch = 0.2; O.cam.dist = 0.3;", "const [fx2, fz2] = at(rx0 + (rx1 - rx0) * 0.5, rz0 + 0.5), [tx2, tz2] = at(rx0 + (rx1 - rx0) * 0.5, rz1); O.ctrl.pos = [fx2, rec.base + 0.05, fz2]; O.ctrl.facing = Math.atan2(tx2 - fx2, tz2 - fz2); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.12; O.cam.dist = 0.3;");
+SCRIPTS.cantinaview = roomOverview('cantina'); SHOTS.cantinaview = 'hour=20'; SCRIPTS.noodleview = roomOverview('noodle bar'); SHOTS.noodleview = 'hour=13'; SCRIPTS.chopview = roomOverview('chop shop'); SHOTS.chopview = 'hour=13';
 SCRIPTS.citycantina = cityRoom('cantina'); SHOTS.citycantina = 'hour=20';
 SCRIPTS.cityshop = cityRoom('shophouse'); SHOTS.cityshop = 'hour=13';
 SCRIPTS.cityflop = cityRoom('tenement'); SHOTS.cityflop = 'hour=13';
@@ -264,11 +266,15 @@ SCRIPTS.tris = SCRIPTS.citymarket + ` const out = {}; const tri = o => { const g
     const city = O.cityView, props = {}; city.props.children.forEach(im => { const k = im.geometry.uuid.slice(0, 4); props[im.material.name + ':' + Math.round(tri(im) / 1000) + 'k'] = 1; });
     throw new Error(JSON.stringify(Object.entries(out).filter(e => e[1] > 50000).map(e => e[0] + ' ' + Math.round(e[1] / 1000) + 'k')) + ' props ' + Object.keys(props).filter(k => +k.split(':')[1].replace('k', '') > 40).join(' '));`;
 SHOTS.tris = 'hour=11';
-SCRIPTS.carhit = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/traffic.js');
-    await wait(1500); const v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 400)[0], hold = () => T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id);
-    const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 2.5, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id), at = fut.pos.slice(); O.ctrl.pos = at.slice(); O.ctrl.vel = [0, 0, 0];
-    const log = []; for (let i = 0; i < 40 && P.hp >= 100; i++) { await wait(100); const q = hold(); if (i % 5 === 0) log.push([Math.round(Math.hypot(q.pos[0] - O.ctrl.pos[0], q.pos[2] - O.ctrl.pos[2])), +(q.pos[1] - O.ctrl.pos[1]).toFixed(1), O.ctrl.mode, O.ctrl.grounded]); }
-    throw new Error(JSON.stringify({ hp: P.hp, pos: O.ctrl.pos.map(Math.round), at: at.map(Math.round), stun: O.ctrl.stun, type: v.type, log, paused: document.querySelector('.panel') ? 'panel' : 'no' }));`; SHOTS.carhit = 'hour=11';
+SCRIPTS.carhit = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/traffic.js'); await wait(1500);
+    let v = null; for (let i = 0; i < 80 && !v; i++) { v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && Math.hypot(q.pos[0] - O.s.cx, q.pos[2] - O.s.cz) < 400); if (!v) { O.clock.advance(30); await wait(100); } }
+    const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 0.3, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id); O.ctrl.pos = fut.pos.slice(); O.ctrl.vel = [0, 0, 0]; const p0 = O.ctrl.pos.slice();
+    let hurt = false; for (let i = 0; i < 60 && !hurt; i++) { await wait(50); hurt = P.hp < 100; } const thrown = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]);
+    // and with room to stop: a car 40 m away brakes
+    P.hp = 100; await wait(2500); let w = null; for (let i = 0; i < 80 && !w; i++) { w = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && q.id !== v.id && q.trip.pts); if (!w) { O.clock.advance(30); await wait(100); } }
+    const f2 = T.trafficNear(O.planet, O.s, O.clock.now() + 3, O.s.cx, O.s.cz, 1e5).find(q => q.id === w.id); O.ctrl.pos = f2.pos.slice(); O.ctrl.vel = [0, 0, 0]; let hp2 = true; for (let i = 0; i < 80; i++) { await wait(50); if (P.hp < 100) hp2 = false; }
+    const d = O.cityTraffic.life.delayOf(w.id);
+    throw new Error(JSON.stringify({ hitHp: hurt, thrown: +thrown.toFixed(1), type: v.type, spared: hp2, delay: +d.toFixed(1) }));`; SHOTS.carhit = 'hour=11';
 SCRIPTS.cityworks = cityShot('works', 0.05, 8, 0.2); SHOTS.cityworks = 'hour=14';
 const climbShot = (extra = '') => `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); };
     let bd = null, B0; for (let a = 0; a < 3600 && !bd; a++) { B0 = G.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B0.district === 'housing') bd = B0.buildings.find(q => q.top > 25 && q.tiers.length === 1 && G.STYLES[q.style][5]); }
@@ -298,6 +304,12 @@ SCRIPTS.arrestdbg = `const O = ORBIS, P = O.store.player, wait = ms => new Promi
     const t = O.clock.now(); issueWarrant(O.ctx, t, 'a test warrant'); O.ctx.onServe(t); const log = [O.getPursuit()?.person.name];
     for (let i = 0; i < 60 && !P.custody; i++) { await wait(1000); const q = O.getPursuit(); if (i % 4 === 0) log.push([i, q ? q.state : 'none', q ? Math.round(Math.hypot(q.pos[0] - O.ctrl.pos[0], q.pos[2] - O.ctrl.pos[2])) : null, +O.ctrl.speed.toFixed(2), O.ctrl.mode, P.hp | 0, O.renderer.info.render.frame]); }
     throw new Error(JSON.stringify({ custody: !!P.custody, log }));`; SHOTS.arrestdbg = 'hour=10.5';
+SCRIPTS.speed = `const O = ORBIS, P = O.store.player, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), out = { fitness: P.fitness, fatigue: P.fatigue };
+    const u = G.lineAt(c, 0, 1), v0 = G.lineAt(c, 1, -2) + 20, [x, z] = c.toWorld(u, v0), [x2, z2] = c.toWorld(u, v0 + 50); O.ctrl.pos = [x, c.h + 0.1, z]; O.ctrl.facing = Math.atan2(x2 - x, z2 - z); O.cam.yaw = O.ctrl.facing; await wait(1500);
+    const run = async keys => { for (const k of keys) dispatchEvent(new KeyboardEvent('keydown', { code: k })); await wait(1200); const p0 = O.ctrl.pos.slice(), t0 = performance.now(); await wait(2500); const m = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]) / ((performance.now() - t0) / 1000); for (const k of keys) dispatchEvent(new KeyboardEvent('keyup', { code: k })); await wait(600); return +m.toFixed(2); };
+    out.walk = await run(['KeyW']); out.run = await run(['KeyW', 'ShiftLeft']); throw new Error(JSON.stringify(out));`; SHOTS.speed = 'hour=11';
+SCRIPTS.gundbg = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && x.pose !== 'lie' && !String(x.id).startsWith('tr:')); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
+    P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol'; O.ctrl.pos = [a.pos[0] + 6, a.pos[1], a.pos[2]]; await wait(600); O.attack(); await wait(2500); throw new Error(JSON.stringify({ running: O.getAgents().filter(x => x.activity === 'running from gunfire').length, all: O.getAgents().length }));`; SHOTS.gundbg = 'hour=11';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

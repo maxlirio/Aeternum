@@ -74,7 +74,7 @@ export class Residents {
   doorsInUse(agents) {
     const keys = new Set();
     for (const a of agents) {
-      if (!a.moving) continue;
+      if (!a.moving || !a.seg?.route) continue;      // (someone running from gunfire isn't on a route)
       const pts = a.seg.route.pts;
       for (const i of [a.routeIndex - 1, a.routeIndex, a.routeIndex + 1]) {
         const q = pts[i];

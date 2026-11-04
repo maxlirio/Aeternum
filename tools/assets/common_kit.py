@@ -1,5 +1,5 @@
 # Things most places on most planets have, whoever built them: how people eat, wash, work, repair,
-# heal, store and get about. `-- common` adds them to assets/items.glb's sibling, assets/common.glb.
+# heal, store, farm, mine, power and get about. `-- common` builds assets/common.glb.
 def washingline(p, r):
     for x in (-1.2, 1.2): bx(p, x, 0, 0, 0.04, 1.6, 0.04, 'metal', 0.004); bx(p, x, 1.6, 0, 0.04, 0.03, 0.5, 'metal', 0.004)
     for z in (-0.2, -0.07, 0.07, 0.2): rod_x(p, -1.2, 1.2, 1.6, z, 0.003, 'rubber', 4)
@@ -78,7 +78,122 @@ def hydroponicrack(p, r):
     for k in range(3):
         y = 0.35 + k * 0.6; bx(p, 0, y, 0, 1.9, 0.09, 0.5, 'plastic', 0.008); bx(p, 0, y + 0.5, 0, 1.8, 0.03, 0.08, 'lampwarm', 0.004)
         for i in range(8): add_blob(p, -0.8 + i * 0.23, y + 0.16, rng.uniform(-0.12, 0.12), rng.uniform(0.08, 0.13), 'leaf', rng, 2, 0.8)
-COMMON = 'washingline sink stove bedframe wardrobe nightstand bathtub towelrail washer workbench pegboard gascan jackstand tyre stretcher ivstand wheelchair cargonet barrelrack shelvingunit pallettruck sandbag tarp campfire watertankfarm generatorset powerpole signpost fencepanel wellhead hydroponicrack'.split()
+# ---------------------------------------------------------------- beyond the city: farms, mines, utilities, rail, outposts
+def lattice(p, h, b, mat='metal', step=2.0):       # a tapering four-legged steel tower
+    t = b * 0.25
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            n = int(h / step)
+            for i in range(n):
+                f0, f1 = i / n, (i + 1) / n; x0, z0 = sx * (b + (t - b) * f0), sz * (b + (t - b) * f0)
+                cy(p, x0, z0, f0 * h, f1 * h, 0.05, mat, 6)
+    for i in range(int(h / step)):
+        y = (i + 1) * step; w = b + (t - b) * y / h; bx(p, 0, y, -w, 2 * w, 0.05, 0.05, mat, 0.004); bx(p, 0, y, w, 2 * w, 0.05, 0.05, mat, 0.004); bx(p, -w, y, 0, 0.05, 0.05, 2 * w, mat, 0.004); bx(p, w, y, 0, 0.05, 0.05, 2 * w, mat, 0.004)
+def pylon(p, r):
+    lattice(p, 28, 3.0)
+    for y, w in ((20, 7), (24, 5.5), (28, 4)):
+        bx(p, 0, y, 0, 2 * w, 0.25, 0.25, 'metal', 0.01)
+        for s in (-1, 1): cy(p, s * w, 0, y - 1.3, y, 0.09, 'ceramic', 10)
+def windmillbig(p, r):
+    cy(p, 0, 0, 0, 34, 1.5, 'ceramic', 24, r2=0.8); bx(p, 0, 34, 0.6, 1.6, 1.6, 4.2, 'ceramic', 0.2); add_cyl(p, 34.8, -1.6, -2.1, -1.3, 0.8, 'ceramic', seg=18, axis='z')
+    for k in range(3):
+        a = k * 2.094; bm = bmesh.new(); ca, sa = math.cos(a), math.sin(a); L = 15
+        vs = [bm.verts.new(P(q[0] * ca - q[1] * sa, 34.8 + q[0] * sa + q[1] * ca, -1.9 + q[2])) for q in ((0.5, 0, -0.1), (L, 0, -0.05), (L, 0.3, 0.05), (0.5, 1.1, 0.1))]; bm.faces.new(vs); bm.faces.new([bm.verts.new(v.co) for v in vs[::-1]]); merge(p, bm, 'ceramic')
+def solarfield(p, r):
+    for i in range(4):
+        x = -6 + i * 4; cy(p, x, 0, 0, 1.2, 0.07, 'metal', 8)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x - 1.8, 0.8, -1.5), (x + 1.8, 0.8, -1.5), (x + 1.8, 1.9, 1.5), (x - 1.8, 1.9, 1.5))]; bm.faces.new(vs[::-1]); merge(p, bm, 'visor')
+        for k in range(7): bx(p, x - 1.5 + k * 0.5, 1.35, 0, 0.012, 0.012, 3.2, 'metal', 0.002)
+def pumpjack(p, r):
+    bx(p, 0, 0, 0, 7, 0.4, 1.8, 'concrete', 0.02); [cy(p, 0, s, 0.4, 4.5, 0.14, 'hazard', 8, r2=0.1) for s in (-0.7, 0.7)]; bx(p, 0, 4.5, 0, 6.2, 0.45, 0.32, 'hazard', 0.02); bx(p, 3.1, 3.4, 0, 0.5, 1.6, 0.5, 'hazard', 0.03)
+    cy(p, 3.1, 0, 0, 3.4, 0.06, 'metal', 8); add_cyl(p, 1.1, 0.9, -2.6, -1.8, 0.8, 'rubber', seg=20, axis='x'); bx(p, -2.4, 0.4, 0, 1.5, 1.0, 1.2, 'paint', 0.03)
+def substation(p, r):
+    bx(p, 0, 0, 0, 7, 0.2, 5, 'concrete', 0.01)
+    for x in (-2.2, 0, 2.2): bx(p, x, 0.2, -1, 1.5, 2, 1.3, 'paint', 0.04); [cy(p, x + k * 0.45, -1, 2.2, 3.1, 0.06, 'ceramic', 10, r2=0.04) for k in (-1, 0, 1)]
+    for x in (-3.5, 3.5): [cy(p, x, z, 0, 5, 0.06, 'metal', 6) for z in (-2.4, 2.4)]; bx(p, x, 5, 0, 0.1, 0.1, 4.9, 'metal', 0.004)
+    [bx(p, 0, 2.1, z, 7.4, 0.04, 0.04, 'hazard', 0.004) for z in (2.5, -2.5)]
+def tractor(p, r):
+    bx(p, 0.4, 0.75, 0, 2.4, 0.85, 1.0, 'tint', 0.06); bx(p, -0.7, 1.05, 0, 1.2, 1.5, 1.2, 'visor', 0.04); bx(p, -0.7, 2.55, 0, 1.35, 0.1, 1.35, 'tint', 0.03); cy(p, 1.2, 0.2, 1.5, 2.5, 0.05, 'metal', 8)
+    for s in (-1, 1): add_cyl(p, 0.72, s * 0.85, -1.15, -0.25, 0.72, 'rubber', seg=26, axis='x'); add_cyl(p, 0.42, s * 0.72, 1.0, 1.4, 0.42, 'rubber', seg=20, axis='x')
+def harvester(p, r):
+    bx(p, 0, 0.8, 0, 5, 2.4, 2.8, 'tint', 0.1); bx(p, 2.2, 2.6, 0, 1.5, 1.2, 1.6, 'visor', 0.05); bx(p, 3.9, 0.3, 0, 1.6, 0.7, 5, 'hazard', 0.05); rod_z(p, -2.4, 2.4, 4.3, 0.75, 0.32, 'metal', 14)
+    for s in (-1, 1): add_cyl(p, 0.8, s * 1.5, 0.6, 1.6, 0.8, 'rubber', seg=24, axis='x'); add_cyl(p, 0.55, s * 1.3, -2.2, -1.5, 0.55, 'rubber', seg=20, axis='x')
+    bx(p, -1, 3.2, -0.9, 3, 0.25, 0.25, 'metal', 0.03)
+def barn(p, r):
+    bx(p, 0, 0, 0, 12, 4, 8, 'corrugated', 0.02)
+    for s in (-1, 1):
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-6.3, 3.9, s * 4.3), (6.3, 3.9, s * 4.3), (6.3, 6.6, 0), (-6.3, 6.6, 0))]; bm.faces.new(vs if s < 0 else vs[::-1]); merge(p, bm, 'corrugated')
+    for x in (-6, 6):
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x, 4, -4), (x, 4, 4), (x, 6.5, 0))]; bm.faces.new(vs if x > 0 else vs[::-1]); merge(p, bm, 'corrugated')
+    bx(p, 6.02, 0, 0, 0.05, 3.2, 4, 'wood', 0.005); bx(p, 6.05, 0, 0, 0.03, 3.2, 0.06, 'rubber', 0.002)
+def grainsilo(p, r): cy(p, 0, 0, 0, 11, 2.8, 'corrugated', 28); cy(p, 0, 0, 11, 13.2, 2.8, 'metal', 28, r2=0.5); [cy(p, 0, 0, y, y + 0.05, 2.83, 'metal', 28) for y in (3, 6, 9)]; [cy(p, 2.9, z, 0, 11, 0.03, 'metal', 6) for z in (-0.2, 0.2)]; [rod_z(p, -0.2, 0.2, 2.9, 0.4 + k * 0.4, 0.015, 'metal', 5) for k in range(27)]
+def greenhouse(p, r):
+    M = 12
+    for i in range(7):
+        x = -4.5 + i * 1.5
+        for k in range(M): a0, a1 = k / M * 3.1416, (k + 1) / M * 3.1416; bx(p, x, 2.0 * math.sin((a0 + a1) / 2), 2.2 * math.cos((a0 + a1) / 2), 0.05, 0.05, 0.6, 'metal', 0.003)
+    bm = bmesh.new(); rows = []
+    for k in range(M + 1): a = k / M * 3.1416; rows.append([bm.verts.new(P(x, 2.0 * math.sin(a), 2.2 * math.cos(a))) for x in (-4.5, 4.5)])
+    for k in range(M): bm.faces.new([rows[k][0], rows[k][1], rows[k + 1][1], rows[k + 1][0]])
+    merge(p, bm, 'glass'); rng = random.Random(3)
+    for z in (-1.1, 1.1):
+        bx(p, 0, 0, z, 8.4, 0.5, 0.8, 'wood', 0.01); bx(p, 0, 0.45, z, 8.2, 0.08, 0.7, 'soil', 0.005)
+        for i in range(14): add_blob(p, -3.9 + i * 0.6, 0.7, z + rng.uniform(-0.2, 0.2), rng.uniform(0.14, 0.24), 'leaf', rng, 2, 1.1)
+def irrigator(p, r):
+    for i in range(3): x = -9 + i * 9; [cy(p, x, s, 0, 3.4, 0.06, 'metal', 8) for s in (-1, 1)]; add_cyl(p, 0.5, -1, x - 0.1, x + 0.1, 0.5, 'rubber', seg=16, axis='x'); add_cyl(p, 0.5, 1, x - 0.1, x + 0.1, 0.5, 'rubber', seg=16, axis='x')
+    rod_x(p, -12, 12, 3.4, 0, 0.09, 'metal', 10); [cy(p, -11 + k * 1.5, 0, 2.6, 3.35, 0.012, 'rubber', 5) for k in range(15)]
+def animalpen(p, r):
+    for x in (-3, -1, 1, 3):
+        for z in (-2, 2): cy(p, x, z, 0, 1.2, 0.06, 'wood', 8)
+    for z in (-2, 2):
+        for y in (0.5, 1.05): rod_x(p, -3, 3, y, z, 0.03, 'wood', 6)
+    for x in (-3, 3):
+        for y in (0.5, 1.05): rod_z(p, -2, 2, x, y, 0.03, 'wood', 6)
+    bx(p, 0, 0, 0, 1.6, 0.4, 0.5, 'wood', 0.01); bx(p, 0, 0.3, 0, 1.45, 0.1, 0.4, 'visor', 0.003)
+def haybale(p, r): add_cyl(p, 0.65, 0, -0.65, 0.65, 0.65, 'cardboard', seg=22, axis='x'); [add_cyl(p, 0.65, 0, x, x + 0.02, 0.66, 'soil', seg=22, axis='x') for x in (-0.3, 0.3)]
+def headframe(p, r):
+    lattice(p, 22, 4, 'hazard'); bx(p, 0, 22, 0, 6, 1.0, 6, 'corrugated', 0.02); add_cyl(p, 23, 0, -1.3, 1.3, 1.9, 'metal', seg=24, axis='x'); bx(p, 0, 0, 0, 9, 0.8, 9, 'concrete', 0.03); bx(p, 0, 0.8, 0, 2.6, 3.2, 2.6, 'corrugated', 0.02)
+def drillrig(p, r):
+    lattice(p, 14, 1.3); bx(p, 0, 0, 0, 7, 0.6, 4, 'hazard', 0.03); bx(p, -2.6, 0.6, 0, 1.8, 2, 3, 'paint', 0.04); cy(p, 0, 0, 0, 13, 0.14, 'metal', 12); add_cyl(p, 1.3, 1.5, 1.0, 3, 0.5, 'corrugated', seg=14, axis='x')
+def orecart(p, r):
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-0.9, 0.35, -0.5), (0.9, 0.35, -0.5), (1.15, 1.05, -0.7), (-1.15, 1.05, -0.7))]; bm.faces.new(vs[::-1]); merge(p, bm, 'corrugated')
+    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((-0.9, 0.35, 0.5), (0.9, 0.35, 0.5), (1.15, 1.05, 0.7), (-1.15, 1.05, 0.7))]; bm.faces.new(vs); merge(p, bm, 'corrugated')
+    bx(p, 0, 0.3, 0, 1.9, 0.06, 1.05, 'metal', 0.005); lumps(p, 12, 0.7, 0.75, 0.2, ['rock'], 'ore', 0.8)
+    for x in (-0.6, 0.6):
+        for z in (-0.46, 0.46): rod_z(p, z - 0.03, z + 0.03, x, 0.17, 0.17, 'metal', 14)
+def railtrack(p, r):
+    for i in range(10): bx(p, -4.5 + i, 0, 0, 0.22, 0.12, 2.3, 'wood', 0.008)
+    for z in (-0.72, 0.72): bx(p, 0, 0.12, z, 10, 0.05, 0.09, 'metal', 0.004); bx(p, 0, 0.17, z, 10, 0.05, 0.03, 'metal', 0.003); bx(p, 0, 0.22, z, 10, 0.03, 0.06, 'metal', 0.004)
+def railcar(p, r):
+    bx(p, 0, 1.0, 0, 12, 2.6, 2.8, 'tint', 0.06); [bx(p, -5.5 + i, 1.0, -1.41, 0.05, 2.6, 0.02, 'tint', 0.003) for i in range(12)]; bx(p, 0, 0.75, 0, 12.4, 0.25, 2.5, 'rubber', 0.01); [bx(p, s * 4, 0, 0, 2.6, 0.75, 2.2, 'rubber', 0.03) for s in (-1, 1)]
+    for s in (-1, 1):
+        for x in (-0.8, 0.8): rod_z(p, -1.1, 1.1, s * 4 + x, 0.45, 0.45, 'metal', 18)
+def platformbench(p, r): bx(p, 0, 0, 0, 12, 1.0, 3.5, 'concrete', 0.02); bx(p, 0, 1.0, -1.68, 12, 0.01, 0.2, 'hazard', 0.001); [cy(p, x, 0.9, 1.0, 3.6, 0.09, 'metal', 10) for x in (-4, 0, 4)]; bx(p, 0, 3.6, 0.2, 12.4, 0.12, 3.2, 'corrugated', 0.01); bx(p, 2, 1.0, 1.2, 2.4, 0.45, 0.5, 'wood', 0.01); bx(p, -3, 2.6, 0.85, 2.4, 0.8, 0.06, 'screen', 0.005)
+def bridgespan(p, r):
+    bx(p, 0, 3.4, 0, 12, 0.6, 7, 'concrete', 0.03); [bx(p, x, 0, 0, 1.2, 3.4, 5.5, 'concrete', 0.03) for x in (-5.2, 5.2)]; [bx(p, 0, 4.0, z, 12, 0.8, 0.25, 'concrete', 0.02) for z in (-3.4, 3.4)]; bx(p, 0, 4.0, 0, 12, 0.02, 6.4, 'rubber', 0.002)
+def guardrail(p, r): [bx(p, x, 0, 0, 0.12, 0.8, 0.12, 'metal', 0.006) for x in (-2, 0, 2)]; bx(p, 0, 0.5, -0.07, 4.2, 0.28, 0.03, 'metal', 0.005); bx(p, 0, 0.61, -0.09, 4.2, 0.05, 0.015, 'hazard', 0.002)
+def roadsign(p, r): cy(p, 0, 0, 0, 2.6, 0.04, 'metal', 8); add_cyl(p, 2.3, -0.05, -0.06, -0.04, 0.38, 'tint', seg=4 if r.random() < 0.3 else 24, axis='z'); add_cyl(p, 2.3, -0.065, -0.07, -0.06, 0.3, 'ceramic', seg=24, axis='z')
+def fuelpump(p, r): bx(p, 0, 0, 0, 2.4, 0.18, 1.0, 'concrete', 0.02); bx(p, 0, 0.18, 0, 0.75, 1.9, 0.5, 'tint', 0.03); bx(p, 0, 1.3, -0.26, 0.5, 0.42, 0.01, 'screen', 0.002); [bx(p, s * 0.42, 0.9, 0, 0.1, 0.32, 0.08, 'rubber', 0.01) for s in (-1, 1)]; bx(p, 0, 2.08, 0, 0.8, 0.2, 0.55, 'neoncyan', 0.02)
+def fuelcanopy(p, r): [cy(p, x, 0, 0, 5, 0.22, 'metal', 14) for x in (-4, 4)]; bx(p, 0, 5, 0, 13, 0.6, 7, 'tint', 0.05); bx(p, 0, 4.98, 0, 12.4, 0.02, 6.4, 'lampwarm', 0.002); bx(p, 0, 5.15, -3.51, 11, 0.3, 0.02, 'neonamber', 0.003)
+def waterwheel(p, r):
+    rod_z(p, -1.0, 1.0, 0, 2.4, 0.14, 'wood', 12); 
+    for k in range(12): a = k * 0.5236; rod_z(p, -0.6, 0.6, 2.2 * math.cos(a), 2.4 + 2.2 * math.sin(a), 0.1, 'wood', 6); bx(p, 1.1 * math.cos(a), 2.4 + 1.1 * math.sin(a), -0.55, 2.2 * abs(math.cos(a)) + 0.1, 2.2 * abs(math.sin(a)) + 0.1, 0.06, 'wood', 0.005)
+    [bx(p, 0, 0, s, 0.5, 2.6, 0.3, 'rock', 0.03) for s in (-1.05, 1.05)]
+def watchtower(p, r): lattice(p, 10, 1.8, 'wood'); bx(p, 0, 10, 0, 4.2, 0.2, 4.2, 'wood', 0.01); [bx(p, 0, 10.2, s, 4.2, 1.0, 0.08, 'wood', 0.005) for s in (-2.05, 2.05)]; [bx(p, s, 10.2, 0, 0.08, 1.0, 4.2, 'wood', 0.005) for s in (-2.05, 2.05)]; [cy(p, sx * 1.95, sz * 1.95, 10.2, 12.4, 0.07, 'wood', 8) for sx in (-1, 1) for sz in (-1, 1)]; cy(p, 0, 0, 12.4, 13.8, 3.2, 'corrugated', 4, r2=0.1)
+def radiomast(p, r): lattice(p, 34, 0.9); [cy(p, 0, 0, y, y + 0.1, 0.7, 'metal', 8) for y in (12, 22, 30)]; ball(p, 0, 34.3, 0, 0.25, 'navred'); bx(p, 2, 0, 2, 3, 2.3, 2.4, 'corrugated', 0.02)
+def bunker(p, r): bx(p, 0, 0, 0, 7, 2.3, 5.5, 'concrete', 0.2); bx(p, 0, 2.3, 0, 7.6, 0.5, 6, 'concrete', 0.15); bx(p, 0, 1.3, -2.76, 4.4, 0.32, 0.03, 'rubber', 0.005); bx(p, 2.4, 0, 2.76, 1.2, 2, 0.08, 'metal', 0.01); lumps(p, 12, 4, 0.1, 0.4, ['soil', 'rock'], 'bun', 0.6)
+def ruinwall(p, r):
+    rng = random.Random(r.random())
+    for i in range(9):
+        h = rng.uniform(0.6, 3.4) * (1 - abs(i - 4) * 0.1); bx(p, -4 + i, 0, 0, 0.98, h, 0.55, 'concrete', 0.05)
+    lumps(p, 14, 4.2, 0.1, 0.32, ['rock', 'concrete'], 'rubble', 0.7)
+def cairn(p, r): lumps(p, 16, 0.5, 0, 0.22, ['rock'], 'cairn-a', 0.8); lumps(p, 8, 0.3, 0.42, 0.17, ['rock'], 'cairn-b', 0.8); lumps(p, 3, 0.12, 0.8, 0.12, ['rock'], 'cairn-c', 0.8)
+def stonewall(p, r): rng = random.Random(4); [add_blob(p, rng.uniform(-2.4, 2.4), rng.uniform(0.1, 0.8), rng.uniform(-0.2, 0.2), rng.uniform(0.17, 0.28), 'rock', rng, 2, 0.75) for _ in range(46)]
+def workcamp(p, r):
+    bx(p, 0, 0, 0, 6, 2.5, 2.4, 'corrugated', 0.03); bx(p, 0, 2.5, 0, 6.2, 0.1, 2.6, 'metal', 0.01); bx(p, -1.5, 0, -1.22, 0.9, 2.1, 0.04, 'paint', 0.005); [bx(p, x, 1.0, -1.22, 1, 0.8, 0.03, 'visor', 0.003) for x in (0.4, 1.9)]; cy(p, 3, 0.9, 2.6, 3.2, 0.08, 'metal', 8); bx(p, 2.4, 2.6, 0.4, 0.8, 0.4, 0.6, 'paint', 0.02)
+def lighthouse(p, r): cy(p, 0, 0, 0, 20, 2.4, 'ceramic', 24, r2=1.4); [cy(p, 0, 0, y, y + 3, 2.42 - y * 0.05, 'navred', 24, r2=2.42 - (y + 3) * 0.05) for y in (4, 12)]; cy(p, 0, 0, 20, 20.3, 1.9, 'metal', 24); cy(p, 0, 0, 20.3, 22, 1.1, 'glass', 18); cy(p, 0, 0, 20.5, 21.8, 0.5, 'lampwarm', 12); cy(p, 0, 0, 22, 23, 1.2, 'navred', 18, r2=0.1)
+
+COMMON = 'washingline sink stove bedframe wardrobe nightstand bathtub towelrail washer workbench pegboard gascan jackstand tyre stretcher ivstand wheelchair cargonet barrelrack shelvingunit pallettruck sandbag tarp campfire watertankfarm generatorset powerpole signpost fencepanel wellhead hydroponicrack pylon windmillbig solarfield pumpjack substation tractor harvester barn grainsilo greenhouse irrigator animalpen haybale headframe drillrig orecart railtrack railcar platformbench bridgespan guardrail roadsign fuelpump fuelcanopy waterwheel watchtower radiomast bunker ruinwall cairn stonewall workcamp lighthouse'.split()
 def build_common():
     for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
     made = []

@@ -5,7 +5,7 @@
 // your sight it catches up. Ambient only: nothing here is saved, and no rule depends on it.
 import { TYPES } from '../gen/vehicles.js';
 
-const CATCH_UP = 0.4, BRAKE_RATE = 3.2, GO_RATE = 1.3, GAP = 1.8;
+const CATCH_UP = 0.4, PLAN_DECEL = 6, MAX_DECEL = 8.5, ACCEL = 2.6, GAP = 1.8;      // m/s²: real cars take room to stop
 export class RoadLife {
   constructor() { this.cars = new Map(); }           // id → { d (seconds behind), r (0 stopped .. 1 at pace) }
   delayOf = id => this.cars.get(id)?.d || 0;
@@ -33,9 +33,9 @@ export class RoadLife {
         if (a <= 0 || Math.abs(dx * fz - dz * fx) > T.W / 2 + 0.7) continue;
         const gap = a - T.L / 2 - 1.2; if (gap < D) D = gap;
       }
-      const want = D === Infinity ? 1 : Math.max(0, Math.min(1, (D - 0.4) / (v.speed * 1.5 + 2))), c = this.cars.get(v.id) || { d: 0, r: 1 };
-      c.r += (want - c.r) * Math.min(1, dt * (want < c.r ? BRAKE_RATE : GO_RATE));
-      if (want === 0 && D <= 0.5) c.r = Math.min(c.r, 0.02);      // at the line: stopped
+      // the speed from which it could still stop in the room it has; it can't brake harder than a car can
+      const pace = Math.max(1, v.speed), safe = D === Infinity ? pace : Math.sqrt(2 * PLAN_DECEL * Math.max(0, D - 0.4)), want = Math.min(1, safe / pace), c = this.cars.get(v.id) || { d: 0, r: 1 };
+      c.r = want < c.r ? Math.max(want, c.r - MAX_DECEL / pace * dt) : Math.min(want, c.r + ACCEL / pace * dt);
       c.d += (1 - c.r) * dt;
       this.cars.set(v.id, c);
     }

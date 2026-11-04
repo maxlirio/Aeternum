@@ -108,7 +108,12 @@ export function createPlaceholderAvatar() {
     setHeld(id) {
       if (held.userData.id === id) return;
       held.clear(); held.userData.id = id; aim = id === 'pistol' || id === 'carbine';
-      for (const m of (MODELS[id] || (() => []))()) held.add(m);
+      const parts = id && this.lib?.cityPart?.('item_' + id);
+      if (parts) {       // the real model: guns point along the arm's line of fire, blades hang from the fist
+        const g = new THREE.Group(); for (const p of parts) { const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; g.add(m); }
+        if (aim) { g.rotation.y = -Math.PI / 2; g.position.set(0, -0.1, 0.02); } else { g.rotation.z = -Math.PI / 2; g.position.set(0, 0, 0.01); }
+        held.add(g);
+      } else for (const m of (MODELS[id] || (() => []))()) held.add(m);
     },
     punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated

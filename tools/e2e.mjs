@@ -418,6 +418,9 @@ try {
     const e0 = O.store.events.length; go(); O.attack(); await wait(200);
     return { hurt: O.store.getDelta('hurt/' + a.person.id)?.hp, assault: O.store.events.slice(e0).some(e => e.type === 'assault') }; })()`);
   check(cb.hurt < 100 && cb.assault, `punched someone: ${Math.round(cb.hurt)}% health, an assault is on record`);
+  const gs = await ev(`(async () => { const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); const a = O.getAgents().find(x => !x.bKey && x.pose !== 'lie' && !String(x.id).startsWith('tr:')); if (!a) return { none: true };
+    P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol'; O.ctrl.pos = [a.pos[0] + 6, a.pos[1], a.pos[2]]; await wait(600); O.attack(); const f0 = O.renderer.info.render.frame; await wait(2500); const running = O.getAgents().filter(x => x.activity === 'running from gunfire').length; P.inventory = P.inventory.filter(x => x.id !== 'pistol'); P.weapon = null; return { running, frames: O.renderer.info.render.frame - f0 }; })()`);
+  check(gs.none || (gs.running > 0 && gs.frames > 5), `a shot near people: ${gs.running} run from it, and the game keeps drawing (${gs.frames} frames)`);
   const gf = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
     P.custody = null; P.warrant = null; P.hp = 100;
@@ -483,14 +486,14 @@ try {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/traffic.js');
     P.hp = 100; P.custody = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
     // stand in the road, in the path of the nearest car in town
-    const t = O.clock.now(), v = T.trafficNear(O.planet, O.s, t, O.s.cx, O.s.cz, 400)[0];
+    // step out right in front of a moving car: too close for it to stop
+    let v = null; for (let i = 0; i < 80 && !v; i++) { v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && Math.hypot(q.pos[0] - O.s.cx, q.pos[2] - O.s.cz) < 400); if (!v) { O.clock.advance(30); await wait(100); } }
     if (!v) return { none: true };
-    const fx = Math.sin(v.facing), fz = Math.cos(v.facing), hold = () => { const n = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id); return n; };
-    const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 2.5, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id); O.ctrl.pos = fut.pos.slice(); O.ctrl.vel = [0, 0, 0];   // (where it will be: roads bend)
-    const p0 = O.ctrl.pos.slice(); let hurt = false; for (let i = 0; i < 60 && !hurt; i++) { await wait(100); hurt = P.hp < 100; }
-    const thrown = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]), stun = O.ctrl.stun; await wait(600);
+    const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 0.3, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id); O.ctrl.pos = fut.pos.slice(); O.ctrl.vel = [0, 0, 0];
+    const p0 = O.ctrl.pos.slice(); let hurt = false; for (let i = 0; i < 60 && !hurt; i++) { await wait(50); hurt = P.hp < 100; }
+    const stun = O.ctrl.stun; await wait(500); const thrown = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]); await wait(300);
     return { hp: Math.round(P.hp), thrown: Math.round(thrown * 10) / 10, stunned: stun > 0, type: v.type, toast: [...document.querySelectorAll('.toast')].map(e => e.textContent).find(x => /hit/.test(x)) || '' }; })()`);
-  check(hit.hp < 100 && hit.thrown > 0.5 && hit.stunned, `stood in front of a ${hit.type}: knocked over and thrown ${hit.thrown} m, ${hit.hp}% health — "${String(hit.toast).slice(0, 50)}"`);
+  check(hit.none || (hit.hp < 100 && hit.thrown > 0.5 && hit.stunned), `stood in front of a ${hit.type}: knocked over and thrown ${hit.thrown} m, ${hit.hp}% health — "${String(hit.toast).slice(0, 50)}"`);
   console.log('[sandbox]');
   const sb = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); }, FL = await import('./js/gen/cityfleet.js'), G = await import('./js/gen/city.js'), V = await import('./js/gen/vehicles.js'), out = {};

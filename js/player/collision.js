@@ -91,7 +91,7 @@ export class CollisionWorld {
         walls.push(alongX ? [a0, cc - t, a1, cc + t, top, top + 0.7, -1] : [cc - t, a0, cc + t, a1, top, top + 0.7, -1]);
       }
     }
-    const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]);
+    const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]).concat(plan.solids || []);
     c = { b, plan, walls, props };
     this.cols.set(b.plan ? b.key : b.n, c);
     return c;

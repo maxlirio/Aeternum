@@ -54,10 +54,11 @@ export class CityTrafficView {
     this.boxes.setColorAt(i, this._c.setRGB(col[0], col[1], col[2]));
   }
   // people: [[x, y, z]] in the way, that traffic should brake for
-  update(t, dt, viewer, night, toRender, people = []) {
+  update(t, dt, viewer, night, toRender, people = [], alsoManaged = []) {
     const c = this.city, F = this.fleet, n = this.n, P = this.pos, C = this.col, near = [], ships = [], managed = [];
     this.nearby = [];
     const far = Math.hypot(viewer[0] - c.cx, viewer[2] - c.cz) > c.R + 2500;
+    if (far) this.life.step(dt, alsoManaged, people);                   // (the town's traffic has manners too)
     if (far && (this.skip = ((this.skip || 0) + 1) % 4)) return;        // from out of town the streams only need updating now and then
     for (let e = Math.min(n, this.ready + INIT_PER_FRAME); this.ready < e; this.ready++) this.read(this.ready, t);
     let k = 0, nb = 0; const q = this.q, close = !far;
@@ -84,7 +85,7 @@ export class CityTrafficView {
       if (car.ship ? d < SHIP : d < NEAR) (car.ship ? ships : near).push(car.ship ? { id: car.id, model: car.ship, c: rp, facing: v.facing, colour: car.colour, rampDown: false, d } : { type: car.type, pos: rp, facing: v.facing, colour: car.colour, d, pitch: car.air && moving ? Math.max(-0.2, Math.min(0.2, this.vy[i] * 0.02)) : 0 });
       else this.putBox({ ship: car.ship, type: car.type, pos: rp, facing: v.facing, colour: car.colour }, nb++);
     }
-    this.life.step(dt, managed.map(v => ({ ...v, speed: v.pace })), people);
+    this.life.step(dt, managed.map(v => ({ ...v, speed: v.pace })).concat(alsoManaged), people);
     // over budget: the farther ones are stand-ins too, so nothing ever blinks out
     const byD = (p, a) => p.d - a.d;
     if (near.length > MAXN) { near.sort(byD); for (const v of near.splice(MAXN)) this.putBox(v, nb++); }
