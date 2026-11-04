@@ -1088,6 +1088,7 @@ async function start(fresh) {
     sched.tick(dt, t, ctx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
+    town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
     cityTraffic.update(clock.now(), ctrl.pos, 1 - (sky.state.day ?? 1), toRender);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
@@ -1149,7 +1150,8 @@ async function start(fresh) {
         } else ui.showPrompt(null);
       }
     }
-    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos });
+    const cp = cityPlace(cityView.city, ctrl.pos[0], ctrl.pos[2]);
+    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos, cityAt: cp && { label: cp.label, city: cityView.city.name } });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;

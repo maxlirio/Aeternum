@@ -61,6 +61,7 @@ export class UI {
     const h = solarHour(planet, t);
     $('.place', this.hud).textContent = located ? (located.b ? labelFor(located, g.cell) : s.name) : s.name;
     $('.where .sub', this.hud).textContent = located?.b ? `${located.b.type === 'ship' ? located.b.ship.ownerName === 'you' ? 'your ship' : located.b.ship.ownerName : s.name} · ${planet.name}` : `${planet.name}`;
+    if (g.cityAt && !located?.b) { $('.place', this.hud).textContent = g.cityAt.label; $('.where .sub', this.hud).textContent = `${g.cityAt.city} · ${planet.name}`; }
     $('.time', this.hud).textContent = formatHour(h);
     $('.clock .sub', this.hud).textContent = `Day ${dayNumber(planet, t)} · ${(planet.dayLength / 3600).toFixed(1)} h day${g.weather ? ' · ' + g.weather.label : ''}`;
     $('.who', this.hud).textContent = `${player.name}, ${player.age}`;

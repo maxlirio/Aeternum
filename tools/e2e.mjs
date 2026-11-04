@@ -432,6 +432,27 @@ try {
     return { shot, drawn: !!pu.drawn, hp: P.hp, custody: !!P.custody, armed: P.inventory.some(x => x.id === 'pistol') }; })()`);
   check(gf.drawn && gf.shot, `armed and wanted, the officer draws and fires (${JSON.stringify(gf)})`);
   check(gf.custody && !gf.armed && gf.hp > 0, 'shot down by the law: you wake in the cell, weapons gone');
+  console.log('[city]');
+  const ct = await ev(`(async () => {
+    const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js');
+    O.store.player.custody = null; O.ctrl.mode = 'walk';
+    const u = G.lineAt(c, 0, 1), v0 = G.lineAt(c, 1, -2) + 20, [x, z] = c.toWorld(u, v0), [x2, z2] = c.toWorld(u, v0 + 50);
+    O.ctrl.pos = [x, c.h + 0.3, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(x2 - x, z2 - z); O.cam.yaw = O.ctrl.facing;
+    for (let i = 0; i < 120 && !O.cityView.done; i++) await wait(250);
+    await wait(600); const p0 = O.ctrl.pos.slice();
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(4000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    const moved = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]);
+    const place = document.querySelector('.place')?.textContent;
+    // into a building: blocked at its wall
+    let B = null; for (let a = 0; a < 40 && !B; a++) { const b = G.cityBlock(c, a % 8 - 3, Math.floor(a / 8) - 2); if (b.district && b.buildings.some(q => q.tiers[0].y0 === 0 && q.tiers[0].y1 > 15)) B = b; }
+    const bd = B.buildings.find(q => q.tiers[0].y0 === 0 && q.tiers[0].y1 > 15), r = bd.tiers[0].r, vm = (r[1] + r[3]) / 2, [bx, bz] = c.toWorld(r[0] - 4, vm), [tx, tz] = c.toWorld(r[0] + 10, vm);
+    O.ctrl.pos = [bx, c.h + 0.3, bz]; O.ctrl.facing = Math.atan2(tx - bx, tz - bz); O.cam.yaw = O.ctrl.facing; await wait(500);
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(3000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
+    const [lu] = c.toLocal(O.ctrl.pos[0], O.ctrl.pos[2]);
+    return { moved: Math.round(moved * 10) / 10, place, built: O.cityView.stats.sectors, traffic: O.cityTraffic.drawn, wall: Math.round((lu - r[0]) * 100) / 100, label: bd.label }; })()`);
+  check(ct.built > 50 && ct.moved > 4, `walked down a city street (${ct.moved} m; ${ct.built} sectors built; ${ct.traffic} vehicles drawn near)`);
+  check(/Spire|Commercial|Residential|Market|Warrens|Foundry|Skyport|Gardens/.test(ct.place), 'the HUD names the district: ' + ct.place);
+  check(ct.wall < 0 && ct.wall > -0.7, `walked into a ${ct.label} and stopped at its wall (${ct.wall} m)`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

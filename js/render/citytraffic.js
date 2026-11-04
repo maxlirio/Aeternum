@@ -6,7 +6,7 @@ import { VehicleView } from './vehicles.js';
 import { cityTraffic, cityLanes, lanePhase } from '../gen/citytraffic.js';
 import { CURB } from '../gen/city.js';
 
-const NEAR = 650;
+const NEAR = 420, MAXN = 160;          // drawn as models within NEAR, the nearest MAXN of them
 export class CityTrafficView {
   constructor(city, lib) {
     this.city = city; this.vehicles = new VehicleView(lib);
@@ -45,6 +45,7 @@ export class CityTrafficView {
     this.points.geometry.attributes.position.needsUpdate = true; this.points.geometry.attributes.color.needsUpdate = true;
     this.points.geometry.setDrawRange(0, k);
     this.mat.opacity = 0.35 + 0.65 * night; this.mat.size = 2.2 + 2.5 * night;
+    if (near.length > MAXN) { const d = v => (v.pos[0] ** 2 + (v.pos[1] - toRender(...viewer)[1]) ** 2 + v.pos[2] ** 2); near.sort((p, q) => d(p) - d(q)); near.length = MAXN; }
     this.vehicles.update(near);
     this.drawn = near.length;
   }

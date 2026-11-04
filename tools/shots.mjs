@@ -198,6 +198,12 @@ SCRIPTS.skyline = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => se
     for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, surfaceHeight(O.planet, x, z) + 0.2, z]; await wait(250); }
     O.ctrl.facing = Math.atan2(ux, uz); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.0; O.cam.dist = 5; await wait(2500);`;
 SHOTS.skyline = 'hour=18.2'; SCRIPTS.skylinen = SCRIPTS.skyline; SHOTS.skylinen = 'hour=21';
+SCRIPTS.tris = SCRIPTS.citymarket + ` const out = {}; const tri = o => { const g = o.geometry; if (!g || !o.visible) return 0; const n = (g.index ? g.index.count : g.attributes.position.count) / 3; return n * (o.isInstancedMesh ? o.count : 1); };
+    const walk = (o, key) => { if (!o.visible) return; out[key] = (out[key] || 0) + tri(o); for (const c of o.children) walk(c, key); };
+    for (const c of O.scene.children) for (const cc of (c.children.length ? c.children : [c])) walk(cc, (c.name || c.type) + '/' + (cc.name || cc.type));
+    const city = O.cityView, props = {}; city.props.children.forEach(im => { const k = im.geometry.uuid.slice(0, 4); props[im.material.name + ':' + Math.round(tri(im) / 1000) + 'k'] = 1; });
+    throw new Error(JSON.stringify(Object.entries(out).filter(e => e[1] > 50000).map(e => e[0] + ' ' + Math.round(e[1] / 1000) + 'k')) + ' props ' + Object.keys(props).filter(k => +k.split(':')[1].replace('k', '') > 40).join(' '));`;
+SHOTS.tris = 'hour=11';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';
