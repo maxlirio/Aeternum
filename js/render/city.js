@@ -212,7 +212,11 @@ export class CityView {
           const t = bd.tiers.at(-1), w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
           (crowns[bd.crown] ||= []).push([t.r, base + t.y1, s * CROWN_H[bd.crown] * (bd.crown === 'antenna' ? 3 : 1) + (bd.crown === 'spire' ? s * 0.6 : 0), bd.crown === 'vault' ? [w, d] : [s, s]]);
         }
-        if (bd.top > 120) { const t = bd.tiers.at(-1); beacons.push([(t.r[0] + t.r[2]) / 2, base + t.y1 + (bd.crown === 'spire' ? Math.min(t.r[2] - t.r[0], t.r[3] - t.r[1]) * 0.95 : bd.crown === 'antenna' ? Math.min(t.r[2] - t.r[0], t.r[3] - t.r[1]) * 0.9 : 1), (t.r[1] + t.r[3]) / 2]); }
+        if (bd.top > 120) {   // aircraft-warning lights: the crown's tip, else the roof's four corners
+          const t = bd.tiers.at(-1), sz = Math.min(t.r[2] - t.r[0], t.r[3] - t.r[1]);
+          if (bd.crown === 'spire' || bd.crown === 'antenna') beacons.push([(t.r[0] + t.r[2]) / 2, base + t.y1 + sz * (bd.crown === 'spire' ? 0.95 : 0.9), (t.r[1] + t.r[3]) / 2]);
+          else for (const [a, b] of [[0, 1], [2, 1], [0, 3], [2, 3]]) beacons.push([t.r[a] + (a ? -0.6 : 0.6), base + t.y1 + 1.6, t.r[b] + (b === 3 ? -0.6 : 0.6)]);
+        }
       }
       for (const p of B.pads) pads.push(p);
       bridges.push(...bridgesOf(c, B));
@@ -267,7 +271,7 @@ export class CityView {
       pm.computeBoundingSphere(); pm.receiveShadow = true; sec.group.add(pm);
     }
     if (beacons.length) {
-      const bm = new THREE.InstancedMesh(new THREE.SphereGeometry(1.4, 6, 4), this.beaconMat, beacons.length);
+      const bm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.55, 6, 4), this.beaconMat, beacons.length);
       beacons.forEach((p, q) => { M.makeTranslation(...p); bm.setMatrixAt(q, M); });
       bm.computeBoundingSphere(); sec.group.add(bm);
     }

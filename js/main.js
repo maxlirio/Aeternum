@@ -825,13 +825,16 @@ async function start(fresh) {
   function raidTick(t) {
     const k = raidIndex(planet, t), R = raidAt(planet, s, k);
     if (!raid && t >= R.t && t < R.t + 200 && !store.getDelta('raid/' + k)) {
-      const dist = 7000, bx = Math.sin(R.bearing), bz = Math.cos(R.bearing);
-      raid = { k, t0: t, raiders: [], defenders: [] };
-      for (let i = 0; i < R.n; i++) raid.raiders.push(Object.assign(war.spawn(R.models[i], 'raider', [s.cx + bx * dist + (i - R.n / 2) * 140, s.h + 1300 + i * 90, s.cz + bz * dist + i * 60], R.bearing + Math.PI, 170), { groundTarget: [s.cx, s.h, s.cz] }));
-      const hq = pop.buildingByKey.get(polity.security), at = hq ? buildingToWorld(s, hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
-      for (let i = 0; i < R.defenders; i++) raid.defenders.push(war.spawn(R.defModels[i], 'security', [at[0] + i * 60, s.h + 260 + i * 40, at[2] - 80], R.bearing, 140));
+      const dist = 7000, bx = Math.sin(R.bearing), bz = Math.cos(R.bearing), C = cityView.city;
+      // where you are decides what they hit: the megacity (its sky lanes and tower tops), or the town
+      const inCity = Math.hypot(ctrl.pos[0] - C.cx, ctrl.pos[2] - C.cz) < C.R + 2500;
+      const tgt = inCity ? [ctrl.pos[0] * 0.6 + C.cx * 0.4, C.h + 260, ctrl.pos[2] * 0.6 + C.cz * 0.4] : [s.cx, s.h, s.cz], n = inCity ? R.n + 2 : R.n, nd = inCity ? R.defenders + 2 : R.defenders;
+      raid = { k, t0: t, raiders: [], defenders: [], city: inCity };
+      for (let i = 0; i < n; i++) raid.raiders.push(Object.assign(war.spawn(R.models[i % R.models.length], 'raider', [tgt[0] + bx * dist + (i - n / 2) * 140, Math.max(tgt[1], s.h) + 1300 + i * 90, tgt[2] + bz * dist + i * 60], R.bearing + Math.PI, 170), { groundTarget: tgt }));
+      const hq = pop.buildingByKey.get(polity.security), at = inCity ? [tgt[0] - bx * 1500, C.h + 400, tgt[2] - bz * 1500] : hq ? buildingToWorld(s, hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
+      for (let i = 0; i < nd; i++) raid.defenders.push(war.spawn(R.defModels[i % R.defModels.length], 'security', [at[0] + i * 60, (inCity ? at[1] : s.h + 260) + i * 40, at[2] - 80], R.bearing, inCity ? 170 : 140));
       const dir = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((-R.bearing + Math.PI * 2.5) % (Math.PI * 2)) / (Math.PI / 4)) % 8];
-      ui.toast(`<b>Raiders inbound</b> — ${R.n} fighters from the ${dir}. ${esc(polity.securityName)} is scrambling ${R.defenders}.`, 'bad', 10000);
+      ui.toast(`<b>Raiders inbound</b> — ${n} fighters from the ${dir}${inCity ? `, making for ${esc(C.name)}` : ''}. ${inCity ? `${esc(C.name)} Defence` : esc(polity.securityName)} is scrambling ${nd}.`, 'bad', 10000);
     }
     if (raid && (raid.raiders.every(c => !c.alive) || t - raid.t0 > 300)) {
       const downed = raid.raiders.filter(c => !c.alive).length, lost = raid.defenders.filter(c => !c.alive).length;

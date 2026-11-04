@@ -129,7 +129,17 @@ SCRIPTS.citybridge = `const O = ORBIS, c = O.city, wait = ms => new Promise(r =>
     O.ctrl.pos = [x, c.h + G.CURB + Q.y + 0.05, z]; O.ctrl.vel = [0, 0, 0];
     for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, c.h + G.CURB + Q.y + 0.05, z]; await wait(200); }
     O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing + 0.5; O.cam.pitch = 0.05; O.cam.dist = 4; await wait(2000);`;
-SHOTS.citybridge = 'hour=17.8'; SCRIPTS.citybridgeo = SCRIPTS.citybridge.replace('O.cam.dist = 4', 'O.cam.dist = 40').replace('O.cam.pitch = 0.05', 'O.cam.pitch = 0.25'); SHOTS.citybridgeo = 'hour=17.8';
+SHOTS.citybridge = 'hour=17.8';
+SCRIPTS.cityraid = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), A = await import('./js/sim/aircombat.js');
+    let L = null; for (let a = 0; a < 900 && !L; a++) { const B = G.cityBlock(c, (a % 30) - 15, Math.floor(a / 30) - 15); L = G.liftsOf(c, B).find(l => l.stops.some(q => q.label.startsWith('Roof') && q.y > 120 && q.y < 260)); }
+    const q = L.stops.find(q => q.label.startsWith('Roof') && q.y > 120), [x, z] = c.toWorld(q.u, q.v), y = c.h + G.CURB + q.y + 0.05;
+    O.ctrl.pos = [x, y, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, y, z]; await wait(200); }
+    const k = A.raidIndex(O.planet, O.clock.now()) + 1, R = A.raidAt(O.planet, O.s, k); O.clock.advance(R.t + 1 - O.clock.now()); O.raidTick(O.clock.now());
+    const dur = +(new URLSearchParams(location.search).get('secs') || 26); for (let i = 0; i < dur * 4; i++) { O.ctrl.pos = [x, y, z]; await wait(250); }
+    const live = O.war.craft.filter(c2 => c2.alive && c2.side === 'raider'), t = live[0] || O.war.craft[0];
+    const yaw = Math.atan2(t.f.pos[0] - x, t.f.pos[2] - z); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = -Math.min(0.6, Math.max(0.05, Math.atan2(t.f.pos[1] - y, Math.hypot(t.f.pos[0] - x, t.f.pos[2] - z)))); O.cam.dist = 4; document.querySelector('.toasts')?.remove(); await wait(700);`;
+SHOTS.cityraid = 'hour=16&secs=26'; SCRIPTS.citybridgeo = SCRIPTS.citybridge.replace('O.cam.dist = 4', 'O.cam.dist = 40').replace('O.cam.pitch = 0.05', 'O.cam.pitch = 0.25'); SHOTS.citybridgeo = 'hour=17.8';
 // the city kit laid out on a boulevard, family by family (a contact sheet in real light)
 const KIT = {
   A: [5, 'lamp_cobra lamp_double lamp_lux lamp_lantern lamp_neon lamp_flood lamp_park bench bench_lux bin bin_lux bin_rusty vending vending2 vending_old kiosk kiosk_lux kiosk_food planter planter_lux bollard hydrant newsstand shelter atm bikerack mailbox terminal_post holo_post barrier junction steamvent tree tree_lux'],

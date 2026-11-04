@@ -93,7 +93,14 @@ export class AirWar {
     // the ground is the first enemy: look ahead along the flight path; pull up hard if it's coming
     const floor = 220, look = [2, 4, 7].map(k => { const q = add(f.pos, f.vel, k); return q[1] - Math.max(this.world.groundAt(q[0], q[2], q[1]).h, this.planet.seaLevel); });
     const danger = alt < floor || alt + vs * 7 < floor * 0.7 || Math.min(...look) < 120;
-    if (danger) { want = norm([f.fwd[0] * 0.4, 1.5, f.fwd[2] * 0.4]); c.target = Math.min(...look) < 60 ? c.target : c.target; }
+    if (danger) want = norm([f.fwd[0] * 0.4, 1.5, f.fwd[2] * 0.4]);
+    // towers: something solid along the flight path → turn for whichever side is clear, and climb
+    const solidAhead = k => { const q = add(f.pos, f.vel, k); return this.world.solidAt(q[0], q[1], q[2], 8); };
+    if (!danger && f.pos[1] < 1300 && (solidAhead(1.5) || solidAhead(3) || solidAhead(5))) {
+      const side = s2 => { const d = add(f.fwd, f.left, s2 * 0.9), sp = len(f.vel) || 1; const q = add(f.pos, norm(d), sp * 3); return this.world.solidAt(q[0], q[1], q[2], 8); };
+      const s2 = !side(1) ? 1 : !side(-1) ? -1 : 0;
+      want = s2 ? norm(add(add(f.fwd, f.left, s2 * 1.6), [0, 0.5, 0])) : norm([f.fwd[0] * 0.3, 1.6, f.fwd[2] * 0.3]);
+    }
     // missiles inbound: break hard across their path
     const threat = this.missiles.find(m => m.target === c && len(sub(m.p, f.pos)) < 1500);
     if (threat) { want = norm(add(f.left, [0, 0.3, 0], Math.sin(this.t * 0.7 + c.id) > 0 ? 1 : -1)); if (len(sub(threat.p, f.pos)) < 900) this.dropFlares(c); }
