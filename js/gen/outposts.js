@@ -8,24 +8,86 @@ import { derive, hash01 } from '../core/hash.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { cultureOf } from './culture.js';
+import { designOf, footOf } from './designs.js';
+import { FAMILIES } from './familydata.js';
 
-const TILE = 900;
+const TILE = 900, FAM = new Set(FAMILIES);
 const r_ = { barn: 7, grainsilo: 3, tractor: 2, harvester: 3.2, animalpen: 3.2, greenhouse: 4.6, headframe: 5, drillrig: 3.6, workcamp: 3.2, generatorset: 1.7, substation: 4.2, pylon: 3.4, windmillbig: 1.6, solarfield: 0, pumpjack: 3, watchtower: 2, radiomast: 1.4, bunker: 4, ruinwall: 0, lighthouse: 2.5, wellhead: 0.8, waterwheel: 1.6, fuelcanopy: 0, fuelpump: 0.5, irrigator: 0, watertankfarm: 1, haybale: 0.7, orecart: 1.1, cairn: 0.7 };
 // site kinds: [center piece, ring items [kind, count, radius], weight fn of the land]
 const KINDS = {
-  farm: { label: 'a farm', fit: l => l.flat * l.wet * l.low, core: 'barn', ring: [['grainsilo', 2, 14], ['tractor', 1, 12], ['animalpen', 1, 20], ['haybale', 5, 24], ['greenhouse', 2, 28], ['irrigator', 1, 42], ['harvester', 1, 26], ['fencepanel', 8, 34], ['watertankfarm', 1, 16], ['washingline', 1, 11]] },
-  mine: { label: 'a mine', fit: l => l.steep * (1 - l.wet * 0.5), core: 'headframe', ring: [['drillrig', 1, 22], ['orecart', 3, 14], ['railtrack', 3, 12], ['workcamp', 2, 26], ['generatorset', 1, 18], ['gascan', 3, 9], ['pallettruck', 1, 16], ['sandbag', 2, 20], ['container', 2, 20]] },
+  farm: { label: 'a farm', fit: l => l.flat * l.wet * l.low, core: 'barn', ring: [['cottage', 1, 24], ['shed', 1, 19], ['windpump', 1, 32], ['grainsilo', 2, 14], ['tractor', 1, 12], ['animalpen', 1, 20], ['haybale', 5, 24], ['greenhouse', 2, 28], ['irrigator', 1, 42], ['harvester', 1, 26], ['fencepanel', 8, 34], ['watertankfarm', 1, 16], ['washingline', 1, 11]] },
+  mine: { label: 'a mine', fit: l => l.steep * (1 - l.wet * 0.5) * 0.3, core: 'headframe', ring: [['drillrig', 1, 22], ['orecart', 3, 14], ['railtrack', 3, 12], ['workcamp', 2, 26], ['generatorset', 1, 18], ['gascan', 3, 9], ['pallettruck', 1, 16], ['sandbag', 2, 20], ['container', 2, 20]] },
   wind: { label: 'a wind farm', fit: l => l.flat * l.high, core: 'windmillbig', ring: [['windmillbig', 3, 70], ['substation', 1, 26], ['pylon', 2, 60]] },
   solar: { label: 'a solar field', fit: l => l.flat * (1 - l.wet), core: 'substation', ring: [['solarfield', 12, 30], ['workcamp', 1, 22], ['pylon', 1, 50]] },
   oil: { label: 'a well field', fit: l => l.flat * (1 - l.wet) * 0.6, core: 'pumpjack', ring: [['pumpjack', 3, 34], ['gastanks', 2, 12], ['tank', 1, 20], ['generatorset', 1, 12]] },
-  well: { label: 'a well', fit: l => (1 - l.wet) * l.flat * 0.5, core: 'wellhead', ring: [['fencepanel', 4, 8], ['bucket', 2, 2], ['campfire', 1, 7], ['tent', 2, 10], ['washingline', 1, 9]] },
+  well: { label: 'a well', fit: l => (1 - l.wet) * l.flat * 0.5, core: 'villagewell', ring: [['windpump', 1, 12], ['fencepanel', 4, 8], ['bucket', 2, 2], ['campfire', 1, 7], ['tent', 2, 10], ['washingline', 1, 9]] },
   mill: { label: 'a water mill', fit: l => l.wet * l.shore, core: 'waterwheel', ring: [['barn', 1, 16], ['fencepanel', 4, 14], ['haybale', 3, 12]] },
-  watch: { label: 'a watch post', fit: l => l.high * 0.7, core: 'watchtower', ring: [['bunker', 1, 16], ['radiomast', 1, 22], ['sandbag', 4, 8], ['barricade', 2, 12]] },
-  light: { label: 'a lighthouse', fit: l => l.shore * 1.4, core: 'lighthouse', ring: [['workcamp', 1, 13], ['fencepanel', 3, 9], ['radiomast', 1, 18]] },
+  watch: { label: 'a watch post', fit: l => l.high * 0.3, core: 'watchtower', ring: [['bunker', 1, 16], ['radiomast', 1, 22], ['sandbag', 4, 8], ['barricade', 2, 12]] },
+  light: { label: 'a lighthouse', fit: l => l.shore * 1.4, core: 'lighthouse', ring: [['cottage', 1, 15], ['fencepanel', 3, 9], ['radiomast', 1, 18]] },
   ruin: { label: 'ruins', fit: () => 0.22, core: 'ruinwall', ring: [['ruinwall', 6, 16], ['cairn', 3, 22], ['stonewall', 4, 24], ['scrapheap', 2, 12]] },
   camp: { label: 'a camp', fit: () => 0.16, core: 'campfire', ring: [['tent', 3, 6], ['tarp', 1, 8], ['backpack', 2, 4], ['gascan', 1, 6], ['washingline', 1, 7]] },
+  // people living together, and what they build in common: laid out by plan() below
+  village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * 1.5, plan: village },
+  hamlet: { label: 'a hamlet', clear: 44, fit: l => l.flat * (0.3 + 0.7 * l.wet) * 0.9, plan: hamlet },
+  fishing: { label: 'a fishing landing', clear: 40, fit: l => l.shore * 1.6, plan: fishing },
+  graveyard: { label: 'a burial ground', fit: l => l.flat * 0.18, core: 'graves', ring: [['gate', 1, 9], ['shrine', 1, 15], ['lamp', 2, 11], ['bench', 2, 12]] },
+  shrine: { label: 'a shrine', fit: l => 0.12 + l.high * 0.14, core: 'shrine', ring: [['bench', 2, 8], ['lamp', 2, 7], ['cairn', 2, 12]] },
+  monument: { label: 'a monument', fit: l => l.high * 0.16, core: 'monument', ring: [['bench', 3, 9], ['lamp', 4, 8]] },
+  power: { label: 'a power station', clear: 90, fit: l => l.flat * l.wet * 0.14, core: 'longhouse', ring: [['coolingtower', 2, 58], ['substation', 1, 30], ['pylon', 3, 82], ['spheretank', 1, 34]] },
+  refinery: { label: 'a refinery', clear: 70, fit: l => l.flat * (1 - l.wet) * 0.2, core: 'column', ring: [['column', 3, 14], ['spheretank', 3, 34], ['longhouse', 1, 28], ['gastanks', 2, 20], ['tank', 2, 44]] },
   fuel: { label: 'a fuel stop', fit: l => l.flat * 0.3 * l.road, core: 'fuelcanopy', ring: [['fuelpump', 2, 3.5], ['workcamp', 1, 14], ['roadsign', 1, 18], ['skip_bin', 1, 11]] },
 };
+// a front (-z in the kit) that looks toward (fx, fz); a long axis (+z) that runs along it
+const facing = (fx, fz) => Math.atan2(-fx, -fz), along = (dx, dz) => Math.atan2(dx, dz);
+// a lane with houses either side looking onto it, a green with the well or fountain at its middle, a gate where the track comes in
+function village(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), n = rng.int(4, 6), gap = 13.5, L = (n + 0.6) * gap, lanes = [[x - ux * L, z - uz * L, x + ux * L, z + uz * L, 3.4]];
+  const at = (s, o) => [x + ux * s - uz * o, z + uz * s + ux * o];
+  { const [px, pz] = at(0, -10); put(rng.next() < 0.5 ? 'fountain' : 'villagewell', px, pz, rng.range(0, 6.28)); }
+  const big = rng.next() < 0.5 ? 'shrine' : 'monument'; { const [px, pz] = at(rng.next() < 0.5 ? 15 : -15, -20); put(big, px, pz, 0); }
+  { const [px, pz] = at(0, 16); put('pavilion', px, pz, rng.range(0, 6.28)); }
+  for (const s of [-L, L]) { const [px, pz] = at(s + (s < 0 ? 5 : -5), 0); put('gate', px, pz, along(ux, uz)); }
+  for (const side of [-1, 1]) for (let i = -n; i <= n; i++) {
+    if (Math.abs(i) < 2) continue;                                            // the green
+    const s = i * gap + rng.range(-1.5, 1.5), o = side * rng.range(10.5, 13), [px, pz] = at(s, o), [lx, lz] = [-(-uz * o), -(ux * o)];
+    const q = rng.next(), k = q < 0.12 ? 'shop' : q < 0.22 ? 'longhouse' : q < 0.36 ? 'hut' : 'cottage';
+    put(k, px, pz, facing(lx, lz));
+    if (rng.next() < 0.6) { const [bx, bz] = at(s + rng.range(-3, 3), side * rng.range(21, 25)); put(rng.next() < 0.75 ? 'shed' : 'cart', bx, bz, facing(lx, lz) + rng.range(-0.2, 0.2)); }
+    if (rng.next() < 0.4) { const [bx, bz] = at(s + rng.range(-5, 5), side * rng.range(31, 38)); put(rng.next() < 0.7 ? 'cottage' : 'hut', bx, bz, facing(lx, lz)); }   // a back row, off the lane
+    if (i % 2 === 0) { const [bx, bz] = at(s + gap * 0.5, side * 4); put('lamp', bx, bz, facing(lx, lz)); }
+    if (rng.next() < 0.12) { const [bx, bz] = at(s + gap * 0.5, side * 7); put(rng.next() < 0.5 ? 'bench' : 'cart', bx, bz, facing(lx, lz)); }
+  }
+  for (const [k, s, o] of [['watertower', L * 0.55, 30], ['graves', -L * 0.6, 36], ['swings', 26, -24], ['picnic', -9, 11], ['bench', 6, -9], ['bench', -6, -9], ['haybale', L * 0.7, -30], ['animalpen', -L * 0.3, -36]]) { const [px, pz] = at(s, o); put(k, px, pz, rng.range(0, 6.28)); }
+  return lanes;
+}
+function hamlet(put, x, z, a, rng) {
+  const n = rng.int(3, 5), ux = Math.cos(a), uz = Math.sin(a), lanes = [[x - ux * 30, z - uz * 30, x + ux * 30, z + uz * 30, 2.6]];
+  for (let i = 0; i < n; i++) { const s = (i - (n - 1) / 2) * 15, o = i % 2 ? 11 : -11, px = x + ux * s - uz * o, pz = z + uz * s + ux * o; put(rng.next() < 0.3 ? 'hut' : 'cottage', px, pz, facing(uz * o, -ux * o)); }
+  put('villagewell', x - uz * 6.2, z + ux * 6.2, 0);
+  for (const [k, s, o] of [['shed', 8, 21], ['cart', -10, 6], ['haybale', 18, -20], ['fencepanel', 26, 12], ['bench', 2, 5]]) put(k, x + ux * s - uz * o, z + uz * s + ux * o, rng.range(0, 6.28));
+  return lanes;
+}
+// a landing goes out over the water from the nearest shore: a jetty, boats tied up or drawn out, huts behind
+function fishing(put, x, z, a, rng, ctx) {
+  const dir = ctx.shoreDir ?? a, dx = Math.cos(dir), dz = Math.sin(dir); let d = 0;
+  for (; d < 170 && ctx.h(dx * d, dz * d) > ctx.sea + 0.1; d += 3);
+  const cx = x + dx * d, cz = z + dz * d, sx = -dz, sz = dx;
+  put('jetty', cx + dx * 9, cz + dz * 9, along(dx, dz), { y: ctx.sea, wet: true });
+  for (const [s, o] of [[5.5, 6], [-6, 15]]) put('boat', cx + dx * o + sx * s, cz + dz * o + sz * s, along(dx, dz) + rng.range(-0.25, 0.25), { y: ctx.sea - 0.3, wet: true });
+  for (let i = -1; i <= 1; i++) { const r = 18 + rng.range(0, 7), px = cx - dx * r + sx * i * 13, pz = cz - dz * r + sz * i * 13; put(rng.next() < 0.6 ? 'hut' : 'shed', px, pz, facing(dx, dz)); }
+  for (const [k, r, s] of [['cart', 9, 7], ['barrels', 7, -6], ['lamp', 6, 3], ['villagewell', 30, -20]]) put(k, cx - dx * r + sx * s, cz - dz * r + sz * s, rng.range(0, 6.28));
+  return [];
+}
+// do two turned footprints overlap? (separating axes) a = { x, z, rot, box }
+function overlaps(a, b, m = 0.6) {
+  const corners = q => { const c = Math.cos(q.rot), s = Math.sin(q.rot); return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => { const u = i * (q.box[0] + m / 2), v = j * (q.box[1] + m / 2); return [q.x + u * c + v * s, q.z - u * s + v * c]; }); };
+  const A = corners(a), B = corners(b);
+  for (const q of [a, b]) for (const ax of [[Math.cos(q.rot), -Math.sin(q.rot)], [Math.sin(q.rot), Math.cos(q.rot)]]) {
+    const pa = A.map(p => p[0] * ax[0] + p[1] * ax[1]), pb = B.map(p => p[0] * ax[0] + p[1] * ax[1]);
+    if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) return false;
+  }
+  return true;
+}
 const cache = new Map();
 export function sitesInTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck); if (cache.size > 400) cache.clear();
@@ -35,14 +97,36 @@ export function sitesInTile(planet, ti, tj) {
     if (S.town < 0.01 && S.h > planet.seaLevel + 2 && !S.road) {
       // what's the land like here?
       const h = (dx, dz) => surfaceAt(planet, x + dx, z + dz).h, d = Math.max(Math.abs(h(30, 0) - S.h), Math.abs(h(-30, 0) - S.h), Math.abs(h(0, 30) - S.h), Math.abs(h(0, -30) - S.h));
-      let shore = 0; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) shore = 1;
+      let shore = 0, shoreDir = null; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) { shore = 1; shoreDir = k * 0.785; }
       let road = 0; for (let k = 0; k < 8 && !road; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * 40, z + Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
       const land = { flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
       const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), K = KINDS[pick], rot0 = rng.range(0, 6.28), items = [];
-      const place = (k, px, pz, rot) => { const Q = surfaceAt(planet, px, pz); if (Q.h < planet.seaLevel + 0.5 || Q.town > 0.01 || Q.road > 0.01) return; items.push({ k, x: px, y: Q.h, z: pz, rot, r: r_[k] ?? 0, s: 1 }); };
-      place(K.core, x, z, rot0);
-      for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
-      if (items.length) out.push({ kind: pick, label: K.label, x, y: S.h, z, items, id: `site:${ti},${tj}`, wear: cul.wear });
+      // one thing placed: a family becomes this planet's version of it, with its own footing and walls; on land, or over water if it says so
+      const place = (k0, px, pz, rot, opt = {}) => {
+        let k = k0, foot = 0;
+        if (FAM.has(k0)) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k); }
+        const Q = surfaceAt(planet, px, pz);
+        if (Q.town > 0.01 || Q.road > 0.01) return;
+        if (opt.wet) { items.push({ k, x: px, y: opt.y, z: pz, rot, r: 0, s: 1 }); return; }
+        if (Q.h < planet.seaLevel + 0.5) return;
+        let y = Q.h;
+        if (foot) {                                                 // level on its footing; too steep to build on, and they don't
+          const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const u = a * foot[0], v = b * foot[1]; return surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; });
+          const lo = Math.min(...hs), hi = Math.max(...hs); if (hi - lo > Math.max(3, foot[0] * 0.45) || lo < planet.seaLevel + 0.3) return;
+          y = Math.max((lo + hi) / 2, surfaceAt(planet, px - s * foot[1], pz - c * foot[1]).h - 0.05);  // the floor is never below the ground at the front door
+        }
+        const it = { k, x: px, y, z: pz, rot, r: r_[k] ?? 0, s: 1 }; if (foot) { it.box = foot; it.r = 0; }
+        const hit = it.box || [Math.max(0.4, it.r), Math.max(0.4, it.r)], me = { x: px, z: pz, rot, box: hit };   // nobody builds through their neighbour
+        if (items.some(o => o.box && overlaps(me, o))) return;
+        items.push(it);
+      };
+      let lanes = [];
+      if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { h: (a, b) => h(a, b), sea: planet.seaLevel, shoreDir });
+      else {
+        place(K.core, x, z, rot0);
+        for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
+      }
+      if (items.length) out.push({ kind: pick, label: K.label, x, y: S.h, z, items, lanes, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
     }
   }
   cache.set(ck, out);

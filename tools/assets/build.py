@@ -18,11 +18,12 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family'))
 DO_CITY = 'city' in argv
 DO_ITEMS = 'items' in argv
 DO_COMMON = 'common' in argv
+DO_FAMILY = 'family' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -397,12 +398,60 @@ def mat_books(seed):      # book spines: vertical bands of colour, titles as fai
     h = spectral(N, 1.2, seed + 1) * 0.3
     return col, normal_from_height(h, 1.0), ao_from_height(h, 0.3), 0.75 * np.ones((N, N)), 0.0
 
+def mat_brick(seed):      # 225 x 75 mm brick courses in running bond: a fired tone per brick, a few burnt ones, weathered mortar
+    tone, edge = grid_cells(8, 24, seed, True)
+    mort = np.clip(1.25 - edge / 2.6, 0, 1)
+    a = spectral(N, 1.6, seed + 1); g = spectral(N, 0.2, seed + 2); st = streaks(seed + 3, 0.35)
+    brick = lerp3([0.42, 0.17, 0.11], [0.68, 0.37, 0.25], tone) * (0.82 + 0.36 * a + 0.2 * (g - 0.5))[..., None]
+    brick = np.where((tone > 0.92)[..., None], brick * 0.55, brick)
+    mortar = (0.5 + 0.2 * (g - 0.5))[..., None] * np.array([1.0, 0.97, 0.9])
+    col = np.clip((brick * (1 - mort[..., None]) + mortar * mort[..., None]) * (1 - 0.3 * st)[..., None], 0, 1)
+    h = 0.3 * g + 0.25 * a - 1.1 * mort
+    return col, normal_from_height(h, 3.2), ao_from_height(h, 0.6), 0.86 + 0.1 * g, 0.0
+
+def mat_rooftile(seed):   # clay tiles in overlapping courses, each course shadowing the one below; moss in the laps
+    tone, edge = grid_cells(10, 12, seed, True)
+    fy = ((np.arange(N)[:, None] + 0.5) / N * 12 % 1) * np.ones((1, N))
+    a = spectral(N, 1.7, seed + 1); g = spectral(N, 0.25, seed + 2); moss = np.clip((spectral(N, 1.9, seed + 3) - 0.62) * 5, 0, 1)
+    lap = np.clip(1 - fy / 0.16, 0, 1)
+    col = lerp3([0.42, 0.18, 0.11], [0.66, 0.34, 0.2], tone) * (0.8 + 0.4 * a)[..., None] * (1 - 0.62 * lap - 0.5 * np.clip(1 - edge / 3, 0, 1))[..., None]
+    col = col * (1 - 0.5 * moss[..., None] * (0.35 + lap[..., None])) + np.array([0.2, 0.26, 0.1]) * 0.5 * moss[..., None] * (0.35 + lap[..., None])
+    h = fy * 1.1 - 0.7 * np.clip(1 - edge / 3, 0, 1) + 0.12 * g
+    return np.clip(col, 0, 1), normal_from_height(h, 4.0), ao_from_height(h, 0.7), 0.74 + 0.16 * g, 0.0
+
+def mat_slate(seed):      # split slates: dark blue-grey, uneven courses, pale lichen flecks
+    tone, edge = grid_cells(12, 16, seed, True)
+    fy = ((np.arange(N)[:, None] + 0.5) / N * 16 % 1) * np.ones((1, N))
+    a = spectral(N, 1.5, seed + 1); g = spectral(N, 0.15, seed + 2); lich = (spectral(N, 0.9, seed + 3) > 0.84).astype(float)
+    lap = np.clip(1 - fy / 0.12, 0, 1)
+    col = lerp3([0.11, 0.12, 0.14], [0.27, 0.28, 0.31], tone) * (0.8 + 0.4 * a)[..., None] * (1 - 0.55 * lap - 0.5 * np.clip(1 - edge / 2.2, 0, 1))[..., None] + 0.16 * lich[..., None] * np.array([0.9, 0.9, 0.6])
+    h = fy * 0.8 - 0.6 * np.clip(1 - edge / 2.2, 0, 1) + 0.3 * g
+    return np.clip(col, 0, 1), normal_from_height(h, 3.6), ao_from_height(h, 0.6), 0.62 + 0.2 * g, 0.0
+
+def mat_thatch(seed):     # bundled reed: long fibres running down the slope, grey with age, darker in the courses
+    fib = spectral(N, 0.5, seed, 0.6, 18.0); fib2 = spectral(N, 0.2, seed + 1, 1.0, 40.0); broad = spectral(N, 1.9, seed + 2)
+    fy = ((np.arange(N)[:, None] + 0.5) / N * 5 % 1) * np.ones((1, N))
+    course = np.clip(1 - fy / 0.2, 0, 1) * 0.45
+    col = lerp3([0.22, 0.17, 0.09], [0.66, 0.54, 0.3], np.clip(0.75 * fib + 0.45 * fib2 - 0.1, 0, 1)) * (0.62 + 0.55 * broad)[..., None] * (1 - course)[..., None]
+    h = 0.9 * fib + 0.5 * fib2 + 0.5 * fy
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 0.9), 0.95, 0.0
+
+def mat_plank(seed):      # weatherboard: overlapping horizontal boards, grey-brown, grain along x, shadow under each lap
+    tone, edge = grid_cells(1, 12, seed)
+    fy = ((np.arange(N)[:, None] + 0.5) / N * 12 % 1) * np.ones((1, N))
+    gr = spectral(N, 0.5, seed + 1, 16.0, 0.6); fine = spectral(N, 0.2, seed + 2, 40.0, 1.0); blot = spectral(N, 1.9, seed + 3); st = streaks(seed + 4, 0.4)
+    lap = np.clip(1 - fy / 0.1, 0, 1)
+    col = lerp3([0.27, 0.21, 0.16], [0.52, 0.44, 0.35], np.clip(0.55 * gr + 0.3 * fine + 0.3 * (tone - 0.3), 0, 1)) * (0.78 + 0.45 * blot)[..., None] * (1 - 0.66 * lap)[..., None] * (1 - 0.3 * st)[..., None]
+    h = 0.7 * fy + 0.2 * gr + 0.1 * fine
+    return np.clip(col, 0, 1), normal_from_height(h, 3.6), ao_from_height(h, 0.7), 0.82 + 0.1 * gr, 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
     'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),
     'asphalt': (mat_asphalt, 6.0), 'pavers': (mat_pavers, 4.0),
+    'brick': (mat_brick, 1.8), 'rooftile': (mat_rooftile, 2.4), 'slate': (mat_slate, 3.0), 'thatch': (mat_thatch, 2.5), 'plank': (mat_plank, 2.4),
     'ceramic': (mat_ceramic, 1.0), 'mirror': (mat_mirror, 1.0), 'books': (mat_books, 0.5), 'water': (mat_water, 24.0), 'hull': (mat_hull, 4.0), 'heatshield': (mat_heatshield, 2.4), 'hazard': (mat_hazard, 1.0), 'bark': (mat_bark, 1.2), 'birchbark': (mat_birchbark, 1.0), 'smoothbark': (mat_smoothbark, 1.5), 'grass': (mat_grass, 3.0), 'dirt': (mat_dirt, 3.0), 'rock': (mat_rock, 8.0), 'gravel': (mat_gravel, 2.0),
 }
 
@@ -582,7 +631,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated', 'lampwarm', 'neonpink', 'neoncyan', 'neonamber', 'neongreen', 'neonviolet']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated', 'lampwarm', 'neonpink', 'neoncyan', 'neonamber', 'neongreen', 'neonviolet', 'render', 'brick', 'rooftile', 'slate', 'thatch', 'plank']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -2002,7 +2051,7 @@ def build_props():
 SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
 if DO_TEX: build_textures()
 if DO_PROPS: build_props()
-if DO_CITY or DO_ITEMS or DO_COMMON:
+if DO_CITY or DO_ITEMS or DO_COMMON or DO_FAMILY:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'city_kit.py')).read())
 if DO_CITY: build_city()
 if DO_ITEMS:
@@ -2012,3 +2061,6 @@ if DO_COMMON:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'items_kit.py')).read())
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'common_kit.py')).read())
     build_common()
+if DO_FAMILY:
+    for f in ('items_kit.py', 'common_kit.py', 'family_kit.py'): exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), f)).read())
+    build_family()

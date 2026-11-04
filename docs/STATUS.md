@@ -131,3 +131,10 @@ Each line says what is actually implemented and how it was checked.
 Street level: about 250 draw calls, about 840k triangles. Aerial view of the whole town:
 about 410 calls, 1.25M triangles. On-screen interactive frame rate on real hardware has
 not been measured beyond headless runs (40–120 fps headless).
+
+## Model families (planet variation)
+- `tools/assets/family_kit.py`: 25 families (cottage, hut, shed, longhouse, shop, shrine, monument, fountain, well, water tower, wind pump, footbridge, jetty, boat, graves, pavilion, picnic table, swings, gate, cart, lamp, bench, cooling tower, column, sphere tank), each one function with parameters, built in 7 ways of building (stone, render, timber, concrete, tin, brick, prefab): 175 models in `assets/family.glb`. Writes `js/gen/familydata.js` (footprints).
+- `js/gen/designs.js`: a planet's culture favours three ways; each family settles on one per planet, with a share of the second choice. Same seed, same choice.
+- New surfaces: brick, roof tile, slate, thatch, clapboard.
+- New sites in `gen/outposts.js`: village (lane, green, gates, back row), hamlet, fishing landing (jetty over the water, boats), burial ground, shrine, monument, power station, refinery. Buildings stand level on footings, never overlap, and have real box walls.
+- Limits: variety is 7 versions per family per run of Blender, not infinite (runtime generation would be the next step). Family buildings are solid: you can't go in. Nobody lives in villages yet. Lanes aren't joined to the road network. Boats don't rock.

@@ -79,16 +79,17 @@ def hydroponicrack(p, r):
         y = 0.35 + k * 0.6; bx(p, 0, y, 0, 1.9, 0.09, 0.5, 'plastic', 0.008); bx(p, 0, y + 0.5, 0, 1.8, 0.03, 0.08, 'lampwarm', 0.004)
         for i in range(8): add_blob(p, -0.8 + i * 0.23, y + 0.16, rng.uniform(-0.12, 0.12), rng.uniform(0.08, 0.13), 'leaf', rng, 2, 0.8)
 # ---------------------------------------------------------------- beyond the city: farms, mines, utilities, rail, outposts
-def lattice(p, h, b, mat='metal', step=2.0):       # a tapering four-legged steel tower
-    t = b * 0.25
+def lattice(p, h, b, mat='metal', step=2.0):       # a tapering four-legged tower: straight legs, a ring at each level, a brace across each face
+    V = mathutils.Vector; t = b * 0.25; n = int(h / step); hw = lambda y: b + (t - b) * y / h; r = 0.05 if h < 16 else 0.07
     for sx in (-1, 1):
-        for sz in (-1, 1):
-            n = int(h / step)
-            for i in range(n):
-                f0, f1 = i / n, (i + 1) / n; x0, z0 = sx * (b + (t - b) * f0), sz * (b + (t - b) * f0)
-                cy(p, x0, z0, f0 * h, f1 * h, 0.05, mat, 6)
-    for i in range(int(h / step)):
-        y = (i + 1) * step; w = b + (t - b) * y / h; bx(p, 0, y, -w, 2 * w, 0.05, 0.05, mat, 0.004); bx(p, 0, y, w, 2 * w, 0.05, 0.05, mat, 0.004); bx(p, -w, y, 0, 0.05, 0.05, 2 * w, mat, 0.004); bx(p, w, y, 0, 0.05, 0.05, 2 * w, mat, 0.004)
+        for sz in (-1, 1): tube(p, [V((sx * b, 0, sz * b)), V((sx * t, h, sz * t))], [r * 1.3, r], mat, 6)
+    for i in range(n):
+        y0, y1 = i * step, (i + 1) * step; w0, w1 = hw(y0), hw(y1)
+        bx(p, 0, y1, -w1, 2 * w1, 0.05, 0.05, mat, 0); bx(p, 0, y1, w1, 2 * w1, 0.05, 0.05, mat, 0); bx(p, -w1, y1, 0, 0.05, 0.05, 2 * w1, mat, 0); bx(p, w1, y1, 0, 0.05, 0.05, 2 * w1, mat, 0)
+        q = 1 if i % 2 else -1
+        for s_ in (-1, 1):
+            tube(p, [V((-q * w0, y0, s_ * w0)), V((q * w1, y1, s_ * w1))], [0.022, 0.022], mat, 4); tube(p, [V((s_ * w0, y0, -q * w0)), V((s_ * w1, y1, q * w1))], [0.022, 0.022], mat, 4)
+
 def pylon(p, r):
     lattice(p, 28, 3.0)
     for y, w in ((20, 7), (24, 5.5), (28, 4)):

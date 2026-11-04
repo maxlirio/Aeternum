@@ -1210,6 +1210,30 @@ suites.aircombat = async () => {
   check(JSON.stringify(r1) === JSON.stringify(r2) && r1.n >= 2, `raids are deterministic: ${r1.n} raiders, ${r1.defenders} defenders`);
 };
 
+suites.countryside = async () => {
+  const { sitesInTile } = await import('../js/gen/outposts.js'), { cultureOf } = await import('../js/gen/culture.js'), { FOOT, FAMILIES } = await import('../js/gen/familydata.js'), { designOf } = await import('../js/gen/designs.js');
+  const planets = [1, 2, 3, 4, 5, 6, 7, 8].map(n => makePlanet(uni(n), HOMEWORLD));
+  let kinds = {}, items = 0, overlap = 0, steep = 0, lanesHit = 0, unknown = 0, sample = null; const usual = new Set(), ways = new Set();
+  for (const p of planets) {
+    ways.add(cultureOf(p).key); usual.add(designOf(p, 'cottage', 0, 0));
+    for (let i = -22; i < 22; i++) for (let j = -22; j < 22; j++) for (const S of sitesInTile(p, i, j)) {
+      kinds[S.kind] = (kinds[S.kind] || 0) + 1; items += S.items.length; if (S.kind === 'village' && (!sample || S.items.length > sample.items.length)) sample = S;
+      const B = S.items.filter(q => q.box);
+      for (const q of S.items) if (q.k.startsWith('fam_') && !(q.k in FOOT)) unknown++;
+      for (let a = 0; a < B.length; a++) for (let b = a + 1; b < B.length; b++) { const A = B[a], C = B[b], d = Math.hypot(A.x - C.x, A.z - C.z); if (d < Math.min(A.box[0], A.box[1]) + Math.min(C.box[0], C.box[1])) overlap++; }
+      for (const [x0, z0, x1, z1] of S.lanes) for (const q of B) { const L = Math.hypot(x1 - x0, z1 - z0), u = ((q.x - x0) * (x1 - x0) + (q.z - z0) * (z1 - z0)) / L, o = Math.abs((q.x - x0) * (z1 - z0) - (q.z - z0) * (x1 - x0)) / L; if (u > 0 && u < L && o < Math.min(q.box[0], q.box[1])) lanesHit++; }
+    }
+  }
+  console.log('   ', JSON.stringify(kinds), items, 'items;', 'cultures', [...ways].join(' '));
+  for (const k of ['village', 'hamlet', 'fishing', 'farm', 'graveyard']) check(kinds[k] > 0, `some land has ${k}s (${kinds[k] || 0})`);
+  check(!unknown, `every family model placed exists (${unknown} unknown)`);
+  check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
+  check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
+  check(usual.size >= 3, `planets build differently: ${usual.size} kinds of cottage across ${planets.length} planets (${[...usual].join(', ')})`);
+  check(JSON.stringify(sitesInTile(makePlanet(uni(1), HOMEWORLD), 3, 3)) === JSON.stringify(sitesInTile(planets[0], 3, 3)), 'the same seed puts the same things in the same places');
+  check(FAMILIES.length * 7 === Object.keys(FOOT).length, `every family exists in every way of building (${Object.keys(FOOT).length})`);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

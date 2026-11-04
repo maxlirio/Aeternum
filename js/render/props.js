@@ -17,13 +17,14 @@ const HULLED = { has: k => /^(shuttle|freighter|courier|patrol|yacht|speeder|run
 export const PAINTS_VEHICLE = [[0.62, 0.12, 0.08], [0.85, 0.55, 0.12], [0.16, 0.3, 0.52], [0.82, 0.82, 0.8], [0.12, 0.13, 0.14], [0.25, 0.42, 0.3], [0.5, 0.52, 0.56]];
 
 export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
-  const [gltf, craft, index, city, itemsG, commonG] = await Promise.all([
+  const [gltf, craft, index, city, itemsG, commonG, familyG] = await Promise.all([
     new GLTFLoader().loadAsync(base + 'props.glb'),
     new GLTFLoader().loadAsync(base + 'craft.glb').catch(() => null),      // ships and vehicles
     fetch(base + 'materials/index.json').then(r => r.json()),
     new GLTFLoader().loadAsync(base + 'city.glb').catch(() => null),       // the megacity kit (tools/assets/city_kit.py)
     new GLTFLoader().loadAsync(base + 'items.glb').catch(() => null),      // everything you can carry, and household things
     new GLTFLoader().loadAsync(base + 'common.glb').catch(() => null),     // what most places have
+    new GLTFLoader().loadAsync(base + 'family.glb').catch(() => null),     // the same things in each planet's way of building (gen/designs.js)
   ]);
   if (craft) for (const o of [...craft.scene.children]) gltf.scene.add(o);
   const tl = new THREE.TextureLoader(), mats = new Map();
@@ -73,7 +74,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
   }
   // the city kit: kind → parts (geometry in the kit's own frame, its surface, tinted?)
   const cityKit = new Map(), worn = new Map();
-  for (const kit of [city, itemsG, commonG]) {
+  for (const kit of [city, itemsG, commonG, familyG]) {
     if (!kit) continue;
     kit.scene.updateMatrixWorld(true);
     kit.scene.traverse(o => {
