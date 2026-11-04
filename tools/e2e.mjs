@@ -453,6 +453,19 @@ try {
   check(ct.built > 50 && ct.moved > 4, `walked down a city street (${ct.moved} m; ${ct.built} sectors built; ${ct.traffic} vehicles drawn near)`);
   check(/Spire|Commercial|Residential|Market|Warrens|Foundry|Skyport|Gardens/.test(ct.place), 'the HUD names the district: ' + ct.place);
   check(ct.wall < 0 && ct.wall > -0.7, `walked into a ${ct.label} and stopped at its wall (${ct.wall} m)`);
+  const lf = await ev(`(async () => {
+    const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js');
+    let L = null; for (let a = 0; a < 400 && !L; a++) { const B = G.cityBlock(c, (a % 20) - 10, Math.floor(a / 20) - 10); L = G.liftsOf(c, B).find(l => l.stops.some(q => q.label.startsWith('Skybridge'))); }
+    const st = L.stops[0], [x, z] = c.toWorld(st.u, st.v); O.ctrl.pos = [x, c.h + G.CURB + 0.05, z]; O.ctrl.vel = [0, 0, 0]; await wait(600);
+    const near = !!O.liftNear(), prompt = document.querySelector('.prompt')?.textContent || '';
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); await wait(400);
+    const want = L.stops.findIndex(q => q.label.startsWith('Skybridge')); document.querySelector('.panel [data-v="' + want + '"]')?.click(); await wait(1500);
+    const y = O.ctrl.pos[1] - c.h - G.CURB, q = L.stops[want];
+    // walk along the bridge for a couple of seconds: you stay on the deck
+    dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(800);
+    return { near, prompt: prompt.slice(0, 80), want: q.y, y: Math.round(y * 10) / 10, after: Math.round((O.ctrl.pos[1] - c.h - G.CURB) * 10) / 10 }; })()`);
+  check(lf.near && /Lift/.test(lf.prompt), 'a tower\'s street door offers its lift: ' + lf.prompt);
+  check(Math.abs(lf.y - lf.want) < 0.3 && Math.abs(lf.after - lf.want) < 0.3, `took the lift up to a skybridge ${lf.want} m up and stood on it (${lf.y} → ${lf.after})`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

@@ -403,6 +403,74 @@ function dressSidewalk(ctx, rect, inner) {
   }
 }
 
+// ---- skybridges: enclosed decks from a tower to the next block's tower, across the street.
+// A block owns the bridges it sends toward +u and +v; a bridge never passes through any
+// other building. → [{ r: [u0, v0, u1, v1], y (deck, above city ground), a, b (building ids), axis }]
+const tall = B => B.buildings.filter(b => (b.top || 0) > 70 && !b.hall);
+export function bridgesOf(city, B) {
+  if (B.bridgesDone) return B.bridges;
+  B.bridgesDone = true;
+  if (!B.district || !['spire', 'commerce'].includes(B.district)) return B.bridges;
+  for (const [di, dj, axis] of [[1, 0, 0], [0, 1, 1]]) {
+    const N = cityBlock(city, B.i + di, B.j + dj);
+    if (!N.district || !['spire', 'commerce'].includes(N.district)) continue;
+    let made = 0;
+    for (const A of tall(B)) for (const Z of tall(N)) {
+      if (made >= 2) break;
+      const h = hash01(city.seed, [B.i, B.j, di, A.tiers.length, Z.tiers.length, 61]);
+      if (h > 0.55) continue;
+      // candidate heights, from the top of the lower podium up
+      for (let k = 0; k < 4 && made < 2; k++) {
+        const y = Math.round(40 + (k + h) * 55);
+        const ta = A.tiers.find(t => t.y0 <= y - 1 && t.y1 >= y + 5), tz = Z.tiers.find(t => t.y0 <= y - 1 && t.y1 >= y + 5);
+        if (!ta || !tz) continue;
+        // overlap across the bridge's width
+        const lo = Math.max(axis ? ta.r[0] : ta.r[1], axis ? tz.r[0] : tz.r[1]), hi = Math.min(axis ? ta.r[2] : ta.r[3], axis ? tz.r[2] : tz.r[3]);
+        if (hi - lo < 10) continue;
+        const c = (lo + hi) / 2, w = 3.2;
+        const r = axis ? [c - w, ta.r[3], c + w, tz.r[1]] : [ta.r[2], c - w, tz.r[0], c + w];
+        if (r[2] - r[0] < 6 || r[3] - r[1] < 6) continue;
+        const clash = [...B.buildings, ...N.buildings].some(o => o !== A && o !== Z && o.tiers.some(t => t.r[0] < r[2] && t.r[2] > r[0] && t.r[1] < r[3] && t.r[3] > r[1] && t.y0 < y + 4.5 && t.y1 > y - 1))
+          || B.bridges.some(q => Math.abs(q.y - y) < 8 && q.r[0] < r[2] && q.r[2] > r[0] && q.r[1] < r[3] && q.r[3] > r[1]);
+        if (clash) continue;
+        B.bridges.push({ r: r.map(r1), y, a: A.id, b: Z.id, axis }); made++;
+      }
+    }
+  }
+  return B.bridges;
+}
+
+// ---- lifts: every tall building has one, stopping at its street door, at each landing pad
+// and skybridge on it, and on its roof. Positions in city-local metres; y above city ground.
+// → [{ b (building), stops: [{ label, u, v, y, face }] }]
+export function liftsOf(city, B) {
+  if (B.lifts) return B.lifts;
+  B.lifts = [];
+  if (!B.district) return B.lifts;
+  const near = [B, cityBlock(city, B.i - 1, B.j), cityBlock(city, B.i, B.j - 1)];
+  for (const b of B.buildings) {
+    if ((b.top || 0) < 40 || b.hall) continue;
+    const t0 = b.tiers[0], top = b.tiers.at(-1), cu = (t0.r[0] + t0.r[2]) / 2, cv = (t0.r[1] + t0.r[3]) / 2;
+    // the street door: on whatever stands on the ground under the building, facing the nearest street
+    const ground = t0.y0 <= 0.1 ? t0 : (B.buildings.find(o => o.tiers[0].y0 <= 0.1 && o.tiers[0].r[0] <= cu && o.tiers[0].r[2] >= cu && o.tiers[0].r[1] <= cv && o.tiers[0].r[3] >= cv)?.tiers[0]);
+    if (!ground) continue;
+    const g = ground.r, R = B.rect;
+    const sides = [[cv - R[1], 0], [R[3] - cv, 1], [cu - R[0], 2], [R[2] - cu, 3]].sort((p, q) => p[0] - q[0]);
+    const side = sides[0][1], o = 0.9;
+    const door = side === 0 ? [cu, g[1] - o] : side === 1 ? [cu, g[3] + o] : side === 2 ? [g[0] - o, cv] : [g[2] + o, cv];
+    const stops = [{ label: 'Street', u: door[0], v: door[1], y: 0, face: side }];
+    for (const p of B.pads) if (p.b === b.id) stops.push({ label: `Landing pad — ${Math.round(p.y)} m`, u: (p.r[0] + p.r[2]) / 2, v: (p.r[1] + p.r[3]) / 2, y: p.y });
+    for (const N of near) for (const q of bridgesOf(city, N)) {
+      if (q.a !== b.id && q.b !== b.id) continue;
+      const atA = q.a === b.id, end = q.axis ? [(q.r[0] + q.r[2]) / 2, atA ? q.r[1] + 1.2 : q.r[3] - 1.2] : [atA ? q.r[0] + 1.2 : q.r[2] - 1.2, (q.r[1] + q.r[3]) / 2];
+      stops.push({ label: `Skybridge — ${Math.round(q.y)} m`, u: end[0], v: end[1], y: q.y });
+    }
+    if (top.r[2] - top.r[0] > 8 && top.r[3] - top.r[1] > 8 && !['spire', 'antenna', 'pyramid', 'dome', 'crown', 'blade'].includes(b.crown)) stops.push({ label: `Roof — ${Math.round(top.y1)} m`, u: (top.r[0] + top.r[2]) / 2 + 2.5, v: (top.r[1] + top.r[3]) / 2 + 2.5, y: top.y1 });
+    if (stops.length > 1) B.lifts.push({ b, stops: stops.sort((p, q) => p.y - q.y) });
+  }
+  return B.lifts;
+}
+
 // Every block whose kerb rect could touch a disc (u, v, r).
 export function blocksNear(city, u, v, r, fn) {
   const [i0, j0] = blockIndex(city, u - r, v - r), [i1, j1] = blockIndex(city, u + r, v + r);

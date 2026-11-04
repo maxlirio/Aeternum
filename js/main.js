@@ -58,7 +58,7 @@ import { FloraView } from './render/flora.js';
 import { CityView } from './render/city.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { cityWalkers } from './gen/citytraffic.js';
-import { getCity, cityPlace } from './gen/city.js';
+import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
 import { makeSea } from './render/water.js';
@@ -350,7 +350,28 @@ async function start(fresh) {
     return ladders.find(l => (Math.hypot(l.foot[0] - x, l.foot[2] - z) < 1.1 && Math.abs(y - l.foot[1]) < 1.2)
       || (Math.hypot(l.roof[0] - x, l.roof[2] - z) < 1.3 && Math.abs(y - l.roof[1]) < 0.6)) || null;
   };
+  // ---- city lifts: every tall building's lift stops at its street door, its pads, skybridges and roof
+  function liftNear() {
+    if (ctrl.mode !== 'walk' || ride || flight) return null;
+    const c = cityView.city; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 200) return null;
+    const [u, v] = c.toLocal(ctrl.pos[0], ctrl.pos[2]), y = ctrl.pos[1] - c.h - CITY_CURB;
+    let best = null, bd = 2.6;
+    blocksNear(c, u, v, 6, B => { for (const L of liftsOf(c, B)) for (const st of L.stops) { const d = Math.hypot(st.u - u, st.v - v); if (d < bd && Math.abs(st.y - y) < 1.6) { bd = d; best = { L, st }; } } });
+    return best;
+  }
+  async function liftFlow({ L, st }) {
+    let pick = null;
+    await modal(async () => { pick = await ui.choose({ title: `${L.b.label[0].toUpperCase() + L.b.label.slice(1)} — lift`, sub: `${L.stops.length} stops. You're at: ${st.label.toLowerCase()}.`,
+      options: L.stops.map((q, i) => ({ a: 'go', v: String(i), label: q.label, disabled: q === st })) }); });
+    if (!pick || pick.a !== 'go') return;
+    const q = L.stops[+pick.v], c = cityView.city, [x, z] = c.toWorld(q.u, q.v);
+    const secs = Math.max(8, Math.abs(q.y - st.y) / 9); clock.advance(secs);
+    ctrl.pos = [x, c.h + CITY_CURB + q.y + 0.05, z]; ctrl.vel = [0, 0, 0];
+    ui.toast(`The lift ${q.y > st.y ? 'climbs' : 'drops'} ${Math.round(Math.abs(q.y - st.y))} m. <small>${q.label}</small>`, '', 3500);
+  }
   function interact() {
+    const lf = liftNear();
+    if (lf) { liftFlow(lf); return; }
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
@@ -385,6 +406,7 @@ async function start(fresh) {
   const labelOf = u => u.box && !['bench', 'counter', 'machine'].includes(u.pr.kind) ? u.box.label : KIND_LABEL[u.pr.kind]
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
+  let cityLift = null;
   const usableAhead = () => {
     if (ctrl.mode !== 'walk') return null;
     const loc = world.locate(...ctrl.pos); if (!loc?.plan) return null;
@@ -1137,7 +1159,8 @@ async function start(fresh) {
         const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
         ui.showPrompt(st.held ? `Holding cell — locked until your release${player.custody ? ' at ' + formatHour(solarHour(planet, player.custody.until)) : ''}` : st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
           : res.ok || (door.kind !== 'interior' && insideBuilding(b)) ? `<kbd>E</kbd> Open ${what}${res.key ? ' <small>(your key)</small>' : ''}` : `${res.why} · <kbd>E</kbd> try · hold <kbd>F</kbd> force`);
-      } else if (forceHold === 0) {
+      } else if (forceHold === 0 && (cityLift = liftNear())) ui.showPrompt(`<kbd>E</kbd> Lift — ${esc(cityLift.L.b.label)} <small>· ${cityLift.L.stops.filter(q => q !== cityLift.st).map(q => q.label.split(' —')[0].toLowerCase()).filter((q, i, a) => a.indexOf(q) === i).join(' · ')}</small>`);
+      else if (forceHold === 0) {
         // the person in front of you
         let best = null, bd = 2.6;
         for (const a of agents) {
@@ -1163,7 +1186,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

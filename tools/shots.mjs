@@ -123,6 +123,13 @@ SCRIPTS.flycity = SCRIPTS.dogfight.replace("O.getShips().find(x => x.forSale)", 
     for (let i = 0; i < 200 && !O.cityView.done; i++) { F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 260, C.cz + Math.cos(a) * (C.R * 0.55)]; await wait(200); }
     await wait(2500); O.cam.pitch = 0.12;`);
 SHOTS.flycity = 'hour=16.5';
+SCRIPTS.citybridge = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js');
+    let Q = null; for (let a = 0; a < 900 && !Q; a++) { const B = G.cityBlock(c, (a % 30) - 15, Math.floor(a / 30) - 15); Q = G.bridgesOf(c, B).find(q => q.y > 90); }
+    const [u0, v0, u1, v1] = Q.r, cu = (u0 + u1) / 2, cv = (v0 + v1) / 2, [x, z] = c.toWorld(Q.axis ? cu : u0 + 2, Q.axis ? v0 + 2 : cv), [tx, tz] = c.toWorld(Q.axis ? cu : u1, Q.axis ? v1 : cv);
+    O.ctrl.pos = [x, c.h + G.CURB + Q.y + 0.05, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, c.h + G.CURB + Q.y + 0.05, z]; await wait(200); }
+    O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing + 0.5; O.cam.pitch = 0.05; O.cam.dist = 4; await wait(2000);`;
+SHOTS.citybridge = 'hour=17.8'; SCRIPTS.citybridgeo = SCRIPTS.citybridge.replace('O.cam.dist = 4', 'O.cam.dist = 40').replace('O.cam.pitch = 0.05', 'O.cam.pitch = 0.25'); SHOTS.citybridgeo = 'hour=17.8';
 // the city kit laid out on a boulevard, family by family (a contact sheet in real light)
 const KIT = {
   A: [5, 'lamp_cobra lamp_double lamp_lux lamp_lantern lamp_neon lamp_flood lamp_park bench bench_lux bin bin_lux bin_rusty vending vending2 vending_old kiosk kiosk_lux kiosk_food planter planter_lux bollard hydrant newsstand shelter atm bikerack mailbox terminal_post holo_post barrier junction steamvent tree tree_lux'],

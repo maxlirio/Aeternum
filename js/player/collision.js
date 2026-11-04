@@ -6,7 +6,7 @@ import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
-import { getCity, blocksNear, CURB } from '../gen/city.js';
+import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
 // The megacity's solids as city-local boxes [u0, v0, u1, v1, y0, y1] (absolute heights):
 // every building tier, each block's kerb slab, the landing pads. Cached on the block.
@@ -16,6 +16,13 @@ function cityBoxes(c, B) {
   if (B.district) out.push([...B.rect, c.h - 1, base]);
   for (const b of B.buildings) for (const t of b.tiers) out.push([...t.r, base + t.y0, base + t.y1]);
   for (const p of B.pads) out.push([...p.r, base + p.y - 1.2, base + p.y]);
+  // skybridges (owned by this block or sent across from the blocks before it): deck, glass sides, roof
+  for (const N of [B, cityBlockOf(c, B.i - 1, B.j), cityBlockOf(c, B.i, B.j - 1)]) for (const q of bridgesOf(c, N)) {
+    const [u0, v0, u1, v1] = q.r, y = base + q.y;
+    out.push([u0, v0, u1, v1, y - 0.8, y], [u0, v0, u1, v1, y + 3.4, y + 3.8]);
+    if (q.axis) out.push([u0, v0, u0 + 0.15, v1, y, y + 3.4], [u1 - 0.15, v0, u1, v1, y, y + 3.4]);
+    else out.push([u0, v0, u1, v0 + 0.15, y, y + 3.4], [u0, v1 - 0.15, u1, v1, y, y + 3.4]);
+  }
   return (B.col = out);
 }
 
