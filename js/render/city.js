@@ -30,9 +30,17 @@ const STYLE_P = [   // per style: [r,g,b frame], [r,g,b glass], [winFracX, winFr
   [[0.22, 0.34, 0.16], [0.22, 0.34, 0.16], [0.00, 0.00, 0.00, 0.0]],   // garden
 ];
 
-let facadeMat = null;
-export function cityMaterial() {
-  if (facadeMat) return facadeMat;
+const facadeMats = {};
+// shape: 'box' (unit box), or 'round' / 'oct' (unit cylinder / octagon: the facade runs round it)
+export function cityMaterial(shape = 'box') {
+  if (facadeMats[shape]) return facadeMats[shape];
+  if (shape !== 'box') {     // the round ones share the box's uniforms, so night and ground follow it
+    const box = cityMaterial('box'), m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0 });
+    m.userData.uni = box.userData.uni;
+    m.onBeforeCompile = sh => { box.onBeforeCompile(sh); sh.vertexShader = sh.vertexShader.replace('// @round', `if (roof < 0.5) vFac.x = (atan(lp.z, lp.x) + 3.14159265) * 0.5 * sc.x; vSpan = 3.14159265 * sc.x;`); };
+    m.customProgramCacheKey = () => 'orbis-city-facade-round';
+    return (facadeMats[shape] = m);
+  }
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0 });
   const uni = {
     uNight: { value: 0 }, uGround: { value: 0 }, uTime: { value: 0 },
@@ -59,7 +67,9 @@ export function cityMaterial() {
         vec4 wp0 = modelMatrix * instanceMatrix * vec4(position, 1.0);
         vFac = vec3(fu + (abs(normal.x) > 0.5 ? sc.z : sc.x) * 0.5, wp0.y - uGround, roof);
         if (roof > 0.5) vFac.y = lp.z;
-        vCity = aCity; vSpan = abs(normal.x) > 0.5 ? sc.z : sc.x;`);
+        vCity = aCity; vSpan = abs(normal.x) > 0.5 ? sc.z : sc.x;
+        // @round
+        `);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vFac; varying vec2 vCity; varying float vSpan;
@@ -129,7 +139,7 @@ export function cityMaterial() {
         totalEmissiveRadiance += gEmit;`);
   };
   m.customProgramCacheKey = () => 'orbis-city-facade';
-  facadeMat = m;
+  facadeMats.box = m;
   return m;
 }
 
@@ -155,6 +165,8 @@ export class CityView {
     this.group = new THREE.Group(); this.group.name = 'city';
     this.mat = cityMaterial(); this.mat.userData.uni.uGround.value = this.city.h + CURB;
     this.box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+    this.shapes = { round: new THREE.CylinderGeometry(0.5, 0.5, 1, 40, 1).translate(0, 0.5, 0),
+      oct: (() => { const g = new THREE.CylinderGeometry(0.5 / Math.cos(Math.PI / 8), 0.5 / Math.cos(Math.PI / 8), 1, 8, 1).rotateY(Math.PI / 8).translate(0, 0.5, 0).toNonIndexed(); g.computeVertexNormals(); return g; })() };
     this.crowns = crownGeometries();
     this.crownMat = new THREE.MeshStandardMaterial({ color: 0x8a9096, roughness: 0.35, metalness: 0.8 });
     this.capMat = new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.6, metalness: 0.5 });
@@ -201,13 +213,13 @@ export class CityView {
   get done() { return this.queue && !this.queue.length; }
 
   buildSector(a, b) {
-    const c = this.city, base = c.h + CURB, tiers = [], kerbs = [], crowns = {}, pads = [], beacons = [], bridges = [], doors = [];
+    const c = this.city, base = c.h + CURB, tiers = [], kerbs = [], crowns = {}, pads = [], beacons = [], bridges = [], doors = [], shaped = {};
     for (let i = a * SECTOR; i < (a + 1) * SECTOR; i++) for (let j = b * SECTOR; j < (b + 1) * SECTOR; j++) {
       const B = cityBlock(c, i, j); if (!B.district) continue;
       kerbs.push(B);
       for (const bd of B.buildings) {
         const seed = parseInt(bd.id.replace(/\D/g, '').slice(-6), 10) % 997 / 997 + (i * 31 + j * 17) % 13;
-        for (const t of bd.tiers) tiers.push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed]);
+        for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed]);
         if (bd.crown) {
           const t = bd.tiers.at(-1), w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
           (crowns[bd.crown] ||= []).push([t.r, base + t.y1, s * CROWN_H[bd.crown] * (bd.crown === 'antenna' ? 3 : 1) + (bd.crown === 'spire' ? s * 0.6 : 0), bd.crown === 'vault' ? [w, d] : [s, s]]);
@@ -237,6 +249,15 @@ export class CityView {
     mesh.geometry = this.box.clone(); mesh.geometry.setAttribute('aCity', new THREE.InstancedBufferAttribute(attr, 2));
     mesh.computeBoundingSphere(); mesh.receiveShadow = true;
     sec.mesh = mesh; sec.group.add(mesh);
+    for (const [shape, list] of Object.entries(shaped)) {      // round and octagonal towers
+      const g = this.shapes[shape].clone(), at = new Float32Array(list.length * 2), sm = new THREE.InstancedMesh(g, cityMaterial(shape), list.length);
+      list.forEach(([r, y, h, st, seed], q) => { M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); sm.setMatrixAt(q, M); at[q * 2] = st; at[q * 2 + 1] = seed; });
+      g.setAttribute('aCity', new THREE.InstancedBufferAttribute(at, 2)); sm.computeBoundingSphere(); sm.receiveShadow = true; sm.castShadow = true; sec.group.add(sm);
+      const cm = new THREE.InstancedMesh(this.shapes[shape], this.capMat, list.length);    // their cornices
+      list.forEach(([r, y, h], q) => { M.makeScale(r[2] - r[0] + 0.9, Math.min(1.4, 0.5 + h * 0.01), r[3] - r[1] + 0.9); M.setPosition((r[0] + r[2]) / 2, y + h, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
+      cm.computeBoundingSphere(); sec.group.add(cm);
+      this.stats.tiers += list.length;
+    }
     this.stats.tiers += tiers.length;
     for (const [kind, list] of Object.entries(crowns)) {
       const cm = new THREE.InstancedMesh(this.crowns[kind], this.crownMat, list.length);

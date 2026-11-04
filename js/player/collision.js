@@ -8,13 +8,14 @@ import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
+const inBox = (b, u, v, m = 0) => b[6] ? Math.hypot(u - (b[0] + b[2]) / 2, v - (b[1] + b[3]) / 2) <= (b[2] - b[0]) / 2 + m : u >= b[0] - m && u <= b[2] + m && v >= b[1] - m && v <= b[3] + m;
 // The megacity's solids as city-local boxes [u0, v0, u1, v1, y0, y1] (absolute heights):
 // every building tier, each block's kerb slab, the landing pads. Cached on the block.
 function cityBoxes(c, B) {
   if (B.col) return B.col;
   const base = c.h + CURB, out = [];
   if (B.district) out.push([...B.rect, c.h - 1, base]);
-  for (const b of B.buildings) for (const t of b.tiers) out.push([...t.r, base + t.y0, base + t.y1]);
+  for (const b of B.buildings) for (const t of b.tiers) out.push([...t.r, base + t.y0, base + t.y1, t.shape ? 1 : 0]);    // [6] = 1: round (the circle in the rect)
   for (const p of B.pads) out.push([...p.r, base + p.y - 1.2, base + p.y]);
   // skybridges (owned by this block or sent across from the blocks before it): deck, glass sides, roof
   for (const N of [B, cityBlockOf(c, B.i - 1, B.j), cityBlockOf(c, B.i, B.j - 1)]) for (const q of bridgesOf(c, N)) {
@@ -105,7 +106,7 @@ export class CollisionWorld {
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
     let best = surfaceHeight(this.planet, x, z), where = null;
-    this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && u >= box[0] && u <= box[2] && v >= box[1] && v <= box[3]) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
+    this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && inBox(box, u, v)) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, 0.05)) continue;
@@ -136,7 +137,7 @@ export class CollisionWorld {
   // Lowest ceiling above the head at (x, z), or Infinity.
   ceilingAt(x, z, yFeet) {
     let c = Infinity;
-    this.cityNear(x, z, 0, (box, u, v) => { if (box[4] >= yFeet + 0.3 && u >= box[0] && u <= box[2] && v >= box[1] && v <= box[3]) c = Math.min(c, box[4]); });
+    this.cityNear(x, z, 0, (box, u, v) => { if (box[4] >= yFeet + 0.3 && inBox(box, u, v)) c = Math.min(c, box[4]); });
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
@@ -159,6 +160,12 @@ export class CollisionWorld {
       this.cityNear(x, z, r + 0.2, (box, u, v) => {
         if (yFeet + h <= box[4] || yFeet + 0.3 >= box[5]) return;
         const [lu, lv] = C.toLocal(x, z);
+        if (box[6]) {      // a round tower: push out of its circle
+          const cu = (box[0] + box[2]) / 2, cv = (box[1] + box[3]) / 2, R = (box[2] - box[0]) / 2 + r, du = lu - cu, dv = lv - cv, d = Math.hypot(du, dv);
+          if (d >= R) return;
+          const k = d > 1e-6 ? (R - d) / d : 0, pu = d > 1e-6 ? du * k : R, pv = d > 1e-6 ? dv * k : 0;
+          x += pu * C.cos - pv * C.sin; z += pu * C.sin + pv * C.cos; moved = true; return;
+        }
         const nu = Math.max(box[0], Math.min(lu, box[2])), nv = Math.max(box[1], Math.min(lv, box[3]));
         let du = lu - nu, dv = lv - nv, d2 = du * du + dv * dv, pu, pv;
         if (d2 >= r * r) return;
@@ -226,7 +233,7 @@ export class CollisionWorld {
   solidAt(x, y, z, pad = 0.15) {
     if (y < surfaceHeight(this.planet, x, z) + 0.15) return true;
     let hit = false;
-    this.cityNear(x, z, pad, (box, u, v) => { if (!hit && y > box[4] - pad && y < box[5] + pad && u > box[0] - pad && u < box[2] + pad && v > box[1] - pad && v < box[3] + pad) hit = true; });
+    this.cityNear(x, z, pad, (box, u, v) => { if (!hit && y > box[4] - pad && y < box[5] + pad && inBox(box, u, v, pad)) hit = true; });
     if (hit) return true;
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);

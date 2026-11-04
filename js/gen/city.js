@@ -155,7 +155,7 @@ function makeBlock(city, i, j) {
 const inset = (r, m) => [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
 const W = r => r[2] - r[0], D = r => r[3] - r[1];
 function add(ctx, style, tiers, extra = {}) {
-  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1) })), ...extra };
+  const b = { id: `${ctx.B.i},${ctx.B.j}:${ctx.n++}`, style: STYLE[style], tiers: tiers.map(t => ({ r: t.r.map(r1), y0: r1(t.y0), y1: r1(t.y1), ...(t.shape ? { shape: t.shape } : {}) })), ...extra };
   ctx.B.buildings.push(b); return b;
 }
 const prop = (ctx, k, u, v, y = 0, rot = 0, s = 1) => ctx.B.props.push({ k, u: r1(u), v: r1(v), y: r1(y), rot, s });
@@ -186,6 +186,15 @@ function tower(ctx, foot, base, height, style, nTiers) {
   return tiers;
 }
 const CROWNS = ['spire', 'ring', 'pyramid', 'dome', 'antenna', 'pad', 'crown', 'blade'];
+// Round and octagonal towers: each tier squared up about its centre (the footprint is then
+// the circle inscribed in its rect; collision treats it as that circle).
+function roundify(tiers, shape, from = 0) {
+  return tiers.map((t, k) => {
+    if (k < from) return t;
+    const s = Math.min(t.r[2] - t.r[0], t.r[3] - t.r[1]), cu = (t.r[0] + t.r[2]) / 2, cv = (t.r[1] + t.r[3]) / 2;
+    return { ...t, r: [cu - s / 2, cv - s / 2, cu + s / 2, cv + s / 2], shape };
+  });
+}
 
 const BUILD = {
   spire(ctx, r) {
@@ -198,7 +207,8 @@ const BUILD = {
       const s = Math.min(W(f), D(f));
       const foot = s > 70 ? inset(f, (s - rng.range(44, 70)) / 2) : f;
       const H = clamp(hf * rng.range(560, 920) + rng.range(-60, 60), 140, 960) * (n === 2 ? rng.range(0.55, 0.85) : 1);
-      const b = add(ctx, rng.pick(['glass', 'glass', 'bronze', 'white', 'ribbon']), tower(ctx, foot, podH, H, 'glass', rng.int(3, 6)),
+      const shape = rng.chance(0.24) ? rng.pick(['round', 'oct', 'round']) : null, tt = tower(ctx, foot, podH, H, 'glass', rng.int(3, 6));
+      const b = add(ctx, rng.pick(['glass', 'glass', 'bronze', 'white', 'ribbon']), shape ? roundify(tt, shape) : tt,
         { crown: rng.pick(CROWNS), label: 'spire' });
       b.top = r1(b.tiers.at(-1).y1);
       // landing pads cantilevered off the shaft every couple of hundred metres
@@ -222,7 +232,8 @@ const BUILD = {
       const foot = slab ? lot : s > 50 ? inset(lot, (s - rng.range(30, 48)) / 2) : lot;
       const style = rng.pick(['glass', 'ribbon', 'grid', 'grid', 'bronze', 'white']);
       const tiers = rng.chance(0.4) ? [{ r: lot, y0: 0, y1: rng.range(8, 16) }, ...tower(ctx, inset(foot, 2), 0, H, style, rng.int(1, 3)).map(t => ({ ...t, y0: Math.max(t.y0, 0) }))] : tower(ctx, foot, 0, H, style, rng.int(1, 3));
-      const b = add(ctx, style, tiers, { crown: rng.chance(0.4) ? rng.pick(CROWNS) : null, label: 'offices' });
+      const shape = !slab && rng.chance(0.2) ? rng.pick(['round', 'oct']) : null;
+      const b = add(ctx, style, shape ? roundify(tiers, shape, tiers[0].r === lot ? 1 : 0) : tiers, { crown: rng.chance(0.4) ? rng.pick(CROWNS) : null, label: 'offices' });
       b.top = r1(Math.max(...b.tiers.map(t => t.y1)));
       roofClutter(ctx, b, 0.6);
       if (rng.chance(0.5)) shopfronts(ctx, lot, 'commerce');
@@ -423,7 +434,7 @@ export function bridgesOf(city, B) {
       for (let k = 0; k < 4 && made < 2; k++) {
         const y = Math.round(40 + (k + h) * 55);
         const ta = A.tiers.find(t => t.y0 <= y - 1 && t.y1 >= y + 5), tz = Z.tiers.find(t => t.y0 <= y - 1 && t.y1 >= y + 5);
-        if (!ta || !tz) continue;
+        if (!ta || !tz || ta.shape || tz.shape) continue;
         // overlap across the bridge's width
         const lo = Math.max(axis ? ta.r[0] : ta.r[1], axis ? tz.r[0] : tz.r[1]), hi = Math.min(axis ? ta.r[2] : ta.r[3], axis ? tz.r[2] : tz.r[3]);
         if (hi - lo < 10) continue;
