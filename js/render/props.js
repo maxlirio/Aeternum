@@ -77,7 +77,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
       let top = o; while (top.parent && top.parent !== city.scene) top = top.parent;
       const k = String(top.userData.kind || top.name).replace(/^city_/, '');
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
-      const slot = o.material.name, tinted = slot === 'tint';
+      const slot = o.material.name, tinted = slot === 'tint' ? 'bright' : slot === 'paint' ? 'muted' : false;     // powder-coated street steel takes a muted city colour
       (cityKit.get(k) || cityKit.set(k, []).get(k)).push({ geometry: g, material: surface(tinted ? 'tint-paint' : slot), matrix: new THREE.Matrix4(), tinted,
         cast: !(slot === 'lampwarm' || slot.startsWith('neon') || slot === 'glass') });
     });

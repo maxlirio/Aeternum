@@ -315,7 +315,7 @@ export class CityView {
       for (const part of proto) {
         const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
         list.forEach((p, q) => { Q.setFromAxisAngle(up, p.rot); S.setScalar(p.s || 1); P.set(p.u, base + p.y, p.v); M.compose(P, Q, S).multiply(part.matrix); im.setMatrixAt(q, M);
-          if (part.tinted) { const h = Math.abs(Math.sin(p.u * 12.9898 + p.v * 78.233) * 43758.5453) % 1; im.setColorAt(q, col.setRGB(...TINTS[Math.floor(h * TINTS.length)])); } });
+          if (part.tinted) im.setColorAt(q, col.setRGB(...kitTint(part.tinted, k, p.u, p.v))); });
         im.computeBoundingSphere(); im.castShadow = part.cast; im.receiveShadow = true; this.props.add(im);
       }
     }
@@ -359,6 +359,12 @@ const SIZES = {   // w, h, d, colour, shape
   fountain: [8, 1.2, 8, 0x8a9aa0, 'cyl'], monument: [3, 12, 3, 0xa0a0a0], statue: [2, 6, 2, 0x8a7a5a], play: [3, 2, 3, 0xc04040], washline: [6, 2.2, 0.2, 0xd0d0c0], kiosk_food: [2.4, 2.8, 2, 0xa06040],
 };
 const TINTS = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6]];
+const MUTED = [[0.16, 0.17, 0.18], [0.12, 0.2, 0.16], [0.13, 0.16, 0.24], [0.3, 0.14, 0.1], [0.24, 0.24, 0.22]];
+// a kit part's colour: 'bright' parts vary piece by piece; 'muted' street steel is one colour per kind
+export function kitTint(mode, k, u, v) {
+  if (mode === 'muted') { let h = 0; for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return MUTED[h % MUTED.length]; }
+  const h = Math.abs(Math.sin(u * 12.9898 + v * 78.233) * 43758.5453) % 1; return TINTS[Math.floor(h * TINTS.length)];
+}
 const standInCache = new Map();
 function standIn(k) {
   if (standInCache.has(k)) return standInCache.get(k);

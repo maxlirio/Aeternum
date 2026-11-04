@@ -265,7 +265,7 @@ def tube_path(p, pts, mat, r=0.045):
         for v in bm.verts:
             x, y, z = v.co          # along Blender z → along the segment in the sign plane (x, y), sitting at prop z = -0.12
             t = z + L / 2; ox, oy = x * -math.sin(a), x * math.cos(a)
-            v.co = P(x0 + math.cos(a) * t + ox, y0 + math.sin(a) * t + oy, -0.12 + y)
+            v.co = P(-(x0 + math.cos(a) * t + ox), y0 + math.sin(a) * t + oy, -0.12 + y)     # (x mirrored: drawn as read from the front, -z)
         merge(p, bm, mat)
 def neon_back(p, w, h): bx(p, 0, 0, 0, w, h, 0.08, 'rubber', 0.01)
 def circle(cx, cy_, R, n=16, a0=0, a1=2 * math.pi): return [(cx + R * math.cos(a0 + (a1 - a0) * i / n), cy_ + R * math.sin(a0 + (a1 - a0) * i / n)) for i in range(n + 1)]

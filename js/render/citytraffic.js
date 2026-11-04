@@ -44,7 +44,7 @@ export class CityTrafficView {
     }, viewer[0], viewer[2], NEAR);
     this.points.geometry.attributes.position.needsUpdate = true; this.points.geometry.attributes.color.needsUpdate = true;
     this.points.geometry.setDrawRange(0, k);
-    this.mat.opacity = 0.35 + 0.65 * night; this.mat.size = 2.2 + 2.5 * night;
+    this.mat.opacity = 0.04 + 0.9 * night * night; this.mat.size = 2.2 + 2.5 * night;
     if (near.length > MAXN) { const d = v => (v.pos[0] ** 2 + (v.pos[1] - toRender(...viewer)[1]) ** 2 + v.pos[2] ** 2); near.sort((p, q) => d(p) - d(q)); near.length = MAXN; }
     this.vehicles.update(near);
     this.drawn = near.length;

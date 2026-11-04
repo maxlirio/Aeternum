@@ -117,6 +117,34 @@ SCRIPTS.dogfight = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r,
     F.throttle = 1; await wait(9000); F.q = (await import('./js/player/flight.js')).fromEuler(F.facing, 0.12, 0.7); await wait(1500);
     document.querySelector('.toasts')?.remove();`;
 SHOTS.dogfight = 'hour=16';
+SCRIPTS.flycity = SCRIPTS.dogfight.replace("O.getShips().find(x => x.forSale)", "(O.getShips().find(x => x.forSale && /interceptor|striker|needle|warden|shade/.test(x.model)) || O.getShips().find(x => x.forSale))")
+  .replace("F.q = (await import('./js/player/flight.js')).fromEuler(F.facing, 0.12, 0.7); await wait(1500);", `const C = O.city, Fl = await import('./js/player/flight.js'), a = Math.atan2(O.s.cx - C.cx, O.s.cz - C.cz);
+    F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 260, C.cz + Math.cos(a) * (C.R * 0.55)]; const yaw = a + Math.PI + 0.25; F.facing = yaw; F.q = Fl.fromEuler(yaw, -0.06, -0.35);
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 260, C.cz + Math.cos(a) * (C.R * 0.55)]; await wait(200); }
+    await wait(2500); O.cam.pitch = 0.12;`);
+SHOTS.flycity = 'hour=16.5';
+// the city kit laid out on a boulevard, family by family (a contact sheet in real light)
+const KIT = {
+  A: [5, 'lamp_cobra lamp_double lamp_lux lamp_lantern lamp_neon lamp_flood lamp_park bench bench_lux bin bin_lux bin_rusty vending vending2 vending_old kiosk kiosk_lux kiosk_food planter planter_lux bollard hydrant newsstand shelter atm bikerack mailbox terminal_post holo_post barrier junction steamvent tree tree_lux'],
+  B: [5, 'stall_canopy stall_umbrella stall_tent stall_fish stall_cloth stall_tech stall_fruit stall_spice stall_grill stall_noodle stall_cart stall_crate foodcart foodcart2 crates_fruit sacks baskets barrels pots rugs cage stool scale handcart lanterns lanterns_post awning awning2 sign_shop sign_market sign_blade holo_ad lanternline'],
+  C: [4.5, 'dumpster trashpile boxes firebarrel mattress shack leanto scrapheap hulk washline play pipes pipes2 cables neon_bar neon_noodle neon_eye neon_arrow neon_ring neon_vert neon_cross neon_star neon_fish neon_glyph'],
+  D: [6, 'ac ac2 tank_roof antenna dish vent solar cooling billboard aerial skylight beacon container pallet drums forklift fuelcart cargoloader padlights'],
+  E: [26, 'tank silo sphere stack crane fountain monument statue'],
+};
+for (const [K, [sp, list]] of Object.entries(KIT)) {
+  SCRIPTS['kit' + K] = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), THREE = await import('three'), CV = await import('./js/render/city.js');
+    const u0 = G.lineAt(c, 0, 0), v0 = G.lineAt(c, 1, 0) + 40, kinds = '${list}'.split(' '), cols = ${K === 'E' ? 2 : 'Math.ceil(Math.sqrt(kinds.length * 1.6))'}, sp = ${sp};
+    const [x, z] = c.toWorld(u0, v0 - ${K === 'E' ? 30 : 4}); O.ctrl.pos = [x, c.h + 0.1, z]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, c.h + 0.1, z]; await wait(200); }
+    O.cityTraffic.group.visible = false; O.cityTraffic.points.visible = false; O.cityView.props.visible = false;
+    const g = new THREE.Group(); O.cityView.group.add(g);
+    kinds.forEach((k, n) => { const parts = O.cityView.kit(k), col = n % cols, row = Math.floor(n / cols);
+      for (const p of parts) { const m = new THREE.InstancedMesh(p.geometry, p.material, 1), M = new THREE.Matrix4().setPosition(u0 + (col - (cols - 1) / 2) * sp, c.h + 0.2, v0 + row * sp * 1.1); m.setMatrixAt(0, M); if (p.tinted) m.setColorAt(0, new THREE.Color(...CV.kitTint(p.tinted, k, n * 7.1, n * 3.3))); m.castShadow = true; m.receiveShadow = true; g.add(m); } });
+    const [tx, tz] = c.toWorld(u0, v0 + sp * 2); O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing; O.cam.pitch = ${K === "E" ? 0.42 : 0.62}; O.cam.dist = ${K === "E" ? 95 : 15}; O.avatar.object.visible = false;
+    const hide = () => { O.avatar.object.visible = false; requestAnimationFrame(hide); }; hide(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
+  SHOTS['kit' + K] = 'hour=13.5';
+}
+ SCRIPTS.flycityn = SCRIPTS.flycity; SHOTS.flycityn = 'hour=20.8';
 SCRIPTS.cars = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const V = O.getVehicles(); let best = null, bn = 0;
     for (const v of V) { const n = V.filter(w => Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2]) < 18 && w.kind !== 'bike').length; if (n > bn) { bn = n; best = v; } }
     O.ctrl.pos = [best.pos[0] + Math.sin(best.facing + 1.57) * 9, best.pos[1], best.pos[2] + Math.cos(best.facing + 1.57) * 9]; O.ctrl.vel = [0, 0, 0];
