@@ -101,6 +101,11 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.cars = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const V = O.getVehicles(); let best = null, bn = 0;
+    for (const v of V) { const n = V.filter(w => Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2]) < 18 && w.kind !== 'bike').length; if (n > bn) { bn = n; best = v; } }
+    O.ctrl.pos = [best.pos[0] + Math.sin(best.facing + 1.57) * 9, best.pos[1], best.pos[2] + Math.cos(best.facing + 1.57) * 9]; O.ctrl.vel = [0, 0, 0];
+    O.ctrl.facing = Math.atan2(best.pos[0] - O.ctrl.pos[0], best.pos[2] - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.5; O.cam.pitch = 0.4; O.cam.dist = 9; document.querySelector('.toasts')?.remove(); await wait(3000);`;
+SHOTS.cars = 'hour=15';
 const shipShot = model => `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const { centreOf } = await import('./js/world/ships.js');
     const sh = O.getShips().find(x => x.model === '${model}'); const { c, facing } = centreOf(O.s, sh), L = (await import('./js/gen/ships.js')).shipPlan('${model}').layout;
     const a = facing + 2.3, r = L.D * 0.95 + 4; O.ctrl.pos = [c[0] + Math.sin(a) * r, c[1], c[2] + Math.cos(a) * r]; O.ctrl.vel = [0, 0, 0]; await wait(500);

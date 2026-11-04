@@ -61,7 +61,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
   });
   for (const v of variants.values()) for (const p of v.prims) {
     p.tinted = p.slot === 'tint';
-    p.material = surface(p.tinted ? 'tint-' + (SOFT.has(v.kind) ? 'fabric' : HULLED.has(v.kind) ? 'hull' : 'paint') : p.slot);
+    p.material = surface(p.tinted ? 'tint-' + (SOFT.has(v.kind) ? 'fabric' : HULLED.has(v.kind) ? 'hull' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
   }
   return { variants, surface };
 }

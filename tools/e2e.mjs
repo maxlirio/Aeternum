@@ -305,11 +305,14 @@ try {
   const bikes = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
     const key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
-    const out = {}, v = O.getVehicles().find(v => v.forSale); P.credits = 5000;
+    const out = {}, v = O.getVehicles().find(v => v.forSale && v.kind === 'bike'); P.credits = 5000; out.price = (await import('./js/gen/vehicles.js')).typeOf(v).price;
     O.ctrl.mode = 'walk'; O.ctrl.pos = [v.pos[0] + 1.2, v.pos[1], v.pos[2] + 0.5]; await wait(500);
     key('KeyE'); await wait(300); key('Digit1'); await wait(300);
     out.paid = 5000 - P.credits; key('KeyE'); await wait(300);
     out.riding = !!O.getRide();
+    { const R = O.getRide(); const { nearestRoadPoint } = await import('./js/gen/place.js'); const q = nearestRoadPoint(O.s, R.pos[0], R.pos[2]); let best = R.facing, bestFree = 0;   // turn to the longest clear run
+      for (let k = 0; k < 16; k++) { const f = k * Math.PI / 8; let d = 0; for (; d < 60; d += 1) if (O.world.solidAt(q[0] + Math.sin(f) * d, R.pos[1] + 0.8, q[2] + Math.cos(f) * d, 0.6)) break; if (d > bestFree) { bestFree = d; best = f; } }
+      R.pos = [q[0], R.pos[1], q[2]]; R.facing = best; }
     key('KeyW', false); await wait(3000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }));
     out.speed = Math.round(O.getRide()?.speed * 3.6);
     key('KeyE'); await wait(100); out.refused = !!O.getRide();
@@ -327,7 +330,7 @@ try {
     key('KeyE'); await wait(200); await O.save();
     out.id = v.id; out.pos = now.pos;
     return out; })()`);
-  check(bikes.paid === 1800 && bikes.riding, `bought a speeder for ${bikes.paid} cr and got on`);
+  check(bikes.paid === bikes.price && bikes.riding, `bought a bike for ${bikes.paid} cr and got on`);
   check(bikes.speed > 30, `3 s of throttle: ${bikes.speed} km/h`);
   check(bikes.refused, "can't get off at speed");
   check(bikes.off && bikes.moved > 20 && bikes.near < 2, `braked, got off; it's parked ${bikes.moved} m from the dealer, ${bikes.near} m from you`);

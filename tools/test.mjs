@@ -682,7 +682,7 @@ suites.items = async () => {
 suites.vehicles = async () => {
   const { CollisionWorld } = await import('../js/player/collision.js');
   const { Ride } = await import('../js/player/ride.js');
-  const { parkedVehicles, SPEEDER } = await import('../js/gen/vehicles.js');
+  const { parkedVehicles, SPEEDER, typeOf, TYPES } = await import('../js/gen/vehicles.js');
   const { vehiclesIn, park, buyVehicle, stealVehicle, isYours } = await import('../js/world/vehicles.js');
   const { WorldStore } = await import('../js/world/store.js');
   const { MemoryBackend } = await import('../js/world/store-mem.js');
@@ -694,6 +694,8 @@ suites.vehicles = async () => {
   const vs = parkedVehicles(p, s);
   check(JSON.stringify(vs) === JSON.stringify(parkedVehicles(makePlanet(U, HOMEWORLD), getSettlement(makePlanet(U, HOMEWORLD), 0, 0))), 'parked bikes are deterministic');
   const forSale = vs.filter(v => v.forSale), owned = vs.filter(v => !v.forSale);
+  const kinds = new Set(vs.map(v => v.type));
+  check(kinds.size >= 10, `${kinds.size} different kinds of vehicle parked in one town: ${[...kinds].join(', ')}`);
   check(owned.length > pop.households.length * 0.2 && forSale.length >= 3, `${owned.length} household bikes, ${forSale.length} for sale`);
   // nobody parks inside a wall
   let clear = 0;
@@ -738,12 +740,12 @@ suites.vehicles = async () => {
   // ownership: buy from the dealer, steal a neighbour's, park; it all persists
   const st = new WorldStore(new MemoryBackend()); st.create(seedHex(U), EPOCH, 0);
   const pl2 = newCharacter(U, p, s, pop, 1, EPOCH); pl2.credits = 2000; st.setPlayer(pl2);
-  const sale = vehiclesIn(st, p, s).find(v => v.forSale);
-  check(buyVehicle(st, sale, EPOCH).ok && pl2.credits === 200 && isYours(vehiclesIn(st, p, s).find(v => v.id === sale.id), pl2), 'bought a bike from the dealer');
+  const sale = vehiclesIn(st, p, s).find(v => v.forSale && typeOf(v).price <= 2000);
+  check(buyVehicle(st, sale, EPOCH).ok && pl2.credits === 2000 - typeOf(sale).price && isYours(vehiclesIn(st, p, s).find(v => v.id === sale.id), pl2), 'bought a bike from the dealer');
   check(!buyVehicle(st, vehiclesIn(st, p, s).find(v => v.forSale), EPOCH).ok, 'can\'t afford a second');
   const other = vehiclesIn(st, p, s).find(v => !v.forSale && !isYours(v, pl2));
   const inc = stealVehicle(st, s, other, EPOCH + 5, []);
-  check(inc.type === 'theft' && inc.value === SPEEDER.price && isYours(vehiclesIn(st, p, s).find(v => v.id === other.id), pl2), 'stole one: it\'s yours now, and it\'s a theft');
+  check(inc.type === 'theft' && inc.value === typeOf(other).price && isYours(vehiclesIn(st, p, s).find(v => v.id === other.id), pl2), 'stole one: it\'s yours now, and it\'s a theft');
   park(st, other, [1, 2, 3], 0.5);
   const R = new WorldStore(new MemoryBackend()); await R.importJSON(st.exportJSON());
   const back = vehiclesIn(R, p, s).find(v => v.id === other.id);

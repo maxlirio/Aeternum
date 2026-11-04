@@ -579,7 +579,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -1704,6 +1704,84 @@ def potplant(p, L, D, H, r):
         d = mathutils.Vector((r.uniform(-1, 1), r.uniform(0.5, 1), r.uniform(-1, 1))).normalized()
         card(p, (L / 2, H * 0.3, D / 2), d, (r.uniform(-1, 1), 0.2, r.uniform(-1, 1)), L * 0.35, H * 0.75, 'leafcard')
 
+# ------------------------------------------------------------------ the vehicle catalogue (assets/vehicles.json)
+# Frame like the speeder: x rear (0) → nose (L), z across (0..W), y up; hovering, so the
+# body floats ~0.35 m up over four glowing repulsor pods.
+def vehicle_from(v):
+    b = v.get('body', {}); k = v['kind']
+    def build(p, L, W, H, r):
+        if k == 'bike':
+            speeder(p, L, W, H, r)
+            if b.get('rack'):
+                for i in range(2): add_box(p, 0.05 + i * 0.42, 0.72, W / 2 - 0.3, 0.42 + i * 0.42, 1.05, W / 2 + 0.3, 'cardboard', 0.01)
+                add_box(p, 0.0, 0.68, W / 2 - 0.35, 0.9, 0.72, W / 2 + 0.35, 'metal', 0.005)
+            if b.get('sleek'): add_loft(p, [(L * 0.55, 0.78, 0.02, W / 2, 0.12, 2), (L * 0.8, 0.72, 0.1, W / 2, 0.18, 2.5), (L * 0.98, 0.64, 0.02, W / 2, 0.04, 2)], 'tint', 20)
+            return
+        zc = W / 2; belly = 0.38; rr = b.get('round', 3)
+        def S(t): return t * L
+        if k == 'truck':
+            cab = b.get('cab', 0.3); cx0 = L * (1 - cab)
+            add_box(p, 0.15, belly, 0.1, L - 0.1, belly + 0.35, W - 0.1, 'paint', 0.03)                        # chassis
+            add_loft(p, [(cx0, belly + 0.9, 0.9, zc, W / 2, rr), (L - 0.4, belly + 0.9, 0.9, zc, W / 2, rr), (L - 0.05, belly + 0.75, 0.6, zc, W / 2 - 0.15, rr)], 'tint', 28)
+            add_loft(p, [(cx0 + 0.3, belly + 1.85, 0.32, zc, W / 2 - 0.05, rr), (L - 0.55, belly + 1.85, 0.32, zc, W / 2 - 0.05, rr), (L - 0.2, belly + 1.55, 0.05, zc, W / 2 - 0.3, rr)], 'visor', 28)
+            add_loft(p, [(cx0, belly + 2.12, 0.08, zc, W / 2, rr), (L - 0.5, belly + 2.12, 0.08, zc, W / 2, rr)], 'tint', 24)
+            if b.get('box'): add_box(p, 0.1, belly + 0.35, 0.05, cx0 - 0.15, H, W - 0.05, 'corrugated', 0.03); add_box(p, 0.05, belly + 0.4, 0.15, 0.1, H - 0.1, W - 0.15, 'metal', 0.01)
+            if b.get('tank'):
+                add_cyl(p, H * 0.5 + 0.3, W / 2, 0.2, cx0 - 0.2, W * 0.45, 'metal', 28, axis='x')
+                for x in (0.5, (cx0 - 0.2) / 2, cx0 - 0.6): add_cyl(p, H * 0.5 + 0.3, W / 2, x, x + 0.1, W * 0.47, 'paint', 28, axis='x')
+                add_box(p, 0.3, H - 0.1, W / 2 - 0.3, cx0 - 0.4, H - 0.05, W / 2 + 0.3, 'hazard', 0.005)
+            if b.get('bed'):
+                add_box(p, 0.15, belly + 0.35, 0.1, cx0 - 0.1, belly + 0.85, 0.2, 'tint', 0.01); add_box(p, 0.15, belly + 0.35, W - 0.2, cx0 - 0.1, belly + 0.85, W - 0.1, 'tint', 0.01)
+                add_box(p, 0.1, belly + 0.35, 0.1, 0.2, belly + 0.85, W - 0.1, 'tint', 0.01)
+                for i in range(int(r.uniform(1, 4))): x0 = 0.3 + i * 0.75; add_box(p, x0, belly + 0.36, 0.4 + r.uniform(0, 0.5), x0 + 0.6, belly + 0.36 + r.uniform(0.3, 0.6), 1.2 + r.uniform(0, 0.4), 'cardboard', 0.01)
+            for x in (S(0.15), S(0.85)):
+                for zz in (0.35, W - 0.35): add_cyl(p, x, zz, belly - 0.1, belly, 0.3, 'metal', 16); add_cyl(p, x, zz, belly - 0.12, belly - 0.1, 0.22, 'glow', 16)
+            for zz in (0.3, W - 0.3): add_box(p, L - 0.08, belly + 0.6, zz - 0.15, L - 0.02, belly + 0.75, zz + 0.15, 'navwhite', 0.01); add_box(p, 0.02, belly + 0.5, zz - 0.15, 0.08, belly + 0.65, zz + 0.15, 'navred', 0.01)
+            return
+        nose, tail, cab, roof = b.get('nose', 0.3), b.get('tail', 0.2), b.get('cabin', 0.45), b.get('roof', 0.9)
+        bodyH = (H - belly) * (0.5 if k == 'car' and not b.get('box') and not b.get('windows') else 0.55)
+        top = belly + bodyH
+        lw = W / 2
+        wedge = b.get('wedge')
+        secs = [(0.0, belly + bodyH * 0.55, bodyH * 0.45, zc, lw * 0.85, rr), (S(tail * 0.6 + 0.05), belly + bodyH / 2, bodyH / 2, zc, lw, rr), (S(1 - nose), belly + bodyH / 2, bodyH / 2, zc, lw, rr),
+                (S(1 - nose * 0.35), belly + bodyH * (0.32 if wedge else 0.42), bodyH * (0.28 if wedge else 0.38), zc, lw * 0.95, rr), (L, belly + bodyH * 0.3, 0.05, zc, lw * 0.6, 2)]
+        tall = b.get('box') or b.get('windows')
+        if tall:                                   # van / minibus: one tall body from the belly to the roof, sloping into the nose
+            hb = (H - belly) / 2
+            secs = [(0.0, belly + hb, hb * 0.96, zc, lw * 0.95, rr), (0.25, belly + hb, hb, zc, lw, rr), (S(1 - nose) - 0.4, belly + hb, hb, zc, lw, rr),
+                    (S(1 - nose * 0.35), belly + hb * 0.75, hb * 0.72, zc, lw * 0.96, rr), (L, belly + bodyH * 0.35, 0.05, zc, lw * 0.6, 2)]
+        add_loft(p, secs, 'tint', 32)
+        if tall:
+            add_loft(p, [(S(1 - nose) - 0.9, top + (H - top) * 0.45, (H - top) * 0.3, zc, lw * 0.99, rr), (S(1 - nose * 0.4), top + 0.05, 0.12, zc, lw * 0.92, rr)], 'visor', 28)
+            if b.get('windows'): add_box(p, S(0.08), top + (H - top) * 0.35, -0.005, S(1 - nose) - 1.0, top + (H - top) * 0.75, W + 0.005, 'visor', 0.02)
+            else:
+                add_box(p, S(0.2), top + 0.2, -0.004, S(0.75), H - 0.25, 0.0, 'paint', 0.01)
+                for zz in (0, W): add_box(p, S(0.25), top + 0.5, zz - 0.006, S(0.7), top + 0.65, zz + 0.006, 'glow', 0.002)
+        elif not b.get('open'):                    # car: a glass cabin and a roof over it
+            c0, c1 = S(tail + (1 - tail - nose - cab) / 2), S(tail + (1 - tail - nose - cab) / 2 + cab)
+            ch = (H - top) * roof
+            add_loft(p, [(c0 - 0.35, top, 0.02, zc, lw * 0.88, rr), (c0 + 0.15, top + ch * 0.55, ch * 0.55, zc, lw * 0.82, rr), (c1 - 0.15, top + ch * 0.55, ch * 0.55, zc, lw * 0.82, rr), (c1 + 0.55, top, 0.02, zc, lw * 0.9, rr)], 'visor', 28)
+            add_loft(p, [(c0 + 0.1, top + ch * 1.04, 0.05, zc, lw * 0.76, rr), (c1 - 0.15, top + ch * 1.04, 0.05, zc, lw * 0.76, rr)], 'tint', 24)
+            if b.get('taxi'): add_box(p, (c0 + c1) / 2 - 0.25, top + ch * 1.09, zc - 0.12, (c0 + c1) / 2 + 0.25, top + ch * 1.09 + 0.16, zc + 0.12, 'navwhite', 0.02)
+        else:                                      # open buggy: seats and a roll cage
+            for zz in (zc - 0.45, zc + 0.45): add_cushion(p, S(0.35), top - 0.05, zz - 0.25, S(0.5), top + 0.45, zz + 0.25, 'rubber', 0.2, 0.5, 6)
+            if b.get('cage'):
+                for x in (S(0.3), S(0.62)):
+                    for zz in (0.25, W - 0.25): add_cyl(p, x, zz, top, H, 0.03, 'metal', 8)
+                    add_cyl(p, x, H, 0.25, W - 0.25, 0.03, 'metal', 8, axis='z')
+                for zz in (0.25, W - 0.25): add_cyl(p, H, zz, S(0.3), S(0.62), 0.03, 'metal', 8, axis='x')
+        if b.get('wing'): add_box(p, 0.0, top + 0.25, 0.15, 0.3, top + 0.3, W - 0.15, 'tint', 0.01); [add_box(p, 0.08, top, zz - 0.03, 0.14, top + 0.25, zz + 0.03, 'tint', 0.005) for zz in (0.4, W - 0.4)]
+        if b.get('chrome'): add_box(p, S(0.05), belly + bodyH * 0.55, -0.01, S(0.95), belly + bodyH * 0.6, W + 0.01, 'metal', 0.004)
+        # lights, pods, a line of trim
+        for zz in (lw * 0.45, W - lw * 0.45):
+            add_box(p, L * (1 - nose * 0.25) - 0.04, belly + bodyH * 0.35, zz - 0.18, L * (1 - nose * 0.25) + 0.02, belly + bodyH * 0.48, zz + 0.18, 'navwhite', 0.01)
+            add_box(p, 0.0, belly + bodyH * 0.5, zz - 0.2, 0.05, belly + bodyH * 0.62, zz + 0.2, 'navred', 0.01)
+        add_box(p, S(0.12), belly + bodyH * 0.2, -0.008, S(0.9), belly + bodyH * 0.24, W + 0.008, 'metal', 0.003)
+        for x in (S(0.18), S(0.82)):
+            for zz in (lw * 0.5, W - lw * 0.5): add_cyl(p, x, zz, belly - 0.12, belly + 0.02, 0.26, 'metal', 16); add_cyl(p, x, zz, belly - 0.14, belly - 0.12, 0.19, 'glow', 16)
+    return build
+VEH = json.load(open(os.path.join(ROOT, 'assets', 'vehicles.json')))['types']
+
 def variants():
     """(name, builder, len, dep, h, kind) for every furniture size the floor plans use (gen/building.js)."""
     V = [
@@ -1721,6 +1799,7 @@ def variants():
         ('planter', planter, 0.7, 0.7, 1.1), ('planter', planter, 0.8, 0.8, 1.0),
         ('crate', crate, 1.2, 1.2, 1.0), ('crate', crate, 1.0, 1.0, 0.8), ('crate', crate, 1.6, 1.6, 1.4),
         ('machine', machine, 0.7, 0.7, 0.95), ('machine', machine, 1.8, 1.4, 1.7), ('machine', machine, 2.2, 1.6, 2.0),
+        *[('veh_' + v['id'], vehicle_from(v), v['L'], v['W'], v['H']) for v in VEH],
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),

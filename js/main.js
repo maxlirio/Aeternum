@@ -44,7 +44,7 @@ import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
 import { laddersIn } from './gen/climb.js';
-import { SPEEDER } from './gen/vehicles.js';
+import { SPEEDER, typeOf } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
@@ -531,8 +531,8 @@ async function start(fresh) {
   sched.add(TIER.NEAR, { update: () => { vehicles = vehiclesIn(store, planet, s); } });
   const nearVehicle = () => {
     if (ride || ctrl.mode !== 'walk') return null;
-    let best = null, bd = 2.2;
-    for (const v of vehicles) { const d = Math.hypot(v.pos[0] - ctrl.pos[0], v.pos[2] - ctrl.pos[2]); if (d < bd && Math.abs(v.pos[1] - ctrl.pos[1]) < 1.6) { bd = d; best = v; } }
+    let best = null, bd = 9;
+    for (const v of vehicles) { const d = Math.hypot(v.pos[0] - ctrl.pos[0], v.pos[2] - ctrl.pos[2]) - typeOf(v).L / 2 + 1.0; if (d < Math.min(bd, 2.2) && Math.abs(v.pos[1] - ctrl.pos[1]) < 1.6) { bd = d; best = v; } }
     return best;
   };
   function mount(v) {
@@ -549,8 +549,8 @@ async function start(fresh) {
     if (isYours(v, player)) return mount(v);
     if (v.forSale) {
       let pick = null;
-      await modal(async () => { pick = await ui.choose({ title: 'Speeder bike', sub: `For sale at ${esc(v.ownerName)}. Single seat, about 110 km/h, boost to 150. Hovers over ground and water.`,
-        options: [{ a: 'buy', label: `Buy it — ${SPEEDER.price} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < SPEEDER.price }] }); });
+      const T = typeOf(v); await modal(async () => { pick = await ui.choose({ title: T.name, sub: `For sale at ${esc(v.ownerName)}. About ${Math.round(T.top * 3.6)} km/h, ${Math.round(T.top * 3.6 * 1.4)} boosted. Hovers over ground and water.`,
+        options: [{ a: 'buy', label: `Buy it — ${T.price} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < T.price }] }); });
       if (pick?.a !== 'buy') return;
       const r = buyVehicle(store, v, clock.now());
       ui.toast(r.ok ? 'It\'s yours. <kbd>E</kbd> to ride.' : r.why, r.ok ? '' : 'warn'); vehicles = vehiclesIn(store, planet, s);
@@ -882,8 +882,8 @@ async function start(fresh) {
     }
     const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' ? { moving: true, lean: 0.5 } : ctrl.climbing ? { moving: true, lean: 0.6 } : null;
     if (ride) { // astride the saddle: the seat is ~0.45 m behind the bike's centre
-      const fx = Math.sin(ride.facing), fz = Math.cos(ride.facing), back = -0.42;
-      avatar.object.position.set(rp[0] + fx * back, rp[1] + SPEEDER.seat - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back);
+      const fx = Math.sin(ride.facing), fz = Math.cos(ride.facing), back = ride.T.seat[0], rx = ride.T.kind === 'bike' ? 0 : -Math.cos(ride.facing) * ride.T.W * 0.22;   // (in a car: the driver's seat, a little to one side)
+      avatar.object.position.set(rp[0] + fx * back + rx, rp[1] + ride.T.seat[1] - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back + (ride.T.kind === 'bike' ? 0 : Math.sin(ride.facing) * ride.T.W * 0.22));
       avatar.object.rotation.set(0, ride.facing, 0);
     }
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
@@ -939,7 +939,7 @@ async function start(fresh) {
     }
     const riders = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 160).map(v => {   // the riders of passing traffic (seated, a little behind the bike's centre)
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
-      return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] - fx * 0.3, v.pos[1] + SPEEDER.seat - 0.5, v.pos[2] - fz * 0.3) };
+      const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
     crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
@@ -981,7 +981,7 @@ async function start(fresh) {
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
       else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
       else if (hotwire > 0) {}
-      else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? '<kbd>E</kbd> Ride your speeder' : nv.forSale ? `<kbd>E</kbd> Speeder for sale — ${SPEEDER.price} cr` : `${esc(nv.ownerName)}'s speeder · hold <kbd>F</kbd> hotwire`);
+      else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? `<kbd>E</kbd> ${typeOf(nv).kind === 'bike' ? 'Ride' : 'Drive'} your ${typeOf(nv).name.toLowerCase()}` : nv.forSale ? `<kbd>E</kbd> ${typeOf(nv).name} for sale — ${typeOf(nv).price} cr` : `${esc(nv.ownerName)}'s ${typeOf(nv).name.toLowerCase()} · hold <kbd>F</kbd> hotwire`);
       else if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
       else if (ua && (di < 0 || ua.d < doorDist) && !(() => { const w = personAhead(); return w && Math.hypot(w.pos[0] - ctrl.pos[0], w.pos[2] - ctrl.pos[2]) - 0.6 < ua.d + 0.8; })()) {
         const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
