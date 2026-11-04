@@ -61,6 +61,10 @@ dialog p { margin: 8px 0 0; color: #e6e4df; font: 13px var(--mono); }
   <section>
     <h2>Batch log</h2>
     <div class="log">
+      <p class="when">Batch 10 · 3 Nov 2026</p>
+      <p>Variety, so a big city won't repeat itself. 16 ground vehicles from one parametric builder: three bikes, sedans, compacts, coupes, wedge racers, estates, taxis, limousines, dune buggies, vans, minibuses, box trucks, tankers and pickups — parked along the kerbs, sold by dealers, and driving the roads. And a ship designer that writes 24 designs in 8 classes (runabouts, racers, dropships, gunships, explorers, haulers, ferries, mining barges), each with its own engines, fins, wings, nose and markings, every one walkable inside. Pads and fields draw from all of them, and ships now cross the sky overhead.</p>
+    </div>
+    <div class="log">
       <p class="when">Batch 9 · 3 Nov 2026</p>
       <p>Homes laid out like real homes: a hall with every room off it, the living room open to the kitchen, a bathroom, bedrooms at the back or upstairs. New fittings (toilet, washbasin with mirror, shower, TV unit, bookshelf, armchair) and decorations on every surface (flowers, kettles, mugs, fruit bowls, books, lamps, potted plants). Three more ships: a courier, the security patrol ship, and a yacht. Weapons — knife, shock baton, pistol, carbine — and people can now be hurt or killed. Ferns, reeds and wildflowers.</p>
     </div>
@@ -130,7 +134,7 @@ dialog p { margin: 8px 0 0; color: #e6e4df; font: 13px var(--mono); }
 <dialog id="lb"><img id="lb-img" alt=""><p id="lb-cap"></p></dialog>
 
 <script>
-const BATCH = 9;
+const BATCH = 10;
 const SURF = [
   ['wood', 1.2, 'Oak-like timber: growth rings, fibres and latewood bands'],
   ['fabric', 0.45, 'Woven upholstery, 150 threads per tile'],
@@ -185,7 +189,10 @@ const chip = (t, cls = '') => `<span class="chip ${cls}">${t}</span>`;
 const plate = (src, name, dims, chips) => `<figure class="plate" style="margin:0"><button type="button" data-src="${src}" data-cap="${name} · ${dims}"><img src="${src}" alt="${name}, studio render" loading="lazy"></button>
   <figcaption class="cap"><div class="row"><span class="name">${name}</span><span class="dims">${dims}</span></div><div class="chips">${chips}</div></figcaption></figure>`;
 
-const GAME = [['living', 'A flat\'s living room', 'Sofa, armchair, TV unit, bookshelf, a vase of flowers on the coffee table', 9], ['kitchen', 'Its kitchen', 'Fridge, counter with a fruit bowl, a table, a window', 9],
+const GAME = [['shipfleet', '24 ship designs', 'Runabouts, racers, dropships, gunships, explorers, haulers, ferries, mining barges (unpainted in the studio)', 10],
+  ['vehfleet', '16 ground vehicles', 'Sedan, compact, coupe, wedge, estate, taxi, limousine, buggy, van, minibus, truck, tanker, pickup, three bikes', 10],
+  ['ship', 'A runabout on its pad', 'Ring of engines; other ships cross the sky', 10], ['cars', 'Parked along the kerb', 'A compact behind an estate', 10], ['far', 'Traffic into town', 'Cars of every kind on the main road', 10],
+  ['living', 'A flat\'s living room', 'Sofa, armchair, TV unit, bookshelf, a vase of flowers on the coffee table', 9], ['kitchen', 'Its kitchen', 'Fridge, counter with a fruit bowl, a table, a window', 9],
   ['bathroom', 'Its bathroom', 'Shower, washbasin with a mirror, toilet', 9], ['fight', 'A pistol in hand', 'The person shot lies where they fell; witnesses report it', 9],
   ['courier', 'A courier on its pad', 'Small, fast, two seats', 9], ['patrol', 'The security patrol ship', 'Dark, always locked', 9],
   ['shore', 'Reeds and wildflowers', 'A reed bed along the lake; flowers in drifts of one colour', 9], ['forest', 'Ferns under the trees', 'Undergrowth in the woods', 9],
@@ -194,7 +201,7 @@ const GAME = [['living', 'A flat\'s living room', 'Sofa, armchair, TV unit, book
   ['inbed', 'A bedroom', 'A painting from the atlas, skirting, the duvet', 6], ['onsofa', 'A living room', 'Plastered walls, skirting boards', 6], ['interior', 'An office', 'Desks, pin boards, pictures', 6],
   ['freighter', 'Freighter on its cargo field', 'Container pods, four corner engines, six legs, hazard markings', 5], ['abovecloud', 'Climbing toward the cloud deck', 'The deck sits at about 1.7 km; you can fly through it', 5],
   ['overcast', 'Rain', 'Overcast greys the light and the air; rain blows with the wind', 5], ['clouds', 'A cloudy afternoon', 'Clouds drift with the wind; cover changes over hours', 5], ['street', 'Street detail', 'Downpipes at the corners; balconies and AC units on the flats', 5], ['aerial', 'Rooftops', 'Stair housings on the blocks, solar panels on the houses', 5],
-  ['shipside', 'Shuttle, pass 3', 'Panelled plating, vents, RCS blocks, engine bells, hazard markings', 4], ['ship', 'From the stern', 'Ramp down, tail fins, gear, the next pad over', 4],
+  ['shipside', 'Shuttle, pass 3', 'Panelled plating, vents, RCS blocks, engine bells, hazard markings', 4],
   ['pilotview', 'Cockpit view', 'Flying with V: out through the windscreen', 4], ['parked', 'Speeders, replated', 'Same panelled hull as the ship', 4], ['dusk', 'The same street at seven', 'Lamps on, a few rooms lit', 3],
   ['night', 'The town at night', 'Lit windows by occupancy, pools of lamplight, two shuttles on their pads', 3],
   ['far', 'From a rooftop', 'Rock where it is steep, dry grass below', 3], 
