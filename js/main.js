@@ -289,6 +289,7 @@ async function start(fresh) {
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
     if (e.code === 'KeyR') attack();
+    if (e.code === 'KeyX' && flight) { flight.assist = !flight.assist; ui.toast(flight.assist ? 'Flight assist on: wings level themselves, the hover holds height.' : 'Flight assist <b>off</b>. Nothing will catch you.', flight.assist ? '' : 'warn', 4000); }
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
     if (e.code === 'F3') { ui.toggleDebug(); e.preventDefault(); }
@@ -569,6 +570,8 @@ async function start(fresh) {
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
   let ships = shipsIn(store, planet, s, clock.now()), flight = null, rampHold = 0, cockpitView = false;
+  const stick = [0, 0];
+  cam.onMouse = (dx, dy) => { if (!flight) return false; stick[0] = Math.max(-1, Math.min(1, stick[0] + dx * 0.006)); stick[1] = Math.max(-1, Math.min(1, stick[1] + dy * 0.006)); return true; };   // mouse forward = nose down
   const placed = new Map();          // ship id → structure in the collision world
   const shipById = id => ships.find(x => x.id === id);
   function syncShips() {
@@ -814,10 +817,16 @@ async function start(fresh) {
       };
       jumpQueued = false;
       if (flight) {
-        flight.step(dt, { fwd: input.fwd, right: input.right, up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run });
+        // the stick: mouse moves it, it springs back to centre; arrow keys too (Up = nose down, like a stick)
+        stick[0] *= Math.exp(-dt * 2.5); stick[1] *= Math.exp(-dt * 2.5);
+        const kp = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0), kr = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
+        flight.step(dt, { throttle: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), pitch: Math.max(-1, Math.min(1, stick[1] + kp)), roll: Math.max(-1, Math.min(1, stick[0] + kr)),
+          yaw: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: weatherAt(planet, t).wind });
         ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;
         if (flight.impact > 15) { player.fatigue = Math.min(1, player.fatigue + 0.1); ui.toast(`Impact at ${Math.round(flight.impact * 3.6)} km/h.`, 'bad', 3000); }
-        cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * (flight.speed > 5 ? 1.5 : 0));
+        // chase camera: behind and a little above, following the heading and part of the pitch
+        cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
+        cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3);
       } else if (ride) {
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run });
         ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
@@ -976,7 +985,11 @@ async function start(fresh) {
       const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
       const nv = !ride && !ua && hotwire === 0 ? nearVehicle() : null;
       const rpn = !ride && !flight && !ua ? nearRamp() : null;
-      if (flight) { const why = flight.onGround ? flight.landingProblem() : null; ui.showPrompt(`<b>${Math.round(flight.speed * 3.6)} km/h</b> · ${Math.round(flight.altitude())} m up · <kbd>Space</kbd>/<kbd>Q</kbd> climb/descend · <kbd>V</kbd> ${cockpitView ? 'chase view' : 'cockpit view'}${flight.onGround ? (why ? ` · can't land: ${why}` : ' · <kbd>E</kbd> land') : ''}`); }
+      if (flight) {
+        const why = flight.onGround ? flight.landingProblem() : null, f = flight;
+        ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${Math.round(f.altitude())}</b> m · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
+          <small>W/S throttle · mouse/arrows stick · A/D rudder · Space/Q lift · Shift burner · B brakes · X assist · V view${f.onGround ? (why ? ` · can't land: ${why}` : ' · <b>E</b> land') : ''}</small>`);
+      }
       else if (rampHold > 0) {}
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
       else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);

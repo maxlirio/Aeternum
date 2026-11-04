@@ -797,7 +797,7 @@ suites.ships = async () => {
     const fv = new Set(usablesOf(p, s, fb).flatMap(u => u.verbs));
     check(fv.has('fly') && fv.has('sleep') && fv.has('fabricate'), 'freighter aboard: ' + [...fv].join(', '));
     world.removeStructure(fb);
-    const ff = new Flight(world, p, fr, fr.at.c, fr.at.facing);
+    const ff = new Flight(world, p, fr, fr.at.c, fr.at.facing); world.flora = false;
     for (let t = 0; t < 5; t += 1 / 60) ff.step(1 / 60, { up: true });
     check(ff.altitude() > 25, `freighter lifts off: ${ff.altitude().toFixed(0)} m`);
   }
@@ -812,20 +812,21 @@ suites.ships = async () => {
   // fly: lift off, climb, cruise, come down somewhere level and land
   world.removeStructure(b);
   const { c: c0, facing } = S.centreOf(s, sh), fl = new Flight(world, p, sh, c0, facing);
-  const fly = (input, secs) => { for (let t = 0; t < secs; t += 1 / 60) fl.step(1 / 60, { fwd: 0, right: 0, up: false, down: false, boost: false, ...input }); };
+  world.flora = false;      // (a field's trees aren't the subject here)
+  const fly = (input, secs) => { for (let t = 0; t < secs; t += 1 / 60) fl.step(1 / 60, input); };
   fly({ up: true }, 4); const alt = fl.altitude();
-  check(alt > 30, `lifted off: ${alt.toFixed(0)} m up`);
-  fly({ up: true }, 14); fly({ fwd: 1 }, 25);
-  check(fl.speed > 120, `cruising at ${Math.round(fl.speed * 3.6)} km/h`);
+  check(alt > 20 && Math.abs(fl.pitch) < 0.05, `lifted off vertically: ${alt.toFixed(0)} m up, nose level`);
+  fly({ up: true }, 10); fly({ throttle: 1 }, 3); fly({ pitch: 0.15 }, 4); fly({}, 40);
+  check(fl.airspeed > 90 && fl.hover < 0.05, `wing-borne at ${Math.round(fl.airspeed * 3.6)} km/h, thrusters off (${fl.hover.toFixed(2)})`);
   const away = Math.hypot(fl.pos[0] - c0[0], fl.pos[2] - c0[2]);
   check(away > 2000, `${Math.round(away)} m from the pad`);
   // find level ground ahead and set down on it
   let spot = null;
   for (let k = 0; k < 4000 && !spot; k++) { const a = k * 2.39996, r = 50 + k * 4, x = fl.pos[0] + Math.cos(a) * r, z = fl.pos[2] + Math.sin(a) * r; const ft = fl.feet(x, z); if (Math.max(...ft) - Math.min(...ft) < 0.5 && Math.min(...ft) > p.seaLevel + 1) spot = [x, z]; }
   if (check(spot, 'found level ground')) {
-    fl.pos = [spot[0], fl.pos[1], spot[1]]; fl.vel = [0, 0, 0]; fl.onGround = false;
+    fl.pos = [spot[0], fl.pos[1], spot[1]]; fl.vel = [0, 0, 0]; fl.onGround = false; fl.throttle = 0; fl.q = (await import('../js/player/flight.js')).fromEuler(fl.facing, 0, 0); fl.w = [0, 0, 0];
     for (let t = 0; t < 300 && !fl.onGround; t += 1 / 60) fl.step(1 / 60, { fwd: 0, right: 0, up: false, down: fl.vel[1] > (fl.altitude() > 40 ? -30 : -3), boost: false });
-    fly({}, 1);
+    fly({}, 3);
     check(fl.onGround && fl.landingProblem() === null && fl.impact === 0, `touched down gently, can land (${fl.landingProblem()})`);
     S.land(st, sh, fl.pos, fl.facing);
     const sh2 = S.shipsIn(st, p, s).find(x => x.id === sh.id), b2 = S.structureOf(s, sh2, () => true, p);
@@ -837,6 +838,19 @@ suites.ships = async () => {
     check(!out?.room && Math.abs(c3.pos[1] - gnd) < 0.2, 'walked down the ramp onto the ground');
   }
   // a steep hillside: you can't land
+  { // the stall: assist off, idle, nose held up — the wing lets go and it falls; nose down and power recovers it
+    const st2 = new Flight(world, p, sh, [s.cx + 3000, 2500, s.cz + 3000], 0.5); st2.onGround = false; st2.vel = [Math.sin(0.5) * 70, 0, Math.cos(0.5) * 70]; st2.assist = false;
+    let stalled = false, minAlt = Infinity; const a0 = st2.pos[1];
+    for (let t = 0; t < 14; t += 1 / 60) { st2.step(1 / 60, { throttle: -1, pitch: 0.8 }); if (st2.stalled) stalled = true; }
+    const lost = a0 - st2.pos[1];
+    check(stalled && lost > 40, `held the nose up at idle: stalled, fell ${lost.toFixed(0)} m`);
+    st2.assist = true; for (let t = 0; t < 10; t += 1 / 60) { st2.step(1 / 60, { throttle: 1, pitch: t < 3 ? -0.4 : 0 }); minAlt = Math.min(minAlt, st2.pos[1]); }
+    check(!st2.stalled && st2.airspeed > st2.vs, `nose down, full power: flying again at ${Math.round(st2.airspeed * 3.6)} km/h`);
+    // an accelerated stall: yanking the stick at speed stalls it too
+    const st3 = new Flight(world, p, { model: 'courier' }, [s.cx - 3000, 2500, s.cz - 3000], 0); st3.onGround = false; st3.vel = [0, 0, 90]; st3.throttle = 1; st3.assist = false;
+    let acc = false, gmax = 0; for (let t = 0; t < 4; t += 1 / 60) { st3.step(1 / 60, { pitch: 1 }); if (st3.stalled) acc = true; gmax = Math.max(gmax, st3.gload); }
+    check(acc && gmax > 2.5, `full back stick at ${Math.round(90 * 3.6)} km/h: ${gmax.toFixed(1)} g, then the wing let go`);
+  }
   const fl2 = new Flight(world, p, sh, c0, 0);
   let slope = null;
   for (let k = 0; k < 6000 && !slope; k++) { const a = k * 2.39996, r = s.R + 300 + k * 2, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r; const ft = fl2.feet(x, z); if (Math.max(...ft) - Math.min(...ft) > 4) slope = [x, z]; }
@@ -882,7 +896,7 @@ suites.ships = async () => {
     check(world.locate(...cc.pos)?.room?.purpose === 'cockpit', `${model}: ramp to cockpit (${world.locate(...cc.pos)?.room?.label})`);
     world.removeStructure(bb);
   }
-  const sp = m => { const f2 = new Flight(world, p, { model: m }, [s.cx, 2000, s.cz], 0); f2.onGround = false; for (let t = 0; t < 30; t += 1 / 60) f2.step(1 / 60, { fwd: 1 }); return f2.speed; };
+  const sp = m => { const f2 = new Flight(world, p, { model: m }, [s.cx, 2000, s.cz], 0); f2.onGround = false; f2.vel = [0, 0, 60]; for (let t = 0; t < 40; t += 1 / 60) f2.step(1 / 60, { throttle: 1, pitch: f2.vel[1] < 0 ? 0.05 : 0 }); return f2.speed; };
   check(sp('courier') > sp('shuttle') && sp('shuttle') > sp('freighter'), `top speeds: courier ${Math.round(sp('courier') * 3.6)}, shuttle ${Math.round(sp('shuttle') * 3.6)}, freighter ${Math.round(sp('freighter') * 3.6)} km/h`);
 };
 

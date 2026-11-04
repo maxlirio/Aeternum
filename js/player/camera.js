@@ -7,6 +7,7 @@ export class FollowCamera {
     this.yaw = 0; this.pitch = 0.25; this.dist = 4.2; this.cur = 4.2;
     dom.addEventListener('mousemove', e => {
       if (document.pointerLockElement !== dom) return;
+      if (this.onMouse && this.onMouse(e.movementX, e.movementY)) return;     // (something else — the flight stick — is using the mouse)
       this.yaw -= e.movementX * 0.0025;
       this.pitch = Math.max(-0.9, Math.min(1.2, this.pitch + e.movementY * 0.0022));
     });

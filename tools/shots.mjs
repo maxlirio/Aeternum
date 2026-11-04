@@ -101,6 +101,15 @@ SCRIPTS.forest = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, m
     if (best) { O.ctrl.pos = [best.x + 9, best.y + 0.2, best.z + 4]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(best.x - O.ctrl.pos[0], best.z - O.ctrl.pos[2]); O.cam.yaw = O.ctrl.facing + 0.4; O.cam.pitch = 0.08; O.cam.dist = 5; }
     await wait(5000);`;
 SHOTS.forest = 'hour=15';
+SCRIPTS.dogfight = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = O.store.player, key = (c, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: c })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: c })); };
+    const { structureOf } = await import('./js/world/ships.js'); const { buildingToWorld } = await import('./js/gen/place.js'); const { shipPlan } = await import('./js/gen/ships.js');
+    const sh = O.getShips().find(x => x.forSale), b = structureOf(O.s, sh, () => true, O.planet), L = shipPlan(sh.model).layout, seat = L.seats.find(q => q.kind === 'pilot');
+    P.credits = 999999; O.ctrl.pos = buildingToWorld(O.s, b, seat.x, L.deck, seat.z - 0.7); const c = buildingToWorld(O.s, b, seat.x, L.deck, seat.z + 1); O.ctrl.facing = Math.atan2(c[0] - O.ctrl.pos[0], c[2] - O.ctrl.pos[2]); await wait(300);
+    key('KeyE'); await wait(300); key('Digit1'); await wait(300); key('KeyE'); await wait(300); key('Digit1'); await wait(300);
+    const F = O.getFlight(); key('Space', false); await wait(5000); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
+    F.throttle = 1; await wait(9000); F.q = (await import('./js/player/flight.js')).fromEuler(F.facing, 0.12, 0.7); await wait(1500);
+    document.querySelector('.toasts')?.remove();`;
+SHOTS.dogfight = 'hour=16';
 SCRIPTS.cars = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const V = O.getVehicles(); let best = null, bn = 0;
     for (const v of V) { const n = V.filter(w => Math.hypot(w.pos[0] - v.pos[0], w.pos[2] - v.pos[2]) < 18 && w.kind !== 'bike').length; if (n > bn) { bn = n; best = v; } }
     O.ctrl.pos = [best.pos[0] + Math.sin(best.facing + 1.57) * 9, best.pos[1], best.pos[2] + Math.cos(best.facing + 1.57) * 9]; O.ctrl.vel = [0, 0, 0];
