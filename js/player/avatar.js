@@ -5,6 +5,7 @@
 //   player:  createPlaceholderAvatar() → { object, update(dt, speed, grounded), setOpacity }
 //   crowd:   buildRig() / applyPose(rig, state) used by render/crowd.js
 import * as THREE from 'three';
+import { captureRest, applyClimbPose } from './limbik.js';
 
 // Parts are tagged by what they are made of so each person can be coloured differently.
 export function buildRig(mats) {
@@ -88,9 +89,15 @@ export function createPlaceholderAvatar() {
     pistol: () => [box(0.03, 0.11, 0.045, dark, 0, -0.02, 0.0, 0.25), box(0.032, 0.05, 0.2, dark, 0, -0.08, 0.08), box(0.012, 0.012, 0.03, steel, 0, -0.08, 0.19)],
     carbine: () => [box(0.03, 0.1, 0.045, dark, 0, -0.02, 0, 0.25), box(0.045, 0.08, 0.55, dark, 0, -0.09, 0.12), box(0.02, 0.02, 0.18, steel, 0, -0.08, 0.45), box(0.03, 0.03, 0.08, glow, 0, -0.03, 0.25)],
   };
+  // the same IK rig a real skeleton gets (player/limbik.js): just joints
+  const end = (L, y) => { const g = new THREE.Group(); g.position.y = y; L.lower.add(g); return g; };
+  const ik = captureRest({ root: rig.root, pelvis: rig.hips, spine: [rig.torso], arms: { l: [rig.armL.upper, rig.armL.lower, end(rig.armL, -0.36)], r: [rig.armR.upper, rig.armR.lower, end(rig.armR, -0.36)] }, legs: { l: [rig.legL.upper, rig.legL.lower, end(rig.legL, -0.48)], r: [rig.legR.upper, rig.legR.lower, end(rig.legR, -0.48)] } });
+  let onWall = false;
   return {
     object: rig.root,
     isPlaceholder: true,
+    // on a wall: every joint from the climber's pose
+    climb(pose, toRender) { onWall = true; rig.root.position.set(0, 0, 0); applyClimbPose(ik, pose, toRender); },
     // fades the body out when the camera is pressed against it in tight rooms
     setOpacity(o) {
       if (Math.abs(o - opacity) < 0.01) return;
@@ -105,6 +112,7 @@ export function createPlaceholderAvatar() {
     },
     punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated
+      if (onWall) { onWall = false; rig.hips.quaternion.identity(); rig.root.quaternion.identity(); }
       if (pose) { blend = 0; applyPose(rig, { mode: pose, phase, blend: 0, k: 0 }); return; }
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);

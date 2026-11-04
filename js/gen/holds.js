@@ -151,6 +151,20 @@ export function faceAhead(world, x, y, z, fx, fz, reach = 1.0) {
   townFaces(world, x, y + 1, z, reach, test);
   return best;
 }
+// The wall under the edge you're standing near, on a roof, looking out over it. (Glass and round
+// towers have no holds at the top either.)
+export function faceBelowEdge(world, x, y, z, fx, fz, reach = 1.4) {
+  let best = null, bd = Infinity;
+  const test = f => {
+    const out = outOf(f, x, z), a = aOf(f, x, z);
+    if (out > 0.05 || out < -reach || a < 0.2 || a > f.w - 0.2 || Math.abs(f.y1 - y) > 0.9) return;
+    if (f.n[0] * fx + f.n[1] * fz < 0.35) return;
+    if (-out < bd) { bd = -out; best = f; }
+  };
+  cityFaces(world, x, y - 0.5, z, reach, test);
+  townFaces(world, x, y - 0.5, z, reach, test);
+  return best;
+}
 // Is there a wall here at all, too smooth to climb? (For telling the player why not.)
 export function smoothAhead(world, x, y, z, fx, fz) {
   const q = 0.9; return world.solidAt(x + fx * q, y + 1.2, z + fz * q, 0.05);

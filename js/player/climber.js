@@ -7,7 +7,7 @@
 // placeholder or a full rig (player/limbik.js).
 //   W/A/S/D climb · Shift faster · Space leap (both hands off, catch a hold further on) · Q let go
 // Proportions are the ADVENTURER body's (metres): the planner must plan for the real reach.
-import { faceAhead, holdsNear, aOf, outOf } from '../gen/holds.js';
+import { faceAhead, faceBelowEdge, holdsNear, aOf, outOf } from '../gen/holds.js';
 
 export const BODY = { upperArm: 0.294, foreArm: 0.263, palm: 0.09, thigh: 0.45, shin: 0.415, ankle: 0.085,
   shoulderUp: 0.47, shoulderOut: 0.19, hipDown: 0.05, hipOut: 0.10, hipHeight: 0.95 };
@@ -32,6 +32,15 @@ export class Climber {
     const f = faceAhead(world, x, y, z, fx, fz, moving ? 1.6 : 1.0); if (!f) return null;
     const c = new Climber(world, f, [x, y, z]);
     return c.ok ? c : null;
+  }
+  // Over the edge of a roof you're standing on, looking out: turn round and lower yourself onto the wall.
+  static grabDown(world, x, y, z, fx, fz) {
+    const f = faceBelowEdge(world, x, y, z, fx, fz); if (!f) return null;
+    const a = aOf(f, x, z), c = new Climber(world, f, [f.o[0] + f.t[0] * a + f.n[0] * 0.35, f.y1 - 1.9, f.o[1] + f.t[1] * a + f.n[1] * 0.35]);
+    if (!c.ok) return null;
+    c.pelvis = [x, y + BODY.hipHeight, z]; c.mountFrom = c.pelvis.slice(); c.mountDur = 1.3;
+    for (const k of LIMBS) { const L = c.limb[k]; L.from = c.restEnd(k, c.pelvis); L.p = L.from.slice(); }
+    return c;
   }
   constructor(world, face, from) {
     this.world = world; this.face = face; this.state = 'mount'; this.t = 0; this.done = null;

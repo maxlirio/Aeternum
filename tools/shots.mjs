@@ -270,6 +270,13 @@ SCRIPTS.carhit = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(
     const log = []; for (let i = 0; i < 40 && P.hp >= 100; i++) { await wait(100); const q = hold(); if (i % 5 === 0) log.push([Math.round(Math.hypot(q.pos[0] - O.ctrl.pos[0], q.pos[2] - O.ctrl.pos[2])), +(q.pos[1] - O.ctrl.pos[1]).toFixed(1), O.ctrl.mode, O.ctrl.grounded]); }
     throw new Error(JSON.stringify({ hp: P.hp, pos: O.ctrl.pos.map(Math.round), at: at.map(Math.round), stun: O.ctrl.stun, type: v.type, log, paused: document.querySelector('.panel') ? 'panel' : 'no' }));`; SHOTS.carhit = 'hour=11';
 SCRIPTS.cityworks = cityShot('works', 0.05, 8, 0.2); SHOTS.cityworks = 'hour=14';
+const climbShot = (extra = '') => `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); };
+    let bd = null, B0; for (let a = 0; a < 3600 && !bd; a++) { B0 = G.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B0.district === 'housing') bd = B0.buildings.find(q => q.top > 25 && q.tiers.length === 1 && G.STYLES[q.style][5]); }
+    const t = bd.tiers[0], vm = (t.r[1] + t.r[3]) / 2, base = c.h + G.CURB, [x, z] = c.toWorld(t.r[0] - 0.7, vm), [tx, tz] = c.toWorld(t.r[0] + 3, vm);
+    O.ctrl.pos = [x, base, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = Math.atan2(tx - x, tz - z); O.cam.yaw = O.ctrl.facing; O.cam.pitch = 0.05; O.cam.dist = 4.5;
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, base, z]; await wait(200); } await wait(600);
+    key('KeyW', false); key('Space'); await wait(300); key('Space'); await wait(5500); ${extra} dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); O.cam.yaw = O.ctrl.facing + 0.75; O.cam.pitch = 0.12; document.querySelector('.toasts')?.remove(); await wait(500);`;
+SCRIPTS.climbing = climbShot(); SHOTS.climbing = 'hour=15'; SCRIPTS.climbingn = climbShot(); SHOTS.climbingn = 'hour=21';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

@@ -4,7 +4,9 @@
 //   mantle   — Space while walking into something 0.55–2.2 m high pulls you up onto it
 //   ladder   — E at a ladder; W/S to climb, Space to let go; the top steps you onto the roof
 //   seat     — sitting or lying at a furniture anchor; any move key gets you up
+//   wall     — on a building's facade, hand over hand (player/climber.js)
 // Every surface comes from the collision world's logical data, never from meshes.
+import { Climber } from './climber.js';
 export const GRAVITY = 9.81;
 const WALK = 1.9, RUN = 5.4, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
 const LADDER = 0.9;                                        // m/s up or down a ladder
@@ -38,6 +40,8 @@ export class Controller {
   step(dt, input, speedFactor = 1) {
     this.climbing = false;
     if (this.stun > 0) { this.stun -= dt; input = { ...input, fwd: 0, right: 0, run: false, jump: false }; }      // knocked over: no say in the matter
+    this.landed = 0;
+    if (this.mode === 'wall') return this.stepWall(dt, input);
     if (this.mode === 'mantle') return this.stepMantle(dt);
     if (this.mode === 'ladder') return this.stepLadder(dt, input, speedFactor);
     if (this.mode === 'seat') { this.speed = 0; this.grounded = true; if (input.fwd || input.right || input.jump) this.standUp(); return; }
@@ -62,6 +66,8 @@ export class Controller {
       // walking into something you could pull yourself onto: climb it instead of jumping
       const ledge = ml > 0.01 && w.ledgeAhead(x, y, z, this.facing);
       if (ledge) { this.mantleTo([ledge.x, ledge.top, ledge.z], (0.45 + 0.4 * (ledge.top - y)) / speedFactor); return; }
+      // a wall too high for that: start climbing it
+      if (ml > 0.01 && this.grabWall()) return;
       this.vel[1] = JUMP; this.grounded = false;
     }
     this.vel[1] -= GRAVITY * dt;
@@ -91,7 +97,8 @@ export class Controller {
     const ceil = w.ceilingAt(x, z, this.pos[1]);
     if (y + 1.8 > ceil && this.vel[1] > 0) { y = ceil - 1.8; this.vel[1] = 0; }
     const g = w.groundAt(x, z, Math.max(y, this.pos[1]));
-    if (y <= g.h) { y = g.h; this.vel[1] = 0; this.grounded = true; }
+    if (!this.grounded && input.jump && this.vel[1] > -16 && this.grabWall(true)) return;      // in the air, at a wall: catch it
+    if (y <= g.h) { if (!this.grounded && this.vel[1] < 0) this.landed = -this.vel[1]; y = g.h; this.vel[1] = 0; this.grounded = true; }
     else if (this.grounded && this.vel[1] <= 0 && this.pos[1] - g.h < 0.55) { y = g.h; this.vel[1] = 0; } // follow stairs / slopes down
     else this.grounded = false;
     this.speed = Math.hypot(x - this.pos[0], z - this.pos[2]) / Math.max(dt, 1e-6);
@@ -99,6 +106,28 @@ export class Controller {
     this.where = g.where;
   }
 
+  grabWall(moving = false) {
+    const c = Climber.grab(this.world, this.pos[0], this.pos[1], this.pos[2], Math.sin(this.facing), Math.cos(this.facing), moving);
+    if (!c) return false;
+    this.mode = 'wall'; this.wall = c; this.vel = [0, 0, 0]; return true;
+  }
+  // Standing on a roof at its edge, looking out: lower yourself over it.
+  climbDown() {
+    const c = Climber.grabDown(this.world, this.pos[0], this.pos[1], this.pos[2], Math.sin(this.facing), Math.cos(this.facing));
+    if (!c) return false;
+    this.mode = 'wall'; this.wall = c; this.vel = [0, 0, 0]; return true;
+  }
+  stepWall(dt, input) {
+    const w = this.wall; w.step(dt, input);
+    this.climbing = w.effort >= 1; this.speed = 0; this.grounded = false; this.where = null;
+    if (w.done) {
+      this.mode = 'walk'; this.wall = null; this.pos = w.done.pos.slice(); this.facing = w.done.facing;
+      if (w.done.kind === 'fall') { this.vel = w.done.vel.slice(); this.grounded = false; this.slipped = w.done.slipped; }
+      else { this.vel = [0, 0, 0]; this.grounded = true; }
+      return;
+    }
+    this.pos = w.feet; this.facing = w.facing;
+  }
   // Up first, then over: hands on the edge, pull, swing a knee over.
   stepMantle(dt) {
     const m = this.mantle; m.t += dt;

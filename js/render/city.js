@@ -54,9 +54,9 @@ export function cityMaterial(shape = 'box') {
     Object.assign(sh.uniforms, uni);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec2 aCity;      // style, seed
+        attribute vec4 aCity;      // style, seed, storey height, bay width
         varying vec3 vFac;         // facade u (m), height above city ground (m), roof flag
-        varying vec2 vCity; varying float vSpan;
+        varying vec4 vCity; varying float vSpan;
         uniform float uGround;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vec3 sc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
@@ -72,7 +72,7 @@ export function cityMaterial(shape = 'box') {
         `);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        varying vec3 vFac; varying vec2 vCity; varying float vSpan;
+        varying vec3 vFac; varying vec4 vCity; varying float vSpan;
         uniform float uNight; uniform float uTime;
         uniform vec3 uFrame[13]; uniform vec3 uGlass[13]; uniform vec4 uWin[13]; uniform vec2 uBay[13];
         float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -94,7 +94,7 @@ export function cityMaterial(shape = 'box') {
           } else if (st == 9) {                                // kerbs and paving
             col = frame * (0.85 + 0.25 * vn(vFac.xy * 1.7));
           } else {
-            float fh = bay.x * (0.92 + 0.16 * h21(vec2(seed, 1.3))), bw = bay.y * (0.85 + 0.3 * h21(vec2(seed, 2.1)));
+            float fh = vCity.z, bw = vCity.w;
             float shop = vFac.y < 5.2 && st != 6 ? 1.0 : 0.0;        // ground floor: shopfronts and lobbies
             vec2 cell = vec2(vFac.x / bw, (vFac.y - (shop > 0.5 ? 0.0 : 5.2)) / fh);
             if (shop > 0.5) cell = vec2(vFac.x / (bw * 2.2), vFac.y / 5.2);
@@ -120,6 +120,8 @@ export function cityMaterial(shape = 'box') {
             // depth cues up close: the lintel's shadow across the top of each opening, a pale sill under it
             float wy = (f.y - ((shop > 0.5 ? 0.42 : 0.55) - fy * 0.5)) / fy;          // 0 at the sill, 1 at the head
             float head = smoothstep(0.78, 0.98, wy) * ex * ey * aa;
+            // glazing bars: the same ones the climber holds (gen/holds.js), ≤ 0.85 m apart
+            if (shop < 0.5) { float nb = ceil(fy * fh / 0.85), bar = abs(fract(wy * nb + 0.5) - 0.5) / nb * fy * fh; win *= mix(1.0, smoothstep(0.015, 0.04, bar), aa * step(0.0, wy) * step(wy, 1.0)); }
             float sill = (1.0 - step(0.0, wy)) * step(-0.07 / fy, wy) * ex * aa * (shop > 0.5 ? 0.0 : 1.0);
             fr = mix(fr, fr * 1.25 + 0.05, sill);
             col = mix(fr, glass * (0.8 + 0.4 * r), win) * (1.0 - 0.55 * head);
@@ -227,7 +229,7 @@ export class CityView {
       kerbs.push(B);
       for (const bd of B.buildings) {
         const seed = parseInt(bd.id.replace(/\D/g, '').slice(-6), 10) % 997 / 997 + (i * 31 + j * 17) % 13;
-        for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed, bd.enter && t === bd.tiers[0] ? bd.id : null]);
+        for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed, bd.enter && t === bd.tiers[0] ? bd.id : null, bd.floor, bd.bay]);
         if (bd.crown) {
           const t = bd.tiers.at(-1), w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
           (crowns[bd.crown] ||= []).push([t.r, base + t.y1, s * CROWN_H[bd.crown] * (bd.crown === 'antenna' ? 3 : 1) + (bd.crown === 'spire' ? s * 0.6 : 0), bd.crown === 'vault' ? [w, d] : [s, s]]);
@@ -246,21 +248,21 @@ export class CityView {
     this.sectors.set(a + ',' + b, sec);
     if (!kerbs.length) return;
     // tiers + kerb slabs: one instanced draw
-    const n = tiers.length + kerbs.length, mesh = new THREE.InstancedMesh(this.box, this.mat, n), attr = new Float32Array(n * 2), M = new THREE.Matrix4();
+    const n = tiers.length + kerbs.length, mesh = new THREE.InstancedMesh(this.box, this.mat, n), attr = new Float32Array(n * 4), M = new THREE.Matrix4();
     let k = 0;
-    const put = (r, y, h, st, seed) => {
+    const put = (r, y, h, st, seed, id, floor = 1, bay = 1) => {
       M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2);
-      mesh.setMatrixAt(k, M); attr[k * 2] = st; attr[k * 2 + 1] = seed; k++;
+      mesh.setMatrixAt(k, M); attr[k * 4] = st; attr[k * 4 + 1] = seed; attr[k * 4 + 2] = floor; attr[k * 4 + 3] = bay; k++;
     };
     for (const B of kerbs) put(B.rect, c.h, CURB, B.ground === 'garden' ? STYLE.garden : STYLE.paving, 0.5);
     for (const t of tiers) { if (t[5]) this.tierAt.set(t[5], { sec, k, t }); put(...t); }
-    mesh.geometry = this.box.clone(); mesh.geometry.setAttribute('aCity', new THREE.InstancedBufferAttribute(attr, 2));
+    mesh.geometry = this.box.clone(); mesh.geometry.setAttribute('aCity', new THREE.InstancedBufferAttribute(attr, 4));
     mesh.computeBoundingSphere(); mesh.receiveShadow = true;
     sec.mesh = mesh; sec.group.add(mesh);
     for (const [shape, list] of Object.entries(shaped)) {      // round and octagonal towers
-      const g = this.shapes[shape].clone(), at = new Float32Array(list.length * 2), sm = new THREE.InstancedMesh(g, cityMaterial(shape), list.length);
-      list.forEach(([r, y, h, st, seed], q) => { M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); sm.setMatrixAt(q, M); at[q * 2] = st; at[q * 2 + 1] = seed; });
-      g.setAttribute('aCity', new THREE.InstancedBufferAttribute(at, 2)); sm.computeBoundingSphere(); sm.receiveShadow = true; sm.castShadow = true; sec.group.add(sm);
+      const g = this.shapes[shape].clone(), at = new Float32Array(list.length * 4), sm = new THREE.InstancedMesh(g, cityMaterial(shape), list.length);
+      list.forEach(([r, y, h, st, seed, , floor, bay], q) => { M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); sm.setMatrixAt(q, M); at[q * 4] = st; at[q * 4 + 1] = seed; at[q * 4 + 2] = floor; at[q * 4 + 3] = bay; });
+      g.setAttribute('aCity', new THREE.InstancedBufferAttribute(at, 4)); sm.computeBoundingSphere(); sm.receiveShadow = true; sm.castShadow = true; sec.group.add(sm);
       const cm = new THREE.InstancedMesh(this.shapes[shape], this.capMat, list.length);    // their cornices
       list.forEach(([r, y, h], q) => { M.makeScale(r[2] - r[0] + 0.9, Math.min(1.4, 0.5 + h * 0.01), r[3] - r[1] + 0.9); M.setPosition((r[0] + r[2]) / 2, y + h, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
       cm.computeBoundingSphere(); sec.group.add(cm);

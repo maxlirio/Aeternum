@@ -22,4 +22,4 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: W || 1600, height: H || 600, deviceScaleFactor: 1, mobile: false }); await sleep(300);
   const shot = await send('Page.captureScreenshot', { format: 'png' }); if (shot.result?.data) writeFileSync(`out/lab/${name}.png`, Buffer.from(shot.result.data, 'base64'));
   console.log(name, lab ? `worst miss ${lab.worst.toFixed(3)} m, y ${lab.y.toFixed(1)}, ${lab.report.map(r => r.moving).join(' ')} ${lab.climberDone || ''}` : 'NOT DONE', logs.slice(0, 4).join(' | '));
-} finally { try { process.kill(-chrome.pid); } catch {} rmSync(profile, { recursive: true, force: true }); }
+} finally { try { process.kill(-chrome.pid); } catch {} await sleep(300); rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }

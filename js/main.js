@@ -59,6 +59,7 @@ import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
+import { HoldsView } from './render/holds.js';
 import { cityWalkers } from './gen/citytraffic.js';
 import { signalAt } from './gen/cityfleet.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
@@ -183,6 +184,7 @@ async function start(fresh) {
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
+  const holdsView = new HoldsView(); scene.add(holdsView.mesh);
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
@@ -376,6 +378,7 @@ async function start(fresh) {
   function interact() {
     const lf = liftNear();
     if (lf) { liftFlow(lf); return; }
+    if (ctrl.mode === 'walk' && ctrl.grounded && ctrl.where?.roof !== false && ctrl.climbDown()) return;
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
@@ -741,7 +744,7 @@ async function start(fresh) {
 
   // ---- you can be hurt too: health heals over a day or so; at nothing you go down
   player.hp ??= 100;
-  let lastShotAt = -1e9, hitUntil = -1e9;
+  let lastShotAt = -1e9, hitUntil = -1e9; const landSafeAt = performance.now() + 4000;   // (not for falling into the world on loading)
   const fleeing = new Map();     // id → { pos, until }: bystanders running from gunfire
   function clearShot(a, b) { const n = 10; for (let i = 1; i < n; i++) { const f = i / n; if (world.solidAt(a[0] + (b[0] - a[0]) * f, a[1] + 1.3 + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, 0.05)) return false; } return true; }
   function showShot(from, to) {
@@ -957,7 +960,7 @@ async function start(fresh) {
       const input = {
         fwd: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
         right: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
-        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92,
+        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92, exhausted: player.fatigue > 0.985, drop: keys.has('KeyQ'),
       };
       jumpQueued = false;
       if (flight) {
@@ -1043,6 +1046,11 @@ async function start(fresh) {
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
     avatar.object.visible = !flight;
+    if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
+    holdsView.update(ctrl.mode === 'wall' ? ctrl.wall : null, toRender);
+    // a hard landing: you feel it from about 4 m, and a long fall can put you down
+    if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
+    if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
     shipView.update(ships.map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
       if (sh.flying) return null;
@@ -1198,6 +1206,7 @@ async function start(fresh) {
         const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
         ui.showPrompt(`<kbd>E</kbd> ${labelOf(ua.u)} <small>— ${ua.u.verbs.map(v => VERB[v].toLowerCase()).join(' · ')}${st ? ` · <b>${st}</b>` : ''}${ua.u.box && !own.yours && !own.communal && !ua.u.box.shop ? ` · ${esc(own.owner)}'s` : ''}</small>`);
       }
+      else if (ctrl.mode === 'wall') { const w = ctrl.wall; ui.showPrompt(`<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> climb · <kbd>Shift</kbd> faster · <kbd>Space</kbd> leap · <kbd>Q</kbd> let go${w.blocked ? ` <small>— ${w.blocked}</small>` : ''}${player.fatigue > 0.92 ? ' <small><b class="late">your grip is going</b></small>' : ''}`); }
       else if (ctrl.mode === 'ladder') ui.showPrompt(`<kbd>W</kbd>/<kbd>S</kbd> climb · <kbd>Space</kbd> let go${player.fatigue > 0.92 ? ' <small>— you\'re exhausted</small>' : ''}`);
       else if (lad && forceHold === 0) ui.showPrompt(`<kbd>E</kbd> ${ctrl.pos[1] > lad.foot[1] + 1.5 ? 'Climb down the ladder' : 'Climb the fire ladder'}`);
       else if (di >= 0 && forceHold === 0) {
