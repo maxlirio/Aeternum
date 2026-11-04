@@ -8,6 +8,7 @@
 // refreshed at the NEAR tier.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { weather } from './grime.js';
 
 const FABRICS = [[0.32, 0.38, 0.46], [0.5, 0.33, 0.28], [0.42, 0.44, 0.40], [0.62, 0.58, 0.50], [0.22, 0.24, 0.27], [0.55, 0.5, 0.42], [0.3, 0.34, 0.3]];
 const PAINTS = [[0.55, 0.58, 0.6], [0.7, 0.7, 0.66], [0.42, 0.5, 0.55], [0.86, 0.86, 0.84], [0.36, 0.42, 0.36], [0.6, 0.4, 0.28], [0.3, 0.32, 0.36]];
@@ -69,7 +70,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     p.material = surface(p.tinted ? 'tint-' + (SOFT.has(v.kind) ? 'fabric' : HULLED.has(v.kind) ? 'hull' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
   }
   // the city kit: kind → parts (geometry in the kit's own frame, its surface, tinted?)
-  const cityKit = new Map();
+  const cityKit = new Map(), worn = new Map();
   if (city) {
     city.scene.updateMatrixWorld(true);
     city.scene.traverse(o => {
@@ -78,7 +79,10 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
       const k = String(top.userData.kind || top.name).replace(/^city_/, '');
       const g = o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
       const slot = o.material.name, tinted = slot === 'tint' ? 'bright' : slot === 'paint' ? 'muted' : false;     // powder-coated street steel takes a muted city colour
-      (cityKit.get(k) || cityKit.set(k, []).get(k)).push({ geometry: g, material: surface(tinted ? 'tint-paint' : slot), matrix: new THREE.Matrix4(), tinted,
+      const base = surface(tinted ? 'tint-paint' : slot), key = base.name + (tinted || ''), glowy = slot === 'lampwarm' || slot.startsWith('neon') || slot.startsWith('nav') || slot === 'glass' || slot === 'mirror' || slot === 'screen' || slot === 'visor' || slot.endsWith('card');
+      // street kit is out in the weather: nothing stays one clean colour
+      const mat = glowy ? base : (worn.get(key) || worn.set(key, weather(base.clone(), { dirt: 0.75, rust: ['metal', 'corrugated'].includes(slot) || tinted === 'muted' ? 0.55 : 0 })).get(key));
+      (cityKit.get(k) || cityKit.set(k, []).get(k)).push({ geometry: g, material: mat, matrix: new THREE.Matrix4(), tinted,
         cast: !(slot === 'lampwarm' || slot.startsWith('neon') || slot === 'glass') });
     });
   }

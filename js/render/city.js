@@ -8,6 +8,7 @@
 // Everything is read from gen/city.js records; the mesh never decides anything.
 import * as THREE from 'three';
 import { materials } from './materials.js';
+import { weather } from './grime.js';
 import { getCity, cityBlock, cityExtent, blockRect, lineAt, lineWidth, lineKind, PITCH, CURB, STYLES, STYLE, blockExists, bridgesOf, liftsOf } from '../gen/city.js';
 
 const SECTOR = 4;                       // blocks per sector edge
@@ -117,6 +118,27 @@ export function cityMaterial(shape = 'box') {
             lc = mix(vec3(1.0, 0.62, 0.3) * 0.55 * (h21(vec2(seed, 5.5)) < 0.3 ? vec3(0.75, 1.0, 1.6) : vec3(1.0)), lc, aa);   // far away: the building's average glow, no sparkle
             float streak = vn(vec2(vFac.x * 0.35, vFac.y * 0.04 + seed)) * 0.3;    // weathering down the face
             vec3 fr = frame * (1.0 - streak * (st == 5 || st == 4 ? 1.6 : 0.6));
+            // the wall itself, up close: fades out with distance so it never shimmers
+            float cl = clamp(1.0 - max(fwidth(vFac.x), fwidth(vFac.y)) * 12.0, 0.0, 1.0);
+            if (cl > 0.0) {
+              vec2 w = vFac.xy;
+              if (st == 4 || st == 5) {            // brick: running-bond courses, each brick its own shade, dark mortar
+                float cy2 = w.y / 0.075, row = floor(cy2), bx2 = w.x / 0.225 + 0.5 * mod(row, 2.0), bid = floor(bx2);
+                float m = max(smoothstep(0.9, 0.97, abs(fract(cy2) - 0.5) * 2.0), smoothstep(0.93, 0.985, abs(fract(bx2) - 0.5) * 2.0));
+                fr = mix(fr, fr * (0.72 + 0.56 * h21(vec2(bid, row + seed))) * (1.0 - 0.45 * m) , cl);
+              } else if (st == 6) {                // cladding: vertical ribs, a seam between sheets, rust along the laps
+                float rib = abs(fract(w.x / 0.2) - 0.5) * 2.0, seam = smoothstep(0.985, 1.0, abs(fract(w.x / 3.0) - 0.5) * 2.0), lap = smoothstep(0.92, 1.0, abs(fract(w.y / 3.2) - 0.5) * 2.0);
+                fr = mix(fr, fr * (0.82 + 0.3 * rib) * (1.0 - 0.5 * seam), cl); fr = mix(fr, vec3(0.27, 0.14, 0.08), lap * cl * 0.6 * vn(w * vec2(1.3, 0.4)));
+              } else {                             // precast panels: joints, a tone per panel, render's fine grain
+                vec2 pc = w / vec2(max(bw, 1.2), fh * 0.5), pid = floor(pc), pf = abs(fract(pc) - 0.5) * 2.0;
+                float joint = max(smoothstep(0.985, 0.998, pf.x), smoothstep(0.975, 0.995, pf.y));
+                fr = mix(fr, fr * (0.9 + 0.2 * h21(pid + seed)) * (1.0 - 0.4 * joint) * (0.94 + 0.12 * vn(w * 9.0)), cl);
+              }
+              // rain runs down from each sill; grime gathers at the foot of the wall
+              float rs = (1.0 - smoothstep(0.0, 0.5, abs(f.x - 0.5) - fx * 0.5)) * smoothstep(0.1, 0.55, (shop > 0.5 ? 0.0 : ((0.55 - fy * 0.5) - f.y))) * vn(vec2(w.x * 2.5, seed)) ;
+              fr *= 1.0 - rs * cl * 0.4;
+              fr *= 1.0 - (1.0 - smoothstep(0.0, 1.6, w.y)) * 0.42 * cl * (0.6 + 0.8 * vn(w * vec2(0.8, 3.0)));
+            }
             // depth cues up close: the lintel's shadow across the top of each opening, a pale sill under it
             float wy = (f.y - ((shop > 0.5 ? 0.42 : 0.55) - fy * 0.5)) / fy;          // 0 at the sill, 1 at the head
             float head = smoothstep(0.78, 0.98, wy) * ex * ey * aa;
@@ -124,7 +146,10 @@ export function cityMaterial(shape = 'box') {
             if (shop < 0.5) { float nb = ceil(fy * fh / 0.85), bar = abs(fract(wy * nb + 0.5) - 0.5) / nb * fy * fh; win *= mix(1.0, smoothstep(0.015, 0.04, bar), aa * step(0.0, wy) * step(wy, 1.0)); }
             float sill = (1.0 - step(0.0, wy)) * step(-0.07 / fy, wy) * ex * aa * (shop > 0.5 ? 0.0 : 1.0);
             fr = mix(fr, fr * 1.25 + 0.05, sill);
-            col = mix(fr, glass * (0.8 + 0.4 * r), win) * (1.0 - 0.55 * head);
+            vec3 gl = glass * (0.8 + 0.4 * r);
+            if (shop < 0.5) { float kind = h21(id + vec2(3.3, seed)); if (kind < 0.28) gl = mix(gl, vec3(0.62, 0.6, 0.55) * (0.72 + 0.28 * step(0.5, fract(wy * 22.0))), smoothstep(0.35, 0.4, 1.0 - wy + (kind * 2.5 - 0.3)) * aa * 0.8);
+              else if (kind < 0.5) { float cu = abs(f.x - 0.5) * 2.0 / max(fx, 0.01); gl = mix(gl, vec3(0.5, 0.42, 0.36) * (0.8 + 0.2 * sin(vFac.x * 28.0)), smoothstep(0.55, 0.62, cu) * aa * 0.85); } }
+            col = mix(fr, gl, win) * (1.0 - 0.55 * head);
             gGlass = win * W.w;
             if (shop > 0.5) { float mul = step(0.06, abs(fract(vFac.x / 1.4) - 0.5) * 2.0 - 0.0) * step(0.05, 1.0 - abs(f.y - 0.42) * 2.0); win *= mix(1.0, 0.82 + 0.18 * mul, aa); }
             gEmit = lc * win * lit * (shop > 0.5 ? 0.75 : 1.5) * uNight * (1.0 - 0.6 * head);
@@ -170,13 +195,13 @@ export class CityView {
     this.shapes = { round: new THREE.CylinderGeometry(0.5, 0.5, 1, 40, 1).translate(0, 0.5, 0),
       oct: (() => { const g = new THREE.CylinderGeometry(0.5 / Math.cos(Math.PI / 8), 0.5 / Math.cos(Math.PI / 8), 1, 8, 1).rotateY(Math.PI / 8).translate(0, 0.5, 0).toNonIndexed(); g.computeVertexNormals(); return g; })() };
     this.crowns = crownGeometries();
-    this.crownMat = new THREE.MeshStandardMaterial({ color: 0x8a9096, roughness: 0.35, metalness: 0.8 });
-    this.capMat = new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.6, metalness: 0.5 });
+    this.crownMat = weather(new THREE.MeshStandardMaterial({ color: 0x8a9096, roughness: 0.35, metalness: 0.8 }), { dirt: 0.5, ground: false });
+    this.capMat = weather(new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.75, metalness: 0.2 }), { dirt: 0.8, ground: false });
     this.bridgeGlass = new THREE.MeshStandardMaterial({ color: 0x9fc4d8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.35, depthWrite: false });
     this.stripMat = new THREE.MeshStandardMaterial({ color: 0x0a1418, emissive: 0x7fdcff, emissiveIntensity: 1.2 });
-    this.padMat = new THREE.MeshStandardMaterial({ color: 0x3a3d40, roughness: 0.7, metalness: 0.3, emissive: 0x000000 });
+    this.padMat = weather(new THREE.MeshStandardMaterial({ color: 0x3a3d40, roughness: 0.7, metalness: 0.3 }), { dirt: 0.9, ground: false });
     this.streetMat = materials().asphalt;
-    this.paintMat = new THREE.MeshBasicMaterial({ color: 0xd8d4c8, transparent: true, opacity: 0.75, depthWrite: false });
+    this.paintMat = new THREE.MeshStandardMaterial({ color: 0xbdb9ad, roughness: 0.85, transparent: true, opacity: 0.8, depthWrite: false });
     this.beaconMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
     this.sectors = new Map(); this.queue = null;
     const [i0, j0, i1, j1] = cityExtent(this.city);
@@ -346,7 +371,7 @@ export class CityView {
     if (!quads.length) return null;
     const pos = new Float32Array(quads.length * 18);
     quads.forEach(([u0, v0, u1, v1], q) => pos.set([u0, y, v0, u0, y, v1, u1, y, v1, u0, y, v0, u1, y, v1, u1, y, v0], q * 18));
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeBoundingSphere();
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.computeVertexNormals(); g.computeBoundingSphere();
     return new THREE.Mesh(g, this.paintMat);
   }
 
@@ -362,7 +387,7 @@ export class CityView {
     const [i0, j0] = [Math.floor((u - PROP_R) / PITCH) - 1, Math.floor((v - PROP_R) / PITCH) - 1];
     for (let i = i0; i <= i0 + Math.ceil(2 * PROP_R / PITCH) + 2; i++) for (let j = j0; j <= j0 + Math.ceil(2 * PROP_R / PITCH) + 2; j++) {
       const B = cityBlock(c, i, j); if (!B.district) continue;
-      for (const p of B.props) { const d = Math.hypot(p.u - u, p.v - v); if (d > PROP_R || (d > SMALL_R && !BIG.test(p.k))) continue; let l = byKind.get(p.k); if (!l) byKind.set(p.k, l = []); l.push(p); }
+      for (const p of B.props) { const d = Math.hypot(p.u - u, p.v - v); if (d > PROP_R || (d > SMALL_R && !BIG.test(p.k))) continue; if (this.isBroken?.(B, B.props.indexOf(p))) { let l = byKind.get('scrapheap'); if (!l) byKind.set('scrapheap', l = []); l.push({ ...p, s: 0.45, y: Math.min(p.y, 0.05) }); continue; } let l = byKind.get(p.k); if (!l) byKind.set(p.k, l = []); l.push(p); }
     }
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(), P = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
     for (const [k, list] of byKind) {

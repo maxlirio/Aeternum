@@ -79,7 +79,7 @@ export class CityTrafficView {
         v = { id: car.id, i, car, type: car.type, pos: [qd.x, qd.y, qd.z], facing: Math.atan2(qd.fx, qd.fz), colour: car.colour, speed: (qd.speed || 0) * this.life.rateOf(car.id), parked: !qd.moving, stop: redAhead(F, qd, t) };
         v.pace = qd.speed || 0; managed.push(v);
       } else v = { id: car.id, i, car, type: car.type, ship: car.ship, pos: [x, y, z], facing: Math.atan2(this.fx[i], this.fz[i]), colour: car.colour, speed: Math.hypot(this.vx[i], this.vy[i], this.vz[i]), parked: !moving, air: car.air && y > c.h + 1 };
-      if (d < 60 || car.air) this.nearby.push(v);
+      if (d < 70) this.nearby.push(v);
       const rp = toRender(...v.pos);
       if (car.ship ? d < SHIP : d < NEAR) (car.ship ? ships : near).push(car.ship ? { id: car.id, model: car.ship, c: rp, facing: v.facing, colour: car.colour, rampDown: false, d } : { type: car.type, pos: rp, facing: v.facing, colour: car.colour, d, pitch: car.air && moving ? Math.max(-0.2, Math.min(0.2, this.vy[i] * 0.02)) : 0 });
       else this.putBox({ ship: car.ship, type: car.type, pos: rp, facing: v.facing, colour: car.colour }, nb++);

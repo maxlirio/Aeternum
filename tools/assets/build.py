@@ -18,9 +18,11 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common'))
 DO_CITY = 'city' in argv
+DO_ITEMS = 'items' in argv
+DO_COMMON = 'common' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -2000,6 +2002,13 @@ def build_props():
 SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
 if DO_TEX: build_textures()
 if DO_PROPS: build_props()
-if DO_CITY:
+if DO_CITY or DO_ITEMS or DO_COMMON:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'city_kit.py')).read())
-    build_city()
+if DO_CITY: build_city()
+if DO_ITEMS:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'items_kit.py')).read())
+    build_items()
+if DO_COMMON:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'items_kit.py')).read())
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'common_kit.py')).read())
+    build_common()

@@ -60,8 +60,9 @@ import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
 import { HoldsView } from './render/holds.js';
+import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
-import { signalAt } from './gen/cityfleet.js';
+import { signalAt, driverOf, purposeOf } from './gen/cityfleet.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
@@ -185,6 +186,7 @@ async function start(fresh) {
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
+  let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
   const doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
@@ -216,7 +218,7 @@ async function start(fresh) {
   const startPursuit = (officer, why) => {
     if (pursuit || player.custody || !officer || isDown(store, officer.id, clock.now()) || bodies.some(b => b.id === officer.id) || officer.gone) return;   // (not someone you've just put on the ground)
     pursuit = new Pursuit(pop, officer, clock.now(), why);
-    ui.toast(`<b>${officer.name}</b> of ${polity.securityName} is coming to arrest you — ${why}. <small>Stand still to go quietly, or run.</small>`, 'bad', 10000);
+    ui.toast(`<b>${officer.name}</b> of ${polity.securityName} is coming to arrest you — ${why}. `, 'bad', 10000);
   };
   const nearestOfficerOnDuty = t => {
     let best = null, bd = Infinity;
@@ -305,7 +307,7 @@ async function start(fresh) {
     if (e.code === 'KeyL') switchLight();
     if (e.code === 'KeyR') attack();
     if (e.code === 'KeyF' && myCraft) { if (myCraft.lockT < 1.2 || !war.fireMissile(myCraft)) ui.toast(myCraft.missiles ? (myCraft.lock && myCraft.lockT > 1.2 ? 'Reloading.' : 'No lock: keep a target ahead of you, from behind, for a second.') : 'No missiles left.', 'warn', 2000); else if (myCraft.lockT < 1.2) {} }
-    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft);
+    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft); else if (e.code === 'KeyG') grabOrThrow();
     if (e.code === 'KeyX' && flight) { flight.assist = !flight.assist; ui.toast(flight.assist ? 'Flight assist on: wings level themselves, the hover holds height.' : 'Flight assist <b>off</b>. Nothing will catch you.', flight.assist ? '' : 'warn', 4000); }
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
@@ -376,6 +378,7 @@ async function start(fresh) {
     ui.toast(`The lift ${q.y > st.y ? 'climbs' : 'drops'} ${Math.round(Math.abs(q.y - st.y))} m. <small>${q.label}</small>`, '', 3500);
   }
   function interact() {
+    const tk = mayhem?.takeable(ctrl, clock.now()); if (tk && !(nearVehicle() && isYours(nearVehicle(), player))) { takeCar(tk); return; }
     const lf = liftNear();
     if (lf) { liftFlow(lf); return; }
     if (ctrl.mode === 'walk' && ctrl.grounded && ctrl.where?.roof !== false && ctrl.climbDown()) return;
@@ -403,7 +406,7 @@ async function start(fresh) {
       openDoor(store, sched, b.key, door, t);
       if (res.key) ui.toast('Unlocked with your key.');
       doorView.refresh(store, planet, t);
-    } else ui.toast(`${res.why}. <small>Hold F to force it.</small>`, 'warn');
+    } else ui.toast(`${res.why}. `, 'warn');
   }
 
   // ---- using things (sim/processes/use.js): furniture in reach, ahead of you on your floor
@@ -413,7 +416,7 @@ async function start(fresh) {
   const labelOf = u => u.box && !['bench', 'counter', 'machine'].includes(u.pr.kind) ? u.box.label : KIND_LABEL[u.pr.kind]
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
-  let cityLift = null;
+  let cityLift = null, cityTake = null;
   // the traffic lights near you show what their junction's doing
   function showCityLights() {
     const c = cityView.city, out = []; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 300) { cityTraffic.showLights(out); return; }
@@ -567,7 +570,7 @@ async function start(fresh) {
     await modal(async () => {
       for (;;) {
         const r = await ui.inventory({ player, limit: carryLimit(player) });
-        if (r.a === 'equip') { const it = inventoryOf(player)[r.idx]; player.weapon = player.weapon === it.id ? null : it.id; store.touchPlayer(); ui.toast(player.weapon ? `${ITEMS[it.id].name} in hand. <small>Click or R to use it.</small>` : 'Put away.'); continue; }
+        if (r.a === 'equip') { const it = inventoryOf(player)[r.idx]; player.weapon = player.weapon === it.id ? null : it.id; store.touchPlayer(); ui.toast(player.weapon ? `${ITEMS[it.id].name} in hand.` : 'Put away.'); continue; }
         if (r.a !== 'eat') break;
         const it = inventoryOf(player)[r.idx], res = consume(player, r.idx); store.touchPlayer();
         if (res.ok) ui.toast(`${ITEMS[it.id].cat === 'drink' ? 'Drank' : ITEMS[it.id].cat === 'medicine' ? 'Took' : 'Ate'} the ${ITEMS[it.id].name.toLowerCase()}. Hunger ${Math.round(player.hunger * 100)}%.`);
@@ -581,22 +584,31 @@ async function start(fresh) {
 
   // ---- speeder bikes (gen/vehicles.js, world/vehicles.js, player/ride.js)
   let vehicles = vehiclesIn(store, planet, s), ride = null, camDist = cam.dist, hotwire = 0;
-  sched.add(TIER.NEAR, { update: () => { vehicles = vehiclesIn(store, planet, s); } });
+  const allVehicles = () => vehiclesIn(store, planet, s).concat((player.cityCars || []).map(i => { const id = 'cf:' + i, d = store.getDelta('veh/' + id); return d && { id, city: true, ...d, ownerName: 'you' }; }).filter(Boolean));
+  vehicles = allVehicles();
+  sched.add(TIER.NEAR, { update: () => { vehicles = allVehicles(); } });
   const nearVehicle = () => {
     if (ride || ctrl.mode !== 'walk') return null;
     let best = null, bd = 9;
     for (const v of vehicles) { const d = Math.hypot(v.pos[0] - ctrl.pos[0], v.pos[2] - ctrl.pos[2]) - typeOf(v).L / 2 + 1.0; if (d < Math.min(bd, 2.2) && Math.abs(v.pos[1] - ctrl.pos[1]) < 1.6) { bd = d; best = v; } }
     return best;
   };
+  function takeCar(tk) {
+    const t = clock.now(), r = mayhem.take(tk, t);
+    vehicles = allVehicles(); mount(vehicles.find(v => v.id === r.v.id) || r.v);
+    ui.toast(r.moving ? `You drag <b>${esc(r.name)}</b> out and take the wheel.${r.seen ? ` <b>${r.seen} saw it.</b>` : ''}${r.v.fly ? ' <small><kbd>Space</kbd>/<kbd>Q</kbd> up and down</small>' : ''}` : `You hotwire ${esc(r.name)}'s ${typeOf(r.v).name.toLowerCase()}.${r.seen ? ` <b>${r.seen} saw it.</b>` : ''}${r.v.fly ? ' <small><kbd>Space</kbd>/<kbd>Q</kbd> up and down</small>' : ''}`, 'bad', 7000);
+  }
   function mount(v) {
     ride = new Ride(world, planet, v); ctrl.mode = 'ride'; camDist = cam.dist; cam.dist = Math.max(cam.dist, 6.5);
-    ui.toast(`<kbd>W</kbd>/<kbd>S</kbd> throttle and brake · <kbd>A</kbd>/<kbd>D</kbd> steer · <kbd>Shift</kbd> boost · <kbd>E</kbd> get off when slow`, '', 6000);
   }
   function getOff() {
-    if (Math.abs(ride.speed) > 4) { ui.toast('Slow down first.', 'warn', 2000); return; }
+    if (Math.abs(ride.speed) > 4 && !ride.v.fly) { ui.toast('Slow down first.', 'warn', 2000); return; }
     park(store, ride.v, ride.pos, ride.facing);
+    if (ride.v.fly && ride.pos[1] - world.groundAt(ride.pos[0], ride.pos[2], ride.pos[1]).h > 3) {       // out of a sky car, in the sky
+      ctrl.pos = [ride.pos[0] - Math.cos(ride.facing) * 1.6, ride.pos[1], ride.pos[2] + Math.sin(ride.facing) * 1.6]; ctrl.vel = [Math.sin(ride.facing) * ride.speed * 0.8, 0, Math.cos(ride.facing) * ride.speed * 0.8]; ctrl.grounded = false; ctrl.mode = 'walk'; ctrl.facing = ride.facing; ride = null; cam.dist = camDist; vehicles = allVehicles(); return;
+    }
     ctrl.pos = ride.dismountSpot(); ctrl.vel = [0, 0, 0]; ctrl.mode = 'walk'; ctrl.facing = ride.facing;
-    ride = null; cam.dist = camDist; vehicles = vehiclesIn(store, planet, s);
+    ride = null; cam.dist = camDist; vehicles = allVehicles();
   }
   async function bikeFlow(v) {
     if (isYours(v, player)) return mount(v);
@@ -606,7 +618,7 @@ async function start(fresh) {
         options: [{ a: 'buy', label: `Buy it — ${T.price} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < T.price }] }); });
       if (pick?.a !== 'buy') return;
       const r = buyVehicle(store, v, clock.now());
-      ui.toast(r.ok ? 'It\'s yours. <kbd>E</kbd> to ride.' : r.why, r.ok ? '' : 'warn'); vehicles = vehiclesIn(store, planet, s);
+      ui.toast(r.ok ? 'It\'s yours.' : r.why, r.ok ? '' : 'warn'); vehicles = vehiclesIn(store, planet, s);
       return;
     }
     ui.toast(`This belongs to ${esc(v.ownerName)}. Hold <kbd>F</kbd> to hotwire it.`, 'warn');
@@ -682,7 +694,7 @@ async function start(fresh) {
     flight = new Flight(world, planet, shipById(sh.id), c, facing);
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25;
     joinWar();
-    ui.toast(`<kbd>Space</kbd> lift · <kbd>W</kbd>/<kbd>S</kbd> throttle · mouse to fly · <kbd>X</kbd> assist${myCraft?.guns ? ' · <b>click</b> guns · <kbd>F</kbd> missile · <kbd>G</kbd> flares' : ''}`, '', 9000);
+
   }
   function setDown() {
     const why = flight.landingProblem();
@@ -692,7 +704,7 @@ async function start(fresh) {
     leaveWar(); flight = null; cam.dist = camDist; syncShips();
     const b = placed.get(sh.id), a = b.plan.anchors.find(x => x.kind === 'pilot');
     ctrl.mode = 'walk'; ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', buildingToWorld(s, b, a.x, b.plan.layout.deck, a.z - 0.8));
-    ui.toast('Landed. Get up, and <kbd>E</kbd> at the top of the ramp to lower it.', '', 6000);
+   
   }
   if (player.piloting) { // you were flying when you left: you're still at the helm
     const sh = shipById(player.piloting);
@@ -774,6 +786,75 @@ async function start(fresh) {
   const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0 }));
   tracer.frustumCulled = false; scene.add(tracer);
   const flash = new THREE.PointLight(0xffd090, 0, 9, 2); scene.add(flash);
+  // ---- laying hands on the city (sim/mayhem.js)
+  const knownName = p => p ? (known(store, p.id) ? p.name : nameFor(p)) : 'them';
+  // the plan window at this point in a town or walk-in building's wall: bodies go through those
+  function planWindowAt(x, y, z) {
+    for (const b of world.near(x, z)) {
+      if (b.type === 'ship') continue;
+      const [lx, lz] = world.toB(b, x, z), { plan } = world.colliders(b), ly = y - world.baseOf(b);
+      if (!world.inside(b, lx, lz, 0.6)) continue;
+      for (const wl of plan.walls) {
+        if (!wl.exterior) continue;
+        const alongX = wl.z0 === wl.z1, c = alongX ? lz - wl.z0 : lx - wl.x0, a = alongX ? lx : lz;
+        if (Math.abs(c) > 0.6) continue;
+        for (const o of wl.openings) if (o.kind === 'window' && a >= o.a && a <= o.b && ly - wl.k * plan.H >= o.y0 - 0.3 && ly - wl.k * plan.H <= o.y1 + 0.3) return { b, k: wl.k, o };
+      }
+    }
+    return null;
+  }
+  const mayhemHooks = {
+    windowAt: (x, y, z) => planWindowAt(x, y, z),
+    onGlass: (win, b2, t) => { ui.toast(`Glass goes everywhere — ${esc(b2.name || 'someone')} goes through the window.`, 'bad', 4000); mayhem.crime(t, 'threw someone through a window', 1.2, b2.pos); },
+    onHit: (b2, v, t) => hurtBody(b2, v, t),
+    onLand: (b2, v, t, sp) => hurtBody(b2, Math.max(v, sp * 0.7), t),
+  };
+  function hurtBody(b2, v, t) {
+    if (v < 5) return;
+    if (b2.person) {          // one of the town's people: this goes through the town's law
+      const p = b2.person, W = v > 17 ? 'carbine' : v > 8 ? 'pistol' : 'fists', here = world.locate(...b2.pos), seen = residents.witnesses(t, b2.pos, here?.b?.key || null, here?.k ?? null).filter(w => w.id !== p.id);
+      const res = strike(ctx, p, W, t, seen); if (res.incident) lodgeIncident(ctx, res.incident);
+      ui.toast(res.killed ? `<b>${esc(p.name)}</b> is dead.` : `${esc(knownName(p))} hits hard. <small>${Math.round(res.hp)}% health</small>`, 'bad', 4000);
+      if (res.killed) { bodies.push({ id: p.id, person: p, pos: b2.pos.slice(), facing: b2.facing, until: t + planet.dayLength / 24 }); b2.until = 0; }
+    } else if (v > 16 && !b2.dead) { b2.dead = true; mayhem.crime(t, 'killed someone', 4, b2.pos); ui.toast(`${esc(b2.name || 'They')} didn't survive that.`, 'bad', 5000); }
+  }
+  function stepMayhem(dt) {
+    const t = clock.now(); mayhem.stepBodies(dt, t, mayhemHooks);
+    const c = mayhem.carry;
+    if (c) { c.pos = [ctrl.pos[0] + Math.sin(ctrl.facing) * 0.75, ctrl.pos[1] + 0.25, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.75]; }
+    mayhem.stepOfficers(dt, t, ctrl, {
+      armed: () => (player.weapon && inventoryOf(player).some(x => x.id === player.weapon)) || t - lastShotAt < 30,
+      onCop: n => { if (n === 1) ui.toast(`<b>${esc(cityView.city.name)} Security</b> is coming for you.`, 'bad', 7000); },
+      shoot: (o, d) => { const hit = Math.random() < Math.max(0.12, Math.min(0.8, 1 - d / 40)) * (ctrl.speed > 3 ? 0.6 : 1); showShot([o.pos[0], o.pos[1] + 1.4, o.pos[2]], [ctrl.pos[0] + (hit ? 0 : (Math.random() - 0.5) * 3), ctrl.pos[1] + 1.2, ctrl.pos[2] + (hit ? 0 : (Math.random() - 0.5) * 3)]); if (hit) { hurtPlayer(14 + Math.random() * 8, 'a Security officer'); if (player.hp <= 36 && mayhem.officers.length) cityArrest(); } },
+      caught: () => cityArrest(),
+    });
+  }
+  // Caught by the city's law: a night in their cells, the fines out of your account, your weapons gone.
+  function cityArrest() {
+    const t = clock.now(), h = mayhem.heat(t), fine = Math.round(150 + h * 180); mayhem.officers = []; player.heat = null; player.credits = (player.credits ?? 0) - fine;
+    player.inventory = inventoryOf(player).filter(x => ITEMS[x.id].cat !== 'weapon'); player.weapon = null; player.hp = Math.max(player.hp, 40); store.touchPlayer();
+    store.log({ t, type: 'city_arrest', fine, by: player.id, byName: player.name, city: cityView.city.name });
+    clock.advance(planet.dayLength / 6); ctrl.vel = [0, 0, 0];
+    ui.toast(`<b>${esc(cityView.city.name)} Security</b> has you. Four hours in their cells, <b>${fine} cr</b> in fines, your weapons gone.`, 'bad', 12000);
+  }
+  // Grab whoever's in front of you, or throw whoever you're holding.
+  function grabOrThrow() {
+    if (paused || ctrl.mode !== 'walk' || ride || flight || !mayhem) return;
+    const t = clock.now(), fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), c = mayhem.carry;
+    if (c) {     // up and out: harder the fitter you are, harder still with a run-up
+      const sp = 7.5 + (player.fitness ?? 0.5) * 3 + ctrl.speed * 0.8;
+      mayhem.carry = null; mayhem.thrown({ ...c, vel: [fx * sp, 2.6, fz * sp], facing: ctrl.facing }); mayhem.crime(t, 'threw someone', 0.8, c.pos);
+      ui.toast(`You throw ${esc(c.name || 'them')}.`, 'bad', 2500); return;
+    }
+    let best = null, bd = 1.9;
+    const near = list => { for (const a of list) { const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz); if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.3 && (dx * fx + dz * fz) / (d || 1) > 0.3) { bd = d; best = a; } } };
+    near(agents.filter(a => !String(a.id).startsWith('tr:') && a.pose !== 'lie')); near(cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 6, 30).filter(w => !mayhem.out.has(w.id)));
+    if (!best) return;
+    const person = best.person || null, id = best.id; if (!person) mayhem.out.add(id);
+    mayhem.carry = { id, person, name: person ? knownName(person) : 'a passer-by', pos: best.pos.slice(), age: best.age || person?.age || 30 };
+    ui.toast(`You've got ${esc(mayhem.carry.name)}.`, 'warn', 3500);
+    mayhem.crime(t, 'grabbed someone', 0.4, best.pos);
+  }
   function attack() {
     if (paused || ctrl.mode !== 'walk' || ride || flight) return;
     const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = WEAPONS[id];
@@ -811,7 +892,16 @@ async function start(fresh) {
       g.setXYZ(0, ...hand); g.setXYZ(1, ...hp); g.needsUpdate = true; tracer.material.opacity = 0.9;
       flash.position.set(...hand); flash.intensity = 25;
     }
-    if (!target) return;
+    if (!target) {       // no one there: a passer-by in the city, a window, whatever's in the way
+      const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), at = hitPoint || [ctrl.pos[0] + fx * (W.reach + 0.3), ctrl.pos[1] + 1.2, ctrl.pos[2] + fz * (W.reach + 0.3)];
+      if (mayhem) {
+        const near = cityWalkers(cityView.city, t, at[0], at[2], 3, 12).filter(w => !mayhem.out.has(w.id) && Math.hypot(w.pos[0] - at[0], w.pos[2] - at[2]) < (W.ranged ? 0.6 : 1.1) && Math.abs(w.pos[1] + 1 - at[1]) < 1.4)[0];
+        if (near) { mayhem.out.add(near.id); mayhem.thrown({ id: near.id, name: 'A passer-by', pos: near.pos.slice(), vel: [fx * (W.dmg > 30 ? 2 : 3), 1.5, fz * (W.dmg > 30 ? 2 : 3)], age: near.age, facing: near.facing, dead: W.dmg > 30 }); const n = mayhem.crime(t, W.dmg > 30 ? 'shot someone' : 'assault', W.dmg > 30 ? 3.5 : 0.8, at); ui.toast(`You hit a passer-by${W.dmg > 30 ? ' — they drop' : ''}.${n ? ` <b>${n} saw.</b>` : ''}`, 'bad', 3500); return; }
+        if (mayhem.breakGlass(at, fx, fz, t)) { ui.toast('The window shatters.', 'bad', 2500); return; }
+        const k = mayhem.smash(at, t); if (k) { cityView.propAt = null; ui.toast(`You smash it to pieces.`, 'warn', 2500); return; }
+      }
+      return;
+    }
     const p = target.person, here = world.locate(...ctrl.pos);
     const seen = residents.witnesses(t, ctrl.pos, here?.b?.key || null, here?.k ?? null).filter(w => w.id !== p.id && !bodies.some(b => b.id === w.id));
     if (!downAt.has(p.id)) downAt.set(p.id, { pos: target.pos.slice(), facing: target.facing });
@@ -947,7 +1037,7 @@ async function start(fresh) {
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
   if (fresh) {
     const par = player.family.parents.map(id => pop.byId.get(id));
-    ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you. <small>C — your background.</small>`, '', 11000);
+    ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
   }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
@@ -976,11 +1066,15 @@ async function start(fresh) {
         cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
         cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3);
       } else if (ride) {
-        for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run });
+        for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run, up: keys.has('Space'), down: keys.has('KeyQ') });
         ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
         if (ride.impact > 12) { player.fatigue = Math.min(1, player.fatigue + 0.08); ui.toast(`You hit something at ${Math.round(ride.impact * 3.6)} km/h.`, 'bad', 3000); }
         cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
-      } else for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+      } else {
+        for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+        const hard = mayhem?.afterStep(t, dt, ctrl);
+        if (hard > 9) hurtPlayer(Math.min(120, (hard - 8.5) ** 2 * 0.9), 'a hard landing');
+      }
       // force a locked ramp by holding F at it
       const rq = keys.has('KeyF') && !flight && !ride ? nearRamp() : null;
       if (rq && rq.locked && !rq.down) {
@@ -1064,7 +1158,7 @@ async function start(fresh) {
       .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400);
     vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
-      .concat(ride ? [{ pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
+      .concat(ride ? [{ type: ride.v.type, pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -1086,7 +1180,7 @@ async function start(fresh) {
       r.life = 0; hurtPlayer(10, 'raider fire'); scare(ctrl.pos, t); break;
     }
     for (let i = bodies.length - 1; i >= 0; i--) if (bodies[i].until < t) bodies.splice(i, 1);
-    agents = agents.filter(a => !bodies.some(b => b.id === a.id)).concat(bodies.map(b => ({ id: b.id, person: b.person, age: b.person.age, pos: b.pos.slice(), facing: b.facing, pose: 'lie', moving: false, activity: 'dead' })));
+    agents = agents.filter(a => !bodies.some(b => b.id === a.id) && !mayhem?.holds(a.id)).concat(bodies.map(b => ({ id: b.id, person: b.person, age: b.person.age, pos: b.pos.slice(), facing: b.facing, pose: 'lie', moving: false, activity: 'dead' })));
     tracer.material.opacity = Math.max(0, tracer.material.opacity - dt * 9); flash.intensity = Math.max(0, flash.intensity - dt * 400);
     if (pursuit) {
       const ev = paused ? null : pursuit.update(t, dt, { pos: ctrl.pos, speed: ctrl.speed }, world, s);
@@ -1130,7 +1224,7 @@ async function start(fresh) {
     }
     if (!paused && !flight && t > hitUntil && (ride || ctrl.mode === 'walk')) {       // traffic doesn't stop for you
       const me = ride ? ride.pos : ctrl.pos, near = traffic.filter(v => Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12);
-      for (const v of cityTraffic.nearby) if (!v.parked && !v.ship && Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12) near.push(v);
+      for (const v of cityTraffic.nearby) if (!v.parked && !v.ship && v.car !== mayhem?.rider?.car && Math.abs(v.pos[0] - me[0]) < 12 && Math.abs(v.pos[2] - me[2]) < 12) near.push(v);
       const v = near.find(q => struckBy(q, me[0], me[1], me[2], ride ? 0.7 : 0.32));
       if (v) {
         hitUntil = t + 2;
@@ -1148,7 +1242,7 @@ async function start(fresh) {
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
       const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
@@ -1165,7 +1259,9 @@ async function start(fresh) {
     town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
     { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : []); }
     showCityLights();
-    if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group); }
+    if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
+      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
+    if (!paused) stepMayhem(dt);
     cityRooms.update(ctrl.pos);
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
@@ -1194,20 +1290,20 @@ async function start(fresh) {
       if (flight) {
         const why = flight.onGround ? flight.landingProblem() : null, f = flight;
         ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${Math.round(f.altitude())}</b> m · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${myCraft ? ` · hull <b class="${myCraft.hp / myCraft.maxHp < 0.35 ? 'late' : ''}">${Math.max(0, Math.round(myCraft.hp / myCraft.maxHp * 100))}%</b>${myCraft.guns ? ` · msl ${myCraft.missiles} · flares ${myCraft.flares}` : ''}` : ''}${war.missiles.some(m => m.target === myCraft) ? ' · <b class="late">MISSILE</b>' : ''}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
-          <small>W/S throttle · mouse/arrows stick · A/D rudder · Space/Q lift · Shift burner · B brakes · X assist · V view${f.onGround ? (why ? ` · can't land: ${why}` : ' · <b>E</b> land') : ''}</small>`);
+          <small>${f.onGround && why ? `can't land: ${why}` : ''}</small>`);
       }
       else if (rampHold > 0) {}
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
-      else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b> · <kbd>Shift</kbd> boost · ${Math.abs(ride.speed) > 4 ? 'slow down to get off' : '<kbd>E</kbd> get off'}`);
+      else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b>`);
       else if (hotwire > 0) {}
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? `<kbd>E</kbd> ${typeOf(nv).kind === 'bike' ? 'Ride' : 'Drive'} your ${typeOf(nv).name.toLowerCase()}` : nv.forSale ? `<kbd>E</kbd> ${typeOf(nv).name} for sale — ${typeOf(nv).price} cr` : `${esc(nv.ownerName)}'s ${typeOf(nv).name.toLowerCase()} · hold <kbd>F</kbd> hotwire`);
-      else if (ctrl.mode === 'seat') ui.showPrompt(ctrl.seat.pose === 'lie' ? '<kbd>E</kbd> Sleep · <kbd>W</kbd> get up' : '<kbd>W</kbd> / <kbd>E</kbd> get up');
+      else if (ctrl.mode === 'seat') ui.showPrompt(null);
       else if (ua && (di < 0 || ua.d < doorDist) && !(() => { const w = personAhead(); return w && Math.hypot(w.pos[0] - ctrl.pos[0], w.pos[2] - ctrl.pos[2]) - 0.6 < ua.d + 0.8; })()) {
         const st = statusOf(ua.b, ua.u, t), own = ownership(ua.b, ua.u.room, player);
         ui.showPrompt(`<kbd>E</kbd> ${labelOf(ua.u)} <small>— ${ua.u.verbs.map(v => VERB[v].toLowerCase()).join(' · ')}${st ? ` · <b>${st}</b>` : ''}${ua.u.box && !own.yours && !own.communal && !ua.u.box.shop ? ` · ${esc(own.owner)}'s` : ''}</small>`);
       }
-      else if (ctrl.mode === 'wall') { const w = ctrl.wall; ui.showPrompt(`<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> climb · <kbd>Shift</kbd> faster · <kbd>Space</kbd> leap · <kbd>Q</kbd> let go${w.blocked ? ` <small>— ${w.blocked}</small>` : ''}${player.fatigue > 0.92 ? ' <small><b class="late">your grip is going</b></small>' : ''}`); }
-      else if (ctrl.mode === 'ladder') ui.showPrompt(`<kbd>W</kbd>/<kbd>S</kbd> climb · <kbd>Space</kbd> let go${player.fatigue > 0.92 ? ' <small>— you\'re exhausted</small>' : ''}`);
+      else if (ctrl.mode === 'wall') { const w = ctrl.wall; ui.showPrompt(player.fatigue > 0.92 ? 'Your grip is going' : w.blocked ? `<small>${w.blocked}</small>` : null); }
+      else if (ctrl.mode === 'ladder') ui.showPrompt(player.fatigue > 0.92 ? 'You\'re exhausted' : null);
       else if (lad && forceHold === 0) ui.showPrompt(`<kbd>E</kbd> ${ctrl.pos[1] > lad.foot[1] + 1.5 ? 'Climb down the ladder' : 'Climb the fire ladder'}`);
       else if (di >= 0 && forceHold === 0) {
         const { b, door } = town.doors[di], st = doorState(store, planet, b, door, t);
@@ -1215,7 +1311,8 @@ async function start(fresh) {
         const what = door.kind === 'interior' ? 'door' : door.kind === 'core' ? (door.access === 'unit' ? `apartment ${door.unit}` : 'door') : `${b.owner} · ${address(s, b)}`;
         ui.showPrompt(st.held ? `Holding cell — locked until your release${player.custody ? ' at ' + formatHour(solarHour(planet, player.custody.until)) : ''}` : st.open ? `<kbd>E</kbd> Close ${what}` : st.broken ? `<kbd>E</kbd> Open ${what} <small>(lock broken)</small>`
           : res.ok || (door.kind !== 'interior' && insideBuilding(b)) ? `<kbd>E</kbd> Open ${what}${res.key ? ' <small>(your key)</small>' : ''}` : `${res.why} · <kbd>E</kbd> try · hold <kbd>F</kbd> force`);
-      } else if (forceHold === 0 && (cityLift = liftNear())) ui.showPrompt(`<kbd>E</kbd> Lift — ${esc(cityLift.L.b.label)} <small>· ${cityLift.L.stops.filter(q => q !== cityLift.st).map(q => q.label.split(' —')[0].toLowerCase()).filter((q, i, a) => a.indexOf(q) === i).join(' · ')}</small>`);
+      } else if (forceHold === 0 && mayhem && (cityTake = mayhem.takeable(ctrl, t))) { const c = cityTake, d = driverOf(cityTraffic.fleet, c.car), T = typeOf(c.car); ui.showPrompt(c.on ? `On <b>${esc(d.name)}</b>'s ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small> · <kbd>E</kbd> force your way in · <kbd>Space</kbd> jump` : c.parked ? `<kbd>E</kbd> Steal ${esc(d.name)}'s ${T.name.toLowerCase()}` : `<kbd>E</kbd> Drag <b>${esc(d.name)}</b> out of the ${T.name.toLowerCase()} <small>· ${esc(purposeOf(cityTraffic.fleet, c.car, t))}</small>`); }
+      else if (forceHold === 0 && (cityLift = liftNear())) ui.showPrompt(`<kbd>E</kbd> Lift — ${esc(cityLift.L.b.label)} <small>· ${cityLift.L.stops.filter(q => q !== cityLift.st).map(q => q.label.split(' —')[0].toLowerCase()).filter((q, i, a) => a.indexOf(q) === i).join(' · ')}</small>`);
       else if (forceHold === 0) {
         // the person in front of you
         let best = null, bd = 2.6;
@@ -1229,6 +1326,7 @@ async function start(fresh) {
         } else ui.showPrompt(null);
       }
     }
+    ui.quiet = !flight && (t - lastShotAt < 12 || performance.now() / 1000 - lastAttack < 8 || !!mayhem?.officers.length || !!(pursuit && pursuit.state !== 'return') || !!mayhem?.carry);
     const cp = cityPlace(cityView.city, ctrl.pos[0], ctrl.pos[2]);
     ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos, cityAt: cp && { label: cp.label, city: cityView.city.name } });
     frames++;
@@ -1242,7 +1340,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

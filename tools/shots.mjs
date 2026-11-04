@@ -277,6 +277,27 @@ const climbShot = (extra = '') => `const O = ORBIS, c = O.city, wait = ms => new
     for (let i = 0; i < 200 && !O.cityView.done; i++) { O.ctrl.pos = [x, base, z]; await wait(200); } await wait(600);
     key('KeyW', false); key('Space'); await wait(300); key('Space'); await wait(5500); ${extra} dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); O.cam.yaw = O.ctrl.facing + 0.75; O.cam.pitch = 0.12; document.querySelector('.toasts')?.remove(); await wait(500);`;
 SCRIPTS.climbing = climbShot(); SHOTS.climbing = 'hour=15'; SCRIPTS.climbingn = climbShot(); SHOTS.climbingn = 'hour=21';
+SCRIPTS.sandbox = `const O = ORBIS, P = O.store.player, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); }, FL = await import('./js/gen/cityfleet.js'), G = await import('./js/gen/city.js'), out = {};
+    const [bx, bz] = c.toWorld(G.lineAt(c, 0, 1), G.lineAt(c, 1, -2) + 20); O.ctrl.pos = [bx, c.h + 0.3, bz]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 200 && !(O.cityView.done && O.getMayhem() && O.cityTraffic.ready >= O.cityTraffic.n); i++) { O.ctrl.pos = [bx, c.h + 0.3, bz]; await wait(200); }
+    const M = O.getMayhem(), F = O.cityTraffic.fleet, t0 = O.clock.now(), q = {};
+    // land on a flying car
+    const sky = F.cars.find(k => { if (k.kind !== 'sky') return false; FL.vehicleAt(F, k, t0 + 3, q); return q.moving && q.y > c.h + 40 && q.vy === 0 && q.trip.t0 + q.trip.dur > t0 + 40; });
+    out.sky = !!sky; const at = FL.vehicleAt(F, sky, O.clock.now() + 0.5, {}); const TT = (await import('./js/gen/vehicles.js')).TYPES[sky.type];
+    O.ctrl.pos = [at.x, at.y + TT.H + 1.0, at.z]; O.ctrl.vel = [at.vx, 0, at.vz]; O.ctrl.grounded = false;
+    for (let i = 0; i < 40 && !M.rider; i++) { const a2 = FL.vehicleAt(F, sky, O.clock.now() + 0.05, {}); if (O.ctrl.pos[1] < a2.y + TT.H + 2) { O.ctrl.pos[0] = a2.x; O.ctrl.pos[2] = a2.z; } await wait(50); }
+    out.rode = !!M.rider; const y0 = O.ctrl.pos[1], x0 = O.ctrl.pos[0], z0 = O.ctrl.pos[2]; out.track = []; for (let i = 0; i < 6; i++) { const a3 = FL.vehicleAt(F, sky, O.clock.now(), {}); out.track.push([Math.round(a3.x), Math.round(O.ctrl.pos[0]), a3.moving, +a3.vx.toFixed(0), +a3.vz.toFixed(0), +(O.clock.now() % 1000).toFixed(1)]); await wait(250); } out.carried = Math.round(Math.hypot(O.ctrl.pos[0] - x0, O.ctrl.pos[2] - z0)); out.alt = Math.round(O.ctrl.pos[1] - c.h); out.stayed = !!M.rider;
+    O.cam.pitch = 0.3; O.cam.dist = 7; await wait(200); out.prompt = document.querySelector('.prompt')?.textContent?.slice(0, 90);
+    key('KeyE'); await wait(600); out.riding = !!O.getRide2(); out.fly = O.getRide2()?.v.fly; out.heat = +M.heat(O.clock.now()).toFixed(2); out.driverFalling = M.bodies.length; out.bodyAlt = M.bodies[0] ? Math.round(M.bodies[0].pos[1] - c.h) : null;
+    key('KeyW', false); key('Space', false); await wait(2500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' })); const R = O.getRide2(); out.flew = R ? [Math.round(R.speed), Math.round(R.pos[1] - c.h)] : null; await wait(1500);
+    out.bodyDown = M.bodies[0] ? { fly: M.bodies[0].flying, alt: Math.round(M.bodies[0].pos[1] - c.h), dead: !!M.bodies[0].dead } : null; out.heat2 = +M.heat(O.clock.now()).toFixed(2); out.cops = M.officers.length;
+    O.cam.yaw += 0.8; await wait(400);
+    throw new Error(JSON.stringify(out));`; SHOTS.sandbox = 'hour=12';
+SCRIPTS.arrestdbg = `const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)); const { issueWarrant } = await import('./js/sim/processes/law.js'); const { buildingPlan } = await import('./js/gen/building.js'); const { doorstep } = await import('./js/gen/place.js');
+    const hq = O.pop.buildingByKey.get(O.polity.security), ds = doorstep(O.s, hq, buildingPlan(O.planet, O.s, hq)); O.ctrl.pos = ds.pos.slice(); O.ctrl.vel = [0, 0, 0]; await wait(1500);
+    const t = O.clock.now(); issueWarrant(O.ctx, t, 'a test warrant'); O.ctx.onServe(t); const log = [O.getPursuit()?.person.name];
+    for (let i = 0; i < 60 && !P.custody; i++) { await wait(1000); const q = O.getPursuit(); if (i % 4 === 0) log.push([i, q ? q.state : 'none', q ? Math.round(Math.hypot(q.pos[0] - O.ctrl.pos[0], q.pos[2] - O.ctrl.pos[2])) : null, +O.ctrl.speed.toFixed(2), O.ctrl.mode, P.hp | 0, O.renderer.info.render.frame]); }
+    throw new Error(JSON.stringify({ custody: !!P.custody, log }));`; SHOTS.arrestdbg = 'hour=10.5';
 const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(SHOTS);
 for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';

@@ -8,7 +8,7 @@
 // Every surface comes from the collision world's logical data, never from meshes.
 import { Climber } from './climber.js';
 export const GRAVITY = 9.81;
-const WALK = 1.9, RUN = 5.4, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
+const WALK = 3.0, RUN = 6.5, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
 const LADDER = 0.9;                                        // m/s up or down a ladder
 
 export class Controller {

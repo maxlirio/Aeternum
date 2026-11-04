@@ -116,7 +116,7 @@ export function createPlaceholderAvatar() {
       if (pose) { blend = 0; applyPose(rig, { mode: pose, phase, blend: 0, k: 0 }); return; }
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);
-      applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, speed / 5.4), lean: climb?.lean ?? 0 });
+      applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, Math.max(0, speed - 3) / 3), lean: climb?.lean ?? 0 });
       if (!climb) {
         if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }          // a gun is held out in front
         if (swing > 0) {                                                                                     // a strike: the arm drives forward and back

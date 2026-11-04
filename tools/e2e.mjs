@@ -20,7 +20,7 @@ try {
   const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = new Map(), errs = [];
   ws.onmessage = m => { const x = JSON.parse(m.data); if (x.id) pend.get(x.id)?.(x); if (x.method === 'Runtime.exceptionThrown') errs.push(x.params.exceptionDetails.exception?.description); };
-  const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
+  const send = (method, params = {}) => new Promise((r, rej) => { const i = ++id, to = setTimeout(() => { pend.delete(i); rej(new Error(`STUCK: no reply from the page in 5 minutes (${method}: ${String(params.expression || '').slice(0, 120)})`)); }, 300000); pend.set(i, x => { clearTimeout(to); r(x); }); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async expr => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(expr + ' → ' + JSON.stringify(r.result.exceptionDetails).slice(0, 300)); return r.result.result.value; };
   const key = async (code, type) => ev(`dispatchEvent(new KeyboardEvent('${type}', { code: '${code}' })), 1`);
   const load = async q => {
@@ -491,6 +491,41 @@ try {
     const thrown = Math.hypot(O.ctrl.pos[0] - p0[0], O.ctrl.pos[2] - p0[2]), stun = O.ctrl.stun; await wait(600);
     return { hp: Math.round(P.hp), thrown: Math.round(thrown * 10) / 10, stunned: stun > 0, type: v.type, toast: [...document.querySelectorAll('.toast')].map(e => e.textContent).find(x => /hit/.test(x)) || '' }; })()`);
   check(hit.hp < 100 && hit.thrown > 0.5 && hit.stunned, `stood in front of a ${hit.type}: knocked over and thrown ${hit.thrown} m, ${hit.hp}% health — "${String(hit.toast).slice(0, 50)}"`);
+  console.log('[sandbox]');
+  const sb = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); }, FL = await import('./js/gen/cityfleet.js'), G = await import('./js/gen/city.js'), V = await import('./js/gen/vehicles.js'), out = {};
+    P.hp = 100; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
+    const [bx, bz] = c.toWorld(G.lineAt(c, 0, 1), G.lineAt(c, 1, -2) + 20); O.ctrl.pos = [bx, c.h + 0.3, bz]; O.ctrl.vel = [0, 0, 0];
+    for (let i = 0; i < 300 && !(O.getMayhem() && O.cityTraffic.ready >= O.cityTraffic.n); i++) { O.ctrl.pos = [bx, c.h + 0.3, bz]; await wait(200); }
+    const M = O.getMayhem(), F = O.cityTraffic.fleet, t0 = O.clock.now(), q = {};
+    const sky = F.cars.find(k => { if (k.kind !== 'sky') return false; FL.vehicleAt(F, k, t0 + 2, q); return q.moving && q.y > c.h + 30 && q.trip.t0 + q.trip.dur > t0 + 60; });
+    const TT = V.TYPES[sky.type]; let a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 0.8, a.z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.grounded = false;
+    for (let i = 0; i < 60 && !M.rider; i++) { a = FL.vehicleAt(F, sky, O.clock.now() + 0.03, {}); if (O.ctrl.pos[1] < a.y + TT.H + 1.5) { O.ctrl.pos[0] = a.x; O.ctrl.pos[2] = a.z; } await wait(30); }
+    out.rode = !!M.rider; const y1 = O.ctrl.pos[1] - c.h; await wait(800); a = FL.vehicleAt(F, sky, O.clock.now(), {}); out.gap = Math.round(Math.hypot(O.ctrl.pos[0] - a.x, O.ctrl.pos[2] - a.z) * 10) / 10; out.onIt = !!M.rider; out.alt = Math.round(y1);
+    key('KeyE'); await wait(500); const R = O.getRide2(); out.took = !!R; out.fly = !!R?.v.fly; out.hot = +M.heat(O.clock.now()).toFixed(1); out.driverOut = M.bodies.length > 0;
+    key('KeyW', false); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); out.speed = Math.round(O.getRide2()?.speed || 0);
+    key('KeyE'); await wait(300); out.jumpedOut = !O.getRide2() && O.ctrl.mode === 'walk'; out.car = O.getVehicles().some(v => v.id === sky.id);
+    for (let i = 0; i < 100 && !O.ctrl.grounded; i++) await wait(100); out.hpAfterFall = Math.round(P.hp);
+    // a passer-by: grab, throw
+    P.hp = 100; P.heat = null; const W = await import('./js/gen/citytraffic.js'); let w = null; const [wx, wz] = c.toWorld(G.lineAt(c, 0, 4) + 14, G.lineAt(c, 1, 3) + 40); O.ctrl.pos = [wx, c.h + 0.3, wz]; O.ctrl.vel = [0, 0, 0]; await wait(500);
+    for (let i = 0; i < 30 && !w; i++) { w = W.cityWalkers(c, O.clock.now(), O.ctrl.pos[0], O.ctrl.pos[2], 80, 20).filter(x => !M.out.has(x.id))[0]; if (!w) await wait(200); }
+    if (w) { const tw = () => W.cityWalkers(c, O.clock.now() + 0.1, w.pos[0], w.pos[2], 12, 40).find(x => x.id === w.id); let n = tw(); O.ctrl.pos = [n.pos[0] - 1, n.pos[1], n.pos[2]]; O.ctrl.facing = Math.PI / 2; O.ctrl.vel = [0, 0, 0]; await wait(30); key('KeyG'); out.grabbed = !!M.carry; const p0 = M.carry?.pos?.slice(); await wait(200); key('KeyG'); out.thrown = M.bodies.some(b => b.id === w.id); await wait(1800); const b = M.bodies.find(x => x.id === w.id); out.landed = b && !b.flying; out.flew = b ? Math.round(Math.hypot(b.pos[0] - p0[0], b.pos[2] - p0[2]) * 10) / 10 : 0; out.heat3 = +M.heat(O.clock.now()).toFixed(1); }
+    // smash something
+    const B = G.cityBlock(c, 2, 2), idx = B.props.findIndex(p => p.k.startsWith('bin') || p.k === 'bench' || p.k.startsWith('lamp')); const pr = B.props[idx], [px, pz] = c.toWorld(pr.u, pr.v); O.ctrl.pos = [px - 1.3, c.h + 0.3, pz]; O.ctrl.facing = Math.PI / 2; O.cam.yaw = O.ctrl.facing; await wait(200); P.weapon = null; O.attack(); await wait(200); out.smashed = !!O.store.getDelta('cprop/2,2/' + idx) || Object.keys(O.store.deltas || {}).some(k => k.startsWith('cprop/')); out.crimes = O.store.events.filter(e => e.type === 'city_crime').map(e => e.kind).filter((k, i, l) => l.indexOf(k) === i);
+    // through a real window: a walk-in building's wall, from inside
+    const Rl = await import('./js/world/cityreal.js'); let rec = null; for (let a2 = 0; a2 < 1600 && !rec; a2++) { const B2 = G.cityBlock(c, (a2 % 40) - 20, Math.floor(a2 / 40) - 20); if (B2.district !== 'market') continue; for (const b2 of B2.buildings) if (b2.enter === 'store') { const r2 = Rl.realOf(O.planet, O.s, c, B2, b2); if (r2 && r2.plan.walls.some(wl => wl.exterior && wl.side === 'front' && wl.k === 0 && wl.openings.some(o => o.kind === 'window'))) { rec = r2; break; } } }
+    const wl = rec.plan.walls.find(x => x.exterior && x.side === 'front' && x.k === 0 && x.openings.some(o => o.kind === 'window')), win = wl.openings.find(o => o.kind === 'window'), at = (x, z) => O.s.toWorld(rec.O[0] + rec.ex[0] * x + rec.ez[0] * z, rec.O[1] + rec.ex[1] * x + rec.ez[1] * z), lx = (win.a + win.b) / 2, [ix, iz] = at(lx, 2), [ox, oz] = at(lx, -2);
+    O.ctrl.pos = [ix, c.h + 0.3, iz]; O.ctrl.vel = [0, 0, 0]; for (let i = 0; i < 60 && !O.getCityRooms()?.live.has(rec.cityId); i++) { O.ctrl.pos = [ix, c.h + 0.3, iz]; await wait(200); }
+    const dl = Math.hypot(ox - ix, oz - iz), y = rec.base + (win.y0 + win.y1) / 2 - 1.0; M.thrown({ id: 'test-body', name: 'The test dummy', pos: [ix, y, iz], vel: [(ox - ix) / dl * 9, 1.0, (oz - iz) / dl * 9] }); await wait(1800);
+    const tb = M.bodies.find(x => x.id === 'test-body'), [tu, tv] = [tb?.pos[0], tb?.pos[2]], oa = (tu - rec.O[0]) ; out.body = tb ? { flying: tb.flying, outside: !O.world.locate(tb.pos[0], tb.pos[1], tb.pos[2]) } : null; out.windowCrime = O.store.events.some(e => e.kind === 'threw someone through a window');
+    return out; })()`);
+  check(sb.rode && sb.onIt && sb.gap < 3, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
+  check(sb.took && sb.fly && sb.driverOut && sb.hot >= 2, `took it: driver out, in the air, heat ${sb.hot}`);
+  check(sb.speed > 5, `flew it (${sb.speed} m/s)`);
+  check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);
+  check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
+  check(sb.smashed, `smashed street furniture; crimes on record: ${(sb.crimes || []).join(', ')}`);
+  check(sb.body?.outside && sb.windowCrime, `threw someone out through a real window (${JSON.stringify(sb.body)})`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

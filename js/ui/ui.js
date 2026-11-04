@@ -26,7 +26,7 @@ export class UI {
       <div class="debug hidden"></div>`;
     this.prompt = el('div', 'prompt hidden'); this.root.append(this.prompt);
     this.toasts = el('div', 'toasts'); this.root.append(this.toasts);
-    this.hint = el('div', 'hint hidden', 'Click to look around · WASD move · Shift run · Space jump/climb · E use/talk · click/R attack · I inventory · L light · hold F force · J work · C you · Esc menu'); this.root.append(this.hint);
+    this.hint = el('div', 'hint hidden', ''); this.root.append(this.hint);
   }
   panel(html, cls = '') {
     this.closePanel();
@@ -54,7 +54,7 @@ export class UI {
     $('.ltext', this.current).textContent = text;
     $('.progress b', this.current).style.width = Math.round(frac * 100) + '%';
   }
-  showHud(on) { this.hud.classList.toggle('hidden', !on); this.hint.classList.toggle('hidden', !on); }
+  showHud(on) { this.hud.classList.toggle('hidden', !on); }
 
   updateHud(g) {
     const { planet, s, player, t, located } = g;
@@ -84,8 +84,10 @@ export class UI {
   debug(text) { const d = $('.debug', this.hud); d.textContent = text; }
   toggleDebug() { $('.debug', this.hud).classList.toggle('hidden'); }
 
-  showPrompt(html) { if (!html) { this.prompt.classList.add('hidden'); return; } this.prompt.innerHTML = html; this.prompt.classList.remove('hidden'); }
+  // No instructions on screen, ever: what's here and what's happening, never which key. (Controls are in the pause menu.)
+  showPrompt(html) { if (html) html = noKeys(html); if (!html || this.quiet) { this.prompt.classList.add('hidden'); return; } this.prompt.innerHTML = html; this.prompt.classList.remove('hidden'); }
   toast(html, kind = '', ms = 4500) {
+    html = noKeys(html); if (!html) return;
     const t = el('div', 'toast ' + kind, html); this.toasts.append(t);
     setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600);
   }
@@ -97,7 +99,8 @@ export class UI {
         <button data-a="leave">Leave the game…</button>
         <button data-a="backup">Download backup</button>
         <button data-a="restore">Restore from backup…</button>
-        <button data-a="log">World log</button>`, 'menu');
+        <button data-a="log">World log</button>
+        <details class="controls"><summary>Controls</summary><p>Mouse look · WASD move · Shift run · Space jump, grab a wall · E use, talk, take · click or R attack · G grab, throw · F force, hotwire · I inventory · L light · J work · C you<br><br>On a wall: WASD climb · Shift faster · Space leap · Q let go<br>Vehicles: W/S throttle · A/D steer · Shift boost · Space/Q up and down<br>Flying: W/S thrust · mouse stick · A/D rudder · Space/Q lift · B brakes · X assist · V view · hold click guns · F missile · G flares</p></details>`, 'menu');
       p.addEventListener('click', e => { const a = e.target.dataset.a; if (a) res(a); });
     });
   }
@@ -172,6 +175,8 @@ function homeLabel(pop, unitKey) {
 }
 
 const TYPE_LABEL = { office: 'Administration', hab: 'Habitation block', store: 'Store', house: 'Dwelling', workshop: 'Workshop', hangar: 'Hangar' };
+const noKeys = h => h.replace(/\s*·?\s*[Hh]old <kbd>[^<]*<\/kbd>( to)?( \w+)?( it)?\.?/g, '').replace(/<small>[^<]*<kbd>.*?<\/small>/g, '').replace(/<kbd>[^<]*<\/kbd> try\s*·?\s*/g, '')
+  .replace(/<kbd>[^<]*<\/kbd>\s*(\/\s*)?/g, '').replace(/\s*·\s*(<\/small>|$)/g, '$1').trim();
 function labelFor(loc, cell) {
   const b = loc.b;
   if (b.type === 'ship') return loc.roof ? `On top of the ${b.ship.name}` : `The ${b.ship.name}${loc.room ? ' · ' + loc.room.label : ''}`;

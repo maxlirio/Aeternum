@@ -13,7 +13,7 @@ export class Ride {
     this.world = world; this.planet = planet; this.v = v; this.T = typeOf(v);
     this.pos = v.pos.slice(); this.facing = v.facing;
     this.speed = 0; this.vy = 0; this.pitch = 0; this.roll = 0; this.yawRate = 0;
-    this.pos[1] = this.ground(this.pos[0], this.pos[2], this.pos[1] + 1);
+    this.pos[1] = v.fly ? Math.max(this.pos[1], this.ground(this.pos[0], this.pos[2], this.pos[1] + 1)) : this.ground(this.pos[0], this.pos[2], this.pos[1] + 1);
     this.impact = 0;                       // last collision speed (m/s), for the caller to react to
   }
   // What it floats over at (x, z): the highest surface within reach below `near`, or the sea.
@@ -23,7 +23,7 @@ export class Ride {
   step(dt, input) {
     const f = this.facing, fx = Math.sin(f), fz = Math.cos(f), half = this.T.L / 2;
     // throttle, brake, reverse
-    const top = this.T.top * (input.boost ? BOOST : 1);
+    const top = this.T.top * (input.boost ? BOOST : 1) * (this.v.fly ? 1.6 : 1);
     if (input.fwd > 0) this.speed += (this.speed < top ? ACCEL * (input.boost ? 1.5 : 1) : -COAST * 4) * dt * input.fwd;
     else if (input.fwd < 0) this.speed += (this.speed > 0.3 ? -BRAKE : this.speed > -REVERSE ? -ACCEL * 0.6 : 0) * dt;
     else this.speed -= Math.sign(this.speed) * Math.min(Math.abs(this.speed), (COAST + 0.012 * this.speed * this.speed) * dt);
@@ -48,6 +48,13 @@ export class Ride {
     }
     this.impact = 0;
     if (push > 0.002 && Math.abs(this.speed) > 1) { this.impact = Math.abs(this.speed); this.speed *= 0.25; }
+    if (this.v.fly) {         // a sky car: holds its height; Space and Q take it up and down; the ground only stops it
+      const ground = this.ground(x, z, y + 1.2), want = (input.up ? 9 : 0) - (input.down ? 11 : 0);
+      this.vy += (want - this.vy) * Math.min(1, dt * 3);
+      let ny = y + this.vy * dt; if (ny < ground) { ny = ground; this.vy = Math.max(0, this.vy); }
+      this.pos = [x, ny, z]; this.pitch += (-this.vy * 0.03 - this.pitch) * Math.min(1, dt * 4); this.roll += (Math.max(-0.5, Math.min(0.5, -this.yawRate * Math.abs(this.speed) * 0.035)) - this.roll) * Math.min(1, dt * 5);
+      return;
+    }
     // hover: spring up to the surface below; fall freely off crests
     const g = Math.max(this.ground(x, z, y + 1.2), this.ground(x + nfx * half * 0.8, z + nfz * half * 0.8, y + 1.2) - 0.25, this.ground(x - nfx * half * 0.8, z - nfz * half * 0.8, y + 1.2) - 0.25);
     let ny = y;

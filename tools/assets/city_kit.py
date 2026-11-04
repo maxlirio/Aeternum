@@ -7,13 +7,13 @@
 def bx(p, cx, y0, cz, w, h, d, mat, bevel=0.006):
     add_box(p, cx - w / 2, y0, cz - d / 2, cx + w / 2, y0 + h, cz + d / 2, mat, bevel)
 def cy(p, cx, cz, y0, y1, r, mat, seg=12, r2=None):
-    add_cyl(p, cx, cz, y0, y1, r, mat, seg=seg, r2=r2)
+    add_cyl(p, cx, cz, y0, y1, r, mat, seg=(max(seg, 16) if r > 0.08 else seg), r2=r2)
 def rod_x(p, x0, x1, y, z, r, mat, seg=8):          # a bar along x at height y, depth z
     add_cyl(p, y, z, x0, x1, r, mat, seg=seg, axis='x')
 def rod_z(p, z0, z1, x, y, r, mat, seg=8):          # along z
     add_cyl(p, x, y, z0, z1, r, mat, seg=seg, axis='z')
 def ball(p, cx, cy_, cz, r, mat, sub=2):
-    bm = bmesh.new(); bmesh.ops.create_icosphere(bm, subdivisions=sub, radius=r)
+    bm = bmesh.new(); bmesh.ops.create_icosphere(bm, subdivisions=max(2, sub), radius=r)
     for v in bm.verts: x, y, z = v.co; v.co = P(cx + x, cy_ + z, cz + y)
     merge(p, bm, mat)
 def frame4(p, w, d, h, r, mat):                     # four posts
@@ -83,13 +83,11 @@ def kiosk_lux(p, r):
     cy(p, 0, 0, 3.1, 3.2, 1.0, 'neoncyan', 24)
 def kiosk_food(p, r): kiosk(p, r); bx(p, 0, 1.12, -0.6, 1.8, 0.1, 0.4, 'metal')
 def planter(p, r):
+    plant(p, fern, 1.5, 1.5, 0.8, r, 0.7)
     bx(p, 0, 0, 0, 1.6, 0.75, 1.6, 'concrete', 0.03); bx(p, 0, 0.6, 0, 1.4, 0.14, 1.4, 'soil', 0.01)
-    rng = random.Random(r.random())
-    for i in range(7): add_blob(p, rng.uniform(-0.5, 0.5), 0.9, rng.uniform(-0.5, 0.5), 0.28, 'leaf', rng, 1)
 def planter_lux(p, r):
-    cy(p, 0, 0, 0, 0.7, 1.0, 'stone', 20); cy(p, 0, 0, 0.6, 0.72, 0.92, 'soil', 20)
-    cy(p, 0, 0, 0.7, 2.2, 0.08, 'bark', 8); rng = random.Random(3)
-    for i in range(6): add_blob(p, rng.uniform(-0.4, 0.4), 2.3 + rng.uniform(0, 0.6), rng.uniform(-0.4, 0.4), 0.45, 'leaf', rng, 1)
+    plant(p, tree_builder('parasol'), 2.2, 2.2, 3.4, r, 0.6)
+    cy(p, 0, 0, 0, 0.7, 1.0, 'stone', 32); cy(p, 0, 0, 0.6, 0.72, 0.92, 'soil', 32)
 def bollard(p, r):
     cy(p, 0, 0, 0, 0.95, 0.12, 'paint', 12); cy(p, 0, 0, 0.8, 0.86, 0.125, 'hazard', 12); ball(p, 0, 0.95, 0, 0.12, 'paint', 1)
 def hydrant(p, r):
@@ -129,15 +127,16 @@ def steamvent(p, r):
 def bikerack2(p, r): bikerack(p, r)
 
 # ---------------------------------------------------------------- trees
+def plant(p, grow, L, D, H, r, y=0.0):
+    # one of the grown plants (build.py), centred on the footprint: the same ones as out in the country
+    grow(p, L, D, H, r)
+    bmesh.ops.translate(p.bm, vec=mathutils.Vector(P(-L / 2, y, -D / 2)), verts=list(p.bm.verts))
 def tree(p, r, lux=False):
-    rng = random.Random(r.random())
-    cy(p, 0, 0, 0, 4.2, 0.16, 'bark', 10, r2=0.1)
-    for i in range(3):
-        a = rng.uniform(0, 6.28); add_cyl(p, math.cos(a) * 0.5, math.sin(a) * 0.5, 2.6, 4.4, 0.06, 'bark', seg=6, axis='y')
-    for i in range(12):
-        add_blob(p, rng.uniform(-1.4, 1.4), rng.uniform(4.0, 6.4), rng.uniform(-1.4, 1.4), rng.uniform(0.7, 1.1), 'leaf', rng, 1)
-    if not lux: bx(p, 0, 0, 0, 1.4, 0.06, 1.4, 'metal', 0.01)
-    else: cy(p, 0, 0, 0, 0.5, 0.9, 'stone', 16)
+    plant(p, tree_builder('birch' if lux else 'oak'), 4.5, 4.5, 8.0, r)
+    if not lux:
+        bx(p, 0, 0, 0, 1.5, 0.05, 1.5, 'metal', 0.01)
+        for i in range(8): bx(p, -0.6 + i * 0.17, 0.05, 0, 0.05, 0.02, 1.4, 'rubber', 0.002)
+    else: cy(p, 0, 0, 0, 0.5, 0.9, 'stone', 24)
 def tree_lux(p, r): tree(p, r, True)
 
 # ---------------------------------------------------------------- market
@@ -158,8 +157,8 @@ def stall(p, r, roof='tint', goods='crates', w=3.2, d=2.4, kind='canopy'):
     # goods on the counter
     for i in range(int((w - 0.4) / 0.42)):
         x = -w / 2 + 0.4 + i * 0.42
-        if goods == 'crates': bx(p, x, 0.95, -d / 2 + 0.45, 0.38, 0.18, 0.5, 'wood', 0.005); [add_blob(p, x + rng.uniform(-0.12, 0.12), 1.15, -d / 2 + 0.45 + rng.uniform(-0.18, 0.18), 0.07, rng.choice(['tint', 'leaf', 'paint']), rng, 1) for _ in range(5)]
-        elif goods == 'fish': bx(p, x, 0.95, -d / 2 + 0.45, 0.4, 0.06, 0.6, 'ceramic', 0.005); [add_blob(p, x, 1.03, -d / 2 + 0.25 + k * 0.2, 0.06, 'mirror', rng, 1, 0.5) for k in range(3)]
+        if goods == 'crates': bx(p, x, 0.95, -d / 2 + 0.45, 0.38, 0.18, 0.5, 'wood', 0.005); [add_blob(p, x + rng.uniform(-0.12, 0.12), 1.15, -d / 2 + 0.45 + rng.uniform(-0.18, 0.18), 0.07, rng.choice(['tint', 'leaf', 'paint']), rng, 2) for _ in range(5)]
+        elif goods == 'fish': bx(p, x, 0.95, -d / 2 + 0.45, 0.4, 0.06, 0.6, 'ceramic', 0.005); [add_blob(p, x, 1.03, -d / 2 + 0.25 + k * 0.2, 0.06, 'mirror', rng, 2, 0.5) for k in range(3)]
         elif goods == 'cloth': bx(p, x, 0.95, -d / 2 + 0.45, 0.38, 0.22, 0.55, 'tint', 0.03)
         elif goods == 'tech': bx(p, x, 0.95, -d / 2 + 0.45, 0.3, 0.12, 0.3, 'plastic', 0.01); bx(p, x, 1.07, -d / 2 + 0.4, 0.24, 0.02, 0.18, 'screen', 0.003)
         elif goods == 'spice': cy(p, x, -d / 2 + 0.45, 0.95, 1.1, 0.16, 'cardboard', 10); ball(p, x, 1.08, -d / 2 + 0.45, 0.12, rng.choice(['tint', 'soil', 'hazard']), 1)
@@ -192,7 +191,7 @@ def stall_crate(p, r):
     for i in range(6):
         x = -1.2 + (i % 3) * 1.2; z = -0.5 + (i // 3) * 1.0
         bx(p, x, 0, z, 1.0, 0.5, 0.8, 'wood', 0.01)
-        for k in range(6): add_blob(p, x + rng.uniform(-0.35, 0.35), 0.58, z + rng.uniform(-0.25, 0.25), 0.1, rng.choice(['tint', 'leaf']), rng, 1)
+        for k in range(6): add_blob(p, x + rng.uniform(-0.35, 0.35), 0.58, z + rng.uniform(-0.25, 0.25), 0.1, rng.choice(['tint', 'leaf']), rng, 2)
 def foodcart(p, r, roof='tint'):
     bx(p, 0, 0.3, 0, 2.0, 1.0, 1.1, 'mirror', 0.03); bx(p, 0, 1.3, 0, 2.0, 0.05, 1.1, 'metal')
     add_cyl(p, 0.3, 0.45, -0.85, -0.75, 0.3, 'rubber', seg=14, axis='x'); add_cyl(p, 0.3, 0.45, 0.75, 0.85, 0.3, 'rubber', seg=14, axis='x')
@@ -203,7 +202,7 @@ def crates_fruit(p, r):
     rng = random.Random(r.random())
     for i in range(3):
         bx(p, -0.5 + i * 0.5, 0, 0, 0.45, 0.35, 0.6, 'wood', 0.005)
-        for k in range(5): add_blob(p, -0.5 + i * 0.5 + rng.uniform(-0.12, 0.12), 0.42, rng.uniform(-0.2, 0.2), 0.08, rng.choice(['tint', 'leaf', 'hazard']), rng, 1)
+        for k in range(5): add_blob(p, -0.5 + i * 0.5 + rng.uniform(-0.12, 0.12), 0.42, rng.uniform(-0.2, 0.2), 0.08, rng.choice(['tint', 'leaf', 'hazard']), rng, 2)
     bx(p, -0.25, 0.35, 0.05, 0.45, 0.35, 0.6, 'wood', 0.005)
 def sacks(p, r):
     for i, (x, z, y) in enumerate(((-0.35, 0, 0), (0.35, 0, 0), (0, 0.05, 0.4))): add_cushion(p, x - 0.32, y, z - 0.25, x + 0.32, y + 0.42, z + 0.25, 'fabric', 0.35, 0.5, 6)
@@ -303,7 +302,7 @@ def dumpster(p, r):
     rod_x(p, -0.7, 0.7, 0.9, -0.64, 0.03, 'metal'); bx(p, 0.5, 1.3, 0.1, 0.5, 0.25, 0.4, 'cardboard')
 def trashpile(p, r):
     rng = random.Random(r.random())
-    for i in range(14): add_blob(p, rng.uniform(-0.9, 0.9), rng.uniform(0.1, 0.5), rng.uniform(-0.9, 0.9), rng.uniform(0.18, 0.4), rng.choice(['rubber', 'plastic', 'cardboard', 'tint']), rng, 1, 0.7)
+    for i in range(14): add_blob(p, rng.uniform(-0.9, 0.9), rng.uniform(0.1, 0.5), rng.uniform(-0.9, 0.9), rng.uniform(0.18, 0.4), rng.choice(['rubber', 'plastic', 'cardboard', 'tint']), rng, 2, 0.7)
     for i in range(4): bx(p, rng.uniform(-0.8, 0.8), 0, rng.uniform(-0.8, 0.8), 0.4, 0.3, 0.3, 'cardboard')
 def boxes(p, r):
     rng = random.Random(r.random())
@@ -629,8 +628,8 @@ def sculpture3(p, r):
     for v in bm.verts: x, y, z = v.co; v.co = P(x, 1.6 + y, z)
     merge(p, bm, 'tint')
 def roofgarden(p, r):
-    rng = random.Random(r.random()); bx(p, 0, 0, 0, 4.0, 0.5, 3.0, 'wood', 0.02); bx(p, 0, 0.4, 0, 3.8, 0.12, 2.8, 'soil')
-    for i in range(10): add_blob(p, rng.uniform(-1.6, 1.6), 0.8, rng.uniform(-1.1, 1.1), rng.uniform(0.25, 0.45), 'leaf', rng, 1)
+    plant(p, fern, 3.6, 2.6, 0.9, r, 0.5)
+    bx(p, 0, 0, 0, 4.0, 0.5, 3.0, 'wood', 0.02); bx(p, 0, 0.4, 0, 3.8, 0.12, 2.8, 'soil')
 def watertower(p, r):
     for sx in (-1, 1):
         for sz in (-1, 1): cy(p, sx * 1.2, sz * 1.2, 0, 4.0, 0.1, 'metal', 6)
