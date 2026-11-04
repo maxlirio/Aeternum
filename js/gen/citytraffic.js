@@ -8,6 +8,9 @@ import { lineAt, lineWidth, lineKind, PITCH, CURB, blockIndex, cityBlock, rimAt 
 
 const AIR = { boulevard: [42, 78, 130, 205, 300], avenue: [48, 96, 160] };
 const AIR_TYPES = ['sedan', 'coupe', 'wedge', 'taxi', 'limo', 'compact', 'estate', 'racer', 'speeder', 'minibus', 'van', 'buggy'];
+// the upper lanes carry ships: small craft of every class (gen/ships.js layouts)
+export const SKY_SHIPS = ['runabout0', 'runabout1', 'runabout2', 'racer0', 'racer1', 'racer2', 'courier', 'yacht', 'ferry0', 'ferry1', 'ferry2', 'dropship0', 'dropship1',
+  'explorer0', 'explorer1', 'explorer2', 'shuttle', 'hauler0', 'hauler1', 'miner0', 'gunship1', 'patrol'];
 const GROUND_TYPES = ['sedan', 'compact', 'taxi', 'van', 'truck', 'speeder', 'estate', 'pickup', 'minibus', 'hauler', 'coupe', 'tanker'];
 
 const laneCache = new WeakMap();
@@ -30,7 +33,9 @@ export function cityLanes(city) {
     // the sky lanes above the wider streets: tighter, faster streams going up
     for (const alt of AIR[kind] || []) for (const dir of [1, -1]) {
       if (hash01(city.seed, [axis, i, alt, 3]) < 0.25) continue;
-      add(alt + (dir > 0 ? 0 : 7), dir * 7 * (axis ? -1 : 1), dir, 34 + alt * 0.12 + 14 * hash01(city.seed, [axis, i, alt, dir]), 38 + 30 * hash01(city.seed, [axis, i, alt]), false);
+      const ships = alt >= 120;
+      add(alt + (dir > 0 ? 0 : (ships ? 14 : 7)), dir * (ships ? 13 : 7) * (axis ? -1 : 1), dir, 34 + alt * 0.12 + 14 * hash01(city.seed, [axis, i, alt, dir]), (ships ? 110 : 38) + (ships ? 90 : 30) * hash01(city.seed, [axis, i, alt]), false);
+      out.at(-1).ships = ships;
     }
   }
   laneCache.set(city, out);
@@ -60,8 +65,8 @@ export function cityTraffic(city, t, fn, x = 0, z = 0, r = Infinity) {
       if (r < Infinity && Math.abs(a - along) > r) continue;
       const u = L.axis ? a : lat, v = L.axis ? lat : a;
       const h = hash01(city.seed, [L.key, k]);
-      const T = L.ground ? GROUND_TYPES : AIR_TYPES;
-      fn({ id: `ct:${L.key}:${k}`, type: T[Math.floor(h * T.length)], pos: [city.cx + u * fx - v * fz, base + L.alt - (L.ground ? CURB : 0) + (L.ground ? 0 : Math.sin(t * 0.7 + k) * 0.6), city.cz + u * fz + v * fx],
+      const T = L.ground ? GROUND_TYPES : L.ships ? SKY_SHIPS : AIR_TYPES;
+      fn({ id: `ct:${L.key}:${k}`, type: T[Math.floor(h * T.length)], ship: L.ships ? T[Math.floor(h * T.length)] : null, pos: [city.cx + u * fx - v * fz, base + L.alt - (L.ground ? CURB : 0) + (L.ground ? 0 : Math.sin(t * 0.7 + k) * 0.6), city.cz + u * fz + v * fx],
         facing, colour: Math.floor(h * 997), air: !L.ground, speed: L.speed });
     }
   }

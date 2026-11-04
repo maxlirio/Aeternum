@@ -56,6 +56,7 @@ import { CombatView } from './render/combat.js';
 import { ShipView } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { CityView } from './render/city.js';
+import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { cityWalkers } from './gen/citytraffic.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
@@ -812,12 +813,21 @@ async function start(fresh) {
   function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
   renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0 && flight && document.pointerLockElement) firing = true; });
   addEventListener('mouseup', () => { firing = false; });
+  // Somewhere open to come down near (x, z) from height y: the ground (or a roof, a deck) with
+  // nothing solid where you'd stand — searching outward in rings.
+  function clearLanding(x, y, z) {
+    for (const r of [0, 15, 30, 50, 80, 120]) for (let k = 0; k < (r ? 10 : 1); k++) {
+      const a = k / 10 * Math.PI * 2, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r, h = Math.max(world.groundAt(px, pz, y).h, planet.seaLevel);
+      if (!world.solidAt(px, h + 0.9, pz, 0.4) && !world.solidAt(px, h + 1.6, pz, 0.4)) return [px, h, pz];
+    }
+    return [x, Math.max(surfaceHeight(planet, x, z), planet.seaLevel), z];
+  }
   function eject() {     // your ship is gone: out you go, down on a parachute
     const sh = flight.ship, at = flight.pos.slice();
     store.patchDelta(shipKey(sh.id), { destroyed: true, flying: undefined, at: { c: at, facing: flight.facing } });
     store.log({ t: clock.now(), type: 'ship_lost', who: player.id, whoName: player.name, ship: sh.name });
     leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk';
-    const g = world.groundAt(at[0], at[2], at[1]).h; ctrl.pos = [at[0] + 20, Math.max(g, planet.seaLevel), at[2] + 20]; ctrl.vel = [0, 0, 0];
+    ctrl.pos = clearLanding(at[0] + 20, at[1], at[2] + 20); ctrl.vel = [0, 0, 0];
     player.fatigue = Math.min(1, player.fatigue + 0.35); store.touchPlayer(); syncShips();
     ui.toast(`The ${esc(sh.name)} is going down — you <b>eject</b> and come down on a parachute.`, 'bad', 9000);
   }

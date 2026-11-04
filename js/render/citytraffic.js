@@ -3,6 +3,7 @@
 // the streams of the sky lanes you see from across the city, brightest at night.
 import * as THREE from 'three';
 import { VehicleView } from './vehicles.js';
+import { ShipView } from './ships.js';
 import { cityTraffic, cityLanes, lanePhase } from '../gen/citytraffic.js';
 import { CURB } from '../gen/city.js';
 
@@ -11,7 +12,7 @@ export class CityTrafficView {
   constructor(city, lib) {
     this.city = city; this.vehicles = new VehicleView(lib);
     this.group = new THREE.Group(); this.group.name = 'city-traffic';       // render space (models)
-    this.group.add(this.vehicles.group);
+    this.ships = new ShipView(lib); this.group.add(this.vehicles.group, this.ships.group);
     let n = 0; for (const L of cityLanes(city)) if (!L.ground) n += Math.floor((L.a1 - L.a0) / L.gap);
     this.n = n;
     const g = new THREE.BufferGeometry();
@@ -23,7 +24,7 @@ export class CityTrafficView {
     this.points.name = 'city-traffic-lights';
   }
   update(t, viewer, night, toRender) {
-    const c = this.city, near = [], P = this.pos, C = this.col;
+    const c = this.city, near = [], ships = [], P = this.pos, C = this.col;
     const close = Math.hypot(viewer[0] - c.cx, viewer[2] - c.cz) < c.R + NEAR + 400;
     let k = 0;
     // every sky-lane vehicle as a light (the same closed form as gen/citytraffic.js, without the per-vehicle objects)
@@ -40,13 +41,15 @@ export class CityTrafficView {
       }
     }
     if (close) cityTraffic(c, t, v => {
-      if (Math.hypot(v.pos[0] - viewer[0], v.pos[1] - viewer[1], v.pos[2] - viewer[2]) < NEAR) near.push({ type: v.type, pos: toRender(...v.pos), facing: v.facing, colour: v.colour });
-    }, viewer[0], viewer[2], NEAR);
+      const d = Math.hypot(v.pos[0] - viewer[0], v.pos[1] - viewer[1], v.pos[2] - viewer[2]);
+      if (v.ship ? d < NEAR * 1.8 : d < NEAR) (v.ship ? ships : near).push(v.ship ? { id: v.id, model: v.ship, c: toRender(...v.pos), facing: v.facing, colour: v.colour, rampDown: false } : { type: v.type, pos: toRender(...v.pos), facing: v.facing, colour: v.colour });
+    }, viewer[0], viewer[2], NEAR * 1.8);
     this.points.geometry.attributes.position.needsUpdate = true; this.points.geometry.attributes.color.needsUpdate = true;
     this.points.geometry.setDrawRange(0, k);
     this.mat.opacity = 0.04 + 0.9 * night * night; this.mat.size = 2.2 + 2.5 * night;
     if (near.length > MAXN) { const d = v => (v.pos[0] ** 2 + (v.pos[1] - toRender(...viewer)[1]) ** 2 + v.pos[2] ** 2); near.sort((p, q) => d(p) - d(q)); near.length = MAXN; }
-    this.vehicles.update(near);
+    if (ships.length > 12) { const d = v => v.c[0] ** 2 + v.c[2] ** 2; ships.sort((p, q) => d(p) - d(q)); ships.length = 12; }   // ships are heavy: the nearest dozen
+    this.vehicles.update(near); this.ships.update(ships, 0);
     this.drawn = near.length;
   }
 }

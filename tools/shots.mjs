@@ -119,8 +119,8 @@ SCRIPTS.dogfight = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r,
 SHOTS.dogfight = 'hour=16';
 SCRIPTS.flycity = SCRIPTS.dogfight.replace("O.getShips().find(x => x.forSale)", "(O.getShips().find(x => x.forSale && /interceptor|striker|needle|warden|shade/.test(x.model)) || O.getShips().find(x => x.forSale))")
   .replace("F.q = (await import('./js/player/flight.js')).fromEuler(F.facing, 0.12, 0.7); await wait(1500);", `const C = O.city, Fl = await import('./js/player/flight.js'), a = Math.atan2(O.s.cx - C.cx, O.s.cz - C.cz);
-    F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 260, C.cz + Math.cos(a) * (C.R * 0.55)]; const yaw = a + Math.PI + 0.25; F.facing = yaw; F.q = Fl.fromEuler(yaw, -0.06, -0.35);
-    for (let i = 0; i < 200 && !O.cityView.done; i++) { F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 260, C.cz + Math.cos(a) * (C.R * 0.55)]; await wait(200); }
+    F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 420, C.cz + Math.cos(a) * (C.R * 0.55)]; F.throttle = 0.55; const yaw = a + Math.PI + 0.25; F.facing = yaw; F.q = Fl.fromEuler(yaw, -0.06, -0.35);
+    for (let i = 0; i < 200 && !O.cityView.done; i++) { F.pos = [C.cx + Math.sin(a) * (C.R * 0.55), C.h + 420, C.cz + Math.cos(a) * (C.R * 0.55)]; await wait(200); }
     await wait(2500); O.cam.pitch = 0.12;`);
 SHOTS.flycity = 'hour=16.5';
 SCRIPTS.citybridge = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js');
