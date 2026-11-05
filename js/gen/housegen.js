@@ -105,10 +105,10 @@ const WORKS = { shop: 'keeping shop', inn: 'behind the bar', clinic: 'seeing pat
 export function keeperOf(planet, D, it) {
   const what = WORKS[D.fam]; if (!what) return null;
   const pl = itemPlan(planet, D, it), dr = pl.doors[pl.entrance], R = pl.rooms.find(r => r.i === dr.rooms[0]) || pl.rooms[0], solid = pl.props.filter(p => p.k === 0 && !p.soft).concat((pl.solids || []).map(q => ({ x0: q[0], z0: q[1], x1: q[2], z1: q[3], kind: 'fit', k: 0 }))), free = (x, z) => x > R.rect[0] + 0.4 && x < R.rect[2] - 0.4 && z > R.rect[1] + 0.4 && z < R.rect[3] - 0.4 && !solid.some(p => x > p.x0 - 0.35 && x < p.x1 + 0.35 && z > p.z0 - 0.35 && z < p.z1 + 0.35);
-  const bench = solid.find(p => /counter|bench/.test(p.kind) && p.room === R.i), tries = [];
+  const bar = (pl.decor || []).find(q => q.k === 'bar_counter'), bench = bar ? { x0: bar.x - 2.1, x1: bar.x + 2.1, z0: bar.z - 0.35, z1: bar.z + 0.35 } : solid.find(p => /counter|bench/.test(p.kind) && p.room === R.i), tries = [];
   if (bench) { const cx = (bench.x0 + bench.x1) / 2, cz = (bench.z0 + bench.z1) / 2; tries.push([cx, bench.z1 + 0.55], [cx, bench.z0 - 0.55], [bench.x0 - 0.55, cz], [bench.x1 + 0.55, cz]); }
   for (let f = 0.8; f > 0.1; f -= 0.14) for (const g of [0.5, 0.3, 0.7]) tries.push([R.rect[0] + (R.rect[2] - R.rect[0]) * g, R.rect[1] + (R.rect[3] - R.rect[1]) * f]);
-  const spot = tries.find(([x, z]) => free(x, z)); if (!spot) return null;
+  const spot = bar ? [bar.x, bar.z + 0.72] : tries.find(([x, z]) => free(x, z)); if (!spot) return null;     // (a barkeep's place is the gap between the bar and its shelves)
   const c = Math.cos(it.rot), s = Math.sin(it.rot), u = spot[0] - D.w / 2, v = spot[1] - D.d / 2, look = bench ? [(bench.x0 + bench.x1) / 2 - spot[0], (bench.z0 + bench.z1) / 2 - spot[1]] : [dr.x - spot[0], dr.z - spot[1]];
   return { x: it.x + u * c + v * s, y: it.y, z: it.z - u * s + v * c, facing: it.rot + Math.atan2(look[0], look[1]), what, hours: D.hours || [8, 22] };
 }

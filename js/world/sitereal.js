@@ -19,11 +19,11 @@ export function siteReal(planet, s, site, it, i) {
   const [wx, wz] = [it.x - exW[0] * D.w / 2 - ezW[0] * D.d / 2, it.z - exW[1] * D.w / 2 - ezW[1] * D.d / 2];
   const O = toS(wx, wz), ex = vecS(exW), ez = vecS(ezW), corners = [[0, 0], [D.w, 0], [0, D.d], [D.w, D.d]].map(([x, z]) => [O[0] + ex[0] * x + ez[0] * z, O[1] + ex[1] * x + ez[1] * z]);
   const [, ti, tj] = /site:(-?\d+),(-?\d+)/.exec(site.id), rng = new Rng(derive(planet.seed, 'sitereal', [+ti, +tj, i]));
-  const commerce = D.access === 'hours';
+  const commerce = /^(shop|garage|smithy|sawmill|stable|warehouse|longhouse|barn|inn)$/.test(D.fam), common = /^(hall|school|clinic|temple|markethall|shelterhut)$/.test(D.fam);
   const rec = {
     key: `site:${+ti},${+tj}/building:${i}`, n: -1, country: true, type: D.type, O, ex, ez, w: D.w, d: D.d, floors: D.floors, storeyH: D.storey, footing: true, design: D, item: it, site, worldO: [wx, wz],
     rect: [Math.min(...corners.map(q => q[0])), Math.min(...corners.map(q => q[1])), Math.max(...corners.map(q => q[0])), Math.max(...corners.map(q => q[1]))],
-    access: D.access || 'open', hours: D.hours, owner: commerce || D.fam === 'warehouse' ? (rng.chance(0.5) ? companyName(rng) : personName(rng)) : D.access ? personName(rng) : site.label, label: LABEL[D.fam] || 'Building', base: it.y, plan: itemPlan(planet, D, it),
+    access: D.access || 'open', hours: D.hours, owner: common ? `the people of ${site.label.replace(/^an? /, 'the ')}` : commerce ? (rng.chance(0.5) ? companyName(rng) : personName(rng)) : personName(rng), label: LABEL[D.fam] || 'Building', base: it.y, plan: itemPlan(planet, D, it),
   };
   it.real = rec;
   // the flight of steps up to the door is a little structure of its own, a slope for the feet
