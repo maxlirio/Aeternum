@@ -150,7 +150,7 @@ export function sitesInTile(planet, ti, tj) {
           return;
         }
         let k = k0, foot = 0;
-        if (FAM.has(k0)) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k); }
+        if (FAM.has(k0)) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
         const Q = surfaceAt(planet, px, pz);
         if (Q.town > 0.01 || Q.road > 0.01) return;
         if (opt.wet) { items.push({ k, x: px, y: opt.y, z: pz, rot, r: 0, s: 1 }); return; }

@@ -6,6 +6,7 @@
 import { hash01 } from '../core/hash.js';
 import { cultureOf } from './culture.js';
 import { FOOT, WAY_NAMES } from './familydata.js';
+import { houseDesigns, houseFoot } from './housegen.js';
 
 // a culture's ways of building, most favoured first
 const FAVOURS = { masonry: ['stone', 'brick', 'render'], corporate: ['prefab', 'render', 'concrete'], brutalist: ['concrete', 'tin', 'brick'], garden: ['render', 'timber', 'stone'], foundry: ['tin', 'brick', 'concrete'], neon: ['tin', 'concrete', 'prefab'] };
@@ -23,8 +24,9 @@ function waysFor(planet, fam) {
 }
 // the model for one placed thing: mostly the planet's usual, sometimes (share `odd`) its second choice
 export function designOf(planet, fam, key = 0, odd = 0.2) {
+  if (fam === 'cottage') { const H = houseDesigns(planet); return H[Math.floor(hash01(planet.seed, [key, 74]) * H.length)].id; }    // houses are designed for each planet, not picked from a set
   const [a, b] = waysFor(planet, fam);
   return `fam_${fam}_${hash01(planet.seed, [key, 72]) < odd ? b : a}`;
 }
 export const isFamily = k => k.startsWith('fam_');
-export const footOf = k => FOOT[k] || 0;
+export const footOf = (k, planet) => { if (k.startsWith('house_')) return houseFoot(houseDesigns(planet).find(q => q.id === k)); return FOOT[k] || 0; };

@@ -1229,7 +1229,11 @@ suites.countryside = async () => {
   check(!unknown, `every family model placed exists (${unknown} unknown)`);
   check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
   check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
-  check(usual.size >= 3, `planets build differently: ${usual.size} kinds of cottage across ${planets.length} planets (${[...usual].join(', ')})`);
+  const { houseDesigns, houseFoot } = await import('../js/gen/housegen.js'), looks = new Set(planets.flatMap(p => houseDesigns(p).map(d => JSON.stringify({ ...d, id: 0 }))));
+  check(looks.size === planets.length * 5, `every planet designs its own houses (${looks.size} different designs on ${planets.length} planets)`);
+  check(new Set(planets.map(p => houseDesigns(p).map(d => d.wall + d.roof).sort().join())).size >= 4, 'and builds them of different things');
+  check(planets.every(p => houseDesigns(p).every(d => { const [a, b, h] = houseFoot(d); return a > 2 && b > 2 && h > 2 && d.shape; })), 'each design states its footprint');
+  check(JSON.stringify(houseDesigns(makePlanet(uni(3), HOMEWORLD))) === JSON.stringify(houseDesigns(planets[2])), 'the same seed designs the same houses');
   check(JSON.stringify(sitesInTile(makePlanet(uni(1), HOMEWORLD), 3, 3)) === JSON.stringify(sitesInTile(planets[0], 3, 3)), 'the same seed puts the same things in the same places');
   check(FAMILIES.length * 7 === Object.keys(FOOT).length, `every family exists in every way of building (${Object.keys(FOOT).length})`);
 };

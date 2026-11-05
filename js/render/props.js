@@ -90,7 +90,9 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
         cast: !(slot === 'lampwarm' || slot.startsWith('neon') || slot === 'glass') });
     });
   }
-  return { variants, surface, cityKit, cityPart: k => cityKit.get(k) || null };
+  // a material as the street kit wears it, for models built at run time (render/housegen.js)
+  const wornSurface = (slot, tinted) => { const base = surface(tinted ? 'tint-paint' : slot), key = base.name + (tinted || ''); if (slot === 'visor' || slot === 'glass') return base; return worn.get(key) || worn.set(key, weather(base.clone(), { dirt: 0.75, rust: ['metal', 'corrugated'].includes(slot) || tinted === 'muted' ? 0.55 : 0 })).get(key); };
+  return { variants, surface, wornSurface, cityKit, cityPart: k => cityKit.get(k) || null };
 }
 
 const key = (kind, a, b, c) => `${kind}_${+a.toFixed(2)}x${+b.toFixed(2)}x${+c.toFixed(2)}`;

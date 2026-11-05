@@ -61,6 +61,8 @@ import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
 import { HoldsView } from './render/holds.js';
 import { OutpostView } from './render/outposts.js';
+import { housePartsOf } from './render/housegen.js';
+import { houseDesigns } from './gen/housegen.js';
 import { Goods } from './render/goods.js';
 import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
@@ -189,7 +191,7 @@ async function start(fresh) {
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
-  const outposts = new OutpostView(planet, propLib, k => cityView.kit(k)); root.add(outposts.group);
+  const outposts = new OutpostView(planet, propLib, k => k.startsWith('house_') ? (propLib ? housePartsOf(houseDesigns(planet), k, propLib.wornSurface) : cityView.kit(k)) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
   const doorView = new DoorView(s, town.doors);

@@ -5,7 +5,7 @@ import { sitesNear } from '../gen/outposts.js';
 import { kitTint } from './city.js';
 import { surfaceAt } from '../gen/surface.js';
 
-const PLANTS = 340, R = 1500, FAR_ONLY = /^(fam_(cottage|hut|longhouse|shop|stable|hall|school|clinic|inn|warehouse|garage|temple|tenement|markethall|smithy|sawmill|shelterhut|shrine|monument|watertower|windpump|coolingtower|column|spheretank|gate)|windmillbig|pylon|radiomast|lighthouse|grainsilo|headframe|barn|watchtower|greenhouse|drillrig|ruinwall|bunker|solarfield|substation|fuelcanopy)/, NEAR = 500;
+const PLANTS = 340, R = 1500, FAR_ONLY = /^(house_|fam_(cottage|hut|longhouse|shop|stable|hall|school|clinic|inn|warehouse|garage|temple|tenement|markethall|smithy|sawmill|shelterhut|shrine|monument|watertower|windpump|coolingtower|column|spheretank|gate)|windmillbig|pylon|radiomast|lighthouse|grainsilo|headframe|barn|watchtower|greenhouse|drillrig|ruinwall|bunker|solarfield|substation|fuelcanopy)/, NEAR = 500;
 export class OutpostView {
   constructor(planet, lib, kitOf) { Object.assign(this, { planet, lib, kitOf }); this.group = new THREE.Group(); this.group.name = 'outposts'; this.at = null; this.count = 0; }
   // fields: tilled soil laid over the land, and the crop planted row by row on it, so a field follows any ground

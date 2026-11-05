@@ -192,7 +192,7 @@ for (const [F, sp] of Object.entries(FAMS)) {
   SHOTS['fam_' + F] = 'hour=13.5';
 }
 // the nearest of a kind of site on this planet, seen from above and at the door. SITE= picks it
-for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3]]) {
+for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3], ['houses', 'hamlet', 24, 0.26]]) {
   SCRIPTS['site_' + name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, bn = 0; const [x0, z0] = O.ctrl.pos; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) for (const S of P.sitesInTile(O.planet, i, j)) if (S.kind === '${kind}') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz), n = S.items.filter(q => q.box).length; if (n * 400 - d > bn * 400 - bd) { best = S; bd = d; bn = n; } }
     if (!best) throw new Error(JSON.stringify({ none: '${kind}' }));
@@ -346,6 +346,8 @@ const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chro
   '--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1600,900',
   '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+// a time limit (SIGALRM) or a kill must not leave this browser running: it holds memory and skews the next run
+for (const sig of ['SIGALRM', 'SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { try { process.kill(-chrome.pid, 'SIGKILL'); } catch { try { chrome.kill('SIGKILL'); } catch {} } try { rmSync(profile, { recursive: true, force: true }); } catch {} process.exit(124); });
 let stderr = ''; chrome.stderr.on('data', d => { stderr += d; });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {
