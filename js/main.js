@@ -33,12 +33,12 @@ import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
-import { TerrainStreamer, terrainTime } from './render/terrain.js';
+import { TerrainStreamer, terrainTime, terrainWind } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
 import { DoorView } from './render/doors.js';
 import { loadPropLibrary, PropView } from './render/props.js';
-import { materials, occupancy, WINDOW_TYPES, loadSurfaces } from './render/materials.js';
+import { materials, occupancy, WINDOW_TYPES, loadSurfaces, loadGround } from './render/materials.js';
 import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
 import { FollowCamera } from './player/camera.js';
@@ -55,6 +55,10 @@ import { AirWar, raidAt, raidIndex } from './sim/aircombat.js';
 import { CombatView } from './render/combat.js';
 import { ShipView } from './render/ships.js';
 import { FloraView } from './render/flora.js';
+import { RockView } from './render/rocks.js';
+import { GroundMarks } from './render/prints.js';
+import { FaunaSim } from './sim/fauna.js';
+import { FaunaView } from './render/fauna.js';
 import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
@@ -174,7 +178,7 @@ async function start(fresh) {
   const root = new THREE.Group(); scene.add(root);   // world content; offset = floating origin
   const origin = [0, 0, 0];
   const toRender = (x, y, z) => [x - origin[0], y, z - origin[2]];
-  await loadSurfaces(renderer.capabilities.getMaxAnisotropy());
+  await loadSurfaces(renderer.capabilities.getMaxAnisotropy()); await loadGround();
   materials();
   ui.loading('Weathering the surface…', 0.05);
   await tick();
@@ -196,6 +200,10 @@ async function start(fresh) {
   propLib?.setLocal(localTones(planet));
   let trespassAt = null;
   const rivers = new RiverView(planet); root.add(rivers.group);
+  const rocks = new RockView(planet); root.add(rocks.group);
+  const prints = new GroundMarks(planet); root.add(prints.group);
+  const faunaView = new FaunaView(planet); root.add(faunaView.group);
+  let fauna = null;      // (made once the clock and the store exist)
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
@@ -224,6 +232,7 @@ async function start(fresh) {
   ui.loading('Waking the town…', 0.68); await tick();
   const residents = new Residents(pop);
   residents.refresh(clock.now(), ctrl.pos, null);
+  avatar.planet = planet;
   const crowd = new CrowdView(scene);
   const relation = id => player.family.parents.includes(id) ? 'your parent' : player.family.siblings.includes(id) ? 'your sibling' : null;
   let agents = [];
@@ -907,7 +916,7 @@ async function start(fresh) {
     if (paused || ctrl.mode !== 'walk' || ride || flight) return;
     const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = WEAPONS[id];
     const now = performance.now() / 1000; if (now - lastAttack < W.every) return; lastAttack = now;
-    const t = clock.now(); if (W.ranged) { lastShotAt = t; scare(ctrl.pos, t); }
+    const t = clock.now(); if (W.ranged) { lastShotAt = t; scare(ctrl.pos, t); fauna?.scare(ctrl.pos[0], ctrl.pos[2], W.reach); }
     let target = null, hitPoint = null;
     if (!W.ranged) {
       let bd = W.reach + 0.4;
@@ -917,6 +926,8 @@ async function start(fresh) {
         if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.4 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.5) { bd = d; target = a; }
       }
       avatar.punch?.();
+      const beast = !target && fauna?.inReach(ctrl.pos[0], ctrl.pos[1], ctrl.pos[2], ctrl.facing, W.reach);
+      if (beast) { fauna.hurt(beast, W.dmg); return; }
     } else {
       // a shot along the line of sight (camera centre), with a little spread; walls stop it
       const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
@@ -932,9 +943,11 @@ async function start(fresh) {
           const px = a.pos[0] - wo[0], py = a.pos[1] + hy - wo[1], pz = a.pos[2] - wo[2], along = px * dir.x + py * dir.y + pz * dir.z;
           if (along < 0.5 || along > best) continue;
           const off = Math.hypot(px - dir.x * along, py - dir.y * along, pz - dir.z * along);
-          if (off < (lying ? 0.45 : 0.3)) { best = along; target = a; }
+          if (off < (lying ? 0.45 : 0.3) * (W.wide || 1)) { best = along; target = a; }
         }
       }
+      const shot = fauna?.onRay(wo, [dir.x, dir.y, dir.z], best);
+      if (shot) { best = shot.along; target = null; fauna.hurt(shot.A, W.dmg); }
       hitPoint = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best];
       const g = tracer.geometry.attributes.position, hp = toRender(...hitPoint), hand = toRender(ctrl.pos[0] + Math.sin(ctrl.facing) * 0.5, ctrl.pos[1] + 1.35, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.5);
       g.setXYZ(0, ...hand); g.setXYZ(1, ...hp); g.needsUpdate = true; tracer.material.opacity = 0.9;
@@ -1179,7 +1192,7 @@ async function start(fresh) {
       root.position.set(-origin[0], 0, -origin[2]);
     }
     const rp = toRender(...ctrl.pos);
-    avatar.object.position.set(rp[0], rp[1], rp[2]);
+    avatar.object.position.set(rp[0], rp[1] - (ctrl.grounded && !ctrl.where && ctrl.feel ? ctrl.feel.sink : 0), rp[2]);
     avatar.object.rotation.y = ctrl.facing;
     if (ctrl.mode === 'seat') { // same placement as the crowd's sitters and sleepers (render/crowd.js)
       const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing);
@@ -1325,13 +1338,18 @@ async function start(fresh) {
     cityRooms.update(ctrl.pos);
     if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
     flora.update(ctrl.pos[0], ctrl.pos[2]);
+    rocks.update(ctrl.pos[0], ctrl.pos[2]);
+    if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
+    if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
+    fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]);
     outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
-    sea.update(dt, camera, origin, wx.wind); terrainTime.value += dt;
+    sea.update(dt, camera, origin, wx.wind); terrainTime.value += dt; terrainWind.value.set(wx.wind[0], wx.wind[1]);
+    prints.update(dt, ctrl, wx.wind);
     if (player.waypoint) {
       const wp = player.waypoint, d = Math.hypot(wp.x - ctrl.pos[0], wp.z - ctrl.pos[2]);
       if (d < 6) { ui.toast(`You've arrived: ${esc(wp.label)}.`); player.waypoint = null; store.touchPlayer(); beam.visible = false; }
@@ -1398,11 +1416,11 @@ async function start(fresh) {
       ui.debug(`${fps} fps · ${info.calls} calls · ${(info.triangles / 1e3).toFixed(0)}k tris · tiles ${terrain.count} (+${terrain.pending}) · pos ${camW.map(v => v.toFixed(0)).join(',')} · jobs ${store.jobs.length} · deltas ${store.deltas.size}`);
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
-    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [grass.group, weatherView.rain, crowd.group, vehView.group].filter(Boolean));
+    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { rocks, prints, flora, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

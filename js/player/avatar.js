@@ -4,6 +4,8 @@
 // two interfaces:
 //   player:  createPlaceholderAvatar() → { object, update(dt, speed, grounded), setOpacity }
 //   crowd:   buildRig() / applyPose(rig, state) used by render/crowd.js
+import { armObject } from '../render/weapons.js';
+import { WEAPONS } from '../sim/processes/combat.js';
 import * as THREE from 'three';
 import { captureRest, applyClimbPose } from './limbik.js';
 
@@ -77,18 +79,9 @@ export function createPlaceholderAvatar() {
     accent: new THREE.MeshStandardMaterial({ color: 0xc98b2a, roughness: 0.5 }),
   };
   const rig = buildRig(mats);
-  let phase = 0, blend = 0, opacity = 1, swing = 0, aim = false;
-  // what's in the right hand: a few primitives per weapon, parented to the forearm
+  let phase = 0, blend = 0, opacity = 1, swing = 0, aim = false, twoHands = false;
+  // the hand socket: a weapon's grip goes here
   const held = new THREE.Group(); held.position.set(0, -0.4, 0.02); rig.armR.lower.add(held);
-  const dark = new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.45, metalness: 0.6 }), steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, roughness: 0.25, metalness: 1 });
-  const glow = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2 });
-  const box = (w, h, d, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; o.castShadow = true; return o; };
-  const MODELS = {
-    knife: () => [box(0.025, 0.1, 0.03, dark, 0, 0, 0), box(0.006, 0.17, 0.03, steel, 0, -0.13, 0.005)],
-    baton: () => [box(0.035, 0.12, 0.035, dark, 0, 0, 0), box(0.025, 0.38, 0.025, dark, 0, -0.25, 0), box(0.03, 0.05, 0.03, glow, 0, -0.45, 0)],
-    pistol: () => [box(0.03, 0.11, 0.045, dark, 0, -0.02, 0.0, 0.25), box(0.032, 0.05, 0.2, dark, 0, -0.08, 0.08), box(0.012, 0.012, 0.03, steel, 0, -0.08, 0.19)],
-    carbine: () => [box(0.03, 0.1, 0.045, dark, 0, -0.02, 0, 0.25), box(0.045, 0.08, 0.55, dark, 0, -0.09, 0.12), box(0.02, 0.02, 0.18, steel, 0, -0.08, 0.45), box(0.03, 0.03, 0.08, glow, 0, -0.03, 0.25)],
-  };
   // the same IK rig a real skeleton gets (player/limbik.js): just joints
   const end = (L, y) => { const g = new THREE.Group(); g.position.y = y; L.lower.add(g); return g; };
   const ik = captureRest({ root: rig.root, pelvis: rig.hips, spine: [rig.torso], arms: { l: [rig.armL.upper, rig.armL.lower, end(rig.armL, -0.36)], r: [rig.armR.upper, rig.armR.lower, end(rig.armR, -0.36)] }, legs: { l: [rig.legL.upper, rig.legL.lower, end(rig.legL, -0.48)], r: [rig.legR.upper, rig.legR.lower, end(rig.legR, -0.48)] } });
@@ -107,13 +100,14 @@ export function createPlaceholderAvatar() {
     // the weapon (item id) in the right hand, or nothing
     setHeld(id) {
       if (held.userData.id === id) return;
-      held.clear(); held.userData.id = id; aim = id === 'pistol' || id === 'carbine';
-      const parts = id && this.lib?.cityPart?.('item_' + id);
-      if (parts) {       // the real model: guns point along the arm's line of fire, blades hang from the fist
-        const g = new THREE.Group(); for (const p of parts) { const m = new THREE.Mesh(p.geometry, p.material); m.castShadow = true; g.add(m); }
-        if (aim) { g.rotation.y = -Math.PI / 2; g.position.set(0, -0.1, 0.02); } else { g.rotation.z = -Math.PI / 2; g.position.set(0, 0, 0.01); }
+      held.clear(); held.userData.id = id; const W = id && WEAPONS[id]; aim = !!W?.ranged; twoHands = !!W?.two;
+      // Every model has its grip at its origin, so it goes straight into the hand socket. (A real skeleton's hand bone takes this same group.)
+      if (id && this.planet && WEAPONS[id] && id !== 'fists') {
+        const g = armObject(this.planet, id);
+        if (aim) { g.rotation.x = Math.PI / 2; g.position.set(0, -0.02, 0); }     // a gun along the arm's line of fire
+        else g.rotation.x = -0.25;                                               // a blade out from the fist
         held.add(g);
-      } else for (const m of (MODELS[id] || (() => []))()) held.add(m);
+      }
     },
     punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated
@@ -123,7 +117,8 @@ export function createPlaceholderAvatar() {
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);
       applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, Math.max(0, speed - 3) / 3), lean: climb?.lean ?? 0 });
       if (!climb) {
-        if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }          // a gun is held out in front
+        if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }
+        if (twoHands) { rig.armL.upper.rotation.set(-1.15, 0, 0.55); rig.armL.lower.rotation.set(-0.75, 0, 0); if (!aim) { rig.armR.upper.rotation.set(-0.9, 0, -0.1); rig.armR.lower.rotation.x = -0.6; } }          // a gun is held out in front
         if (swing > 0) {                                                                                     // a strike: the arm drives forward and back
           const k = Math.sin(swing * Math.PI); rig.armR.upper.rotation.x = -0.4 - 1.2 * k; rig.armR.lower.rotation.x = -1.2 + 1.1 * k; rig.torso.rotation.y = -0.35 * k;
           swing = Math.max(0, swing - dt * 4);

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { surfaceAt } from '../gen/surface.js';
 import { moisture } from '../gen/terrain.js';
 import { workedGround, workedNear } from '../gen/outposts.js';
+import { landTraits } from '../gen/land.js';
 
 const PATCH = 10, NEAR = 20, FAR = 60;           // m; dense blades out to NEAR, a coarser ring to FAR
 const SEG = 3;                                   // segments per near blade
@@ -102,7 +103,7 @@ export class GrassField {
   patch(pi, pj, far) {
     const key = pi + ',' + pj + (far ? 'f' : 'n');
     if (this.patches.has(key)) return this.patches.get(key);
-    const P = this.planet, x0 = pi * PATCH, z0 = pj * PATCH, hs = [], ls = [], os = [], rs = [];
+    const P = this.planet, x0 = pi * PATCH, z0 = pj * PATCH, hs = [], ls = [], os = [], rs = [], gs = [];
     for (let b = 0; b <= G; b++) for (let a = 0; a <= G; a++) {
       const x = x0 + a * PATCH / G, z = z0 + b * PATCH / G, s = surfaceAt(P, x, z);
       const e = 1.2, sx = surfaceAt(P, x + e, z).h - s.h, sz = surfaceAt(P, x, z + e).h - s.h, ny = e / Math.hypot(sx, e, sz);
@@ -110,7 +111,8 @@ export class GrassField {
       const ok = s.town < 0.01 && s.road < 0.01 && s.h > P.seaLevel - 0.5 && s.h < P.climate.treeline + 120;
       rs.push(ok ? Math.max(0, 1 - Math.abs(s.h - (P.seaLevel + 0.25)) / 0.9) : 0);                 // reeds: in the margin of the water
       ls.push(ok && !(s.wet > 0.12) && s.h > P.seaLevel + 0.6 ? 0.25 + 0.75 * Math.max(0, Math.min(1, (moisture(P, x, z) - 0.12) / 0.6)) : 0);      // 0: no grass; else lushness (dry ground still has dry grass)
-      os.push(ok ? Math.max(0, Math.min(1, (ny - 0.66) / 0.2)) : 0);                                 // too steep thins it out
+      const Lr = ok ? landTraits(P, x, z).grass : 0, Lg = Lr < 0.04 ? 0 : Lr; gs.push(Lg);
+      os.push(ok ? Math.max(0, Math.min(1, (ny - 0.66) / 0.2)) * Math.min(1, Lg * 1.4) : 0);                                 // too steep thins it out
     }
     const at = (arr, u, v) => { const fu = u * G, fv = v * G, a = Math.min(G - 1, Math.floor(fu)), b = Math.min(G - 1, Math.floor(fv)), du = fu - a, dv = fv - b, k = b * (G + 1) + a;
       return arr[k] * (1 - du) * (1 - dv) + arr[k + 1] * du * (1 - dv) + arr[k + G + 1] * (1 - du) * dv + arr[k + G + 2] * du * dv; };

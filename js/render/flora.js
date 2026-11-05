@@ -5,8 +5,9 @@
 import * as THREE from 'three';
 import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.js';
 
-const NEAR_TREE = 190, NEAR = { shrub: 95, fern: 70, boulder: 320 };     // full model within (m)
-const FAR = 1300;                                                // trees as stand-ins out to (m)
+const NEAR_TREE = 190, NEAR = { shrub: 95, fern: 70 };     // full model within (m)
+const MAX_FULL_TREES = 70;
+const FAR = 1000;                                                // trees as stand-ins out to (m)
 const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf']);
 // Leaf colours: familiar trees take the planet's own green; the others have their own
 const TINT = { parasol: [0.32, 0.55, 0.42], spiral: [0.45, 0.42, 0.78], bottle: [0.95, 0.55, 0.28] };
@@ -16,11 +17,14 @@ export class FloraView {
     this.planet = planet; this.renderer = renderer; this.group = new THREE.Group(); this.group.name = 'flora';
     this.kinds = {};
     const v = k => lib && [...lib.variants.values()].find(x => x.kind === k);
-    for (const sp of [...TREES, 'shrub', 'fern', 'boulder']) {
+    for (const sp of [...TREES, 'shrub', 'fern']) {
       const va = v(SPECIES[sp].tree ? 'tree_' + sp : sp); if (!va) continue;
       this.kinds[sp] = { sp, dims: va.dims, prims: va.prims.map(pr => ({ pr, im: null, leafy: LEAFY.has(pr.slot) })), list: [] };
       if (SPECIES[sp].tree) this.kinds[sp + '_far'] = { sp, far: true, dims: va.dims, prims: null, list: [] };
     }
+    // leaves part as the camera comes up to them, rather than filling the screen
+    const parted = new Set(); for (const k in this.kinds) for (const P of this.kinds[k].prims || []) if (P.leafy && !parted.has(P.pr.material)) { parted.add(P.pr.material); const m = P.pr.material, prior = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prior?.(sh, r); sh.fragmentShader = sh.fragmentShader.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
+      if (vViewPosition.z < 4.5 && fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) > smoothstep(1.2, 4.5, vViewPosition.z)) discard;`); }; m.customProgramCacheKey = () => 'parted'; m.needsUpdate = true; }
     const g = planet.climate.grass, l = Math.max(...g);
     this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.3);
     this.at = null; this.tiles = new Map(); this.queue = [];
@@ -62,8 +66,10 @@ export class FloraView {
     if (!this.ok) return;
     const R = Math.ceil(FAR / TILE), ti = Math.floor(x / TILE), tj = Math.floor(z / TILE);
     const moved = !this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 30;
+    if (this.queue.length && this.queueAt && Math.hypot(x - this.queueAt[0], z - this.queueAt[1]) > 120) this.queue.length = 0;   // (moved on a long way: what was wanted back there can wait)
     if (moved || this.queue.length) {
       if (!this.queue.length && moved) {
+        this.queueAt = [x, z];
         for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) {
           const k = (ti + a) + ',' + (tj + b);
           if (!this.tiles.has(k) && (a * a + b * b) * TILE * TILE <= (FAR + TILE) ** 2) this.queue.push([ti + a, tj + b, a * a + b * b]);
@@ -72,21 +78,26 @@ export class FloraView {
       }
       const t0 = performance.now();
       while (this.queue.length && performance.now() - t0 < 6) { const [a, b] = this.queue.pop(); this.tiles.set(a + ',' + b, floraTile(this.planet, a, b)); }
-      if (moved || !this.queue.length) this.rebuild(x, z);
+      const now = performance.now(); if (moved || !this.queue.length || now - (this.lastBuild || 0) > 900) { this.lastBuild = now; this.rebuild(x, z); }      // (and every second while they come in, so a forest grows in rather than appearing all at once)
     }
   }
   rebuild(x, z) {
     this.at = [x, z];
     for (const k in this.kinds) this.kinds[k].list.length = 0;
+    const nearT = [];
     for (const [key, list] of this.tiles) {
       const [a, b] = key.split(',').map(Number);
       if (Math.abs((a + 0.5) * TILE - x) > FAR + TILE || Math.abs((b + 0.5) * TILE - z) > FAR + TILE) { this.tiles.delete(key); continue; }
       for (const p of list) {
         const d = Math.hypot(p.x - x, p.z - z), K = this.kinds[p.sp]; if (!K) continue;
-        if (d < (SPECIES[p.sp].tree ? NEAR_TREE : NEAR[p.sp])) K.list.push(p);
-        else if (SPECIES[p.sp].tree && d < FAR) this.kinds[p.sp + '_far'].list.push(p);
+        if (SPECIES[p.sp].tree && d < NEAR_TREE) { nearT.push(p, d); continue; }
+        if (!SPECIES[p.sp].tree && d < NEAR[p.sp]) K.list.push(p);
+        else if (SPECIES[p.sp].tree && d < FAR && (d < 300 || p.tint < (d < 600 ? 0.55 : 0.25))) this.kinds[p.sp + '_far'].list.push(p);
       }
     }
+    // Only so many full trees: in deep forest the nearest get the real model and the rest their stand-ins
+    const ord = []; for (let i = 0; i < nearT.length; i += 2) ord.push(i); ord.sort((a, b) => nearT[a + 1] - nearT[b + 1]);
+    ord.forEach((i, n) => { const p = nearT[i]; (n < MAX_FULL_TREES ? this.kinds[p.sp] : this.kinds[p.sp + '_far']).list.push(p); });
     for (const k in this.kinds) this.fill(this.kinds[k]);
   }
   fill(K) {
@@ -106,8 +117,8 @@ export class FloraView {
       const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint);
       this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));
-      if (K.far) this._c.setScalar(0.8 + 0.3 * p.tint);
-      else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'fern') this._c.multiplyScalar(0.85); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.75, 0.68, 0.45), 0.25 * p.tint); }
+      if (K.far) this._c.setScalar(1.25 + 0.5 * p.tint);
+      else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'fern') this._c.multiplyScalar(0.85); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.62, 0.55, 0.34), 0.2 * p.tint + 0.6 * (p.dry || 0)); }
       for (const P of prims) { P.im.setMatrixAt(i, this._m); if (P.leafy || K.far) P.im.setColorAt(i, this._c); }
     });
     for (const P of prims) { P.im.count = n; P.im.instanceMatrix.needsUpdate = true; if (P.im.instanceColor) P.im.instanceColor.needsUpdate = true; }

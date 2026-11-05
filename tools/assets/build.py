@@ -453,7 +453,208 @@ def mat_plank(seed):      # weatherboard: overlapping horizontal boards, grey-br
     h = 0.7 * fy + 0.2 * gr + 0.1 * fine
     return np.clip(col, 0, 1), normal_from_height(h, 3.6), ao_from_height(h, 0.7), 0.82 + 0.1 * gr, 0.0
 
+# ---- the kinds of land: each is detail over the land's own colour, so its shape matters more than its hue
+def mat_sand(seed):       # wind-laid sand: long ripples that wander, fine grains, a few darker heavy-mineral streaks
+    y = np.arange(N)[:, None] / N * np.ones((1, N)); w = spectral(N, 2.1, seed); g = spectral(N, 0.05, seed + 1); b = spectral(N, 1.8, seed + 2)
+    rip = 0.5 + 0.5 * np.sin(2 * math.pi * (y * 26 + w * 5.0))
+    rip = rip ** 1.6
+    col = lerp3([0.62, 0.53, 0.4], [0.8, 0.71, 0.56], np.clip(0.35 * rip + 0.35 * b + 0.3 * g, 0, 1)) * (1 - 0.1 * (1 - rip))[..., None]
+    h = 0.75 * rip + 0.1 * g + 0.15 * b
+    return np.clip(col, 0, 1), normal_from_height(h, 3.0), ao_from_height(h, 0.4), 0.96, 0.0
+
+def mat_sandstone(seed):  # bedded sandstone cliff: many thin strata of differing hardness, cross-bedding, vertical joints, wind pits
+    y = np.arange(N)[:, None] / N * np.ones((1, N)); w = spectral(N, 2.2, seed); f = spectral(N, 0.5, seed + 1, 6.0, 0.6); a = spectral(N, 1.8, seed + 2)
+    beds = sum(np.sin(2 * math.pi * (y * k + w * q + p)) * e for k, q, p, e in ((5, 0.7, 0.1, 0.5), (11, 0.9, 0.37, 0.3), (23, 1.2, 0.61, 0.2), (47, 1.4, 0.83, 0.12)))
+    beds = np.clip(0.5 + 0.5 * beds, 0, 1)
+    f1, f2, _ = worley(7, seed + 3); wob = spectral(N, 1.4, seed + 4)
+    joint = np.clip(1 - (f2 - f1 + 0.15 * (wob - 0.5)) * 30, 0, 1) * np.clip((spectral(N, 1.5, seed + 5) - 0.42) * 4, 0, 1)
+    pit = np.clip((spectral(N, 0.7, seed + 6) - 0.74) * 8, 0, 1)
+    v = 0.3 + 0.42 * beds + 0.1 * (a - 0.5) + 0.08 * (f - 0.5)
+    col = lerp3([0.38, 0.27, 0.2], [0.82, 0.68, 0.53], np.clip(v, 0, 1)) * (1 - 0.55 * joint - 0.3 * pit)[..., None]
+    h = 0.8 * beds + 0.35 * f + 0.3 * a - 0.8 * joint - 0.35 * pit
+    return np.clip(col, 0, 1), normal_from_height(h, 7.0), ao_from_height(h, 0.8), 0.92, 0.0
+
+def mat_basalt(seed):     # dark volcanic rock: polygon column joints, vesicle pits, a little rust
+    f1, f2, nid = worley(11, seed); wob = spectral(N, 1.3, seed + 1); a = spectral(N, 1.7, seed + 2); f = spectral(N, 0.4, seed + 3)
+    joint = np.clip(1 - (f2 - f1 + 0.08 * (wob - 0.5)) * 16, 0, 1)
+    ves = np.clip((spectral(N, 0.2, seed + 4) - 0.7) * 9, 0, 1); rust = np.clip((spectral(N, 1.9, seed + 5) - 0.64) * 4, 0, 1)
+    v = 0.16 + 0.1 * (nid - 0.5) + 0.1 * (a - 0.5) + 0.05 * (f - 0.5)
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.98, 0.98]) * (1 - 0.7 * joint - 0.4 * ves)[..., None]
+    col = col * (1 - 0.35 * rust[..., None]) + np.array([0.22, 0.12, 0.07]) * 0.35 * rust[..., None]
+    h = 0.55 * (nid - 0.5) + 0.3 * a + 0.15 * f - 0.9 * joint - 0.3 * ves
+    return np.clip(col, 0, 1), normal_from_height(h, 8.0), ao_from_height(h, 0.9), 0.8 + 0.15 * f, 0.0
+
+def mat_granite(seed):    # coarse crystalline rock: salt-and-pepper grain, broad rounded sheets, a few long cracks, crusts of pale lichen
+    gr = spectral(N, 0.0, seed); gr2 = spectral(N, 0.25, seed + 1); a = spectral(N, 1.7, seed + 2, lo=2); f1, f2, nid = worley(4, seed + 3); wob = spectral(N, 1.2, seed + 4)
+    fade = np.clip((spectral(N, 1.5, seed + 6) - 0.5) * 5, 0, 1)
+    crack = np.clip(1 - (f2 - f1 + 0.22 * (wob - 0.5)) * 60, 0, 1) * fade
+    dark = np.clip((gr - 0.56) * 9, 0, 1); pale = np.clip((0.44 - gr2) * 9, 0, 1)
+    lich = np.clip((spectral(N, 1.0, seed + 5, lo=8) - 0.66) * 7, 0, 1)
+    base = lerp3([0.38, 0.36, 0.34], [0.6, 0.57, 0.53], a) * (1 - 0.42 * dark + 0.2 * pale)[..., None] * (1 - 0.7 * crack)[..., None]
+    col = base * (1 - 0.45 * lich[..., None]) + np.array([0.62, 0.61, 0.46]) * 0.45 * lich[..., None]
+    h = 0.8 * a + 0.2 * (nid - 0.5) + 0.12 * gr - 0.6 * crack + 0.08 * lich
+    return np.clip(col, 0, 1), normal_from_height(h, 6.0), ao_from_height(h, 0.7), 0.82 + 0.1 * gr2, 0.0
+
+def mat_pale(seed):       # weathered limestone in the open: pale, solution-pitted, grooves running down it
+    a = spectral(N, 1.9, seed); run = spectral(N, 0.9, seed + 1, 1.0, 9.0); pit = np.clip((spectral(N, 0.6, seed + 2) - 0.68) * 7, 0, 1); f1, f2, nid = worley(6, seed + 3); wob = spectral(N, 1.4, seed + 4)
+    grike = np.clip(1 - (f2 - f1 + 0.2 * (wob - 0.5)) * 15, 0, 1)
+    v = 0.66 + 0.16 * (a - 0.5) + 0.1 * (run - 0.5) + 0.05 * (nid - 0.5)
+    col = np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.97, 0.9]) * (1 - 0.65 * grike - 0.35 * pit)[..., None]
+    h = 0.5 * a + 0.3 * run - 1.0 * grike - 0.4 * pit
+    return np.clip(col, 0, 1), normal_from_height(h, 6.0), ao_from_height(h, 0.8), 0.9, 0.0
+
+def mat_cracked(seed):    # a dried lake bed: curled polygon plates of salt and clay, deep dark cracks
+    f1, f2, nid = worley(12, seed); wob = spectral(N, 1.2, seed + 1); g = spectral(N, 0.2, seed + 2); a = spectral(N, 1.8, seed + 3)
+    gap = f2 - f1 + 0.09 * (wob - 0.5)
+    crack = np.clip(1 - gap * 11, 0, 1) ** 1.3; curl = np.clip(1 - gap * 3.5, 0, 1)
+    col = lerp3([0.66, 0.62, 0.55], [0.88, 0.85, 0.78], np.clip(0.4 * nid + 0.4 * a + 0.2 * g, 0, 1)) * (1 - 0.82 * crack)[..., None] * (1 + 0.12 * curl)[..., None]
+    h = 0.7 + 0.4 * curl - 1.3 * crack + 0.08 * g + 0.08 * nid
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 0.9), 0.93, 0.0
+
+def mat_moss(seed):       # cushions of moss: soft domes at two sizes, no outlines, darker in the hollows
+    a1, _, id1 = worley(10, seed); a2, _, _ = worley(34, seed + 4); fine = spectral(N, 0.0, seed + 1); g = spectral(N, 0.6, seed + 2); a = spectral(N, 1.5, seed + 3, lo=4)
+    d1 = np.clip(1 - a1 * 1.0, 0, 1) ** 0.8; d2 = np.clip(1 - a2 * 1.1, 0, 1) ** 0.7
+    t = np.clip(0.42 * d1 + 0.3 * d2 + 0.22 * fine + 0.2 * (g - 0.5) + 0.1, 0, 1)
+    col = lerp3([0.14, 0.2, 0.07], [0.5, 0.56, 0.2], t) * (0.86 + 0.28 * a)[..., None]
+    h = 0.9 * d1 + 0.5 * d2 + 0.3 * fine
+    return np.clip(col, 0, 1), normal_from_height(h, 4.0), ao_from_height(h, 0.9), 0.97, 0.0
+
+def mat_litter(seed):     # a forest floor: thousands of fallen leaves and twigs on dark humus
+    r = np.random.default_rng(seed); col = lerp3([0.11, 0.08, 0.05], [0.2, 0.15, 0.09], spectral(N, 0.8, seed + 1)); h = spectral(N, 1.2, seed + 2) * 0.25
+    Y, X = np.mgrid[0:N, 0:N]
+    for i in range(2600):
+        cx, cy = r.integers(0, N, 2); L = r.uniform(9, 26); W = L * r.uniform(0.22, 0.42); a = r.uniform(0, math.pi * 2); ca, sa = math.cos(a), math.sin(a); B = int(L + 2)
+        ys = (np.arange(cy - B, cy + B)) % N; xs = (np.arange(cx - B, cx + B)) % N
+        gx, gy = np.meshgrid(np.arange(-B, B), np.arange(-B, B))
+        u = (gx * ca + gy * sa) / L; v = (-gx * sa + gy * ca) / W
+        m = np.abs(v) < np.sqrt(np.clip(1 - u * u, 0, 1)) * (1 - 0.3 * u)
+        t = r.random(); c = np.array([0.42, 0.25, 0.1]) * (1 - t) + np.array([0.2, 0.13, 0.07]) * t if t < 0.8 else np.array([0.48, 0.38, 0.16])
+        shade = (0.72 + 0.28 * np.clip(1 - np.abs(v), 0, 1)) * (0.75 + 0.5 * r.random()); z = h.max() * 0 + (i / 2600) * 0.5 + 0.35 + 0.08 * u
+        sub = np.ix_(ys, xs); colS = col[sub]; hS = h[sub]
+        colS[m] = c * shade[m][:, None]; hS[m] = z[m]
+        col[sub] = colS; h[sub] = hS
+    for i in range(150):       # twigs and needles over the leaves
+        cx, cy = r.integers(0, N, 2); L = int(r.uniform(20, 70)); a = r.uniform(0, math.pi * 2)
+        for k in range(L):
+            x = int(cx + math.cos(a) * k) % N; y = int(cy + math.sin(a) * k) % N; col[y, x] = (0.09, 0.065, 0.045); h[y, x] = 0.95; col[y, (x + 1) % N] = (0.13, 0.09, 0.06)
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 1.0), 0.93, 0.0
+
+def mat_peat(seed):       # bog: dark waterlogged peat, tussock fibres, glinting wet hollows
+    a = spectral(N, 1.2, seed, lo=4); f = spectral(N, 0.45, seed + 1, 5.0, 1.0); f2 = spectral(N, 0.45, seed + 3, 1.0, 5.0); wet = np.clip((spectral(N, 1.4, seed + 2, lo=3) - 0.6) * 9, 0, 1)
+    t = np.clip(0.4 * a + 0.3 * f + 0.3 * f2, 0, 1) ** 1.2
+    col = lerp3([0.05, 0.04, 0.03], [0.3, 0.23, 0.15], t) * (1 - 0.6 * wet)[..., None]
+    h = (0.5 * a + 0.3 * f + 0.3 * f2) * (1 - wet)
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 0.8), np.clip(0.92 - 0.8 * wet, 0.1, 1), 0.0
+
+def mat_ash(seed):        # cinder ground: loose black clinker and drifts of grey ash
+    f1, f2, nid = worley(38, seed); g = spectral(N, 0.05, seed + 1); a = spectral(N, 1.3, seed + 2, lo=5); ash = np.clip((a - 0.48) * 5, 0, 1)
+    cl = np.clip(1 - f1 * 1.5, 0, 1) ** 0.8; gap = np.clip(1 - (f2 - f1) * 5, 0, 1)
+    col = lerp3([0.06, 0.055, 0.055], [0.22, 0.2, 0.19], np.clip(0.6 * nid + 0.4 * g, 0, 1)) * (1 - 0.5 * gap)[..., None]
+    col = col * (1 - 0.55 * ash[..., None]) + lerp3([0.3, 0.28, 0.27], [0.44, 0.42, 0.4], g) * 0.55 * ash[..., None]
+    h = cl * (1 - 0.65 * ash) + 0.15 * g - 0.3 * gap
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 0.8), 0.95, 0.0
+
+def mat_heath(seed):      # low wiry scrub: dark stems, fine tufts, sprays of small pale flowers, patches of bare peat
+    st = spectral(N, 0.35, seed, 3.0, 1.0); st2 = spectral(N, 0.35, seed + 1, 1.0, 3.0); fine = spectral(N, 0.0, seed + 2); a = spectral(N, 1.5, seed + 3, lo=4)
+    wiry = 1 - np.abs(st - 0.5) * 2; wiry2 = 1 - np.abs(st2 - 0.5) * 2; t = np.clip(0.5 * wiry ** 3 + 0.5 * wiry2 ** 3 + 0.25 * fine, 0, 1)
+    fl = np.clip((fine - 0.58) * 14, 0, 1) * np.clip((spectral(N, 1.2, seed + 4, lo=5) - 0.5) * 7, 0, 1)
+    col = lerp3([0.09, 0.07, 0.05], [0.42, 0.37, 0.25], t) * (0.8 + 0.4 * a)[..., None]
+    col = col * (1 - 0.85 * fl[..., None]) + np.array([0.7, 0.58, 0.68]) * 0.85 * fl[..., None]
+    h = t + 0.3 * a
+    return np.clip(col, 0, 1), normal_from_height(h, 6.0), ao_from_height(h, 1.0), 0.97, 0.0
+
+def mat_snow(seed):       # wind-packed snow: sastrugi and sparkle in the normal
+    a = spectral(N, 2.1, seed, 3.0, 1.0); f = spectral(N, 0.6, seed + 1, 4.0, 1.0); g = spectral(N, 0.0, seed + 2)
+    col = np.repeat(np.clip(0.84 + 0.1 * a + 0.03 * f, 0, 1)[..., None], 3, -1) * np.array([0.97, 0.985, 1.0])
+    h = 0.8 * a + 0.2 * f + 0.02 * g
+    return np.clip(col, 0, 1), normal_from_height(h, 3.0), ao_from_height(h, 0.3), 0.78 + 0.1 * g, 0.0
+
+# ---- animal skins: neutral, tinted by each species' own colours
+def mat_hide(seed):       # thick wrinkled hide: creases that wander and fork, pores, broad mottling
+    w1 = spectral(N, 1.1, seed, 3.0, 1.0, lo=3); w2 = spectral(N, 1.1, seed + 1, 1.0, 2.0, lo=4); p = np.clip((spectral(N, 0.1, seed + 2) - 0.68) * 8, 0, 1); a = spectral(N, 1.4, seed + 3, lo=3)
+    c1 = np.clip(1 - np.abs(w1 - 0.5) * 16, 0, 1); c2 = np.clip(1 - np.abs(w2 - 0.5) * 22, 0, 1); crease = np.clip(c1 + 0.6 * c2, 0, 1)
+    v = 0.68 + 0.18 * (a - 0.5) - 0.34 * crease - 0.08 * p
+    h = 0.7 * (w1 + w2) - 0.7 * crease - 0.06 * p
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(h, 7.0), ao_from_height(h, 0.7), 0.74 + 0.1 * a, 0.0
+
+def mat_scales(seed):     # real overlapping rounded scales: each row laps over the row below it, each scale its own tone
+    R = 24; cell = N / R; r = np.random.default_rng(seed); tones = r.random((R, R)); a = spectral(N, 1.5, seed + 1, lo=3)
+    Y, X = np.mgrid[0:N, 0:N]; tone = np.zeros((N, N)); h = np.zeros((N, N)); edge = np.zeros((N, N))
+    for row in range(R * 2 + 2):             # top rows are painted last, so they lie over the ones below
+        rw = R * 2 + 1 - row; cy = rw * cell * 0.5; off = (rw % 2) * cell * 0.5
+        dy = ((Y - cy + N / 2) % N - N / 2) / (cell * 0.72)
+        dx = (((X - off + cell / 2) % cell) - cell / 2) / (cell * 0.56)
+        d = np.sqrt(dx * dx + np.clip(dy, None, 0) ** 2 * 0.2 + np.clip(dy, 0, None) ** 2)
+        m = (d < 1) & (dy > -1.0)
+        idx = (((X - off + cell / 2) // cell).astype(int) % R)
+        t = tones[(rw // 2) % R][idx]
+        tone[m] = t[m]; h[m] = (1 - d[m] ** 2) * 0.7 + (dy[m] + 1) * 0.35; edge[m] = d[m]
+    v = (0.42 + 0.34 * tone + 0.14 * (a - 0.5)) * (1 - 0.5 * np.clip((edge - 0.72) * 3.4, 0, 1))
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(h, 4.0), ao_from_height(h, 0.7), 0.42 + 0.2 * tone, 0.0
+
+def mat_pelt(seed):       # short dense fur, lying one way, in tufts
+    fib = spectral(N, 0.3, seed, 1.0, 14.0); fine = spectral(N, 0.05, seed + 1, 1.0, 8.0); tuft = spectral(N, 1.2, seed + 2, 1.0, 3.0); a = spectral(N, 1.9, seed + 3)
+    v = 0.28 + 0.62 * np.clip(0.55 * fib + 0.3 * fine + 0.15 * tuft, 0, 1) + 0.08 * (a - 0.5)
+    h = 0.6 * fib + 0.3 * fine + 0.5 * tuft
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(h, 7.0), ao_from_height(h, 0.9), 0.97, 0.0
+
+def mat_chitin(seed):     # smooth banded plate: growth lines, small nicks, a waxy shine
+    y = np.arange(N)[:, None] / N * np.ones((1, N)); w = spectral(N, 2.1, seed); g = spectral(N, 0.2, seed + 1); nick = np.clip((spectral(N, 0.6, seed + 2) - 0.78) * 7, 0, 1)
+    band = 0.5 + 0.5 * np.sin(2 * math.pi * (y * 12 + w * 1.5))
+    v = 0.56 + 0.22 * (band - 0.5) + 0.06 * (g - 0.5) - 0.2 * nick
+    h = 0.25 * band + 0.03 * g - 0.3 * nick
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(h, 2.5), ao_from_height(h, 0.4), 0.3 + 0.2 * nick, 0.0
+
+# ---- more for people's things
+def mat_cobble(seed):     # rounded setts in a sandy bed
+    f1, f2, nid = worley(16, seed); g = spectral(N, 0.2, seed + 1); a = spectral(N, 1.8, seed + 2)
+    dome = np.clip(1 - f1 * 1.1, 0, 1) ** 0.5; gap = np.clip(1 - (f2 - f1) * 6, 0, 1)
+    col = lerp3([0.3, 0.29, 0.28], [0.56, 0.53, 0.48], np.clip(0.6 * nid + 0.25 * a + 0.15 * g, 0, 1)) * (1 - 0.72 * gap)[..., None]
+    h = dome + 0.08 * g - 0.7 * gap
+    return np.clip(col, 0, 1), normal_from_height(h, 5.0), ao_from_height(h, 0.9), 0.72 + 0.2 * gap, 0.0
+
+def mat_adobe(seed):      # hand-smoothed mud wall: straw flecks, patched render, cracks, a damp foot
+    a = spectral(N, 1.9, seed); tr = spectral(N, 1.3, seed + 1, 3.0, 1.0); fl = np.clip((spectral(N, 0.0, seed + 2, 3.0, 1.0) - 0.75) * 9, 0, 1); f1, f2, _ = worley(5, seed + 3); wob = spectral(N, 1.2, seed + 4)
+    crack = np.clip(1 - (f2 - f1 + 0.2 * (wob - 0.5)) * 40, 0, 1) * np.clip((spectral(N, 1.8, seed + 5) - 0.55) * 4, 0, 1)
+    col = lerp3([0.48, 0.36, 0.25], [0.72, 0.58, 0.42], np.clip(0.65 * a + 0.35 * tr, 0, 1)) * (1 - 0.15 * fl - 0.6 * crack)[..., None]
+    h = 0.7 * a + 0.4 * tr - 0.7 * crack + 0.05 * fl
+    return np.clip(col, 0, 1), normal_from_height(h, 3.5), ao_from_height(h, 0.5), 0.95, 0.0
+
+def mat_rust(seed):       # sheet steel gone to rust: flaking blooms over old grey paint, streaks
+    a = spectral(N, 1.5, seed); fine = spectral(N, 0.1, seed + 1); st = streaks(seed + 2, 1.0); flake = np.clip((spectral(N, 0.7, seed + 3) - 0.6) * 6, 0, 1)
+    r_ = lerp3([0.2, 0.09, 0.05], [0.56, 0.28, 0.12], np.clip(0.6 * a + 0.4 * fine, 0, 1)); pt = lerp3([0.28, 0.32, 0.33], [0.42, 0.46, 0.46], fine)
+    keep = np.clip((a - 0.58) * 6, 0, 1)
+    col = r_ * (1 - keep[..., None]) + pt * keep[..., None]; col = col * (1 - 0.3 * st[..., None]) * (1 - 0.3 * flake[..., None])
+    h = 0.4 * keep + 0.5 * fine - 0.4 * flake
+    return np.clip(col, 0, 1), normal_from_height(h, 4.0), ao_from_height(h, 0.5), 0.86 - 0.3 * keep, 0.2 * keep
+
+def mat_canvas(seed):     # heavy tarpaulin: coarse weave, sun fade, stains, a stitched seam
+    x = np.arange(N)[None, :] / N * np.ones((N, 1)); y = np.arange(N)[:, None] / N * np.ones((1, N))
+    w = 0.5 + 0.25 * (np.sin(2 * math.pi * x * 170) + np.sin(2 * math.pi * y * 170)); a = spectral(N, 2.0, seed); st = np.clip((spectral(N, 1.7, seed + 1) - 0.65) * 4, 0, 1)
+    seam = np.exp(-(((y - 0.5) * 90) ** 2))
+    v = (0.56 + 0.22 * (a - 0.5) + 0.1 * (w - 0.5)) * (1 - 0.3 * st) * (1 - 0.3 * seam)
+    h = 0.5 * w + 0.3 * a + 0.3 * seam
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1) * np.array([1.0, 0.97, 0.88]), normal_from_height(h, 3.0), ao_from_height(h, 0.4), 0.96, 0.0
+
+def mat_carpet(seed):     # looped wool, worn in a path, with a border pattern
+    g = spectral(N, 0.0, seed); a = spectral(N, 1.9, seed + 1)
+    v = 0.48 + 0.34 * (g - 0.5) + 0.16 * (a - 0.5)
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(0.9 * g + 0.1 * a, 5.0), ao_from_height(g, 0.8), 0.99, 0.0
+
+def mat_lacquer(seed):    # a dark worn gun or tool finish: fine bead-blast, scratches at the edges
+    g = spectral(N, 0.0, seed); a = spectral(N, 1.8, seed + 1); sc = np.clip((spectral(N, 0.2, seed + 2, 24.0, 1.0) - 0.7) * 8, 0, 1) * np.clip((a - 0.5) * 3, 0, 1)
+    v = 0.27 + 0.05 * (g - 0.5) + 0.05 * (a - 0.5) + 0.35 * sc
+    return np.repeat(np.clip(v, 0, 1)[..., None], 3, -1), normal_from_height(0.2 * g - 0.3 * sc, 1.5), ao_from_height(g, 0.2), 0.42 + 0.14 * g - 0.15 * sc, 0.65 + 0.3 * sc
+
+def mat_leather(seed):    # grip leather: pebbled, worn lighter in the palm
+    f1, f2, _ = worley(70, seed); a = spectral(N, 1.9, seed + 1); gap = np.clip(1 - (f2 - f1) * 5, 0, 1)
+    col = lerp3([0.16, 0.09, 0.05], [0.36, 0.22, 0.13], a) * (1 - 0.45 * gap)[..., None]
+    return np.clip(col, 0, 1), normal_from_height(1 - gap + 0.2 * a, 3.0), ao_from_height(1 - gap, 0.5), 0.6 + 0.15 * a, 0.0
+
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
+    'sand': (mat_sand, 3.0), 'sandstone': (mat_sandstone, 12.0), 'basalt': (mat_basalt, 7.0), 'granite': (mat_granite, 8.0), 'pale': (mat_pale, 8.0), 'cracked': (mat_cracked, 6.0), 'moss': (mat_moss, 2.4), 'litter': (mat_litter, 3.0), 'peat': (mat_peat, 3.0), 'ash': (mat_ash, 3.0), 'heath': (mat_heath, 3.0), 'snow': (mat_snow, 5.0),
+    'hide': (mat_hide, 1.0), 'scales': (mat_scales, 0.5), 'pelt': (mat_pelt, 0.5), 'chitin': (mat_chitin, 0.7),
+    'cobble': (mat_cobble, 2.4), 'adobe': (mat_adobe, 3.0), 'rust': (mat_rust, 2.0), 'canvas': (mat_canvas, 1.6), 'carpet': (mat_carpet, 1.0), 'lacquer': (mat_lacquer, 0.5), 'leather': (mat_leather, 0.4),
     'limestone': (mat_limestone, 2.4), 'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),

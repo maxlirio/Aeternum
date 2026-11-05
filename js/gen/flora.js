@@ -8,6 +8,7 @@ import { hashInts, hashStr } from '../core/hash.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { smoothstep } from '../core/noise.js';
+import { landTraits, gridTraits } from './land.js';
 import { settlementNear } from './settlement.js';
 import { shipsAt, LAYOUTS } from './ships.js';
 
@@ -29,7 +30,6 @@ export const SPECIES = {
   bottle:  { tree: true, solid: 0.7, h: [5, 9], moist: 0.2, alt: 0.3, alien: true },
   shrub:   { solid: 0, h: [0.8, 2.0] },
   fern:    { solid: 0, h: [0.5, 1.1] },
-  boulder: { solid: 1, h: [0.6, 2.2] },       // solid for boulders scales with size (×0.6 of height)
 };
 export const TREES = Object.keys(SPECIES).filter(k => SPECIES[k].tree);
 // Which trees grow on this planet: a few familiar ones and some that aren't, by the planet's seed.
@@ -51,25 +51,28 @@ const cache = new Map();
 export function floraTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj;
   if (cache.has(ck)) return cache.get(ck);
-  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE);
+  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE), LT = gridTraits(planet, ti * TILE, tj * TILE, TILE);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b;
     const r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + 0.15 + 0.7 * r(1)) * CELL, z = (cj + 0.15 + 0.7 * r(2)) * CELL;
+    const Lt = LT(x, z, 'trees'), Ls = LT(x, z, 'shrub'), Lf = LT(x, z, 'fern');
+    if (r(3) > 0.02 + 1.3 * Lt + 0.5 * Ls + 0.6 * Lf) continue;                          // (bare land: don't even look)
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.wet > 0.02 || s.h < planet.seaLevel + 2) continue;
     if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
     if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) continue;       // nothing grows through a farm or a mine, or on the track to it
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;
     const ny = e / Math.hypot(hx, e, hz);                                         // 1 = flat
-    const moist = moisture(planet, x, z), above = s.h - planet.seaLevel;
+    const moist = moisture(planet, x, z), above = s.h - planet.seaLevel, L = { trees: Lt, shrub: Ls, fern: Lf };
     const alpine = 1 - smoothstep(C.treeline - 150, C.treeline + 80, s.h);
     const lush = smoothstep(0.5, 0.85, moist), flat = smoothstep(0.7, 0.88, ny);   // lush: where the ground colour (gen/chunk.js) is turning green
     // patchy: woods come in stands, not an even carpet
     const stand = 0.5 + 0.5 * Math.sin(x / 83 + Math.sin(z / 57) * 2) * Math.cos(z / 71 + Math.sin(x / 49) * 2);
-    const pTree = 0.75 * (0.35 + 0.65 * lush) * flat * alpine * smoothstep(0.35, 0.75, stand) * smoothstep(4, 15, above);
-    const pShrub = 0.12 + 0.25 * (1 - lush) * flat;
-    const pRock = 0.04 + 0.25 * (1 - smoothstep(0.55, 0.8, ny)) + 0.1 * (1 - alpine);
+    // the land decides: a forest is close-grown and unbroken, a meadow has only the odd stand, the desert nothing
+    const deep = smoothstep(0.55, 0.95, L.trees), standing = deep + (1 - deep) * smoothstep(0.35, 0.75, stand);
+    const pTree = Math.min(0.72, (0.3 + 0.75 * L.trees) * (0.4 + 0.6 * lush + 0.5 * deep)) * Math.min(1, L.trees * 1.8) * flat * alpine * standing * smoothstep(4, 15, above);
+    const pShrub = (0.12 + 0.25 * (1 - lush) * flat) * Math.min(1, L.shrub * 1.6);
     const roll = r(3);
     let sp = null;
     if (roll < pTree) {     // which tree: the planet's species, weighted by how well this spot suits each
@@ -78,12 +81,11 @@ export function floraTile(planet, ti, tj) {
       let q = r(4) * tot; sp = set[set.length - 1];
       for (let i = 0; i < set.length; i++) { q -= w[i]; if (q < 0) { sp = set[i]; break; } }
     }
-    else if (roll < pTree + 0.55 * pTree / 0.75 * lush) sp = 'fern';                       // undergrowth: ferns where the woods are, and damp
+    else if (roll < pTree + 0.5 * L.fern * flat * alpine) sp = 'fern';                       // undergrowth: ferns where the woods are, and damp
     else if (roll < pTree + pShrub * flat * smoothstep(1, 4, above) * (0.4 + alpine)) sp = 'shrub';
-    else if (roll < pTree + pShrub + pRock * 0.35) sp = 'boulder';
     if (!sp) continue;
-    const S = SPECIES[sp], size = S.h[0] + (S.h[1] - S.h[0]) * r(5) ** 1.5;
-    out.push({ sp, x, y: s.h, z, size, rot: r(6) * Math.PI * 2, tint: r(7), solid: sp === 'boulder' ? size * 0.6 : S.solid });
+    const S = SPECIES[sp], size = (S.h[0] + (S.h[1] - S.h[0]) * r(5) ** 1.5) * (S.tree ? 1 + 0.65 * deep : 1);    // (old woods grow big)
+    out.push({ sp, x, y: s.h, z, size, rot: r(6) * Math.PI * 2, tint: r(7), solid: S.solid, dry: +(1 - lush).toFixed(2) });
   }
   cache.set(ck, out);
   if (cache.size > 4000) cache.delete(cache.keys().next().value);
@@ -105,14 +107,14 @@ const gcache = new Map();
 export function grassTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|g' + ti + ',' + tj;
   if (gcache.has(ck)) return gcache.get(ck);
-  const n = GTILE / GCELL, seed = planet.universeSeed[1] ^ 0x6a55, out = [];
+  const n = GTILE / GCELL, seed = planet.universeSeed[1] ^ 0x6a55, out = [], LG = gridTraits(planet, ti * GTILE, tj * GTILE, GTILE, 2);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b, r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + r(1)) * GCELL, z = (cj + r(2)) * GCELL;
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 1.5 || s.h > planet.climate.treeline + 150) continue;
     const moist = moisture(planet, x, z), lush = smoothstep(0.2, 0.75, moist);
-    if (r(3) > 0.25 + 0.7 * lush) continue;
+    if (r(3) > (0.25 + 0.7 * lush) * LG(x, z, 'grass')) continue;
     out.push(x, s.h, z, 0.35 + 0.55 * r(4) * (0.5 + lush), lush);
   }
   const arr = new Float32Array(out);

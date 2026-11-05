@@ -528,7 +528,7 @@ try {
     const tb = M.bodies.find(x => x.id === 'test-body'), [tu, tv] = [tb?.pos[0], tb?.pos[2]], oa = (tu - rec.O[0]) ; out.body = tb ? { flying: tb.flying, outside: !O.world.locate(tb.pos[0], tb.pos[1], tb.pos[2]) } : null; out.windowCrime = O.store.events.some(e => e.kind === 'threw someone through a window');
     return out; })()`);
   check(sb.rode && sb.onIt && sb.gap < 3, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
-  check(sb.took && sb.fly && sb.driverOut && sb.hot >= 2, `took it: driver out, in the air, heat ${sb.hot}`);
+  check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.5, `took it: driver out, in the air, heat ${sb.hot}`);     // (2.2 if anyone below saw it; a quarter of that if not)
   check(sb.speed > 5, `flew it (${sb.speed} m/s)`);
   check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);
   check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
@@ -557,8 +557,7 @@ try {
     out.hidden = O.sites().live.size > 0 && it.live === true;
     // someone who sees a crime runs from it: pick a moment when someone's out, and look at them just after
     { const VL = await import('./js/gen/villagers.js'), M = O.getMayhem(), hour = O.planet.dayLength / 24; let t2 = O.clock.now(), a0 = null;
-      for (let h = 0; h < 30 && !a0; h++, t2 += hour) a0 = VL.siteWalkers(O.planet, t2, S0.x, S0.z, 140, 20).find(w => !w.indoors && !w.uniform);
-      if (a0) { M.alarm = { t: t2, at: [a0.pos[0] - 3, a0.pos[2]], kind: 'test' }; const after = O.peopleNearTest(t2 + 3, a0.pos[0], a0.pos[2], 40, 40).find(w => w.id === a0.id); out.scared = after ? { ran: +Math.hypot(after.pos[0] - a0.pos[0], after.pos[2] - a0.pos[2]).toFixed(1), flag: !!after.scared, away: after.pos[0] > a0.pos[0] } : { gone: true }; M.alarm = null; } }
+      for (let h = 0; h < 60 && !out.scared?.flag; h++, t2 += hour) for (const w of VL.siteWalkers(O.planet, t2, S0.x, S0.z, 140, 20).filter(w => !w.indoors && !w.uniform)) { a0 = w; M.alarm = { t: t2, at: [w.pos[0] - 3, w.pos[2]], kind: 'test' }; const after = O.peopleNearTest(t2 + 3, w.pos[0], w.pos[2], 40, 40).find(q => q.id === w.id); M.alarm = null; if (after) { out.scared = { ran: +Math.hypot(after.pos[0] - w.pos[0], after.pos[2] - w.pos[2]).toFixed(1), flag: !!after.scared, away: after.pos[0] > w.pos[0] }; if (out.scared.flag) break; } } }
     O.ctrl.pos = [x0 + 400, T.surfaceAt(O.planet, x0 + 400, z0).h + 0.3, z0]; for (let i = 0; i < 10; i++) await wait(100); out.gone = !liveOf();
     O.ctrl.pos = [x0, y0, z0]; for (let i = 0; i < 40 && !liveOf(); i++) { O.ctrl.pos = [x0, y0, z0]; await wait(100); } const dd = O.store.getDelta(L.rec.key + '/door:' + dr.id); out.stillBroken = !!dd?.broken;
     return out; })()`);

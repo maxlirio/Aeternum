@@ -6,6 +6,7 @@ import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
+import { rocksNear } from '../gen/rocks.js';
 import { sitesNear } from '../gen/outposts.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
@@ -222,11 +223,19 @@ export class CollisionWorld {
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = it.x + ux * R; z = it.z + uz * R; moved = true;
       } });
       if (this.flora) floraNear(this.planet, x, z, r + 1.4, p => {
-        if (!p.solid || yFeet > p.y + (p.sp === 'boulder' ? p.size * 0.8 : p.size) || yFeet + h < p.y) return;
+        if (!p.solid || yFeet > p.y + p.size || yFeet + h < p.y) return;
         const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), R = r + p.solid;
         if (d >= R) return;
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
         x = p.x + ux * R; z = p.z + uz * R; moved = true;
+      });
+      // rocks: you can get over a low one (a step, a jump); a big one you go round
+      if (this.flora) rocksNear(this.planet, x, z, r + 2, q => {
+        if (yFeet > q.y + q.top || yFeet + h < q.y) return;
+        const dx = x - q.x, dz = z - q.z, d = Math.hypot(dx, dz), R = r + q.r;
+        if (d >= R) return;
+        const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
+        x = q.x + ux * R; z = q.z + uz * R; moved = true;
       });
       if (!moved) break;
     }

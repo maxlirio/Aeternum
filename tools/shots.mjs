@@ -207,6 +207,41 @@ for (const F of ['villagewell', 'fountain', 'shrine', 'monument', 'marketcross',
     O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${/watertower|monument|windpump|poweredge/.test(F) ? 0.14 : 0.3}; O.cam.dist = sp * ${/watertower|monument|windpump|poweredge/.test(F) ? 3.4 : 2.6}; const keep = () => { hold(); requestAnimationFrame(keep); }; keep(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
   SHOTS['small_' + F] = 'hour=13.5';
 }
+// a contact sheet of baked textures (SHEET='a b c' to choose)
+const SHEET_LIST = "'" + (process.env.SHEET || 'moss heath granite peat ash hide scales') + "'";
+SCRIPTS.texsheet = `const L = (${SHEET_LIST}).split(' '); document.body.innerHTML = '<div style="position:fixed;inset:0;z-index:99;background:#222;display:grid;grid-template-columns:repeat(6,1fr);gap:2px;font:13px sans-serif;color:#fff">' + L.map(n => '<div style="position:relative;overflow:hidden"><img style="width:100%" src="./assets/materials/' + n + '_c.webp"><b style="position:absolute;left:4px;top:2px;text-shadow:0 0 3px #000">' + n + '</b></div>').join('') + '</div>'; await new Promise(r => setTimeout(r, 1500));`;
+SHOTS.texsheet = 'hour=12';
+// a kind of land: land_<kind> from a low hill-like view, landnr_<kind> close to the ground
+for (const kind of ['meadow', 'forest', 'rockfield', 'badlands', 'dunes', 'saltpan', 'marsh', 'lava', 'moor', 'karst']) for (const [pre, dist, pitch] of [['land_', kind === 'forest' ? 7 : 60, kind === 'forest' ? 0.08 : 0.2], ['landnr_', 4.5, 0.12]]) {
+  SCRIPTS[pre + kind] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), L = await import('./js/gen/land.js'), T = await import('./js/gen/surface.js');
+    let best = null, bd = 1e12; for (let i = -36; i <= 36; i++) for (let j = -36; j <= 36; j++) { const x = i * L.CELL / 2 + 300, z = j * L.CELL / 2 + 300, ls = L.landAt(O.planet, x, z); if (ls.length !== 1 || ls[0].c.kind !== '${kind}') continue; const s = T.surfaceAt(O.planet, x, z); if (s.h < 12 || s.h > 750 || s.town > 0) continue; const d = Math.hypot(x - O.ctrl.pos[0], z - O.ctrl.pos[2]); if (d < bd) { bd = d; best = { x, z, kind: '${kind}' }; } }
+    if (!best) throw new Error('none of ${kind}');
+    const x = best.x, z = best.z, y = T.surfaceAt(O.planet, x, z).h + 1; for (let k = 0; k < 28; k++) { O.ctrl.pos = [x, y, z]; O.ctrl.vel = [0, 0, 0]; await wait(300); }
+    O.ctrl.facing = 0.8; O.cam.yaw = 0.8; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; document.querySelector('.toasts')?.remove(); await wait(2000); console.log(JSON.stringify({ kind: best.kind, at: [x | 0, z | 0], tris: O.renderer.info.render.triangles, calls: O.renderer.info.render.calls }));`;
+  SHOTS[pre + kind] = 'hour=11';
+}
+// walking across a dune, for prints, blown sand and sliding
+SCRIPTS.dunewalk = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), L = await import('./js/gen/land.js'), T = await import('./js/gen/surface.js');
+    let best = null; for (let i = -24; i <= 24 && !best; i++) for (let j = -24; j <= 24; j++) { const x = i * L.CELL / 2 + 300, z = j * L.CELL / 2 + 300, ls = L.landAt(O.planet, x, z); if (ls.length === 1 && ls[0].c.kind === 'dunes' && T.surfaceAt(O.planet, x, z).h > 8) { best = { x, z }; break; } }
+    const a = L.prevailing(O.planet); let x = best.x, z = best.z, y = T.surfaceAt(O.planet, x, z).h + 0.2; for (let k = 0; k < 24; k++) { O.ctrl.pos = [x, y, z]; O.ctrl.vel = [0, 0, 0]; await wait(300); }
+    O.getWind = null; const f = Math.atan2(Math.cos(a), Math.sin(a)); O.ctrl.facing = f; O.cam.yaw = f + 3.0; O.cam.pitch = 0.28; O.cam.dist = 5.5;
+    const keys = k => dispatchEvent(new KeyboardEvent(k, { code: 'KeyW' })), kd = k => document.dispatchEvent(new KeyboardEvent(k, { code: 'KeyW', bubbles: true })); kd('keydown'); keys('keydown'); O.cam.yaw = f; await wait(5000); O.cam.yaw = f + 2.9; await wait(200); kd('keyup'); keys('keyup');
+    document.querySelector('.toasts')?.remove(); await wait(600); console.log(JSON.stringify({ prints: O.prints.prints.count, feel: O.ctrl.feel, sliding: O.ctrl.sliding, pos: O.ctrl.pos }));`;
+SHOTS.dunewalk = 'hour=16.5';
+// each kind of animal on this planet, up close, standing still then walking
+for (const n of [0, 1, 2, 3, 4, 5]) { SCRIPTS['animal' + n] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/surface.js'), Fa = await import('./js/gen/fauna.js'), L = await import('./js/gen/land.js');
+    const sps = Fa.speciesOf(O.planet), S = sps[${n}]; let x = 0, z = 0, bd = 1e12; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) { const a = O.s.cx + i * 150, b = O.s.cz + j * 150, q = T.surfaceAt(O.planet, a, b); if (q.town > 0 || q.road > 0 || q.h < 20 || q.h > 300) continue; const ls = L.landAt(O.planet, a, b); if (ls.length !== 1 || ls[0].c.kind !== 'meadow') continue; let fl = 0; for (const [e, f] of [[12, 0], [-12, 0], [0, 12], [0, -12], [12, 12], [-12, -12]]) fl = Math.max(fl, Math.abs(T.surfaceAt(O.planet, a + e, b + f).h - q.h)); const d = fl * 50 + Math.hypot(a - O.s.cx, b - O.s.cz) * 0.01; if (d < bd) { bd = d; x = a; z = b; } }
+    const y = T.surfaceAt(O.planet, x, z).h + 0.1; const hold = () => { O.ctrl.pos = [x, T.surfaceAt(O.planet, x, z).h + 0.1, z]; O.ctrl.vel = [0, 0, 0]; requestAnimationFrame(hold); }; hold(); await wait(5000);
+    O.fauna.clear(); const D = S.size * 1.7 + 2; const A1 = O.fauna.spawnTest(S, x - S.size * 0.8, z + D, 1, 1.9); const A2 = O.fauna.spawnTest(S, x + S.size * 0.85, z + D * 1.15, 1, -0.9); A2.frozen = false; A2.state = 'walk'; A2.t = 99; A2.tx = A2.x - Math.sin(0.9) * 300; A2.tz = A2.z + 300; A2.wantSpeed = 1; A2.alert = 1;
+    O.avatar.object.visible = false; O.ctrl.facing = 0; O.cam.yaw = 0; O.cam.pitch = 0.04; O.cam.dist = 0.05; document.querySelector('.toasts')?.remove(); await wait(2600); console.log(JSON.stringify({ name: S.name, plan: S.plan, size: S.size, n: sps.length, tris: O.renderer.info.render.triangles }));`; SHOTS['animal' + n] = 'hour=11'; }
+// every weapon this planet makes, laid out side-on at arm's length
+SCRIPTS.arms = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), THREE = await import('three'), W = await import('./js/render/weapons.js'), G = await import('./js/gen/weapons.js'), T = await import('./js/gen/surface.js');
+  const x0 = O.ctrl.pos[0], z0 = O.ctrl.pos[2], y0 = O.ctrl.pos[1]; const hold = () => { O.ctrl.pos = [x0, y0, z0]; O.ctrl.vel = [0, 0, 0]; requestAnimationFrame(hold); }; hold(); O.avatar.object.visible = false;
+  const pl = window.__armPlanet || O.planet, ids = Object.keys(G.ARMS), g = new THREE.Group(); const wall = new THREE.Mesh(new THREE.PlaneGeometry(9, 5), new THREE.MeshStandardMaterial({ color: 0x8f8c84, roughness: 0.95 })); wall.rotation.y = Math.PI; g.add(wall); wall.position.set(0, 0, 0.12);
+  ids.forEach((id, i) => { const m = W.armObject(pl, id), c = i % 3, r = Math.floor(i / 3); m.rotation.y = -Math.PI / 2; m.position.set(1.0 - c * 0.92, 0.78 - r * 0.39, 0); g.add(m); });
+  const rot = 0; g.position.set(x0 - O.scene.children.find(c => c.name === 'x')?.position.x || x0, y0, 0); const root = O.fauna.view.group.parent; g.position.set(x0, y0 + 1.5, z0 + 2.05); root.add(g);
+  O.ctrl.facing = 0; O.cam.yaw = 0; O.cam.pitch = 0; O.cam.dist = 0.05; document.querySelector('.toasts')?.remove(); await wait(2400);`;
+SHOTS.arms = 'hour=12';
 // a river: river_far from up a hillside, river_near on its bank
 for (const [nm, dist, pitch] of [['river_far', 120, 0.4], ['river_near', 16, 0.2]]) {
   SCRIPTS[nm] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), R = await import('./js/gen/rivers.js'), T = await import('./js/gen/surface.js'); const rs = R.riversNear(O.planet, O.ctrl.pos[0], O.ctrl.pos[2]).filter(r => r.pts.length > 28); if (!rs.length) throw new Error('no rivers'); const r0 = rs.sort((a, b) => Math.hypot(a.pts[20].x - O.ctrl.pos[0], a.pts[20].z - O.ctrl.pos[2]) - Math.hypot(b.pts[20].x - O.ctrl.pos[0], b.pts[20].z - O.ctrl.pos[2]))[0], i = Math.floor(r0.pts.length * 0.6), p = r0.pts[i], q = r0.pts[i + 3], yaw = Math.atan2(q.x - p.x, q.z - p.z), ox = p.x + Math.cos(yaw) * (r0.w[i] / 2 + 5), oz = p.z - Math.sin(yaw) * (r0.w[i] / 2 + 5), y = T.surfaceAt(O.planet, ox, oz).h + 0.5;

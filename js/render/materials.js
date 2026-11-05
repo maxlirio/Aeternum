@@ -16,6 +16,30 @@ export async function loadSurfaces(anisotropy = 8) {
   try { SURF = await (await fetch(BASE + 'index.json')).json(); } catch { SURF = null; }
   return SURF;
 }
+// All the ground surfaces in one pair of texture arrays, so the terrain shader can blend any of them.
+// Same order as gen/land.js: 11 soft grounds, then plain rock and the 4 other rocks.
+export const GROUND_LAYERS = ['grass', 'dirt', 'litter', 'sand', 'cracked', 'moss', 'peat', 'ash', 'heath', 'gravel', 'snow', 'rock', 'sandstone', 'basalt', 'granite', 'pale'];
+let GROUND = null;
+export async function loadGround() {
+  if (!SURF || GROUND_LAYERS.some(k => !SURF[k]?.mean)) return null;
+  const read = async (suffix, size) => {
+    const c = new OffscreenCanvas(size, size), x = c.getContext('2d', { willReadFrequently: true }), data = new Uint8Array(size * size * 4 * GROUND_LAYERS.length);
+    await Promise.all(GROUND_LAYERS.map(async (k, i) => {
+      const bmp = await createImageBitmap(await (await fetch(BASE + k + suffix)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none', resizeWidth: size, resizeHeight: size, resizeQuality: 'high' });
+      GROUND_LAYERS._bmp = GROUND_LAYERS._bmp || {}; (GROUND_LAYERS._bmp[suffix] = GROUND_LAYERS._bmp[suffix] || [])[i] = bmp;
+    }));
+    GROUND_LAYERS._bmp[suffix].forEach((bmp, i) => { x.clearRect(0, 0, size, size); x.drawImage(bmp, 0, 0); data.set(x.getImageData(0, 0, size, size).data, i * size * size * 4); bmp.close(); });
+    const t = new THREE.DataArrayTexture(data, size, size, GROUND_LAYERS.length);
+    t.format = THREE.RGBAFormat; t.type = THREE.UnsignedByteType; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearMipmapLinearFilter; t.generateMipmaps = true; t.anisotropy = aniso; t.needsUpdate = true;
+    t.onUpdate = () => { t.image = { width: size, height: size, depth: GROUND_LAYERS.length, data: null }; t.onUpdate = null; };   // (the GPU has it now: don't keep a second copy in memory)
+    return t;
+  };
+  const map = await read('_c.webp', 1024); map.colorSpace = THREE.SRGBColorSpace;
+  const normal = await read('_n.webp', 512);
+  GROUND = { map, normal, means: GROUND_LAYERS.map(k => new THREE.Vector3(...SURF[k].mean)), tiles: GROUND_LAYERS.map(k => SURF[k].tile) };
+  return GROUND;
+}
+export const groundTextures = () => GROUND;
 export const surfaceMeans = () => Object.fromEntries(Object.entries(SURF || {}).filter(([, v]) => v.mean).map(([k, v]) => [k, v.mean]));
 const cache = new Map();
 // { map, normalMap, roughnessMap, metalnessMap, aoMap } for a baked surface, tiled at its own size (or `metres`)

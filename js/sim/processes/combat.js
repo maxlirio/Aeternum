@@ -9,13 +9,8 @@ import { relationTo } from './life.js';
 
 export const HEAL = 70;                            // hp per planet day
 // weapon: damage per hit, reach (m), seconds between hits, ranged?
-export const WEAPONS = {
-  fists:   { name: 'Fists', dmg: 9, reach: 1.4, every: 0.55, ranged: false },
-  knife:   { name: 'Combat knife', dmg: 34, reach: 1.6, every: 0.5, ranged: false },
-  baton:   { name: 'Shock baton', dmg: 24, reach: 1.9, every: 0.7, ranged: false, stun: 8 },
-  pistol:  { name: 'Slug pistol', dmg: 46, reach: 60, every: 0.35, ranged: true, spread: 0.012 },
-  carbine: { name: 'Pulse carbine', dmg: 62, reach: 140, every: 0.12, ranged: true, spread: 0.02 },
-};
+import { ARMS } from '../../gen/weapons.js';
+export const WEAPONS = { fists: { name: 'Fists', dmg: 9, reach: 1.4, every: 0.55, ranged: false }, ...ARMS };
 export const hurtKey = id => `hurt/${id}`;
 export function healthOf(store, planet, id, t) {
   const h = store.getDelta(hurtKey(id));

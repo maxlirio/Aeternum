@@ -6,44 +6,85 @@ import * as THREE from 'three';
 import { CHUNK, MAX_LOD } from '../core/units.js';
 import { chunkData } from '../gen/chunk.js';
 import { texture } from './textures.js';
-import { baked, surfaceMeans } from './materials.js';
+import { groundTextures } from './materials.js';
+import { prevailing } from '../gen/land.js';
 
 const VIEW = 16000, SPLIT = 1.7;
 
+export const terrainWind = { value: new THREE.Vector2(0, 0) };   // today's wind (main.js)
 export const terrainTime = { value: 0 };    // advanced by main.js (shoreline wash)
 function terrainMaterial(planet) {
-  // Baked ground surfaces (grass, dry ground, rock) used as detail over the planet's own
-  // ground colour (vertex colours from gen/chunk.js): each texture is divided by its mean
-  // albedo, so a red-grass world keeps red grass. Grass vs dry follows how green the
-  // ground colour is; rock takes over on steep slopes, projected from three sides.
-  const G = baked('grass'), D = baked('dirt'), R = baked('rock'), means = surfaceMeans();
-  if (!G || !D || !R || !means.grass) return proceduralTerrainMaterial();
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, map: G.map, normalMap: G.normalMap, roughness: 0.95, metalness: 0 });
+  // The ground surfaces (grass, sand, cracked salt, ash, rocks...) as detail over the land's own colour
+  // (vertex colours from gen/chunk.js): each is divided by its mean albedo, so a red-grass world keeps red
+  // grass. Weights per vertex say how much of each lies there. Soft ground is laid from above; rock is
+  // projected from three sides, so a cliff doesn't smear.
+  const T = groundTextures();
+  if (!T) return proceduralTerrainMaterial();
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.normalScale.set(0.8, 0.8);
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tDirt: { value: D.map }, tRock: { value: R.map }, tRockN: { value: R.normalMap },
-      mGrass: { value: new THREE.Vector3(...means.grass) }, mDirt: { value: new THREE.Vector3(...means.dirt) }, mRock: { value: new THREE.Vector3(...means.rock) }, uSea: { value: planet.seaLevel }, uTime: terrainTime });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; varying vec3 vWN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position; vWN = normal;');
+    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
+      attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR;
+      varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position; vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      uniform sampler2D tDirt; uniform sampler2D tRock; uniform sampler2D tRockN; uniform vec3 mGrass; uniform vec3 mDirt; uniform vec3 mRock; uniform float uSea; uniform float uTime;
-      varying vec3 vWP; varying vec3 vWN;`)
+      uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform vec2 uPrev; uniform vec3 uCanopy;
+      varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
+      .replace('#include <normal_fragment_maps>', '')
+      .replace('#include <normalmap_pars_fragment>', 'uniform vec2 normalScale;')
       .replace('#include <map_fragment>', `
       vec3 wn = normalize(vWN);
-      float rockW = 1.0 - smoothstep(0.6, 0.84, wn.y);
-      float green = clamp((vColor.g - max(vColor.r, vColor.b)) * 9.0 + 0.45, 0.0, 1.0);
-      vec2 top = vWP.xz;
-      vec3 gr = texture2D(map, top / 3.0).rgb / mGrass, dr = texture2D(tDirt, top / 3.0).rgb / mDirt;
-      vec3 gr2 = texture2D(map, top / 31.0 + 0.37).rgb / mGrass, dr2 = texture2D(tDirt, top / 29.0 + 0.61).rgb / mDirt;   // a coarser pass breaks up the tiling
+      float W[16] = float[16](vS0.x, vS0.y, vS0.z, vS0.w, vS1.x, vS1.y, vS1.z, vS1.w, vS2.x, vS2.y, vS2.z, vS2.w, vR.x, vR.y, vR.z, vR.w);
+      float rockW = vS2.w + vR.x + vR.y + vR.z + vR.w;
+      vec2 top = vWP.xz, dTx = dFdx(top), dTy = dFdy(top), sd = vWP.zy, dSx = dFdx(sd), dSy = dFdy(sd), fr = vWP.xy, dFx = dFdx(fr), dFy = dFdy(fr);
       vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
-      vec3 rk = ((texture2D(tRock, vWP.zy / 13.0).rgb + texture2D(tRock, vWP.zy / 47.0 + 0.3).rgb) * bw.x + (texture2D(tRock, vWP.xz / 13.0).rgb + texture2D(tRock, vWP.xz / 47.0 + 0.3).rgb) * bw.y
-        + (texture2D(tRock, vWP.xy / 13.0).rgb + texture2D(tRock, vWP.xy / 47.0 + 0.3).rgb) * bw.z) * 0.5 / mRock;
-      vec3 soft = mix(dr * 0.6 + dr2 * 0.4, gr * 0.6 + gr2 * 0.4, green);
-      vec3 detail = mix(soft, rk, rockW);
+      vec3 detail = vec3(0.0), nAcc = vec3(0.0);
+      float near = clamp(1.0 - vViewPosition.z / 300.0, 0.0, 1.0);
+      for (int i = 0; i < 16; i++) {
+        float w = W[i]; if (w < 0.012) continue;
+        float t = uTile[i], fi = float(i);
+        if (i < 11) {     // laid from above, a coarser pass breaking up the tiling
+          float t2 = t * 9.7;
+          vec2 p = top, px = dTx, py = dTy;
+          if (i == 3) {   // sand: ripples lie square across the prevailing wind
+            mat2 Rw = mat2(uPrev.y, uPrev.x, -uPrev.x, uPrev.y); p = Rw * top; px = Rw * dTx; py = Rw * dTy;
+          }
+          vec3 a = textureGrad(tG, vec3(p / t, fi), px / t, py / t).rgb, b = textureGrad(tG, vec3(p / t2 + 0.37, fi), px / t2, py / t2).rgb;
+          vec3 lay = (a * 0.6 + b * 0.4) / uMean[i], layN = near > 0.0 ? textureGrad(tGN, vec3(p / t, fi), px / t, py / t).xyz : vec3(0.5, 0.5, 1.0);
+          if (i == 3) {   // a slip face has just avalanched: smooth, no ripples on it
+            float slip = smoothstep(0.93, 0.85, wn.y); lay = mix(lay, vec3(1.0), slip); layN = mix(layN, vec3(0.5, 0.5, 1.0), slip);
+          }
+          detail += w * lay;
+          if (near > 0.0) nAcc += w * layN;
+        } else {          // rock, from three sides at two scales
+          float t2 = t * 3.6;
+          vec3 c = vec3(0.0);
+          float kf = clamp(1.0 - vViewPosition.z / 220.0, 0.12, 1.0), kc = 2.0 - kf;
+          if (bw.x > 0.02) c += bw.x * (kf * textureGrad(tG, vec3(sd / t, fi), dSx / t, dSy / t).rgb + kc * textureGrad(tG, vec3(sd / t2 + 0.3, fi), dSx / t2, dSy / t2).rgb);
+          if (bw.y > 0.02) c += bw.y * (kf * textureGrad(tG, vec3(top / t, fi), dTx / t, dTy / t).rgb + kc * textureGrad(tG, vec3(top / t2 + 0.3, fi), dTx / t2, dTy / t2).rgb);
+          if (bw.z > 0.02) c += bw.z * (kf * textureGrad(tG, vec3(fr / t, fi), dFx / t, dFy / t).rgb + kc * textureGrad(tG, vec3(fr / t2 + 0.3, fi), dFx / t2, dFy / t2).rgb);
+          // (further off, lean on the coarse pass: the fine one starts to show its tile)
+          detail += w * c * 0.5 / uMean[i];
+          if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * textureGrad(tGN, q, qx / t, qy / t).xyz; }
+        }
+      }
       float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
-      diffuseColor.rgb *= 0.55 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // real ground is dark: grass and soil reflect 10–25%   // (0.8: the old detail texture's mean, which the palette was tuned under)
-      // where grass grows (not rock, above the shore) the ground reads as the sward seen from afar: darker, a touch more saturated
-      float sward = (1.0 - rockW) * smoothstep(0.6, 2.0, vWP.y - uSea);
+      diffuseColor.rgb *= 0.55 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // real ground is dark: grass and soil reflect 10–25%
+      // sandstone shows its beds from a long way off: pale and red bands that wander a little with the land
+      if (W[12] > 0.01) {
+        float tilt = vWP.x * 0.018 + vWP.z * 0.011, y = vWP.y + 2.5 * sin(tilt) + 5.0 * sin(vWP.x * 0.0031 - vWP.z * 0.0043);
+        float thick = sin(y * 0.083 + 1.7 * sin(y * 0.021)), thin = sin(y * 0.47 + 2.3 * sin(y * 0.11)), fine = sin(y * 1.9 + 3.1 * sin(y * 0.37));
+        float b = 0.5 + 0.34 * smoothstep(-0.35, 0.35, thick) - 0.17 + 0.2 * thin * smoothstep(-0.8, 0.8, thick) + 0.07 * fine;   // thick beds, thin ones among them
+        vec3 bed = mix(vec3(0.62, 0.52, 0.5), vec3(1.42, 1.34, 1.2), clamp(b, 0.0, 1.0));
+        diffuseColor.rgb *= mix(vec3(1.0), bed, W[12]);
+      }
+      // a forest from a distance is its canopy, not its floor
+      if (W[2] > 0.01) diffuseColor.rgb = mix(diffuseColor.rgb, uCanopy * (0.75 + 0.5 * detail.g * 0.5), W[2] * smoothstep(70.0, 230.0, vViewPosition.z));
+      // when it blows, sand runs over the ground in long streaks
+      if (W[3] > 0.02) { float ws = length(uWind), run = smoothstep(4.0, 11.0, ws); if (run > 0.0 && vViewPosition.z < 260.0) { vec2 wd = uWind / max(ws, 0.1), wp = vec2(dot(top, wd), dot(top, vec2(-wd.y, wd.x))); float st = textureGrad(tG, vec3(vec2(wp.x * 0.018 - uTime * ws * 0.045, wp.y * 0.22), 3.0), dTx * 0.1, dTy * 0.1).r / uMean[3].r; st *= textureGrad(tG, vec3(vec2(wp.x * 0.041 - uTime * ws * 0.07, wp.y * 0.09), 3.0), dTx * 0.1, dTy * 0.1).r / uMean[3].r; diffuseColor.rgb *= 1.0 + W[3] * run * smoothstep(1.15, 1.9, st) * 0.45 * clamp(1.0 - vViewPosition.z / 260.0, 0.0, 1.0); } }
+      // where grass grows the ground reads as the sward seen from afar: darker, a touch more saturated
+      float sward = (W[0] + 0.7 * W[5]) * smoothstep(0.6, 2.0, vWP.y - uSea);
       vec3 swardCol = diffuseColor.rgb * vec3(0.62, 0.66, 0.5);
       diffuseColor.rgb = mix(diffuseColor.rgb, swardCol, sward * 0.85);
       // the shoreline: ground darkens as it gets wet near the water, and a line of foam washes up and back
@@ -53,14 +94,19 @@ function terrainMaterial(planet) {
       float uw = max(0.0, -above);
       diffuseColor.rgb *= exp(-uw * vec3(0.9, 0.38, 0.3));
       float wash = 0.35 + 0.25 * sin(uTime * 0.7 + vWP.x * 0.05 + vWP.z * 0.04);
-      float foam = smoothstep(0.18, 0.0, abs(above - wash + 0.15)) * smoothstep(0.35, 0.75, texture2D(tDirt, vWP.xz / 1.7 + uTime * 0.01).r * 1.6);
+      float foam = smoothstep(0.18, 0.0, abs(above - wash + 0.15)) * smoothstep(0.35, 0.75, textureGrad(tG, vec3(vWP.xz / 1.7 + uTime * 0.01, 1.0), dTx / 1.7, dTy / 1.7).r * 1.6);
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 0.96), foam * 0.85);
       `)
-      .replace('#include <normal_fragment_maps>', `
-      vec3 mapN = mix(texture2D(normalMap, vWP.xz / 3.0).xyz, texture2D(tRockN, vWP.xz / 8.0).xyz, rockW) * 2.0 - 1.0;
-      mapN.xy *= normalScale * clamp(1.0 - vViewPosition.z / 300.0, 0.0, 1.0);
-      normal = normalize(tbn * mapN);
-      `);
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+      // peat holds water: its dark hollows shine. Salt and snow are a little smoother than soil.
+      if (W[6] > 0.02) { float dk = 1.0 - smoothstep(0.18, 0.42, textureGrad(tG, vec3(top / uTile[6], 6.0), dTx / uTile[6], dTy / uTile[6]).r / uMean[6].r); roughnessFactor = mix(roughnessFactor, mix(0.92, 0.1, dk), W[6]); }
+      roughnessFactor = mix(roughnessFactor, 0.72, W[10] + 0.4 * W[4]);`)
+      .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+      if (near > 0.0) {   // tangent frame from the world: x along east, z along south, y the surface's own normal
+        vec3 mapN = nAcc * 2.0 - 1.0; mapN.xy *= normalScale * near;
+        vec3 Tn = normalize(cross(vec3(0.0, 0.0, 1.0), wn) + vec3(1e-4, 0.0, 0.0)), Bn = normalize(cross(wn, Tn));
+        normal = normalize(normalMatrix * (Tn * mapN.x + Bn * mapN.y + wn * max(mapN.z, 0.05)));
+      }`);
   };
   return m;
 }
@@ -149,6 +195,8 @@ export class TerrainStreamer {
     g.setAttribute('color', new THREE.BufferAttribute(d.col, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
     g.setIndex(new THREE.BufferAttribute(d.idx, 1));
+    const ib = new THREE.InterleavedBuffer(d.ground, 16);
+    g.setAttribute('aS0', new THREE.InterleavedBufferAttribute(ib, 4, 0, true)); g.setAttribute('aS1', new THREE.InterleavedBufferAttribute(ib, 4, 4, true)); g.setAttribute('aS2', new THREE.InterleavedBufferAttribute(ib, 4, 8, true)); g.setAttribute('aR', new THREE.InterleavedBufferAttribute(ib, 4, 12, true));
     g.boundingBox = new THREE.Box3(new THREE.Vector3(0, d.minH - 40, 0), new THREE.Vector3(d.size, d.maxH, d.size));
     g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
     const mesh = new THREE.Mesh(g, this.material);

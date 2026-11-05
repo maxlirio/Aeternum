@@ -1,8 +1,10 @@
 // Raw planetary terrain: a pure function height(x, z) in metres on the surface patch.
 // "Raw" means before settlements grade the land (see gen/surface.js).
 import { clamp, smoothstep } from '../core/noise.js';
+import { shapeLand, setLandBase } from './land.js';
 
-export function rawHeight(planet, x, z) {
+// The bare continental shape: sea, ranges and rolling hills, before the kinds of land work on it.
+export function baseHeight(planet, x, z) {
   const N = planet.noise;
   // Domain warp gives the continents and ranges non-grid, flowing shapes.
   const wx = x + 900 * N.warp.fbm(x / 6000, z / 6000, 3);
@@ -21,6 +23,9 @@ export function rawHeight(planet, x, z) {
   if (h > 180) { const t = (h - 180) / 45, f = t - Math.floor(t); h += 45 * 0.18 * (smoothstep(0.35, 0.65, f) - f); }
   return h;
 }
+setLandBase(baseHeight);
+
+export const rawHeight = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));
 
 export function moisture(planet, x, z) {
   return clamp(0.5 + 0.5 * planet.noise.moist.fbm(x / 5000, z / 5000, 4) + planet.climate.moistBias, 0, 1);

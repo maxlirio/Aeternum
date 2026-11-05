@@ -5,7 +5,7 @@
 // until you change something. Each item: { k (kit name), x, y, z, rot, r (solid radius, or 0) }.
 import { Rng } from '../core/prng.js';
 import { derive, hash01 } from '../core/hash.js';
-import { surfaceAt } from './surface.js';
+import { surfaceAt, bareSurfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { cultureOf } from './culture.js';
 import { designOf, footOf } from './designs.js';
@@ -206,21 +206,52 @@ function overlaps(a, b, m = 0.6) {
   }
   return true;
 }
+// Which kind of place stands in a tile, read off the land as it is before anyone levels it: consumes the same
+// numbers from rng every time, so sitesInTile can carry on with the same rng and get the same place.
+const GRADED = { airfield: [185, 150], base: [112, 90], factory: [96, 80] };     // levelled ground: radius, and how far it eases back into the land
+function siteHead(planet, ti, tj, rng) {
+  if (rng.next() >= 0.5) return null;     // about every other 900 m square has someone in it
+  const x = (ti + rng.range(0.15, 0.85)) * TILE, z = (tj + rng.range(0.15, 0.85)) * TILE, S = bareSurfaceAt(planet, x, z);
+  if (!(S.town < 0.01 && S.h > planet.seaLevel + 2 && !S.road && !(S.wet > 0.05))) return null;
+  // what's the land like here?
+  const q0 = (dx, dz) => bareSurfaceAt(planet, x + dx, z + dz), h = (dx, dz) => q0(dx, dz).h, d = Math.max(Math.abs(h(30, 0) - S.h), Math.abs(h(-30, 0) - S.h), Math.abs(h(0, 30) - S.h), Math.abs(h(0, -30) - S.h));
+  let shore = 0, shoreDir = null; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) { shore = 1; shoreDir = k * 0.785; }
+  let river = 0, riverDir = null; for (const q of [40, 90, 140]) for (let k = 0; k < 8 && !river; k++) if (q0(Math.cos(k * 0.785) * q, Math.sin(k * 0.785) * q).wet > 0.5) { river = 1; riverDir = k * 0.785; }
+  let road = 0; for (let k = 0; k < 8 && !road; k++) if (q0(Math.cos(k * 0.785) * 40, Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
+  let d80 = 0; for (let k = 0; k < 8; k++) d80 = Math.max(d80, Math.abs(h(Math.cos(k * 0.785) * 80, Math.sin(k * 0.785) * 80) - S.h));
+  // somewhere that gets levelled wants open dry ground all round it: it can't level a river, a town, or the shore
+  let room = 1, spread = 0, sum = S.h, n = 1; for (const r of [70, 140, 210, 290]) for (let k = 0; k < 8; k++) { const q = q0(Math.cos(k * 0.785) * r, Math.sin(k * 0.785) * r); if (r < 290) { sum += q.h; n++; spread = Math.max(spread, Math.abs(q.h - S.h)); } if (q.wet > 0.02 || q.town > 0.01 || q.h < planet.seaLevel + 3) room = 0; }
+  const land = { river, plain: !room ? 0 : spread < 22 ? 1 : spread < 45 ? 0.4 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
+  const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), rot0 = rng.range(0, 6.28), G = GRADED[pick];
+  return { x, z, S, pick, rot0, shoreDir, riverDir, land, pad: G ? { x, z, h: sum / n, R: G[0], F: G[1] } : null };
+}
+// Levelled ground near (x, z): { h, w } or null. Called for every point of ground anywhere, so it's kept cheap.
+const pads = new WeakMap();
+function padOfTile(planet, ti, tj) {
+  let M = pads.get(planet); if (!M) pads.set(planet, M = new Map());
+  const k = ti * 100003 + tj; let p = M.get(k);
+  if (p === undefined) { if (M.size > 6000) M.clear(); M.set(k, null); p = siteHead(planet, ti, tj, new Rng(derive(planet.seed, 'outposts', [ti, tj])))?.pad || null; M.set(k, p); }
+  return p;
+}
+export function padAt(planet, x, z) {
+  const ti = Math.floor(x / TILE), tj = Math.floor(z / TILE); let best = null;
+  for (let a = ti - 1; a <= ti + 1; a++) for (let b = tj - 1; b <= tj + 1; b++) {
+    const p = padOfTile(planet, a, b); if (!p) continue;
+    const dx = x - p.x, dz = z - p.z, R = p.R + p.F, d2 = dx * dx + dz * dz; if (d2 >= R * R) continue;
+    const e = (R - Math.sqrt(d2)) / p.F, t = e >= 1 ? 1 : e * e * (3 - 2 * e);
+    if (!best || t > best.w) best = { h: p.h, w: t };
+  }
+  return best;
+}
+
 const cache = new Map();
 export function sitesInTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck); if (cache.size > 400) cache.clear();
-  const out = [], rng = new Rng(derive(planet.seed, 'outposts', [ti, tj])), cul = cultureOf(planet);
-  if (rng.next() < 0.5) {     // about every other 900 m square has someone in it
-    const x = (ti + rng.range(0.15, 0.85)) * TILE, z = (tj + rng.range(0.15, 0.85)) * TILE, S = surfaceAt(planet, x, z);
-    if (S.town < 0.01 && S.h > planet.seaLevel + 2 && !S.road && !(S.wet > 0.05)) {
-      // what's the land like here?
-      const h = (dx, dz) => surfaceAt(planet, x + dx, z + dz).h, d = Math.max(Math.abs(h(30, 0) - S.h), Math.abs(h(-30, 0) - S.h), Math.abs(h(0, 30) - S.h), Math.abs(h(0, -30) - S.h));
-      let shore = 0, shoreDir = null; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) { shore = 1; shoreDir = k * 0.785; }
-      let river = 0, riverDir = null; for (const q of [40, 90, 140]) for (let k = 0; k < 8 && !river; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * q, z + Math.sin(k * 0.785) * q).wet > 0.5) { river = 1; riverDir = k * 0.785; }
-      let road = 0; for (let k = 0; k < 8 && !road; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * 40, z + Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
-      let d80 = 0; for (let k = 0; k < 8; k++) d80 = Math.max(d80, Math.abs(h(Math.cos(k * 0.785) * 80, Math.sin(k * 0.785) * 80) - S.h));
-      const land = { river, plain: d80 < 7 ? 1 : d80 < 14 ? 0.25 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
-      const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), K = KINDS[pick], rot0 = rng.range(0, 6.28), items = [];
+  const out = [], rng = new Rng(derive(planet.seed, 'outposts', [ti, tj])), cul = cultureOf(planet), head = siteHead(planet, ti, tj, rng);
+  if (head) {
+    const { x, z, pick, rot0, shoreDir, riverDir } = head, S = surfaceAt(planet, x, z), K = KINDS[pick], items = [];
+    {
+      const h = (dx, dz) => surfaceAt(planet, x + dx, z + dz).h;
       const fields = [];
       // one thing placed: a family becomes this planet's version of it, with its own footing and walls; on land, or over water if it says so
       const place = (k0, px, pz, rot, opt = {}) => {

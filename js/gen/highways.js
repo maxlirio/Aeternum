@@ -93,6 +93,15 @@ function route(planet, s, o, idx, earlier) {
   // round off the kinks the clamp leaves (vertical curves), then clamp once more
   for (let pass = 0; pass < 3; pass++) prof = prof.map((v, i) => i <= leadN || i >= prof.length - 1 ? v : (prof[i - 1] + 2 * v + prof[i + 1]) / 4);
   for (let i = leadN + 1; i < prof.length; i++) prof[i] = Math.max(prof[i - 1] - dh, Math.min(prof[i - 1] + dh, prof[i]));
+  // where it crosses a road already there, the two have to be at one height: meet it, and ease back to the grade either side
+  // and one that comes up beside it too far above or below to ever meet it stops short: nobody builds that
+  for (let i = leadN + 1, cut = false; i < pts.length && !cut; i++) for (const e of earlier) { const q = nearRoute(e, pts[i][0], pts[i][1]); if (q && q.d < e.w / 2 + 18 && Math.abs(q.h - s.h) > dh * (i - leadN)) { const end = Math.max(leadN + 2, i - 28); pts.length = end; prof.length = end; cut = true; break; } }
+  const pin = new Map(); for (const e of earlier) for (let i = leadN + 1; i < pts.length; i++) { const q = nearRoute(e, pts[i][0], pts[i][1]); if (q && q.d < e.w / 2 + 18 && Math.abs(q.h - s.h) <= dh * (i - leadN)) pin.set(i, q.h); }
+  if (pin.size) { for (let pass = 0; pass < 6; pass++) {
+    for (const [i, v] of pin) prof[i] = v;
+    for (let i = leadN + 1; i < prof.length; i++) if (!pin.has(i)) prof[i] = Math.max(prof[i - 1] - dh, Math.min(prof[i - 1] + dh, prof[i]));
+    for (let i = prof.length - 2; i > leadN; i--) if (!pin.has(i)) prof[i] = Math.max(prof[i + 1] - dh, Math.min(prof[i + 1] + dh, prof[i]));
+  } }
   // spatial index of segments, for "nearest road point" from the ground function
   const B = 32, grid = new Map();
   for (let i = 0; i < pts.length - 1; i++) {

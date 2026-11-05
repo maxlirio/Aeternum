@@ -15,8 +15,8 @@ const TASTE = {
   masonry: { wall: { limestone: 3, rock: 2, brick: 5, render: 1 }, roof: { slate: 5, rooftile: 3, thatch: 1 }, shape: { gable: 6, hip: 2 }, pitch: [0.55, 0.95], storey: [2.6, 3.0], floors: [1, 1, 2], trim: ['plank', 'limestone'] },
   corporate: { wall: { hull: 4, render: 3, concrete: 2 }, roof: { hull: 4, concrete: 3, corrugated: 1 }, shape: { flat: 4, vault: 4, gable: 1 }, pitch: [0.06, 0.2], storey: [2.7, 3.1], floors: [1, 2], trim: ['metal', 'rubber'] },
   brutalist: { wall: { concrete: 7, brick: 2 }, roof: { concrete: 6, corrugated: 2 }, shape: { flat: 8, gable: 1 }, pitch: [0.15, 0.3], storey: [2.7, 3.0], floors: [1, 2, 2], trim: ['metal'] },
-  garden: { wall: { render: 6, plank: 3, rock: 1 }, roof: { rooftile: 5, thatch: 3 }, shape: { hip: 4, gable: 4 }, pitch: [0.3, 0.7], storey: [2.7, 3.2], floors: [1, 1, 2], trim: ['paint', 'plank'] },
-  foundry: { wall: { corrugated: 5, brick: 4, concrete: 1 }, roof: { corrugated: 6, slate: 2 }, shape: { gable: 7, flat: 1 }, pitch: [0.2, 0.5], storey: [2.6, 2.9], floors: [1, 1, 2], trim: ['metal', 'limestone'] },
+  garden: { wall: { render: 4, plank: 3, rock: 1, adobe: 4 }, roof: { rooftile: 5, thatch: 3 }, shape: { hip: 4, gable: 4 }, pitch: [0.3, 0.7], storey: [2.7, 3.2], floors: [1, 1, 2], trim: ['paint', 'plank'] },
+  foundry: { wall: { corrugated: 5, brick: 4, concrete: 1, rust: 2 }, roof: { corrugated: 6, slate: 2, rust: 3 }, shape: { gable: 7, flat: 1 }, pitch: [0.2, 0.5], storey: [2.6, 2.9], floors: [1, 1, 2], trim: ['metal', 'limestone'] },
   neon: { wall: { corrugated: 4, concrete: 4, hull: 2 }, roof: { corrugated: 4, concrete: 3 }, shape: { flat: 5, gable: 3 }, pitch: [0.14, 0.3], storey: [2.5, 2.8], floors: [1, 2, 3], trim: ['metal', 'paint'] },
 };
 const OPEN = null, DAY = [8, 18];
