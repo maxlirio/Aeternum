@@ -130,6 +130,11 @@ export class CollisionWorld {
         if (top > yFeet + STEP || top <= best) continue;
         if (lx >= pr[0] && lx <= pr[2] && lz >= pr[1] && lz <= pr[3]) { best = top; where = { b, k: Math.max(0, Math.min(plan.F - 1, Math.floor(pr[4] / plan.H))), prop: true }; }
       }
+      if (plan.roofSlopes) for (const r of plan.roofSlopes) {     // a pitched roof, as your feet find it
+        if (lx < r.x0 || lx > r.x1 || lz < r.z0 || lz > r.z1) continue;
+        const h = this.baseOf(b) + (r.a === 'x' ? r.y0 + (r.y1 - r.y0) * (lx - r.x0) / (r.x1 - r.x0) : r.y0 + (r.y1 - r.y0) * (lz - r.z0) / (r.z1 - r.z0));
+        if (h <= yFeet + STEP && h > best) { best = h; where = { b, k: plan.F - 1, roof: true }; }
+      }
       for (const r of plan.ramps) {
         if (lx < r.x0 || lx > r.x1 || lz < r.z0 || lz > r.z1) continue;
         const h = this.baseOf(b) + r.y0 + (r.y1 - r.y0) * (lz - r.z0) / (r.z1 - r.z0);

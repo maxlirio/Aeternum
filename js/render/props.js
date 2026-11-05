@@ -92,7 +92,11 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
   }
   // a material as the street kit wears it, for models built at run time (render/housegen.js)
   const wornSurface = (slot, tinted) => { const base = surface(tinted ? 'tint-paint' : slot), key = base.name + (tinted || ''); if (slot === 'visor' || slot === 'glass') return base; return worn.get(key) || worn.set(key, weather(base.clone(), { dirt: 0.75, rust: ['metal', 'corrugated'].includes(slot) || tinted === 'muted' ? 0.55 : 0 })).get(key); };
-  return { variants, surface, wornSurface, cityKit, cityPart: k => cityKit.get(k) || null };
+  // this planet's materials: its own stone, clay and timber (gen/culture.js localTones), on everything worn from here on and already
+  let tones = null; const toneOf = m => { const t = tones?.[m.userData.slot]; if (t) m.color.setRGB(t[0], t[1], t[2]); return m; };
+  const setLocal = t => { tones = t; for (const [k, m] of worn) { m.userData.slot = m.userData.slot || k; toneOf(m); } };
+  const wornSurface0 = wornSurface;
+  return { setLocal, variants, surface, wornSurface: (slot, tinted) => { const m = wornSurface0(slot, tinted); if (!tinted && slot !== 'visor' && slot !== 'glass') { m.userData.slot = slot; toneOf(m); } return m; }, cityKit, cityPart: k => cityKit.get(k) || null };
 }
 
 const key = (kind, a, b, c) => `${kind}_${+a.toFixed(2)}x${+b.toFixed(2)}x${+c.toFixed(2)}`;

@@ -1268,6 +1268,17 @@ suites.walkin = async () => {
       it.live = false;
     });
   }
+  { const p = makePlanet(uni(2), HOMEWORLD), { villageOf, siteWalkers } = await import('../js/gen/villagers.js'), { itemPlan, designById, keeperOf } = await import('../js/gen/housegen.js'), { solarHour } = await import('../js/sim/clock.js'), { localTones } = await import('../js/gen/culture.js');
+    let vill = null; for (let i = -14; i <= 14 && !vill; i++) for (let j = -14; j <= 14 && !vill; j++) for (const S of sitesInTile(p, i, j)) if (S.kind === 'village' || S.kind === 'township') { const V = villageOf(p, S); if (V.keepers.length) { vill = V; break; } }
+    check(vill?.keepers.length > 0, `someone minds the shops (${vill?.keepers.length}: ${[...new Set(vill?.keepers.map(k => k.what))].join(', ')})`);
+    const sp = vill.keepers.find(k => k); let inRoom = 0, K = 0; for (const it of vill.site.items) { if (!/^gb_(?!step)/.test(it.k)) continue; const D = designById(p, it.k), q = keeperOf(p, D, it); if (!q) continue; K++; const c = Math.cos(it.rot), s = Math.sin(it.rot), dx = q.x - it.x, dz = q.z - it.z, lx = dx * c - dz * s + D.w / 2, lz = dx * s + dz * c + D.d / 2, pl = itemPlan(p, D, it); if (pl.rooms.some(r => r.k === 0 && lx > r.rect[0] && lx < r.rect[2] && lz > r.rect[1] && lz < r.rect[3]) && !pl.props.some(o => o.k === 0 && !o.soft && lx > o.x0 && lx < o.x1 && lz > o.z0 && lz < o.z1)) inRoom++; }
+    check(inRoom === K, `each stands in a room, clear of the furniture (${inRoom}/${K})`);
+    const gb = vill.site.items.filter(i => /^gb_cottage/.test(i.k)), pair = gb.find(a => gb.some(b => b !== a && b.k === a.k));
+    if (pair) { const b = gb.find(o => o !== pair && o.k === pair.k), D = designById(p, pair.k); check(JSON.stringify(itemPlan(p, D, pair).props) !== JSON.stringify(itemPlan(p, D, b).props) && JSON.stringify(itemPlan(p, D, pair).rooms) === JSON.stringify(itemPlan(p, D, b).rooms), 'two copies of a design have the same rooms and different furniture'); }
+    const lk = new Set([1, 2, 3, 4, 5, 6].map(n => JSON.stringify(localTones(makePlanet(uni(n), HOMEWORLD))))); check(lk.size >= 5, `planets build with their own materials (${lk.size} of 6 differ)`);
+  }
+  { const p = makePlanet(uni(3), HOMEWORLD), s = getSettlement(p, 0, 0); let on = 0, tot = 0; for (let i = -14; i <= 14 && tot < 40; i++) for (let j = -14; j <= 14 && tot < 40; j++) for (const S of sitesInTile(p, i, j)) S.items.forEach((it, idx) => { if (!/^gb_(?!step)/.test(it.k) || tot >= 40) return; const rec = siteReal(p, s, S, it, idx), w = new CollisionWorld(p, s, () => true); w.flora = false; w.addStructure(rec); const D = rec.design; if (D.shape === 'flat') return; tot++; const [x, z] = [it.x, it.z], h = w.groundAt(x, z, it.y + D.h + 30).h; if (h > it.y + D.h + 0.2) on++; });
+    check(tot > 0 ? on === tot : true, `a pitched roof is pitched under your feet (${on}/${tot})`); }
   console.log(`    ${tried} buildings of ${fams.size} kinds, ${steps} with steps; ${inOK} walked into, ${shutOK} stopped by a shut door`);
   check(fams.size >= 10, `villages have most kinds of building (${[...fams].join(' ')})`);
   check(!poke, `no ground comes up through a floor (${poke})`);

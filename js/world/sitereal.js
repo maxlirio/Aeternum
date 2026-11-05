@@ -5,7 +5,7 @@
 import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
 import { personName, companyName } from '../gen/names.js';
-import { designById, designPlan } from '../gen/housegen.js';
+import { designById, itemPlan } from '../gen/housegen.js';
 
 const LABEL = { cottage: 'House', hut: 'Hut', longhouse: 'Longhouse', shop: 'Shop', inn: 'Inn', tenement: 'Tenement', hall: 'Hall', school: 'School', clinic: 'Clinic', temple: 'Temple', smithy: 'Smithy', garage: 'Garage', warehouse: 'Warehouse', stable: 'Stable' };
 
@@ -23,7 +23,7 @@ export function siteReal(planet, s, site, it, i) {
   const rec = {
     key: `site:${+ti},${+tj}/building:${i}`, n: -1, country: true, type: D.type, O, ex, ez, w: D.w, d: D.d, floors: D.floors, storeyH: D.storey, footing: true, design: D, item: it, site, worldO: [wx, wz],
     rect: [Math.min(...corners.map(q => q[0])), Math.min(...corners.map(q => q[1])), Math.max(...corners.map(q => q[0])), Math.max(...corners.map(q => q[1]))],
-    access: D.access || 'open', hours: D.hours, owner: commerce || D.fam === 'warehouse' ? (rng.chance(0.5) ? companyName(rng) : personName(rng)) : D.access ? personName(rng) : site.label, label: LABEL[D.fam] || 'Building', base: it.y, plan: designPlan(planet, D),
+    access: D.access || 'open', hours: D.hours, owner: commerce || D.fam === 'warehouse' ? (rng.chance(0.5) ? companyName(rng) : personName(rng)) : D.access ? personName(rng) : site.label, label: LABEL[D.fam] || 'Building', base: it.y, plan: itemPlan(planet, D, it),
   };
   it.real = rec;
   // the flight of steps up to the door is a little structure of its own, a slope for the feet

@@ -15,6 +15,15 @@ const WAYS = {
 };
 const HUES = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6], [0.5, 0.42, 0.3], [0.36, 0.1, 0.16], [0.62, 0.72, 0.5]];
 const cache = new WeakMap();
+// What the land gives them to build with: local stone from the planet's own rock, clay and timber of its own colour.
+// Multipliers on the shared textures, so a planet's walls and roofs have one character.
+const lt = new WeakMap();
+export function localTones(planet) {
+  if (lt.has(planet)) return lt.get(planet);
+  const r = new Rng(derive(planet.seed, 'local')), rock = planet.climate.rock, m = (rock[0] + rock[1] + rock[2]) / 3 || 1, stone = rock.map(v => 0.55 + 0.45 * Math.min(1.5, v / m)), clay = r.pick([[1.08, 0.94, 0.82], [1.12, 0.82, 0.72], [0.96, 0.9, 0.86], [1.05, 1, 0.8], [0.86, 0.8, 0.84]]), wood = r.pick([[1.1, 0.96, 0.8], [0.8, 0.72, 0.66], [1, 0.88, 0.8], [0.9, 0.92, 0.82], [1.15, 0.86, 0.72]]), wash = r.pick([[1, 1, 1], [1, 0.94, 0.84], [0.94, 0.97, 1], [1, 0.88, 0.82], [0.92, 0.98, 0.9], [0.98, 0.92, 0.96]]);
+  const out = { rock: stone, limestone: stone, stone, concrete: stone.map(v => (v + 1) / 2), brick: clay, rooftile: clay, plank: wood, wood, thatch: wood.map(v => (v + 1) / 2), render: wash, slate: stone.map(v => v * 0.92) };
+  lt.set(planet, out); return out;
+}
 export function cultureOf(planet) {
   if (cache.has(planet)) return cache.get(planet);
   const rng = new Rng(derive(planet.seed, 'culture')), key = rng.pick(Object.keys(WAYS)), w = WAYS[key], jit = (v, a) => v * rng.range(1 - a, 1 + a);

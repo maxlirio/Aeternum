@@ -63,6 +63,7 @@ import { HoldsView } from './render/holds.js';
 import { OutpostView } from './render/outposts.js';
 import { buildingParts } from './render/housegen.js';
 import { SiteInteriors } from './render/sitereal.js';
+import { localTones } from './gen/culture.js';
 import { Goods } from './render/goods.js';
 import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
@@ -189,6 +190,7 @@ async function start(fresh) {
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
+  propLib?.setLocal(localTones(planet));
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);

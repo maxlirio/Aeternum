@@ -7,7 +7,7 @@
 import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
 import { cultureOf } from './culture.js';
-import { buildingPlan } from './building.js';
+import { buildingPlan, refurnished } from './building.js';
 
 // [walls by weight, roofs by weight, roof shapes by weight, pitch range, storey range, floors, trim]
 const TASTE = {
@@ -35,6 +35,12 @@ export const FORMS = {
   smithy: { n: 2, type: 'workshop', w: [8.5, 13], d: [8, 11], floors: [1], storey: [3.6, 4.2], access: 'hours', hours: [7, 18], rooms: ['forge', 'storage'], roomArea: 80, bigDoor: [3, 2.8], extra: { flue: true } },
   garage: { n: 3, type: 'workshop', w: [10, 15], d: [9, 13], floors: [1], storey: [4.2, 4.8], access: 'hours', hours: [7, 18], roomArea: 130, bigDoor: [4.2, 3.4], extra: { fascia: true }, noThatch: true },
   warehouse: { n: 3, type: 'workshop', w: [18, 28], d: [14, 20], floors: [1], storey: [6.5, 8], access: 'staff', rooms: ['storage', 'office'], roomArea: 400, bigDoor: [5.5, 4.6], noThatch: true },
+  barn: { n: 3, type: 'workshop', w: [14, 22], d: [9, 13], floors: [1], storey: [4.6, 6], access: 'hours', hours: [6, 20], rooms: ['stalls', 'storage'], roomArea: 200, bigDoor: [3.6, 3.4], extra: { pitched: true }, pitch: [0.5, 0.9] },
+  shed: { n: 3, type: 'workshop', w: [3.8, 6], d: [3.4, 5], floors: [1], storey: [2.4, 2.8], access: 'residents', rooms: ['storage'], roomArea: 60 },
+  shelterhut: { n: 2, type: 'house', w: [5, 6.5], d: [4.6, 5.6], floors: [1], access: null, extra: { pitched: true }, pitch: [0.6, 1] },
+  pumphouse: { n: 2, type: 'workshop', w: [4.4, 6.5], d: [4, 5.5], floors: [1], storey: [2.7, 3.2], access: 'staff', rooms: ['forge'], roomArea: 60 },
+  sawmill: { n: 2, type: 'workshop', w: [16, 24], d: [9, 13], floors: [1], storey: [4.2, 5.2], access: 'hours', hours: [7, 18], rooms: ['shopfloor-workshop', 'storage'], roomArea: 180, bigDoor: [4, 3.4], extra: { flue: true } },
+  markethall: { n: 2, type: 'store', w: [18, 26], d: [12, 16], floors: [1], storey: [4.8, 6], access: null, rooms: ['shopfloor'], roomArea: 600, bigDoor: [3.4, 3.4], extra: { tallWindows: true, fascia: true }, noThatch: true },
   stable: { n: 2, type: 'workshop', w: [12, 18], d: [7, 9], floors: [1], storey: [3, 3.5], access: 'hours', hours: [6, 20], rooms: ['stalls'], roomArea: 200, bigDoor: [2.6, 2.6] },
 };
 const FAM_KEYS = Object.keys(FORMS);
@@ -55,7 +61,7 @@ export function designsFor(planet, fam) {
     out.push({
       id: `gb_${fam}_${i}`, fam, type: F.type, access: F.access, hours: F.hours || null, roomArea: F.roomArea || 0, rooms: F.rooms || null, bigDoor: F.bigDoor || null, ...x,
       w: +w.toFixed(2), d: +d.toFixed(2), floors, storey: +storey.toFixed(2), h: +(floors * storey).toFixed(2),
-      shape: x.ridgeZ ? 'gable' : shape, pitch: +r.range(...(F.pitch || T.pitch)).toFixed(2), over: +r.range(0.15, 0.55).toFixed(2), wall: r.weighted(entries(T.wall)), roof, trim: r.pick(T.trim), base: r.pick(['concrete', 'rock', 'limestone']),
+      shape: x.ridgeZ || x.pitched ? 'gable' : shape, pitch: +r.range(...(F.pitch || T.pitch)).toFixed(2), over: +r.range(0.15, 0.55).toFixed(2), wall: r.weighted(entries(T.wall)), roof, trim: r.pick(T.trim), base: r.pick(['concrete', 'rock', 'limestone']),
       winW: +r.range(0.8, tall ? 1.2 : 1.35).toFixed(2), winH: +(tall ? r.range(2, Math.max(2.1, storey - 1.6)) : r.range(1, 1.5)).toFixed(2), sill: +r.range(0.85, 1.1).toFixed(2), winGap: +r.range(2.2, 3.2).toFixed(2), mullions: r.int(0, 2),
       porch: !x.portico && !x.awning && r.chance(0.45), chimney: shape !== 'flat' && r.chance(0.7), chimneyAt: +r.range(-0.35, 0.35).toFixed(2), shutters: r.chance(0.3), band: floors > 1 && r.chance(0.6), corner: r.chance(0.3),
     });
@@ -68,6 +74,38 @@ export function designById(planet, id) { const [, fam, i] = id.split('_'); retur
 export const houseFoot = D => [D.w / 2, D.d / 2, D.h];
 // the same plan the walls and windows come from. Every copy of a design shares its layout
 export function designPlan(planet, D) {
+  if (D.plan_) return D.plan_;
   const key = `design:${planet.seed[0] >>> 0},${planet.seed[1] >>> 0},${FAM_KEYS.indexOf(D.fam)},${+D.id.split('_')[2]}`;
-  return buildingPlan(planet, null, { key, n: -1, type: D.type, w: D.w, d: D.d, floors: D.floors, storeyH: D.storey, access: D.access || 'open', hours: D.hours, design: D, roomArea: D.roomArea || undefined, roomKinds: D.rooms, bigDoor: D.bigDoor });
+  const pl = buildingPlan(planet, null, { key, n: -1, type: D.type, w: D.w, d: D.d, floors: D.floors, storeyH: D.storey, access: D.access || 'open', hours: D.hours, design: D, roomArea: D.roomArea || undefined, roomKinds: D.rooms, bigDoor: D.bigDoor });
+  pl.roofSlopes = roofSlopes(D);
+  Object.defineProperty(D, 'plan_', { value: pl, enumerable: false });
+  return pl;
+}
+// the roof as your feet find it: slopes in plan coordinates, across z or (a = 'x') across x
+function roofSlopes(D) {
+  if (D.shape === 'flat') return [];
+  const across = D.ridgeZ ? D.w : D.d, along = D.ridgeZ ? D.d : D.w, rise = across / 2 * D.pitch, n = D.shape === 'vault' ? 6 : 2, out = [];
+  for (let i = 0; i < n; i++) { const f0 = i / n, f1 = (i + 1) / n, y = f => D.shape === 'vault' ? D.h + 4 * rise * f * (1 - f) : D.h + rise * (1 - Math.abs(2 * f - 1));
+    out.push(D.ridgeZ ? { a: 'x', x0: f0 * across, x1: f1 * across, z0: 0, z1: along, y0: y(f0), y1: y(f1) } : { a: 'z', x0: 0, x1: along, z0: f0 * across, z1: f1 * across, y0: y(f0), y1: y(f1) }); }
+  return out;
+}
+// the design's rooms with this copy's own furniture in them, so two houses of a design aren't lived in alike
+export function itemPlan(planet, D, it) {
+  if (it.plan_) return it.plan_;
+  const pl = refurnished(designPlan(planet, D), derive(planet.seed, 'furnish', [Math.round(it.x * 4), Math.round(it.z * 4)]));
+  pl.roofSlopes = designPlan(planet, D).roofSlopes;
+  Object.defineProperty(it, 'plan_', { value: pl, enumerable: false });
+  return pl;
+}
+// someone who works there: where they stand, what they're at, and when. Behind the counter if there is one.
+const WORKS = { shop: 'keeping shop', inn: 'behind the bar', clinic: 'seeing patients', school: 'teaching', smithy: 'at the forge', garage: 'under a car', temple: 'tending the temple', hall: 'minding the hall', stable: 'seeing to the animals', markethall: 'minding a stall', sawmill: 'at the saw', barn: 'in the barn' };
+export function keeperOf(planet, D, it) {
+  const what = WORKS[D.fam]; if (!what) return null;
+  const pl = itemPlan(planet, D, it), dr = pl.doors[pl.entrance], R = pl.rooms.find(r => r.i === dr.rooms[0]) || pl.rooms[0], solid = pl.props.filter(p => p.k === 0 && !p.soft), free = (x, z) => x > R.rect[0] + 0.4 && x < R.rect[2] - 0.4 && z > R.rect[1] + 0.4 && z < R.rect[3] - 0.4 && !solid.some(p => x > p.x0 - 0.35 && x < p.x1 + 0.35 && z > p.z0 - 0.35 && z < p.z1 + 0.35);
+  const bench = solid.find(p => /counter|bench/.test(p.kind) && p.room === R.i), tries = [];
+  if (bench) { const cx = (bench.x0 + bench.x1) / 2, cz = (bench.z0 + bench.z1) / 2; tries.push([cx, bench.z1 + 0.55], [cx, bench.z0 - 0.55], [bench.x0 - 0.55, cz], [bench.x1 + 0.55, cz]); }
+  for (let f = 0.8; f > 0.1; f -= 0.14) for (const g of [0.5, 0.3, 0.7]) tries.push([R.rect[0] + (R.rect[2] - R.rect[0]) * g, R.rect[1] + (R.rect[3] - R.rect[1]) * f]);
+  const spot = tries.find(([x, z]) => free(x, z)); if (!spot) return null;
+  const c = Math.cos(it.rot), s = Math.sin(it.rot), u = spot[0] - D.w / 2, v = spot[1] - D.d / 2, look = bench ? [(bench.x0 + bench.x1) / 2 - spot[0], (bench.z0 + bench.z1) / 2 - spot[1]] : [dr.x - spot[0], dr.z - spot[1]];
+  return { x: it.x + u * c + v * s, y: it.y, z: it.z - u * s + v * c, facing: it.rot + Math.atan2(look[0], look[1]), what, hours: D.hours || [8, 22] };
 }

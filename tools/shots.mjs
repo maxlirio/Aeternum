@@ -194,7 +194,7 @@ for (const [F, sp] of Object.entries(FAMS)) {
 }
 // the nearest of a kind of site on this planet, seen from above and at the door. SITE= picks it
 // a country building, close: wi_out_<family> from the street, wi_in_<family> from its main room
-for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'hall', 'school', 'clinic', 'temple', 'smithy', 'garage', 'warehouse', 'stable']) for (const inner of [false, true]) {
+for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'hall', 'school', 'clinic', 'temple', 'smithy', 'garage', 'warehouse', 'stable', 'barn', 'shed', 'markethall', 'sawmill', 'pumphouse']) for (const inner of [false, true]) {
   const name = `wi_${inner ? 'in' : 'out'}_${fam}`;
   SCRIPTS[name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, S0 = null; for (let i = -60; i <= 60; i++) for (let j = -60; j <= 60; j++) for (const S of P.sitesInTile(O.planet, i, j)) for (const q of S.items) if (q.k.startsWith('gb_${fam}_')) { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { best = q; bd = d; S0 = S; } }

@@ -216,6 +216,15 @@ function generatePlan(planet, s, b) {
   return plan;
 }
 
+// The same rooms with different furniture in them (a design's copies share a layout, not a life).
+export function refurnished(plan, seed) {
+  const p = { ...plan, props: [] }, rng = new Rng(seed), drng = new Rng([seed[0] ^ 0x5eed, seed[1]]);
+  for (const r of p.rooms) furnish(p, r, rng, p.H);
+  for (const r of p.rooms) dressSurfaces(p, r, drng);
+  p.anchors = anchorsFor(p, rng);
+  return p;
+}
+
 // ---- a floor of a home, the way homes are actually laid out: a hall running front to
 // back with every room opening off it; the living room and kitchen joined by a wide
 // opening; a bathroom; bedrooms at the back or upstairs. Narrow plans put the rooms on one

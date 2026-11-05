@@ -534,6 +534,35 @@ try {
   check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
   check(sb.smashed, `smashed street furniture; crimes on record: ${(sb.crimes || []).join(', ')}`);
   check(sb.body?.outside && sb.windowCrime, `threw someone out through a real window (${JSON.stringify(sb.body)})`);
+  console.log('[walking into the country]');
+  const cw = await ev(`(async () => {
+    const O = ORBIS, P = O.store.player, out = {}, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/surface.js'), OP = await import('./js/gen/outposts.js'), key = (k, on) => dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code: k })), tap = k => { key(k, true); key(k, false); };
+    P.hp = 100; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0; if (O.getRide2?.()) tap('KeyE');
+    let S0 = null, bd = 1e12; for (let i = -22; i <= 22; i++) for (let j = -22; j <= 22; j++) for (const S of OP.sitesInTile(O.planet, i, j)) if (S.kind === 'village') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { bd = d; S0 = S; } }
+    if (!S0) return { none: 1 };
+    const it = S0.items.find(q => /^gb_cottage_/.test(q.k)), c = Math.cos(it.rot), s = Math.sin(it.rot), at = (u, v) => [it.x + u * c + v * s, it.z - u * s + v * c], f = it.box[1], lead = (it.stoop ? it.stoop.n * it.stoop.run : 0) + 1.5;
+    const [x0, z0] = at(0, -f - 9), y0 = T.surfaceAt(O.planet, x0, z0).h + 0.3; O.ctrl.pos = [x0, y0, z0]; O.ctrl.vel = [0, 0, 0];
+    const liveOf = () => [...O.sites().live.values()].find(l => l.it.x === it.x && l.it.z === it.z);
+    for (let i = 0; i < 80 && !liveOf(); i++) { O.ctrl.pos = [x0, y0, z0]; await wait(150); }
+    const L = liveOf(); if (!L) return { notLive: O.sites()?.live.size };
+    out.live = true; const dr = L.rec.plan.doors[L.rec.plan.entrance], u = dr.x - L.rec.w / 2;
+    const [fx, fz] = at(u, -f - lead), fy = T.surfaceAt(O.planet, fx, fz).h + 0.1, [dx, dz] = at(u, -f); const face = Math.atan2(dx - fx, dz - fz);
+    const walkIn = async () => { O.ctrl.pos = [fx, fy, fz]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = face; O.cam.yaw = face; await wait(200); key('KeyW', true); for (let i = 0; i < 40 && !O.world.locate(...O.ctrl.pos)?.room; i++) { O.cam.yaw = face; await wait(100); } key('KeyW', false); await wait(200); return O.world.locate(...O.ctrl.pos); };
+    let loc = await walkIn(); out.shutOut = !loc?.room;
+    O.ctrl.pos = [dx - Math.sin(face) * 1.0, it.y + 0.05, dz - Math.cos(face) * 1.0]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = face; await wait(300);
+    tap('KeyE'); await wait(300); out.refused = [...document.querySelectorAll('.toast')].map(e => e.textContent).some(x => /Locked/.test(x));
+    key('KeyF', true); for (let i = 0; i < 50 && !O.store.getDelta(L.rec.key + '/door:' + dr.id)?.broken; i++) await wait(100); key('KeyF', false); out.forced = !!O.store.getDelta(L.rec.key + '/door:' + dr.id)?.broken; out.crime = O.store.events.some(e => e.type === 'city_crime' && e.kind === 'breaking in');
+    await wait(500); loc = await walkIn(); out.inside = !!loc?.room; out.room = loc?.room?.purpose; out.y = +(O.ctrl.pos[1] - it.y).toFixed(2); out.hud = document.querySelector('.place')?.textContent;
+    // the model went, and comes back when you leave
+    out.hidden = O.sites().live.size > 0 && it.live === true;
+    O.ctrl.pos = [x0 + 400, T.surfaceAt(O.planet, x0 + 400, z0).h + 0.3, z0]; for (let i = 0; i < 10; i++) await wait(100); out.gone = !liveOf();
+    O.ctrl.pos = [x0, y0, z0]; for (let i = 0; i < 40 && !liveOf(); i++) { O.ctrl.pos = [x0, y0, z0]; await wait(100); } const dd = O.store.getDelta(L.rec.key + '/door:' + dr.id); out.stillBroken = !!dd?.broken;
+    return out; })()`);
+  check(cw.live, `a village house near me became a real building (${JSON.stringify(cw).slice(0, 120)})`);
+  check(cw.shutOut && cw.refused, 'its shut, locked door stopped me and said so');
+  check(cw.forced && cw.crime, 'I broke the lock, and that went on record');
+  check(cw.inside, `walked up the steps and into the ${cw.room} (${cw.y} above the floor; HUD "${cw.hud}")`);
+  check(cw.gone && cw.stillBroken, 'went away and came back: the lock is still broken');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

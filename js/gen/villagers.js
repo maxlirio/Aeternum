@@ -7,8 +7,10 @@ import { derive, hash01 } from '../core/hash.js';
 import { personName } from './names.js';
 import { sitesNear } from './outposts.js';
 import { surfaceAt } from './surface.js';
+import { designById, designPlan, keeperOf } from './housegen.js';
+import { solarHour, within } from '../sim/clock.js';
 
-const SPEED = 1.25, HOME = /^gb_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^(gb_(shop|garage|smithy)|fam_(bandstall|markethall|sawmill))_/;
+const SPEED = 1.25, HOME = /^gb_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^(gb_(shop|garage|smithy|markethall|sawmill)|fam_bandstall)_/;
 const GATHER = [[/^fam_(fountain|villagewell)_/, 'at the well', 2.2], [/^fam_bench_/, 'taking the air', 1], [/^fam_pavilion_/, 'under the pavilion', 3], [/^fam_(shrine|monument)_/, 'paying their respects', 4.5], [/^fam_(marketcross|noticeboard)_/, 'reading the notices', 1.6], [/^fam_hall_/, 'at the hall', 2.5], [/^fam_temple_/, 'at the temple', 2.5], [/^fam_inn_/, 'outside the inn', 2], [/^fam_clinic_/, 'waiting at the clinic', 2], [/^fam_school_/, 'at the school', 3]];
 const JOBS = { field: ['farmer', 'hand on the land', 'grower'], shop: ['shopkeeper', 'stallholder'], jetty: ['fisher', 'boat hand'], yard: ['carter', 'smith', 'mender', 'beekeeper', 'mason'] };
 
@@ -32,7 +34,10 @@ function around(boxes, a, c, depth = 0) {
 export function villageOf(planet, S) {
   if (S.folk) return S.folk;
   const rng = new Rng(derive(planet.seed, 'folk', [Math.round(S.x), Math.round(S.z)])), boxes = S.items.filter(i => i.box && !i.top), spots = { gather: [], shop: [], field: [], jetty: [] };
-  const front = i => { const f = i.box ? i.box[1] + 1.1 : 1.4; return [i.x - Math.sin(i.rot) * f, i.z - Math.cos(i.rot) * f]; };
+  const front = i => {       // the foot of its steps, in front of its door
+    let u = 0, f = i.box ? i.box[1] + 1.1 : 1.4;
+    if (/^gb_/.test(i.k)) { const D = designById(planet, i.k), pl = designPlan(planet, D); u = pl.doors[pl.entrance].x - D.w / 2; f = D.d / 2 + (i.stoop ? i.stoop.n * i.stoop.run : 0) + 0.8; }
+    return [i.x + u * Math.cos(i.rot) - Math.sin(i.rot) * f, i.z - u * Math.sin(i.rot) - Math.cos(i.rot) * f]; };
   for (const i of S.items) {
     for (const [re, what, r] of GATHER) if (re.test(i.k)) { const a = rng.range(0, 6.28), rr = (i.box ? Math.max(i.box[0], i.box[1]) : 0) + r * 0.5 + 0.7; spots.gather.push({ at: [i.x + Math.cos(a) * rr, i.z + Math.sin(a) * rr], what, look: [i.x, i.z] }); }
     if (SHOP.test(i.k)) spots.shop.push({ at: front(i), what: /markethall|bandstall/.test(i.k) ? 'minding the stall' : 'at work', look: [i.x, i.z] });
@@ -48,7 +53,10 @@ export function villageOf(planet, S) {
       people.push({ id: `sw:${S.id}:${hi}:${n}`, name: personName(rng), age, home: door, trade, job: trade ? rng.pick(JOBS[trade]) : 'child', k: people.length, stay: rng.chance(0.14) });
     }
   });
-  return S.folk = { people, boxes, spots, site: S, lane: S.lanes[0] || null };
+  // and whoever minds the place, indoors, in working hours
+  const keepers = [];
+  S.items.forEach((i, n) => { if (!/^gb_(?!step)/.test(i.k)) return; const q = keeperOf(planet, designById(planet, i.k), i); if (q) keepers.push({ ...q, id: `sk:${S.id}:${n}`, name: personName(rng), age: rng.int(24, 66), job: q.what, k: people.length + keepers.length, trade: 'keeper' }); });
+  return S.folk = { people, boxes, spots, site: S, lane: S.lanes[0] || null, keepers };
 }
 
 // the lane's centre at distance u along it (it wanders as render/outposts.js draws it)
@@ -99,7 +107,8 @@ export function siteWalkers(planet, t, x, z, r, max = 40) {
   const out = [];
   sitesNear(planet, x, z, r + 100, S => {
     if (Math.hypot(S.x - x, S.z - z) > r + S.clear + 40 || !S.items.some(i => HOME.test(i.k))) return;
-    const V = villageOf(planet, S);
+    const V = villageOf(planet, S), hour = solarHour(planet, t);
+    for (const K of V.keepers) { const d = Math.hypot(K.x - x, K.z - z); if (d > r || !within(K.hours, hour)) continue; out.push({ id: K.id, pos: [K.x, K.y, K.z], facing: K.facing, moving: false, pose: 'stand', age: K.age, d, villager: K, doing: K.what, site: S.label }); }
     for (const P of V.people) { const q = villagerAt(planet, V, P, t); if (!q) continue; const d = Math.hypot(q.x - x, q.z - z); if (d > r) continue;
       out.push({ id: P.id, pos: [q.x, surfaceAt(planet, q.x, q.z).h, q.z], facing: q.facing, moving: q.moving, pose: q.moving ? 'walk' : 'stand', age: P.age, d, villager: P, doing: q.doing, site: S.label }); }
   });
