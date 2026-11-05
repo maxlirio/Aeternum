@@ -555,6 +555,10 @@ try {
     await wait(500); loc = await walkIn(); out.inside = !!loc?.room; out.room = loc?.room?.purpose; out.y = +(O.ctrl.pos[1] - it.y).toFixed(2); out.hud = document.querySelector('.place')?.textContent;
     // the model went, and comes back when you leave
     out.hidden = O.sites().live.size > 0 && it.live === true;
+    // someone who sees a crime runs from it: pick a moment when someone's out, and look at them just after
+    { const VL = await import('./js/gen/villagers.js'), M = O.getMayhem(), hour = O.planet.dayLength / 24; let t2 = O.clock.now(), a0 = null;
+      for (let h = 0; h < 30 && !a0; h++, t2 += hour) a0 = VL.siteWalkers(O.planet, t2, S0.x, S0.z, 140, 20).find(w => !w.indoors && !w.uniform);
+      if (a0) { M.alarm = { t: t2, at: [a0.pos[0] - 3, a0.pos[2]], kind: 'test' }; const after = O.peopleNearTest(t2 + 3, a0.pos[0], a0.pos[2], 40, 40).find(w => w.id === a0.id); out.scared = after ? { ran: +Math.hypot(after.pos[0] - a0.pos[0], after.pos[2] - a0.pos[2]).toFixed(1), flag: !!after.scared, away: after.pos[0] > a0.pos[0] } : { gone: true }; M.alarm = null; } }
     O.ctrl.pos = [x0 + 400, T.surfaceAt(O.planet, x0 + 400, z0).h + 0.3, z0]; for (let i = 0; i < 10; i++) await wait(100); out.gone = !liveOf();
     O.ctrl.pos = [x0, y0, z0]; for (let i = 0; i < 40 && !liveOf(); i++) { O.ctrl.pos = [x0, y0, z0]; await wait(100); } const dd = O.store.getDelta(L.rec.key + '/door:' + dr.id); out.stillBroken = !!dd?.broken;
     return out; })()`);
@@ -563,6 +567,7 @@ try {
   check(cw.forced && cw.crime, 'I broke the lock, and that went on record');
   check(cw.inside, `walked up the steps and into the ${cw.room} (${cw.y} above the floor; HUD "${cw.hud}")`);
   check(cw.gone && cw.stillBroken, 'went away and came back: the lock is still broken');
+  check(cw.scared?.flag && cw.scared.ran > 5 && cw.scared.away, `someone who saw it ran from it (${JSON.stringify(cw.scared)})`);
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

@@ -128,6 +128,7 @@ export function siteWalkers(planet, t, x, z, r, max = 40) {
 }
 // a word with them. n counts how many times you've asked.
 export function villagerSays(w, n) {
+  if (w.scared) return ['Stay back!', "Don't hurt me!", 'Leave us alone!', 'Somebody fetch the watch!'][n % 4];
   const P = w.villager, intro = P.age < 14 ? `I'm ${P.name.split(' ')[0]}. I live just there.` : `${P.name}. I'm a ${P.job} here.`;
   const lines = [intro, `This is ${w.site}. There's not much to it, but it's ours.`, `I'm ${w.doing}.`, P.trade === 'field' ? `The crop's doing all right, if the weather holds.` : P.trade === 'shop' ? `Whatever's on the stall came out of the ground round here.` : `Plenty needs mending. It always does.`, `You're not from here, are you?`];
   return lines[n % lines.length];

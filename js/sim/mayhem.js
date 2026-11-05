@@ -27,6 +27,7 @@ export class Mayhem {
     const P = this.store.player, c = this.city, [u, v] = c.toLocal(at[0], at[2]);
     const n = seen ?? (this.peopleNear ? this.peopleNear(t, at[0], at[2], 30, 40) : cityWalkers(c, t, at[0], at[2], 30, 40)).filter(w => !this.out.has(w.id)).length;
     const add = amount * (n ? 1 : 0.25);       // nobody saw: it only gets out later
+    if (n) { this.alarm = { t, at: [at[0], at[2]], kind }; this.onAlarm?.(this.alarm, n); }     // whoever saw it scatters (see peopleNear in main.js)
     P.heat = { v: this.heat(t) + add, t }; this.store.touchPlayer();
     this.store.log({ t, type: 'city_crime', kind, at: [Math.round(u), Math.round(v)], witnesses: n, by: P.id, byName: P.name, city: c.name });
     return n;

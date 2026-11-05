@@ -441,7 +441,17 @@ async function start(fresh) {
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
   let cityLift = null, cityTake = null;
   // everyone out of doors near a spot who isn't a town agent: the city's walkers and the country's villagers
-  const peopleNear = (t, x, z, r, max) => cityWalkers(cityView.city, t, x, z, r, max).concat(siteWalkers(planet, t, x, z, r, max)).sort((a, b) => a.d - b.d).slice(0, max);
+  const peopleNear = (t, x, z, r, max) => scatter(t, cityWalkers(cityView.city, t, x, z, r, max).concat(siteWalkers(planet, t, x, z, r, max)).sort((a, b) => a.d - b.d).slice(0, max));
+  // People who've just seen something run from it, then calm down and go back to what they were at. Nothing is stored: it's worked out
+  // from where they'd otherwise be, and how long ago it happened.
+  const SCATTER = 22, SCATTER_R = 34, SHOUTS = ['Help! Somebody help!', 'Get away from me!', 'Call the watch!', 'Run!', "What are you doing?!", 'Stop them!'];
+  function scatter(t, list) {
+    const A = mayhem?.alarm; if (!A) return list; const dt = t - A.t; if (dt < 0 || dt > SCATTER) { if (dt > SCATTER) mayhem.alarm = null; return list; }
+    for (const w of list) { if (w.indoors || w.uniform) continue; const dx = w.pos[0] - A.at[0], dz = w.pos[2] - A.at[1], d = Math.hypot(dx, dz) || 1; if (d > SCATTER_R) continue;
+      const out = dt < SCATTER * 0.6 ? Math.min(22, dt * 4.6) : Math.max(0, 22 * (1 - (dt - SCATTER * 0.6) / (SCATTER * 0.4))), ux = dx / d, uz = dz / d, [rx, rz] = world.resolve(w.pos[0] + ux * out, w.pos[2] + uz * out, w.pos[1] + 0.3);
+      w.pos = [rx, world.groundAt(rx, rz, w.pos[1] + 2).h, rz]; w.moving = dt < SCATTER * 0.95; w.pose = 'walk'; w.facing = dt < SCATTER * 0.6 ? Math.atan2(ux, uz) : Math.atan2(-ux, -uz); w.doing = 'running'; w.scared = true; }
+    return list;
+  }
   const villagerAhead = t => { let best = null, bd = 2.6; if (ctrl.mode !== 'walk') return null; for (const w of siteWalkers(planet, t, ctrl.pos[0], ctrl.pos[2], 5, 8)) { if (mayhem?.out.has(w.id)) continue; const dx = w.pos[0] - ctrl.pos[0], dz = w.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz); if (d < bd && Math.abs(w.pos[1] - ctrl.pos[1]) < 1.5 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.2) { bd = d; best = w; } } return best; };
   const villagerChats = new Map();
   // the traffic lights near you show what their junction's doing
@@ -1304,7 +1314,7 @@ async function start(fresh) {
     { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : [], town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
     if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
-      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
+      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.onAlarm = (A, n) => { if (n && A.kind !== 'trespassing') ui.toast(`<i>“${SHOUTS[Math.floor(A.t * 7) % SHOUTS.length]}”</i>`, 'bad', 2600); }; mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
       cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
     if (!paused) stepMayhem(dt);
     // walking onto a guarded place: nobody asked you in
@@ -1390,7 +1400,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

@@ -194,8 +194,8 @@ for (const [F, sp] of Object.entries(FAMS)) {
 }
 // the nearest of a kind of site on this planet, seen from above and at the door. SITE= picks it
 // the small things, this planet's designs of each in a row: small_<family>
-for (const F of ['villagewell', 'fountain', 'shrine', 'monument', 'marketcross', 'noticeboard', 'busstop', 'lamp', 'bench', 'gate', 'pavilion', 'bandstall', 'watertower']) {
-  const sp = { villagewell: 5, fountain: 8, shrine: 7, monument: 9, marketcross: 5, noticeboard: 4, busstop: 7, lamp: 4, bench: 3.2, gate: 12, pavilion: 11, bandstall: 5, watertower: 11 }[F];
+for (const F of ['villagewell', 'fountain', 'shrine', 'monument', 'marketcross', 'noticeboard', 'busstop', 'lamp', 'bench', 'gate', 'pavilion', 'bandstall', 'watertower', 'poweredge', 'graves', 'picnic', 'swings', 'cart', 'trough', 'beehives', 'scarecrow', 'windpump']) {
+  const sp = { villagewell: 5, fountain: 8, shrine: 7, monument: 9, marketcross: 5, noticeboard: 4, busstop: 7, lamp: 4, bench: 3.2, gate: 12, pavilion: 11, bandstall: 5, watertower: 11, poweredge: 4, graves: 15, picnic: 4, swings: 6, cart: 5, trough: 4, beehives: 6, scarecrow: 3, windpump: 7 }[F];
   SCRIPTS['small_' + F] = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), THREE = await import('three'), CV = await import('./js/render/city.js'), SG = await import('./js/render/smallgen.js'), SD = await import('./js/gen/smallgen.js'), PL = await import('./js/gen/planet.js'), AD = await import('./js/core/address.js');
     const u0 = G.lineAt(c, 0, 0), v0 = G.lineAt(c, 1, 0), sp = ${sp}, [px, pz] = c.toWorld(u0, v0 - 2), hold = () => { O.ctrl.pos = [px, c.h + 0.1, pz]; O.ctrl.vel = [0, 0, 0]; }; hold();
     await wait(1500); for (const q of O.cityView.group.children) q.visible = false; O.cityTraffic.group.visible = false; O.cityTraffic.points.visible = false;
@@ -204,7 +204,7 @@ for (const F of ['villagewell', 'fountain', 'shrine', 'monument', 'marketcross',
     const planets = [O.planet, ...[11, 12, 13, 14, 15].map(n => PL.makePlanet([n * 77, n * 31 + 5], AD.HOMEWORLD))]; let n = 0;
     for (const pl of planets) for (const D of SD.smallDesigns(pl, '${F}').slice(0, pl === O.planet ? 3 : 1)) { const col = (n < 4 ? n - 1.5 : n - 5.5), row = n < 4 ? 0 : 1; n++; if (n > 8) break;
       for (const p of SG.smallParts(pl, D.id, O.sites().lib.wornSurface)) { const m = new THREE.InstancedMesh(p.geometry, p.material, 1), M = new THREE.Matrix4().setPosition(u0 + col * sp * 1.15, c.h + 0.02, v0 + sp * 0.6 + row * sp * 1.5); m.setMatrixAt(0, M); if (p.tinted) m.setColorAt(0, new THREE.Color(...CV.kitTint(p.tinted, D.id, n * 7.1, n * 3.3))); m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; g.add(m); } }
-    O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${/watertower|monument/.test(F) ? 0.14 : 0.3}; O.cam.dist = sp * ${/watertower|monument/.test(F) ? 3.4 : 2.6}; const keep = () => { hold(); requestAnimationFrame(keep); }; keep(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
+    O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${/watertower|monument|windpump|poweredge/.test(F) ? 0.14 : 0.3}; O.cam.dist = sp * ${/watertower|monument|windpump|poweredge/.test(F) ? 3.4 : 2.6}; const keep = () => { hold(); requestAnimationFrame(keep); }; keep(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
   SHOTS['small_' + F] = 'hour=13.5';
 }
 // a country building, close: wi_out_<family> from the street, wi_in_<family> from its main room
