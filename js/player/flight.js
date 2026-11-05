@@ -66,7 +66,7 @@ export class Flight {
   // input: { throttle: −1..1 (rate of change), pitch, roll, yaw: −1..1, up, down, boost, brake, wind: [x, z] }
   step(dt, inp = {}) {
     const n = Math.max(1, Math.ceil(dt / (1 / 120)));
-    this.impact = 0;
+    this.impact = 0; this.belly = false;
     for (let i = 0; i < n; i++) this.sub(dt / n, inp);
     this.syncEuler();
   }
@@ -140,7 +140,7 @@ export class Flight {
     const g = Math.max(...this.feet(x, z, Math.atan2(hx, hz)));
     if (y <= g) {
       const sink = -this.vel[1], hspd = Math.hypot(this.vel[0], this.vel[2]);
-      if (!this.onGround && (sink > LAND_SINK * 2 || Math.abs(this.roll) > 0.45 || this.pitch < -0.25)) this.impact = Math.max(this.impact, sink + hspd * 0.3);
+      if (!this.onGround && (sink > LAND_SINK * 2 || Math.abs(this.roll) > 0.45 || this.pitch < -0.25)) { this.impact = Math.max(this.impact, sink + hspd * 0.3); this.belly = sink > hspd; }
       if (g - y > 0.5 && hspd > 15) this.impact = Math.max(this.impact, hspd);
       y = g; if (this.vel[1] < 0) this.vel[1] = 0;
       const fr = (inp.brake ? 6 : 0.6) + (this.throttle < 0.05 ? 3 : 0), k = Math.max(0, 1 - fr * dt / Math.max(hspd, 0.01));

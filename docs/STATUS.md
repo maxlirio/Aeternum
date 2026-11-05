@@ -166,3 +166,10 @@ Every headless browser goes through `tools/guard.mjs` and `tools/guard.sh`: a se
 | **Weapons** (`gen/weapons.js`, `render/weapons.js`): 15, designed per planet from its culture; grip at origin, +z along barrel or blade, `meta.off` for a second hand, `meta.muzzle`/`tip` | Done. Placeholder arms only approximate the second hand until the real character arrives. Shots use a thicker hit for the scatter gun, not separate pellets |
 | **Levelled sites**: airfields, bases and factories stand on graded pads (`padAt` in `gen/outposts.js`) | Done |
 | **Not used yet**: cobble, canvas, carpet textures are baked but on nothing | Open |
+
+## Crashes and climbing (5 Nov 2026)
+
+| Thing | State |
+|---|---|
+| **Crashes** (`sim/crash.js`, `render/wrecks.js`, `render/fx.js`, `player/ride.js`): by change in velocity: scuff, dent, crumple, dead engine, fire, explosion. Models are tessellated per wreck and bent where struck. Wrecks spin, bounce, tumble, can land on a side or roof, are saved, and cars brake for them. A dead sky car falls. Blasts hurt, knock over, kill, scare animals and people, and spread to nearby vehicles. Bullets can set vehicles alight. Bikes throw you | Done for your own vehicle, parked cars, road and city traffic, ships. **Traffic hitting traffic doesn't happen**: only what you hit or shoot. **Ships: walk-in interior still works after a wreck.** No repair yet. Tree, lamp and other world props don't break when hit |
+| **Climbing**: corners are holds all the way up with a hand and foot either side; masts, pylons, headframes, drill rigs, watchtowers, lattice water towers and wind pumps climbable (`gen/towers.js`). Twice as fast | Done. Not yet: drainpipes or corner stones drawn on walls; AC's fast "jump between" corner moves; city rooftop aerials. Only the watchtower's dimensions come close to a platform, and you can't stand on one: top rows stop at the top |

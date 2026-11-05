@@ -4,7 +4,7 @@
 //   under  3: nothing          3–9: scuffed, a dent
 //   9–18: crumpled, hurts      18+: may catch fire (likelier the harder), and fire may reach the fuel
 //   38+: can go up on the spot
-const SCUFF = 3, FIRE_AT = 18, BLOW_AT = 38, STRENGTH = { bike: 0.7, car: 1, ship: 2.6 };
+const SCUFF = 3, FIRE_AT = 18, BLOW_AT = 38, STRENGTH = { bike: 0.7, car: 1, ship: 1.6 };
 
 export class Crashes {
   // hooks: world (for shoving wrecks about), ground(x, z, y), save(id, data), load(id), rnd
