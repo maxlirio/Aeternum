@@ -40,7 +40,7 @@ export function chunkData(planet, lod, i, j) {
     c = mix3(c, [C.snow, C.snow, C.snow * 1.02], snow);
     c = mix3(c, [0.40, 0.37, 0.32], TOWN[k] * 0.85);
     c = mix3(c, [0.30, 0.29, 0.27], ROAD[k]);
-    if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) c = [0.5, 0.42, 0.31]; else if (w === 1) c = [0.2, 0.15, 0.1]; }
+    if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) c = [0.65, 0.39, 0.27]; else if (w === 1) c = [0.2, 0.13, 0.09]; }  
     col[v * 3] = c[0]; col[v * 3 + 1] = c[1]; col[v * 3 + 2] = c[2];
   }
   // skirts: duplicate edge vertices, dropped, to hide cracks against coarser neighbours

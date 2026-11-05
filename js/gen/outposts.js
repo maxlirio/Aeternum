@@ -197,7 +197,7 @@ export function sitesNear(planet, x, z, R, fn) {
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const s of sitesInTile(planet, i, j)) fn(s);
 }
 // the sites working the land near a spot, then: is this ground tilled or walked bare? (a field, a lane). Grass doesn't grow on it.
-export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R, S => { if ((S.fields.length || S.lanes.length || S.items.some(i => i.box && i.k.startsWith('gb_'))) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
+export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R + 140, S => { if ((S.fields.length || S.lanes.length || S.items.some(i => i.box && i.k.startsWith('gb_'))) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
 // → 1 a field, 2 a lane, 3 under a floor, or false
 export function workedGround(sites, x, z) {
   for (const S of sites) {
