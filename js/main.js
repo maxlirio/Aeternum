@@ -64,6 +64,7 @@ import { OutpostView } from './render/outposts.js';
 import { Goods } from './render/goods.js';
 import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
+import { siteWalkers, villagerSays } from './gen/villagers.js';
 import { signalAt, driverOf, purposeOf } from './gen/cityfleet.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
@@ -397,6 +398,7 @@ async function start(fresh) {
     if (ctrl.mode === 'seat') { if (ctrl.seat.pose === 'lie') sleepFlow(); else ctrl.standUp(); return; }
     const bike = nearVehicle();
     if (bike) { bikeFlow(bike); return; }
+    const vl = villagerAhead(clock.now()); if (vl) { const n = villagerChats.get(vl.id) || 0; villagerChats.set(vl.id, n + 1); ui.toast(`<b>${esc(n ? vl.villager.name : 'A stranger')}:</b> ${esc(villagerSays(vl, n))}`, '', 5000); return; }
     const who = personAhead(), di0 = nearestDoor(), ua0 = usableAhead();
     const wd = who ? Math.hypot(who.pos[0] - ctrl.pos[0], who.pos[2] - ctrl.pos[2]) - 0.6 : Infinity;     // the nearest thing wins: the person, a door, or furniture
     if (who && (di0 < 0 || wd < doorDist) && (!ua0 || wd < ua0.d + 0.8)) { talkFlow(who); return; }   // someone sitting on a chair beats the chair
@@ -423,6 +425,10 @@ async function start(fresh) {
     || (u.pr.kind === 'machine' ? (u.verbs.includes('wash') ? 'Washing machine' : 'Fabricator') : u.pr.kind === 'bench' ? (u.verbs.includes('assemble') ? 'Workbench' : 'Bench')
       : u.verbs.includes('cook') ? 'Kitchen counter' : u.verbs.includes('sell') ? 'Shop counter' : 'Counter');
   let cityLift = null, cityTake = null;
+  // everyone out of doors near a spot who isn't a town agent: the city's walkers and the country's villagers
+  const peopleNear = (t, x, z, r, max) => cityWalkers(cityView.city, t, x, z, r, max).concat(siteWalkers(planet, t, x, z, r, max)).sort((a, b) => a.d - b.d).slice(0, max);
+  const villagerAhead = t => { let best = null, bd = 2.6; if (ctrl.mode !== 'walk') return null; for (const w of siteWalkers(planet, t, ctrl.pos[0], ctrl.pos[2], 5, 8)) { if (mayhem?.out.has(w.id)) continue; const dx = w.pos[0] - ctrl.pos[0], dz = w.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz); if (d < bd && Math.abs(w.pos[1] - ctrl.pos[1]) < 1.5 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.2) { bd = d; best = w; } } return best; };
+  const villagerChats = new Map();
   // the traffic lights near you show what their junction's doing
   function showCityLights() {
     const c = cityView.city, out = []; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 300) { cityTraffic.showLights(out); return; }
@@ -854,7 +860,7 @@ async function start(fresh) {
     }
     let best = null, bd = 1.9;
     const near = list => { for (const a of list) { const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz); if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.3 && (dx * fx + dz * fz) / (d || 1) > 0.3) { bd = d; best = a; } } };
-    near(agents.filter(a => !String(a.id).startsWith('tr:') && a.pose !== 'lie')); near(cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 6, 30).filter(w => !mayhem.out.has(w.id)));
+    near(agents.filter(a => !String(a.id).startsWith('tr:') && a.pose !== 'lie')); near(peopleNear(t, ctrl.pos[0], ctrl.pos[2], 6, 30).filter(w => !mayhem.out.has(w.id)));
     if (!best) return;
     const person = best.person || null, id = best.id; if (!person) mayhem.out.add(id);
     mayhem.carry = { id, person, name: person ? knownName(person) : 'a passer-by', pos: best.pos.slice(), age: best.age || person?.age || 30 };
@@ -901,7 +907,7 @@ async function start(fresh) {
     if (!target) {       // no one there: a passer-by in the city, a window, whatever's in the way
       const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), at = hitPoint || [ctrl.pos[0] + fx * (W.reach + 0.3), ctrl.pos[1] + 1.2, ctrl.pos[2] + fz * (W.reach + 0.3)];
       if (mayhem) {
-        const near = cityWalkers(cityView.city, t, at[0], at[2], 3, 12).filter(w => !mayhem.out.has(w.id) && Math.hypot(w.pos[0] - at[0], w.pos[2] - at[2]) < (W.ranged ? 0.6 : 1.1) && Math.abs(w.pos[1] + 1 - at[1]) < 1.4)[0];
+        const near = peopleNear(t, at[0], at[2], 3, 12).filter(w => !mayhem.out.has(w.id) && Math.hypot(w.pos[0] - at[0], w.pos[2] - at[2]) < (W.ranged ? 0.6 : 1.1) && Math.abs(w.pos[1] + 1 - at[1]) < 1.4)[0];
         if (near) { mayhem.out.add(near.id); mayhem.thrown({ id: near.id, name: 'A passer-by', pos: near.pos.slice(), vel: [fx * (W.dmg > 30 ? 2 : 3), 1.5, fz * (W.dmg > 30 ? 2 : 3)], age: near.age, facing: near.facing, dead: W.dmg > 30 }); const n = mayhem.crime(t, W.dmg > 30 ? 'shot someone' : 'assault', W.dmg > 30 ? 3.5 : 0.8, at); ui.toast(`You hit a passer-by${W.dmg > 30 ? ' — they drop' : ''}.${n ? ` <b>${n} saw.</b>` : ''}`, 'bad', 3500); return; }
         if (mayhem.breakGlass(at, fx, fz, t)) { ui.toast('The window shatters.', 'bad', 2500); return; }
         const k = mayhem.smash(at, t); if (k) { cityView.propAt = null; ui.toast(`You smash it to pieces.`, 'warn', 2500); return; }
@@ -1249,7 +1255,7 @@ async function start(fresh) {
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
       const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, cityWalkers(cityView.city, t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
+    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
@@ -1267,7 +1273,7 @@ async function start(fresh) {
     { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : [], town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
     if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
-      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
+      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.peopleNear = peopleNear; cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
     if (!paused) stepMayhem(dt);
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);
@@ -1332,7 +1338,7 @@ async function start(fresh) {
         if (best) {
           const rel = relation(best.id), p = best.person, met = known(store, p.id) || rel;
           ui.showPrompt(`<kbd>E</kbd> Talk · <b>${esc(met ? p.name : nameFor(p))}</b>${rel ? ` — ${rel}` : ''} · ${p.age}${met ? ' · ' + occupation(pop, p) : ''} <small>· ${best.activity}</small>`);
-        } else ui.showPrompt(null);
+        } else { const w = villagerAhead(t); ui.showPrompt(w ? `<kbd>E</kbd> Talk · <b>${villagerChats.has(w.id) ? esc(w.villager.name) : 'a stranger'}</b> · ${w.villager.age} <small>· ${esc(w.doing)}</small>` : null); }
       }
     }
     ui.quiet = !flight && (t - lastShotAt < 12 || performance.now() / 1000 - lastAttack < 8 || !!mayhem?.officers.length || !!(pursuit && pursuit.state !== 'return') || !!mayhem?.carry);

@@ -1234,6 +1234,24 @@ suites.countryside = async () => {
   check(FAMILIES.length * 7 === Object.keys(FOOT).length, `every family exists in every way of building (${Object.keys(FOOT).length})`);
 };
 
+suites.villagers = async () => {
+  const { sitesInTile } = await import('../js/gen/outposts.js'), { villageOf, villagerAt, siteWalkers } = await import('../js/gen/villagers.js'), { solarHour } = await import('../js/sim/clock.js');
+  const p = makePlanet(uni(1), HOMEWORLD); let sites = [], total = 0;
+  for (let i = -14; i < 14; i++) for (let j = -14; j < 14; j++) for (const S of sitesInTile(p, i, j)) if (S.kind === 'village' && S.items.some(q => q.box)) sites.push(S);
+  sites = sites.slice(0, 12); check(sites.length >= 6, `villages to test (${sites.length})`);
+  let through = 0, jump = 0, day = 0, night = 0, samples = 0, stuck = 0; const t0 = 3.2e9, dt = 20, D = p.dayLength;
+  for (const S of sites) { const V = villageOf(p, S); total += V.people.length;
+    for (const P of V.people.slice(0, 30)) { let last = null;
+      for (let t = t0; t < t0 + D * 2; t += dt) { const q = villagerAt(p, V, P, t), h = solarHour(p, t); samples++;
+        if (q) { if (h < 5 || h > 22.5) night++; else day++;
+          if (q.moving) for (const b of V.boxes) { const c = Math.cos(b.rot), s = Math.sin(b.rot), dx = q.x - b.x, dz = q.z - b.z; if (Math.abs(dx * c - dz * s) < b.box[0] - 0.1 && Math.abs(dx * s + dz * c) < b.box[1] - 0.1) through++; }
+          if (last && Math.hypot(q.x - last.x, q.z - last.z) > 1.25 * dt + 2) jump++; last = q; } else last = null; } } }
+  console.log('   ', total, 'people in', sites.length, 'villages;', samples, 'samples');
+  check(total > sites.length * 10, `villages have people (${total})`); check(day > 100, `people are out by day (${day} samples)`); check(!night, `and indoors in the small hours (${night})`);
+  check(through / Math.max(1, day) < 0.002, `nobody walks through a house (${through} of ${day})`); check(!jump, `nobody teleports (${jump})`);
+  const S = sites[0], w = siteWalkers(p, t0 + D * (0.25 + 9 / 24), S.x, S.z, 150, 60); check(JSON.stringify(w) === JSON.stringify(siteWalkers(p, t0 + D * (0.25 + 9 / 24), S.x, S.z, 150, 60)), 'the same moment gives the same people');
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;
