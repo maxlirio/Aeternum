@@ -193,6 +193,21 @@ for (const [F, sp] of Object.entries(FAMS)) {
   SHOTS['fam_' + F] = 'hour=13.5';
 }
 // the nearest of a kind of site on this planet, seen from above and at the door. SITE= picks it
+// a country building, close: wi_out_<family> from the street, wi_in_<family> from its main room
+for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'hall', 'school', 'clinic', 'temple', 'smithy', 'garage', 'warehouse', 'stable']) for (const inner of [false, true]) {
+  const name = `wi_${inner ? 'in' : 'out'}_${fam}`;
+  SCRIPTS[name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
+    let best = null, bd = 1e12, S0 = null; for (let i = -60; i <= 60; i++) for (let j = -60; j <= 60; j++) for (const S of P.sitesInTile(O.planet, i, j)) for (const q of S.items) if (q.k.startsWith('gb_${fam}_')) { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { best = q; bd = d; S0 = S; } }
+    if (!best) throw new Error('none: ${fam}');
+    const c = Math.cos(best.rot), s = Math.sin(best.rot), f = best.box[1], at = (u, v) => [best.x + u * c + v * s, best.z - u * s + v * c];
+    const [ox, oz] = at(0, -f - 9), gy = T.surfaceAt(O.planet, ox, oz).h + 0.1; O.ctrl.pos = [ox, gy, oz]; O.ctrl.vel = [0, 0, 0]; for (let i = 0; i < 16; i++) { O.ctrl.pos = [ox, gy, oz]; await wait(300); }
+    const L = [...O.sites().live.values()].find(l => l.it.x === best.x && l.it.z === best.z); if (!L) throw new Error('not live: ' + O.sites().live.size);
+    const pl = L.rec.plan, dr = pl.doors[pl.entrance]; window.__wi = { k: best.k, rooms: pl.rooms.length, props: pl.props.length, h: best.y, stoop: best.stoop, tris: O.renderer.info.render.triangles, calls: O.renderer.info.render.calls };
+    if (${inner}) { const R = pl.rooms.filter(r => r.k === 0).sort((a, b) => (b.rect[2] - b.rect[0]) * (b.rect[3] - b.rect[1]) - (a.rect[2] - a.rect[0]) * (a.rect[3] - a.rect[1]))[0], lx = (R.rect[0] + R.rect[2]) / 2 - L.rec.w / 2, lz = R.rect[1] + 0.8 - L.rec.d / 2, [x, z] = at(lx, lz); for (let i = 0; i < 8; i++) { O.ctrl.pos = [x, best.y + 0.05, z]; await wait(120); } O.ctrl.facing = best.rot; O.cam.yaw = best.rot; O.cam.pitch = 0.08; O.cam.dist = 0.4; }
+    else { O.ctrl.facing = best.rot; O.cam.yaw = best.rot + 0.5; O.cam.pitch = 0.1; O.cam.dist = Math.max(6, best.box[0] * 0.8); }
+    document.querySelector('.toasts')?.remove(); await wait(1600); console.log(JSON.stringify(window.__wi));`;
+  SHOTS[name] = 'hour=11';
+}
 for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3], ['houses', 'hamlet', 24, 0.26]]) {
   SCRIPTS['site_' + name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, bn = 0; const [x0, z0] = O.ctrl.pos; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) for (const S of P.sitesInTile(O.planet, i, j)) if (S.kind === '${kind}') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz), n = S.items.filter(q => q.box).length; if (n * 400 - d > bn * 400 - bd) { best = S; bd = d; bn = n; } }

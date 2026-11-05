@@ -23,23 +23,25 @@ const WHITE = [1, 1, 1];
 const OUTER = { front: 'nz', back: 'pz', left: 'nx', right: 'px' };
 
 export function buildBuilding(mb, plan, b, frame) {
-  const M = materials();
+  // a designed building (gen/housegen.js) wears its design's materials; what stands outside its walls (roof, porch, footing) comes from render/housegen.js
+  const skin = b.skin, M = skin ? { ...materials(), trim: skin.trim, darkTrim: skin.trim, ...(skin.floor ? { tiles: skin.floor } : {}) } : materials();
   mb.setFrame(...frame);
   const rng = new Rng(seedFromString(b.key));
   const corr = b.type === 'workshop' || b.type === 'hangar';
-  const facade = corr ? M.corrugated : M.panels;
-  const fcol = rng.pick(PALETTE[b.type]);
+  const facade = skin ? skin.wall : corr ? M.corrugated : M.panels;
+  const fcol = skin ? WHITE : rng.pick(PALETTE[b.type]);
   const typeIdx = WINDOW_TYPES.indexOf(b.type);
   const { w, d, F, H } = plan;
   const top = F * H;
 
   // plinth (the graded ground is 0.2 below the ground floor)
-  mb.box(M.concrete, -0.15, -0.8, -0.15, w + 0.15, 0.0, d + 0.15, [0.8, 0.8, 0.78], new Set(['py']));
+  if (!skin) mb.box(M.concrete, -0.15, -0.8, -0.15, w + 0.15, 0.0, d + 0.15, [0.8, 0.8, 0.78], new Set(['py']));
 
   // slabs: tiled floors on top, plaster ceilings underneath, concrete edges
   for (const sl of plan.slabs) {
     for (const r of sl.rects) {
       const [x0, z0, x1, z1] = r;
+      if (sl.roof && skin) { mb.quad(M.plaster, [[x0, sl.y - SLAB_T, z0], [x1, sl.y - SLAB_T, z0], [x1, sl.y - SLAB_T, z1], [x0, sl.y - SLAB_T, z1]], [0, -1, 0], [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], WHITE); continue; }
       if (sl.roof) mb.box(M.concrete, x0, sl.y - SLAB_T, z0, x1, sl.y, z1, [0.62, 0.62, 0.6], new Set(['ny']));
       else mb.box({ py: M.tiles, default: M.concrete }, x0, sl.y - (sl.k === 0 ? 0.02 : SLAB_T), z0, x1, sl.y, z1, rng.pick(ROOM_TINT), new Set(['ny']));
       if (sl.k > 0) mb.quad(M.plaster, [[x0, sl.y - SLAB_T, z0], [x1, sl.y - SLAB_T, z0], [x1, sl.y - SLAB_T, z1], [x0, sl.y - SLAB_T, z1]], [0, -1, 0], [[x0, z0], [x1, z0], [x1, z1], [x0, z1]], WHITE);
@@ -51,7 +53,7 @@ export function buildBuilding(mb, plan, b, frame) {
   for (const wl of plan.walls) wallGeometry(mb, M, wl, wl.exterior ? { [OUTER[wl.side]]: facade, default: M.plaster } : M.plaster, wl.exterior ? fcol : intTint, typeIdx, rng, plan);
 
   // storey bands, parapet and roof kit
-  for (let k = 1; k <= F; k++) {
+  for (let k = 1; k <= F && !skin; k++) {
     const y = k * H;
     if (k === F) continue;            // the parapet caps the top
     mb.box(M.trim, -0.04, y - 0.1, -0.04, w + 0.04, y + 0.02, 0.0, WHITE);
@@ -60,6 +62,7 @@ export function buildBuilding(mb, plan, b, frame) {
     mb.box(M.trim, w, y - 0.1, 0, w + 0.04, y + 0.02, d, WHITE);
   }
   const par = 0.7;
+  if (!skin) {
   mb.box({ default: facade, py: M.trim }, 0, top, 0, w, top + par, EXT_T, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, 0, top, d - EXT_T, w, top + par, d, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, 0, top, EXT_T, EXT_T, top + par, d - EXT_T, fcol, new Set(['ny']));
@@ -80,6 +83,7 @@ export function buildBuilding(mb, plan, b, frame) {
     const ent = plan.doors[plan.entrance];
     mb.box({ default: M.darkTrim, py: M.trim }, ent.x - 2.4, 3.0, -1.6, ent.x + 2.4, 3.15, 0, WHITE);
     mb.quad(M.lightPanel, [[ent.x - 0.8, 2.995, -1.0], [ent.x + 0.8, 2.995, -1.0], [ent.x + 0.8, 2.995, -0.6], [ent.x - 0.8, 2.995, -0.6]], [0, -1, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE);
+  }
   }
 
   // stairs
@@ -270,11 +274,11 @@ function wallGeometry(mb, M, wl, mat, col, typeIdx, rng, plan) {
       const gl = (p, q) => {
         const yA = base + o.y0, yB = base + o.y1, lit = isOuter ? typeIdx + rng.next() * 0.999 : 0;
         if (alongX) {
-          mb.quad(M.glass, [[q, yA, c - 0.02], [p, yA, c - 0.02], [p, yB, c - 0.02], [q, yB, c - 0.02]], [0, 0, -1], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'front' ? lit : 0);
-          mb.quad(M.glass, [[p, yA, c + 0.02], [q, yA, c + 0.02], [q, yB, c + 0.02], [p, yB, c + 0.02]], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'back' ? lit : 0);
+          mb.quad(isOuter && wl.side !== 'front' ? M.pane : M.glass, [[q, yA, c - 0.02], [p, yA, c - 0.02], [p, yB, c - 0.02], [q, yB, c - 0.02]], [0, 0, -1], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'front' ? lit : 0);
+          mb.quad(isOuter && wl.side !== 'back' ? M.pane : M.glass, [[p, yA, c + 0.02], [q, yA, c + 0.02], [q, yB, c + 0.02], [p, yB, c + 0.02]], [0, 0, 1], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'back' ? lit : 0);
         } else {
-          mb.quad(M.glass, [[c + 0.02, yA, q], [c + 0.02, yA, p], [c + 0.02, yB, p], [c + 0.02, yB, q]], [1, 0, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'right' ? lit : 0);
-          mb.quad(M.glass, [[c - 0.02, yA, p], [c - 0.02, yA, q], [c - 0.02, yB, q], [c - 0.02, yB, p]], [-1, 0, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'left' ? lit : 0);
+          mb.quad(isOuter && wl.side !== 'right' ? M.pane : M.glass, [[c + 0.02, yA, q], [c + 0.02, yA, p], [c + 0.02, yB, p], [c + 0.02, yB, q]], [1, 0, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'right' ? lit : 0);
+          mb.quad(isOuter && wl.side !== 'left' ? M.pane : M.glass, [[c - 0.02, yA, p], [c - 0.02, yA, q], [c - 0.02, yB, q], [c - 0.02, yB, p]], [-1, 0, 0], [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE, wl.side === 'left' ? lit : 0);
         }
       };
       gl(o.a, o.b);

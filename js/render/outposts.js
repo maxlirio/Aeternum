@@ -5,9 +5,9 @@ import { sitesNear } from '../gen/outposts.js';
 import { kitTint } from './city.js';
 import { surfaceAt } from '../gen/surface.js';
 
-const PLANTS = 340, R = 1500, FAR_ONLY = /^(house_|fam_(cottage|hut|longhouse|shop|stable|hall|school|clinic|inn|warehouse|garage|temple|tenement|markethall|smithy|sawmill|shelterhut|shrine|monument|watertower|windpump|coolingtower|column|spheretank|gate)|windmillbig|pylon|radiomast|lighthouse|grainsilo|headframe|barn|watchtower|greenhouse|drillrig|ruinwall|bunker|solarfield|substation|fuelcanopy)/, NEAR = 500;
+const PLANTS = 340, R = 1500, FAR_ONLY = /^(gb_(?!step)|fam_(markethall|sawmill|shelterhut|shrine|monument|watertower|windpump|coolingtower|column|spheretank|gate)|windmillbig|pylon|radiomast|lighthouse|grainsilo|headframe|barn|watchtower|greenhouse|drillrig|ruinwall|bunker|solarfield|substation|fuelcanopy)/, NEAR = 500;
 export class OutpostView {
-  constructor(planet, lib, kitOf) { Object.assign(this, { planet, lib, kitOf }); this.group = new THREE.Group(); this.group.name = 'outposts'; this.at = null; this.count = 0; }
+  constructor(planet, lib, kitOf) { Object.assign(this, { planet, lib, kitOf }); this.where = new Map(); this.hidden = new Set(); this.group = new THREE.Group(); this.group.name = 'outposts'; this.at = null; this.count = 0; }
   // fields: tilled soil laid over the land, and the crop planted row by row on it, so a field follows any ground
   sowFields(x, z) {
     const pos = [], uv = [], col = [], idx = [], plants = new Map();
@@ -21,7 +21,7 @@ export class OutpostView {
       } });
     if (idx.length) {
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals();
-      if (!this.soilMat) { const b = this.lib?.surface('soil'); this.soilMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x3a2a1e, roughness: 1 }); this.soilMat.vertexColors = true; this.soilMat.transparent = true; this.soilMat.depthWrite = false; }
+      if (!this.soilMat) { const b = this.lib?.surface('soil'); this.soilMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x3a2a1e, roughness: 1 }); this.soilMat.vertexColors = true; this.soilMat.transparent = true; this.soilMat.polygonOffset = true; this.soilMat.polygonOffsetFactor = -3; this.soilMat.polygonOffsetUnits = -12; this.soilMat.depthWrite = false; }
       const m = new THREE.Mesh(g, this.soilMat); m.receiveShadow = true; m.name = 'lanes'; this.group.add(m);
     }
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
@@ -43,13 +43,20 @@ export class OutpostView {
     this.sowFields(x, z);
     if (!idx.length) return;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals();
-    if (!this.laneMat) { const b = this.lib?.surface('dirt'); this.laneMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x776a55, roughness: 1 }); this.laneMat.vertexColors = true; this.laneMat.transparent = true; this.laneMat.depthWrite = false; }     // fades out into the grass at its edges
+    if (!this.laneMat) { const b = this.lib?.surface('dirt'); this.laneMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x776a55, roughness: 1 }); this.laneMat.vertexColors = true; this.laneMat.transparent = true; this.laneMat.depthWrite = false; this.laneMat.polygonOffset = true; this.laneMat.polygonOffsetFactor = -3; this.laneMat.polygonOffsetUnits = -12; }     // fades out into the grass at its edges
     const m = new THREE.Mesh(g, this.laneMat); m.receiveShadow = true; m.name = 'lanes'; this.group.add(m);
+  }
+  // a building close enough to be real (render/sitereal.js) stands in for its model here
+  hide(it, off) {
+    if (off === this.hidden.has(it)) return;
+    if (off) this.hidden.add(it); else this.hidden.delete(it);
+    const M = new THREE.Matrix4(), Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.rot);
+    for (const [im, q] of this.where.get(it) || []) { M.compose(new THREE.Vector3(it.x, it.y, it.z), Q, off ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(it.s || 1, 1, 1)); im.setMatrixAt(q, M); im.instanceMatrix.needsUpdate = true; }
   }
   update(x, z) {
     if (this.at && Math.hypot(this.at[0] - x, this.at[1] - z) < 120) return; this.at = [x, z];
     this.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.name === 'lanes') o.geometry.dispose(); }); this.group.clear();
-    const by = new Map(); let n = 0;
+    const by = new Map(); let n = 0; this.where.clear();
     sitesNear(this.planet, x, z, R, s => { const d = Math.hypot(s.x - x, s.z - z); if (d > R) return; for (const it of s.items) { if (d > NEAR && !FAR_ONLY.test(it.k)) continue; (by.get(it.k) || by.set(it.k, []).get(it.k)).push(it); n++; } });
     this.count = n;
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), S = new THREE.Vector3(1, 1, 1), P = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
@@ -57,7 +64,7 @@ export class OutpostView {
       const parts = this.kitOf(k); if (!parts) continue;
       for (const part of parts) {
         const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-        list.forEach((it, q) => { M.compose(P.set(it.x, it.y, it.z), Q.setFromAxisAngle(up, it.rot), S.set(it.s || 1, 1, 1)); im.setMatrixAt(q, M); if (part.tinted) im.setColorAt(q, col.setRGB(...kitTint(part.tinted, k, it.x, it.z))); });
+        list.forEach((it, q) => { const off = this.hidden.has(it); M.compose(P.set(it.x, it.y, it.z), Q.setFromAxisAngle(up, it.rot), off ? S.set(0, 0, 0) : S.set(it.s || 1, 1, 1)); im.setMatrixAt(q, M); if (it.box) (this.where.get(it) || this.where.set(it, []).get(it)).push([im, q]); if (part.tinted) im.setColorAt(q, col.setRGB(...kitTint(part.tinted, k, it.x, it.z))); });
         im.computeBoundingSphere(); im.castShadow = !!part.cast; im.receiveShadow = true; this.group.add(im);
       }
     }

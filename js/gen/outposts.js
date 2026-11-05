@@ -9,6 +9,7 @@ import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { cultureOf } from './culture.js';
 import { designOf, footOf } from './designs.js';
+import { designById, designPlan, FORMS } from './housegen.js';
 import { FAMILIES } from './familydata.js';
 
 const TILE = 900, FAM = new Set(FAMILIES);
@@ -150,13 +151,18 @@ export function sitesInTile(planet, ti, tj) {
           return;
         }
         let k = k0, foot = 0;
-        if (FAM.has(k0)) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
+        if (FAM.has(k0) || FORMS[k0]) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
         const Q = surfaceAt(planet, px, pz);
         if (Q.town > 0.01 || Q.road > 0.01) return;
         if (opt.wet) { items.push({ k, x: px, y: opt.y, z: pz, rot, r: 0, s: 1 }); return; }
         if (Q.h < planet.seaLevel + 0.5) return;
-        let y = Q.h;
-        if (foot) {                                                 // level on its footing; too steep to build on, and they don't
+        let y = Q.h, gb = k.startsWith('gb_');
+        if (gb) {                                                   // you can go in: the floor clears all the ground under it, so none comes up through it, and steps make up the drop
+          const c = Math.cos(rot), s = Math.sin(rot); let lo = Infinity, hi = -Infinity;
+          for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), g = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; if (g < lo) lo = g; if (g > hi) hi = g; }
+          if (hi - lo > 2.6 || lo < planet.seaLevel + 0.3) return;
+          y = hi + 0.12;
+        } else if (foot) {                                                 // level on its footing; too steep to build on, and they don't
           const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const u = a * foot[0], v = b * foot[1]; return surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; });
           const lo = Math.min(...hs), hi = Math.max(...hs); if (hi - lo > Math.max(3, foot[0] * 0.45) || lo < planet.seaLevel + 0.3) return;
           y = Math.max((lo + hi) / 2, surfaceAt(planet, px - s * foot[1], pz - c * foot[1]).h - 0.05);  // the floor is never below the ground at the front door
@@ -165,6 +171,13 @@ export function sitesInTile(planet, ti, tj) {
         const hit = it.box || [Math.max(0.4, it.r), Math.max(0.4, it.r)], me = { x: px, z: pz, rot, box: hit };   // nobody builds through their neighbour
         if (items.some(o => (o.box || o.r > 0) && overlaps(me, { x: o.x, z: o.z, rot: o.rot, box: o.box || [o.r, o.r] }))) return;
         if (foot && fields.some(f => overlaps(me, f))) return;
+        if (gb) {                                                   // the steps up to its door, down to wherever the ground is; if they'd never get there, nobody builds here
+          const D = designById(planet, k), pl = designPlan(planet, D), dr = pl.doors[pl.entrance], c = Math.cos(rot), s = Math.sin(rot), u = dr.x - D.w / 2, W = dr.width + 0.5, treads = []; let n = 0, down = false;
+          for (; n < 18; n++) { const v = -D.d / 2 - 0.17 - n * 0.34, top = y - (n + 1) * 0.19, X = px + u * c + v * s, Z = pz - u * s + v * c; if (top < surfaceAt(planet, X, Z).h - 0.04) { down = true; break; } treads.push({ k: 'gb_step', x: X, y: top, z: Z, rot, r: 0, s: W }); }
+          if (!down) return;
+          if (n) it.stoop = { u, W, n, run: 0.34, rise: 0.19 };
+          items.push(it, ...treads); return;
+        }
         items.push(it);
       };
       let lanes = [];
@@ -184,11 +197,13 @@ export function sitesNear(planet, x, z, R, fn) {
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const s of sitesInTile(planet, i, j)) fn(s);
 }
 // the sites working the land near a spot, then: is this ground tilled or walked bare? (a field, a lane). Grass doesn't grow on it.
-export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R, S => { if ((S.fields.length || S.lanes.length) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
+export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R, S => { if ((S.fields.length || S.lanes.length || S.items.some(i => i.box && i.k.startsWith('gb_'))) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
+// → 1 a field, 2 a lane, 3 under a floor, or false
 export function workedGround(sites, x, z) {
   for (const S of sites) {
-    for (const f of S.fields) { const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z; if (Math.abs(dx * c - dz * s) < f.box[0] && Math.abs(dx * s + dz * c) < f.box[1]) return true; }
-    for (const [x0, z0, x1, z1, w] of S.lanes) { const L = Math.hypot(x1 - x0, z1 - z0), u = ((x - x0) * (x1 - x0) + (z - z0) * (z1 - z0)) / L; if (u < 0 || u > L) continue; const wob = Math.sin(u * 0.09) * 1.1 + Math.sin(u * 0.031 + 2) * 1.6, o = ((x - x0) * (z1 - z0) - (z - z0) * (x1 - x0)) / L; if (Math.abs(o + wob) < w * 0.7) return true; }
+    for (const it of S.items) if (it.box && it.k.startsWith('gb_') && Math.abs(x - it.x) < 32 && Math.abs(z - it.z) < 32) { const c = Math.cos(it.rot), s = Math.sin(it.rot), dx = x - it.x, dz = z - it.z; if (Math.abs(dx * c - dz * s) < it.box[0] + 0.2 && Math.abs(dx * s + dz * c) < it.box[1] + 0.2) return 3; }
+    for (const f of S.fields) { const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z; if (Math.abs(dx * c - dz * s) < f.box[0] && Math.abs(dx * s + dz * c) < f.box[1]) return 1; }
+    for (const [x0, z0, x1, z1, w] of S.lanes) { const L = Math.hypot(x1 - x0, z1 - z0), u = ((x - x0) * (x1 - x0) + (z - z0) * (z1 - z0)) / L; if (u < 0 || u > L) continue; const wob = Math.sin(u * 0.09) * 1.1 + Math.sin(u * 0.031 + 2) * 1.6, o = ((x - x0) * (z1 - z0) - (z - z0) * (x1 - x0)) / L; if (Math.abs(o + wob) < w * 0.7) return 2; }
   }
   return false;
 }

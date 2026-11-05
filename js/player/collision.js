@@ -87,11 +87,12 @@ export class CollisionWorld {
         add(cur, o.a, -1); add(o.a, o.b, o.door); cur = o.b;
       }
       add(cur, a1, -1);
-      if (wl.exterior && wl.k === plan.F - 1) { // roof parapet
+      if (wl.exterior && wl.k === plan.F - 1 && !b.footing) { // roof parapet
         const top = plan.F * plan.H;
         walls.push(alongX ? [a0, cc - t, a1, cc + t, top, top + 0.7, -1] : [cc - t, a0, cc + t, a1, top, top + 0.7, -1]);
       }
     }
+    if (b.footing) for (const q of [[0, 0, b.w, 0.2], [0, b.d - 0.2, b.w, b.d], [0, 0, 0.2, b.d], [b.w - 0.2, 0, b.w, b.d]]) walls.push([...q, -4, 0, -1]);   // (what it stands on, where the ground falls away)
     const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]).concat(plan.solids || []);
     c = { b, plan, walls, props };
     this.cols.set(b.plan ? b.key : b.n, c);
@@ -204,6 +205,7 @@ export class CollisionWorld {
       }
       // tree trunks and boulders out in the open (gen/flora.js): circles
       if (this.flora) sitesNear(this.planet, x, z, 14, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) {     // the country's barns and masts (gen/outposts.js)
+        if (it.live) continue;                                      // (you're close enough that it's a real building: see render/sitereal.js)
         if (it.box) {                                               // a building: its own walls, turned with it
           if (yFeet > it.y + (it.top ?? it.box[2] + 2.5) || yFeet + h < it.y - 1) continue;     // (a fence you can get over)
           const c = Math.cos(it.rot), s = Math.sin(it.rot), dx = x - it.x, dz = z - it.z, lx = dx * c - dz * s, lz = dx * s + dz * c, px = it.box[0] + r - Math.abs(lx), pz = it.box[1] + r - Math.abs(lz);

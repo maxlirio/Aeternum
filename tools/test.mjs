@@ -1230,7 +1230,7 @@ suites.countryside = async () => {
   check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
   check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
   const { houseDesigns, houseFoot } = await import('../js/gen/housegen.js'), looks = new Set(planets.flatMap(p => houseDesigns(p).map(d => JSON.stringify({ ...d, id: 0 }))));
-  check(looks.size === planets.length * 5, `every planet designs its own houses (${looks.size} different designs on ${planets.length} planets)`);
+  check(looks.size === planets.length * 6, `every planet designs its own houses (${looks.size} different designs on ${planets.length} planets)`);
   check(new Set(planets.map(p => houseDesigns(p).map(d => d.wall + d.roof).sort().join())).size >= 4, 'and builds them of different things');
   check(planets.every(p => houseDesigns(p).every(d => { const [a, b, h] = houseFoot(d); return a > 2 && b > 2 && h > 2 && d.shape; })), 'each design states its footprint');
   check(JSON.stringify(houseDesigns(makePlanet(uni(3), HOMEWORLD))) === JSON.stringify(houseDesigns(planets[2])), 'the same seed designs the same houses');
@@ -1238,6 +1238,43 @@ suites.countryside = async () => {
   check(FAMILIES.length * 7 === Object.keys(FOOT).length, `every family exists in every way of building (${Object.keys(FOOT).length})`);
 };
 
+suites.walkin = async () => {
+  const { sitesInTile } = await import('../js/gen/outposts.js'), { FORMS, designsFor, designPlan } = await import('../js/gen/housegen.js'), { siteReal } = await import('../js/world/sitereal.js'), { roomGraph } = await import('../js/gen/building.js');
+  const { surfaceHeight } = await import('../js/gen/surface.js'), { CollisionWorld } = await import('../js/player/collision.js');
+  let designs = 0, unreached = 0, noPlan = 0;
+  for (let n = 1; n <= 12; n++) { const p = makePlanet(uni(n), HOMEWORLD); for (const fam of Object.keys(FORMS)) for (const D of designsFor(p, fam)) {
+    designs++; const pl = designPlan(p, D); if (!(pl.entrance >= 0) || !pl.rooms.length) { noPlan++; continue; }
+    const g = roomGraph(pl), seen = new Set(['outside']), q = ['outside']; while (q.length) for (const m of g.get(q.pop()) || []) if (!seen.has(m)) { seen.add(m); q.push(m); }
+    for (const r of pl.rooms) if (!seen.has(`${r.k}:${r.i}`)) unreached++;
+  } }
+  check(!noPlan, `every design has rooms and a front door (${designs} designs)`); check(!unreached, `every room of every design can be reached from the street (${unreached} can't)`);
+  // walk in for real: up the steps, through the door, against the same collision the game uses
+  let tried = 0, inOK = 0, shutOK = 0, poke = 0, under = 0, steps = 0; const bad = [], fams = new Set();
+  for (const n of [1, 2, 3, 4, 5]) { const p = makePlanet(uni(n), HOMEWORLD), s = getSettlement(p, 0, 0);
+    for (let i = -14; i <= 14 && tried < 110 * n; i++) for (let j = -14; j <= 14; j++) for (const S of sitesInTile(p, i, j)) S.items.forEach((it, idx) => {
+      if (!/^gb_(?!step)/.test(it.k) || tried >= 110 * n) return;
+      tried++; fams.add(it.k.split('_')[1]);
+      const world = new CollisionWorld(p, s, () => false); world.flora = false; const rec = siteReal(p, s, S, it, idx); let open = true; rec.doorPassable = id => id !== rec.plan.entrance || open;
+      world.addStructure(rec); if (rec.stoop) { world.addStructure(rec.stoop); steps++; } it.live = true;
+      const c = Math.cos(it.rot), sn = Math.sin(it.rot), at = (u, v) => [it.x + u * c + v * sn, it.z - u * sn + v * c], D = rec.design, dr = rec.plan.doors[rec.plan.entrance], u = dr.x - D.w / 2;
+      for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const [x, z] = at(a * D.w / 2, b * D.d / 2); if (surfaceHeight(p, x, z) > it.y) poke++; }
+      const walk = () => { let [x, z] = at(u, -D.d / 2 - (it.stoop ? it.stoop.n * it.stoop.run : 0) - 2.5), y = surfaceHeight(p, x, z); const [tx, tz] = at(u, -D.d / 2 + 1.2);
+        for (let k = 0; k < 90; k++) { const dx = tx - x, dz = tz - z, L = Math.hypot(dx, dz); if (L < 0.12) break; const st = Math.min(0.1, L); [x, z] = world.resolve(x + dx / L * st, z + dz / L * st, y); y = world.groundAt(x, z, y).h; }
+        return world.locate(x, y + 0.1, z); };
+      const inside = walk(); if (inside?.b === rec && inside.room) inOK++; else if (bad.length < 6) bad.push(`${it.k} stoop=${it.stoop?.n ?? 0}`);
+      open = false; world.cols.delete(rec.key); if (!walk()?.room) shutOK++;
+      // and you can't walk underneath where the ground falls away
+      const [bx, bz] = at(-D.w / 4, -D.d / 2 - 1), by = surfaceHeight(p, bx, bz), [tx, tz] = at(-D.w / 4, 0); let x = bx, z = bz, y = by; for (let k = 0; k < 40; k++) { const dx = tx - x, dz = tz - z, L = Math.hypot(dx, dz) || 1; [x, z] = world.resolve(x + dx / L * 0.1, z + dz / L * 0.1, y); y = world.groundAt(x, z, y).h; } if (world.locate(x, y + 0.1, z)?.room || (Math.hypot(x - it.x, z - it.z) < 1)) under++;
+      it.live = false;
+    });
+  }
+  console.log(`    ${tried} buildings of ${fams.size} kinds, ${steps} with steps; ${inOK} walked into, ${shutOK} stopped by a shut door`);
+  check(fams.size >= 10, `villages have most kinds of building (${[...fams].join(' ')})`);
+  check(!poke, `no ground comes up through a floor (${poke})`);
+  check(inOK === tried, `you can walk in the front door of every one (${tried - inOK} not: ${bad.join(', ')})`);
+  check(shutOK === tried, `a shut door stops you (${tried - shutOK} didn't)`);
+  check(!under, `you can't get in under the wall (${under})`);
+};
 suites.villagers = async () => {
   const { sitesInTile } = await import('../js/gen/outposts.js'), { villageOf, villagerAt, siteWalkers } = await import('../js/gen/villagers.js'), { solarHour } = await import('../js/sim/clock.js');
   const p = makePlanet(uni(1), HOMEWORLD); let sites = [], total = 0;

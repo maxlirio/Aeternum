@@ -94,6 +94,7 @@ export function materials() {
     trim: std('metal', 2, { color: 0x6b7178, metalness: 0.8 }),
     darkTrim: std('metal', 2, { color: 0x3c4148, metalness: 0.6 }),
     glass: glassMaterial(),
+    pane: Object.assign(new THREE.MeshStandardMaterial({ color: 0xc4d6df, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.1, depthWrite: false }), { userData: { lit: false } }),   // a window from inside: you see out through it
     asphalt: std('asphalt', 6, {}, 'asphalt'),
     pavers: std('pavers', 4, {}, 'pavers'),
     marking: new THREE.MeshStandardMaterial({ color: 0xd9d4c4, roughness: 0.7 }),

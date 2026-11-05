@@ -409,6 +409,14 @@ def mat_brick(seed):      # 225 x 75 mm brick courses in running bond: a fired t
     h = 0.3 * g + 0.25 * a - 1.1 * mort
     return col, normal_from_height(h, 3.2), ao_from_height(h, 0.6), 0.86 + 0.1 * g, 0.0
 
+def mat_limestone(seed):  # pale dressed stone: coursed blocks with thin mortar, each block its own tone, weathered streaks
+    tone, edge = grid_cells(5, 8, seed, True)
+    a = spectral(N, 1.5, seed + 1); g = spectral(N, 0.25, seed + 2); st = np.clip(spectral(N, 1.1, seed + 3) - 0.45, 0, 1)
+    mortar = np.clip(1 - edge / 2.2, 0, 1)
+    col = lerp3([0.6, 0.56, 0.48], [0.8, 0.76, 0.67], tone) * (0.86 + 0.26 * a)[..., None] * (1 - 0.45 * mortar - 0.3 * st)[..., None]
+    h = 1 - 0.8 * mortar + 0.12 * g + 0.08 * a
+    return np.clip(col, 0, 1), normal_from_height(h, 2.4), ao_from_height(h, 0.6), 0.84 + 0.1 * g, 0.0
+
 def mat_rooftile(seed):   # clay tiles in overlapping courses, each course shadowing the one below; moss in the laps
     tone, edge = grid_cells(10, 12, seed, True)
     fy = ((np.arange(N)[:, None] + 0.5) / N * 12 % 1) * np.ones((1, N))
@@ -446,7 +454,7 @@ def mat_plank(seed):      # weatherboard: overlapping horizontal boards, grey-br
     return np.clip(col, 0, 1), normal_from_height(h, 3.6), ao_from_height(h, 0.7), 0.82 + 0.1 * gr, 0.0
 
 MATERIALS = {   # name: (generator, tile size in metres — read by the game from assets/materials/index.json)
-    'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
+    'limestone': (mat_limestone, 2.4), 'wood': (mat_wood, 1.2), 'fabric': (mat_fabric, 0.45), 'paint': (mat_paint, 1.0), 'metal': (mat_metal, 0.6),
     'laminate': (mat_laminate, 1.0), 'stone': (mat_stone, 1.0), 'plastic': (mat_plastic, 0.5), 'rubber': (mat_rubber, 0.3),
     'concrete': (mat_concrete, 2.0), 'soil': (mat_soil, 0.5), 'leaf': (mat_leaf, 0.3), 'cardboard': (mat_cardboard, 0.6),
     'facade': (mat_facade, 3.2), 'corrugated': (mat_corrugated, 2.4), 'render': (mat_render, 3.0), 'floortile': (mat_floortile, 4.0),

@@ -29,9 +29,9 @@ export function buildingPlan(planet, settlement, b) {
 
 function generatePlan(planet, s, b) {
   const rng = new Rng(Address.parse(b.key).seed(planet.universeSeed));
-  const T = TYPES[b.type];
+  const T = b.roomArea ? { ...TYPES[b.type], roomArea: b.roomArea } : TYPES[b.type];   // (a design can ask for one big room or many small ones)
   const { w, d, floors: F, storeyH: H } = b;
-  const plan = { key: b.key, type: b.type, w, d, F, H, walls: [], slabs: [], ramps: [], rooms: [], doors: [], props: [], windows: [] };
+  const plan = { designed: !!b.design, key: b.key, type: b.type, w, d, F, H, walls: [], slabs: [], ramps: [], rooms: [], doors: [], props: [], windows: [] };
   const hasCore = F > 1;
   const xc = w - CORE_W;                       // core partition wall centreline
   const mainX1 = hasCore ? xc - INT_T / 2 : w - EXT_T;
@@ -160,15 +160,15 @@ function generatePlan(planet, s, b) {
   const ground = floorRooms[0].rooms;
   const frontRooms = ground.filter(r => Math.abs(r.rect[1] - EXT_T) < 0.01).sort((a, c) => (c.rect[2] - c.rect[0]) - (a.rect[2] - a.rect[0]));
   const entryRoom = b.type === 'house' ? (ground.find(r => r.purpose === 'hall') || frontRooms[0]) : frontRooms[0];
-  const big = b.type === 'hangar';
-  const ew = big ? Math.min(10, entryRoom.rect[2] - entryRoom.rect[0] - 3) : b.type === 'store' || b.type === 'office' ? 1.8 : DOOR_W;
+  const big = b.type === 'hangar' || !!b.bigDoor;
+  const ew = b.bigDoor ? Math.min(b.bigDoor[0], entryRoom.rect[2] - entryRoom.rect[0] - 1) : big ? Math.min(10, entryRoom.rect[2] - entryRoom.rect[0] - 3) : b.type === 'store' || b.type === 'office' ? 1.8 : DOOR_W;
   const ex = (entryRoom.rect[0] + entryRoom.rect[2]) / 2;
   const entrance = addDoor({ k: 0, kind: big ? 'hangar' : 'exterior', rooms: [entryRoom.i, 'outside'], access: b.access, hours: b.hours,
-    x: ex, z: EXT_T / 2, axis: 'x', width: ew, height: big ? 6.5 : b.type === 'store' || b.type === 'office' ? 2.6 : DOOR_H });
+    x: ex, z: EXT_T / 2, axis: 'x', width: ew, height: b.bigDoor ? b.bigDoor[1] : big ? 6.5 : b.type === 'store' || b.type === 'office' ? 2.6 : DOOR_H });
   entryRoom.doors.push(entrance.id);
   plan.entrance = entrance.id;
   plan.walls.find(wl => wl.k === 0 && wl.side === 'front').openings.push(opening(entrance, 0, 0, 'x'));
-  if (big) { // personnel door beside the hangar door
+  if (b.type === 'hangar') { // personnel door beside the hangar door
     const pd = addDoor({ k: 0, kind: 'exterior', rooms: [entryRoom.i, 'outside'], access: 'staff', x: ex - ew / 2 - 1.6, z: EXT_T / 2, axis: 'x', width: DOOR_W, height: DOOR_H });
     entryRoom.doors.push(pd.id);
     plan.walls.find(wl => wl.k === 0 && wl.side === 'front').openings.push(opening(pd, 0, 0, 'x'));
@@ -181,9 +181,10 @@ function generatePlan(planet, s, b) {
   if (b.type === 'house') plan.units.push({ id: 0, rooms: plan.rooms.slice() });
   if (b.type === 'hab') for (let k = 1; k < F; k++) plan.units.push({ id: k, rooms: plan.rooms.filter(r => r.k === k) });
   for (const u of plan.units) for (const r of u.rooms) r.unit = u.id;
+  let kinded = 0;
   for (const fr of floorRooms) for (const r of fr.rooms) {
     if (r.unit !== undefined) continue;
-    r.purpose = b.type === 'hab' ? (r === entryRoom ? 'lobby' : 'utility') : purposeFor(b.type, r, rng, r === entryRoom);
+    r.purpose = b.roomKinds ? (r === entryRoom ? b.roomKinds[0] : b.roomKinds[1 + (kinded++) % (b.roomKinds.length - 1)] || b.roomKinds[0]) : b.type === 'hab' ? (r === entryRoom ? 'lobby' : 'utility') : purposeFor(b.type, r, rng, r === entryRoom);
   }
   for (const u of plan.units) {   // (rooms laid out as a home already know what they are) biggest is the living room, then a kitchen, the rest bedrooms
     if (u.rooms.every(r => r.purpose)) continue;
@@ -325,9 +326,10 @@ function placeWindows(plan, b, wl, rng, xc, hasCore) {
   if (hasCore && !alongX && wl.side === 'right') blockers.push([0, b.d]);
   const shop = (b.type === 'store' || b.type === 'office') && wl.k === 0 && wl.side === 'front';
   const tall = b.type === 'hangar' || b.type === 'workshop';
-  const ww = shop ? 2.4 : tall ? 2.2 : rng.range(1.1, 1.5);
-  const y0 = shop ? 0.45 : tall ? plan.H - 2.2 : 0.95, y1 = shop ? 2.5 : tall ? plan.H - 0.6 : 2.35;
-  const pitch = shop ? 3.0 : tall ? 3.4 : rng.range(2.6, 3.4);
+  const D = b.design;                        // (a designed building keeps to its design's windows)
+  const ww = shop ? 2.4 : tall ? 2.2 : D ? D.winW : rng.range(1.1, 1.5);
+  const y0 = shop ? 0.45 : tall ? plan.H - 2.2 : D ? D.sill : 0.95, y1 = shop ? 2.5 : tall ? plan.H - 0.6 : D ? Math.min(plan.H - 0.3, D.sill + D.winH) : 2.35;
+  const pitch = shop ? 3.0 : tall ? 3.4 : D ? D.winGap : rng.range(2.6, 3.4);
   const n = Math.floor((L - 1.2) / pitch);
   const start = (L - n * pitch) / 2 + pitch / 2;
   for (let i = 0; i < n; i++) {
@@ -357,16 +359,25 @@ const WALL_PROPS = {
   storage: [['rack', 2.4, 0.8, 2.2], ['crate', 1.2, 1.2, 1.0], ['crate', 1.0, 1.0, 0.8]],
   'shopfloor-workshop': [['bench', 2.6, 0.9, 0.95], ['machine', 1.8, 1.4, 1.7], ['rack', 2.4, 0.8, 2.2]],
   hangar: [['crate', 1.6, 1.6, 1.4], ['crate', 1.2, 1.2, 1.0], ['rack', 3.0, 0.9, 2.6], ['machine', 2.2, 1.6, 2.0]],
+  classroom: [['cabinet', 1.6, 0.45, 0.9], ['bookshelf', 1.0, 0.35, 2.0], ['bookshelf', 1.0, 0.35, 2.0]],
+  ward: [['bed', 2.1, 1.0, 0.6], ['bed', 2.1, 1.0, 0.6], ['bed', 2.1, 1.0, 0.6], ['cabinet', 1.0, 0.45, 1.4], ['basin', 0.6, 0.45, 0.9]],
+  nave: [['planter', 0.7, 0.7, 1.1], ['planter', 0.7, 0.7, 1.1], ['cabinet', 1.6, 0.45, 0.9]],
+  assembly: [['bench', 1.8, 0.5, 0.45], ['bench', 1.8, 0.5, 0.45], ['bench', 1.8, 0.5, 0.45], ['cabinet', 1.6, 0.45, 0.9]],
+  forge: [['bench', 2.6, 0.9, 0.95], ['machine', 1.2, 1.2, 1.3], ['rack', 2.0, 0.6, 2.0], ['crate', 1.0, 1.0, 0.8]],
+  stalls: [['crate', 1.2, 1.2, 1.0], ['crate', 1.0, 1.0, 0.8], ['rack', 2.0, 0.6, 2.0]],
+  taproom: [['counter', 2.8, 0.7, 1.05], ['bench', 1.8, 0.5, 0.45], ['bench', 1.8, 0.5, 0.45]],
 };
 const CENTRE_PROPS = {
   living: [['table', 1.2, 0.8, 0.45]], kitchen: [['table', 1.4, 0.9, 0.75]], studio: [['table', 1.0, 0.8, 0.75]],
   office: [['desk', 1.5, 0.75, 0.75]], study: [['desk', 1.5, 0.75, 0.75]], meeting: [['table', 3.0, 1.2, 0.75]],
   shopfloor: [['shelf', 2.4, 0.9, 1.5]], 'shopfloor-workshop': [['bench', 2.4, 1.0, 0.95]],
+  classroom: [['desk', 1.2, 0.6, 0.75]], nave: [['bench', 2.2, 0.5, 0.45]], assembly: [['table', 2.4, 1.0, 0.75]], taproom: [['table', 1.2, 0.8, 0.75]], forge: [['bench', 1.4, 0.9, 0.95]],
   hangar: [['crate', 1.6, 1.6, 1.4]], reception: [['planter', 0.8, 0.8, 1.0]],
 };
 
 // Small things on the surfaces of a room's furniture: drawn only (soft — nothing collides
 // with them, nobody uses them), so rooms look lived in.
+const CENTRE_N = { classroom: 6, nave: 7, assembly: 2, taproom: 4, forge: 1 };
 const DRESS = { counter: [['kettle', 0.24, 0.18, 0.26], ['mugs', 0.24, 0.12, 0.11], ['bowl', 0.32, 0.32, 0.13]], table: [['bowl', 0.32, 0.32, 0.13], ['vase', 0.18, 0.18, 0.5], ['books', 0.26, 0.19, 0.14]],
   desk: [['lamp', 0.28, 0.28, 0.5], ['mugs', 0.24, 0.12, 0.11], ['books', 0.26, 0.19, 0.14]], cabinet: [['lamp', 0.28, 0.28, 0.5], ['potplant', 0.3, 0.3, 0.45], ['vase', 0.18, 0.18, 0.5]],
   bench: [['books', 0.26, 0.19, 0.14]] };
@@ -406,7 +417,7 @@ function furnish(plan, room, rng, H) {
     plan.props.push({ kind, k: room.k, x0: bx0, z0: bz0, x1: bx1, z1: bz1, y, h, face, room: room.i });
   };
   const wallSet = WALL_PROPS[room.purpose] || [];
-  const scale = room.purpose === 'hangar' ? 3 : 1;
+  const scale = room.purpose === 'hangar' ? 3 : plan.designed ? Math.max(1, Math.min(4, Math.round((x1 - x0) * (z1 - z0) / 70))) : 1;   // (a big room in a designed building isn't left bare)
   for (let rep = 0; rep < scale; rep++) for (const [kind, len0, dep, h] of wallSet) {
     for (let tries = 0; tries < (room.unit !== undefined ? 24 : 8); tries++) {
       const len = tries >= 8 && len0 >= 1.6 ? Math.round(len0 * 0.7 * 10) / 10 : len0;      // a smaller one if the full size won't fit
@@ -422,7 +433,7 @@ function furnish(plan, room, rng, H) {
   }
   const centre = CENTRE_PROPS[room.purpose] || [];
   for (const [kind, len, dep, h] of centre) {
-    const n = room.purpose === 'office' ? 2 : room.purpose === 'shopfloor' || room.purpose === 'hangar' ? 3 : 1;
+    const n = CENTRE_N[room.purpose] ?? (room.purpose === 'office' ? 2 : room.purpose === 'shopfloor' || room.purpose === 'hangar' ? 3 : 1);
     for (let i = 0; i < n; i++) for (let tries = 0; tries < 10; tries++) {
       const cx = rng.range(x0 + 1.2, x1 - 1.2), cz = rng.range(z0 + 1.2, z1 - 1.2);
       const rot = rng.chance(0.5);

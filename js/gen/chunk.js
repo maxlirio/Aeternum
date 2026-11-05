@@ -5,6 +5,7 @@ import { CHUNK, CHUNK_RES } from '../core/units.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
 import { smoothstep } from '../core/noise.js';
+import { workedNear, workedGround } from './outposts.js';
 
 export function chunkData(planet, lod, i, j) {
   const size = CHUNK * 2 ** lod, step = size / CHUNK_RES, n = CHUNK_RES + 1, x0 = i * size, z0 = j * size;
@@ -17,7 +18,7 @@ export function chunkData(planet, lod, i, j) {
   const skirt = 4 * CHUNK_RES;
   const vcount = n * n + skirt;
   const pos = new Float32Array(vcount * 3), nrm = new Float32Array(vcount * 3), col = new Float32Array(vcount * 3), uv = new Float32Array(vcount * 2);
-  const C = planet.climate, sea = planet.seaLevel;
+  const C = planet.climate, sea = planet.seaLevel, worked = lod <= 3 ? workedNear(planet, x0 + size / 2, z0 + size / 2, size * 0.75) : [];   // (ground people have worn away shows in the land's own colour, from any distance)
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const k = (b + 1) * m + (a + 1), v = b * n + a;
     const h = H[k];
@@ -39,6 +40,7 @@ export function chunkData(planet, lod, i, j) {
     c = mix3(c, [C.snow, C.snow, C.snow * 1.02], snow);
     c = mix3(c, [0.40, 0.37, 0.32], TOWN[k] * 0.85);
     c = mix3(c, [0.30, 0.29, 0.27], ROAD[k]);
+    if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) c = [0.5, 0.42, 0.31]; else if (w === 1) c = [0.2, 0.15, 0.1]; }
     col[v * 3] = c[0]; col[v * 3 + 1] = c[1]; col[v * 3 + 2] = c[2];
   }
   // skirts: duplicate edge vertices, dropped, to hide cracks against coarser neighbours
