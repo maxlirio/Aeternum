@@ -37,7 +37,7 @@ export class UI {
 
   title({ hasSave, summary }) {
     return new Promise(res => {
-      const p = this.panel(`<h1>ORBIS</h1><p class="lede">A persistent universe. You are one person living in it.</p>
+      const p = this.panel(`<h1>Aeternum</h1><p class="lede">A persistent universe. You are one person living in it.</p>
         ${hasSave ? `<p class="save">${summary}</p><button data-a="continue" class="primary">Continue</button>` : ''}
         <button data-a="new" class="${hasSave ? '' : 'primary'}">${hasSave ? 'Start over — new universe' : 'Begin a life'}</button>
         <button data-a="restore">Restore from backup…</button>
