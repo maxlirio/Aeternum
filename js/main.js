@@ -193,6 +193,7 @@ async function start(fresh) {
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   propLib?.setLocal(localTones(planet));
+  let trespassAt = null;
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
@@ -851,7 +852,7 @@ async function start(fresh) {
     if (c) { c.pos = [ctrl.pos[0] + Math.sin(ctrl.facing) * 0.75, ctrl.pos[1] + 0.25, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.75]; }
     mayhem.stepOfficers(dt, t, ctrl, {
       armed: () => (player.weapon && inventoryOf(player).some(x => x.id === player.weapon)) || t - lastShotAt < 30,
-      watchHere: () => { let w = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 200, S => { if (!w && S.items.some(i => /^gb_(cottage|tenement|inn)_/.test(i.k)) && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < S.clear + 60) w = S; }); return w; },
+      watchHere: () => { let w = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 200, S => { if (!w && (S.guarded || S.items.some(i => /^gb_(cottage|tenement|inn)_/.test(i.k))) && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < S.clear + 60) w = S; }); return w; },
       onCop: (n, local) => { if (n === 1) ui.toast(local ? `<b>The watch from ${esc(local.label)}</b> is coming for you.` : `<b>${esc(cityView.city.name)} Security</b> is coming for you.`, 'bad', 7000); },
       shoot: (o, d) => { const hit = Math.random() < Math.max(0.12, Math.min(0.8, 1 - d / 40)) * (ctrl.speed > 3 ? 0.6 : 1); showShot([o.pos[0], o.pos[1] + 1.4, o.pos[2]], [ctrl.pos[0] + (hit ? 0 : (Math.random() - 0.5) * 3), ctrl.pos[1] + 1.2, ctrl.pos[2] + (hit ? 0 : (Math.random() - 0.5) * 3)]); if (hit) { hurtPlayer(14 + Math.random() * 8, 'a Security officer'); if (player.hp <= 36 && mayhem.officers.length) cityArrest(); } },
       caught: (o, local) => local ? watchArrest(local) : cityArrest(),
@@ -1306,6 +1307,8 @@ async function start(fresh) {
       mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
       cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
     if (!paused) stepMayhem(dt);
+    // walking onto a guarded place: nobody asked you in
+    if (!paused && mayhem && !flight) { let g = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 100, S => { if (S.guarded && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < 58) g = S; }); if (g && clock.now() > (trespassAt ?? 0)) { const first = trespassAt === null; trespassAt = clock.now() + 25; const seen = mayhem.crime(clock.now(), 'trespassing', 0.9, ctrl.pos); if (first || seen) ui.toast(`You're inside <b>${esc(g.label)}</b> with no business being here${seen ? ', and they\'ve seen you' : ''}.`, 'bad', 6000); } }
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);
     if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));

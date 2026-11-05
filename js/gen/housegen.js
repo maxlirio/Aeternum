@@ -42,6 +42,12 @@ export const FORMS = {
   pumphouse: { n: 2, type: 'workshop', w: [4.4, 6.5], d: [4, 5.5], floors: [1], storey: [2.7, 3.2], access: 'staff', rooms: ['forge'], roomArea: 60 },
   sawmill: { n: 2, type: 'workshop', w: [16, 24], d: [9, 13], floors: [1], storey: [4.2, 5.2], access: 'hours', hours: [7, 18], rooms: ['shopfloor-workshop', 'storage'], roomArea: 180, bigDoor: [4, 3.4], extra: { flue: true } },
   markethall: { n: 2, type: 'store', w: [18, 26], d: [12, 16], floors: [1], storey: [4.8, 6], access: null, rooms: ['shopfloor'], roomArea: 600, bigDoor: [3.4, 3.4], extra: { tallWindows: true, fascia: true }, noThatch: true },
+  hangar: { n: 2, type: 'workshop', w: [22, 34], d: [18, 26], floors: [1], storey: [7, 9], access: 'staff', rooms: ['hangar'], roomArea: 900, bigDoor: [14, 6.2], extra: { vaulted: true }, pitch: [0.2, 0.34], noThatch: true },
+  factory: { n: 3, type: 'workshop', w: [24, 36], d: [16, 24], floors: [1], storey: [6, 8], access: 'hours', hours: [6, 22], rooms: ['shopfloor-workshop', 'storage', 'office'], roomArea: 240, bigDoor: [5, 4.4], extra: { stacks: true, fascia: true }, noThatch: true },
+  barracks: { n: 2, type: 'hab', w: [16, 23], d: [8.6, 10.5], floors: [2, 3], storey: [2.8, 3.1], access: 'staff', rooms: ['lobby', 'utility'], extra: { plain: true }, noThatch: true },
+  controltower: { n: 2, type: 'office', w: [9.2, 11], d: [8.6, 10], floors: [3, 4, 5], storey: [3, 3.4], access: 'staff', rooms: ['reception', 'office'], roomArea: 30, extra: { cab: true, flat: true }, noThatch: true },
+  observatory: { n: 2, type: 'office', w: [10, 14], d: [10, 14], floors: [1], storey: [4, 5], access: 'staff', rooms: ['office', 'meeting'], roomArea: 60, extra: { dome: true, flat: true }, noThatch: true },
+  guardhouse: { n: 2, type: 'workshop', w: [4.2, 6], d: [3.8, 5], floors: [1], storey: [2.6, 2.9], access: 'staff', rooms: ['reception'], roomArea: 60, extra: { flat: true }, noThatch: true },
   stable: { n: 2, type: 'workshop', w: [12, 18], d: [7, 9], floors: [1], storey: [3, 3.5], access: 'hours', hours: [6, 20], rooms: ['stalls'], roomArea: 200, bigDoor: [2.6, 2.6] },
 };
 const FAM_KEYS = Object.keys(FORMS);
@@ -62,7 +68,7 @@ export function designsFor(planet, fam) {
     out.push({
       id: `gb_${fam}_${i}`, fam, type: F.type, access: F.access, hours: F.hours || null, roomArea: F.roomArea || 0, rooms: F.rooms || null, bigDoor: F.bigDoor || null, ...x,
       w: +w.toFixed(2), d: +d.toFixed(2), floors, storey: +storey.toFixed(2), h: +(floors * storey).toFixed(2),
-      shape: x.ridgeZ || x.pitched ? 'gable' : shape, pitch: +r.range(...(F.pitch || T.pitch)).toFixed(2), over: +r.range(0.15, 0.55).toFixed(2), wall: r.weighted(entries(T.wall)), roof, trim: r.pick(T.trim), base: r.pick(['concrete', 'rock', 'limestone']),
+      shape: x.vaulted ? 'vault' : x.flat ? 'flat' : x.ridgeZ || x.pitched ? 'gable' : shape, pitch: +r.range(...(F.pitch || T.pitch)).toFixed(2), over: +r.range(0.15, 0.55).toFixed(2), wall: r.weighted(entries(T.wall)), roof, trim: r.pick(T.trim), base: r.pick(['concrete', 'rock', 'limestone']),
       winW: +r.range(0.8, tall ? 1.2 : 1.35).toFixed(2), winH: +(tall ? r.range(2, Math.max(2.1, storey - 1.6)) : r.range(1, 1.5)).toFixed(2), sill: +r.range(0.85, 1.1).toFixed(2), winGap: +r.range(2.2, 3.2).toFixed(2), mullions: r.int(0, 2),
       porch: !x.portico && !x.awning && r.chance(0.45), chimney: shape !== 'flat' && r.chance(0.7), chimneyAt: +r.range(-0.35, 0.35).toFixed(2), shutters: r.chance(0.3), band: floors > 1 && r.chance(0.6), corner: r.chance(0.3),
     });
@@ -101,7 +107,7 @@ export function itemPlan(planet, D, it) {
   return done;
 }
 // someone who works there: where they stand, what they're at, and when. Behind the counter if there is one.
-const WORKS = { shop: 'keeping shop', inn: 'behind the bar', clinic: 'seeing patients', school: 'teaching', smithy: 'at the forge', garage: 'under a car', temple: 'tending the temple', hall: 'minding the hall', stable: 'seeing to the animals', markethall: 'minding a stall', sawmill: 'at the saw', barn: 'in the barn' };
+const WORKS = { shop: 'keeping shop', inn: 'behind the bar', clinic: 'seeing patients', school: 'teaching', smithy: 'at the forge', garage: 'under a car', temple: 'tending the temple', hall: 'minding the hall', stable: 'seeing to the animals', markethall: 'minding a stall', sawmill: 'at the saw', barn: 'in the barn', factory: 'on the line', hangar: 'on the apron', controltower: 'in the tower', observatory: 'at the telescope', guardhouse: 'on the gate' };
 export function keeperOf(planet, D, it) {
   const what = WORKS[D.fam]; if (!what) return null;
   const pl = itemPlan(planet, D, it), dr = pl.doors[pl.entrance], R = pl.rooms.find(r => r.i === dr.rooms[0]) || pl.rooms[0], solid = pl.props.filter(p => p.k === 0 && !p.soft).concat((pl.solids || []).map(q => ({ x0: q[0], z0: q[1], x1: q[2], z1: q[3], kind: 'fit', k: 0 }))), free = (x, z) => x > R.rect[0] + 0.4 && x < R.rect[2] - 0.4 && z > R.rect[1] + 0.4 && z < R.rect[3] - 0.4 && !solid.some(p => x > p.x0 - 0.35 && x < p.x1 + 0.35 && z > p.z0 - 0.35 && z < p.z1 + 0.35);

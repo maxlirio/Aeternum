@@ -41,6 +41,12 @@ const KINDS = {
   monument: { label: 'a monument', fit: l => l.high * 0.16, core: 'monument', ring: [['bench', 3, 9], ['lamp', 4, 8]] },
   power: { label: 'a power station', clear: 90, fit: l => l.flat * l.wet * 0.14, core: 'longhouse', ring: [['coolingtower', 2, 58], ['substation', 1, 30], ['pylon', 3, 82], ['spheretank', 1, 34]] },
   refinery: { label: 'a refinery', clear: 70, fit: l => l.flat * (1 - l.wet) * 0.2, core: 'column', ring: [['column', 3, 14], ['spheretank', 3, 34], ['longhouse', 1, 28], ['gastanks', 2, 20], ['tank', 2, 44]] },
+  // places a planet's people build for bigger reasons
+  airfield: { label: 'an airfield', clear: 170, must: /^gb_hangar_/, fit: l => l.plain * l.low * 0.5, plan: airfield },
+  base: { label: 'a military base', clear: 100, guarded: true, must: /^gb_barracks_/, fit: l => l.plain * 0.4, plan: base },
+  factory: { label: 'a factory', clear: 85, must: /^gb_factory_/, fit: l => l.plain * (0.9 + 0.6 * l.road), plan: factoryYard },
+  harbour: { label: 'a harbour', clear: 75, must: /^gb_warehouse_/, fit: l => l.shore * 0.75, plan: harbour },
+  observatory: { label: 'an observatory', clear: 44, must: /^gb_observatory_/, fit: l => l.high * l.plain * 0.2 + 0.004, core: 'observatory', ring: [['cottage', 1, 24], ['shed', 1, 18], ['radiomast', 1, 26], ['lamp', 2, 13], ['bench', 1, 12]] },
   fuel: { label: 'a fuel stop', fit: l => l.flat * 0.3 * l.road, core: 'fuelcanopy', ring: [['fuelpump', 2, 3.5], ['garage', 1, 20], ['busstop', 1, 16], ['roadsign', 1, 18], ['skip_bin', 1, 11]] },
 };
 // a front (-z in the kit) that looks toward (fx, fz); a long axis (+z) that runs along it
@@ -112,6 +118,46 @@ function fishing(put, x, z, a, rng, ctx) {
   for (const [k, r, s] of [['cart', 9, 7], ['barrels', 7, -6], ['lamp', 6, 3], ['villagewell', 30, -20]]) put(k, cx - dx * r + sx * s, cz - dz * r + sz * s, rng.range(0, 6.28));
   return [];
 }
+// a strip of mown ground, hangars along one side of it, a tower, fuel
+function airfield(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), L = 150, at = (s, o) => [x + ux * s - uz * o, z + uz * s + ux * o], lanes = put.lanes = [[x - ux * L, z - uz * L, x + ux * L, z + uz * L, 11]];
+  const look = o => facing(uz * o, -ux * o), n = rng.int(2, 4);
+  for (let i = 0; i < n; i++) { const o = 44, s = (i - (n - 1) / 2) * 40, [px, pz] = at(s, o); put.big('hangar', px, pz, look(o)); }
+  { const o = 30, s = 70, [px, pz] = at(s, o); put.big('controltower', px, pz, look(o)); }
+  for (const [k, s, o] of [['warehouse', -82, 46], ['gastanks', -64, 22], ['gastanks', -72, 22], ['fuelpump', -56, 19], ['radiomast', 92, 30], ['guardhouse', 0, 74], ['lamp', -30, 18], ['lamp', 10, 18], ['lamp', 50, 18], ['bench', 62, 21]]) { const [px, pz] = at(s, o); put(k, px, pz, look(o)); }
+  return lanes;
+}
+// a fence you shouldn't cross, a gate with a guard on it, barracks, watchtowers at the corners
+function base(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), vx = -uz, vz = ux, H = 62, at = (s, o) => [x + ux * s + vx * o, z + uz * s + vz * o], lanes = put.lanes = [[...at(-H - 4, 0), ...at(H * 0.55, 0), 3.2]];
+  const look = o => facing(-vx * o, -vz * o);
+  { const o = -24, [px, pz] = at(-6, o); put.big('barracks', px, pz, look(o)); } { const o = 24, [px, pz] = at(-6, o); put.big('barracks', px, pz, look(o)); }
+  { const o = -28, [px, pz] = at(34, o); put.big('warehouse', px, pz, look(o)); } { const o = 26, [px, pz] = at(36, o); put.big('hall', px, pz, look(o)); }
+  { const [px, pz] = at(-H + 7, 8.5); put('guardhouse', px, pz, look(8.5)); }
+  for (const [s, o] of [[H - 4, H - 4], [H - 4, -H + 4], [-H + 4, H - 4], [-H + 4, -H + 4]]) { const [px, pz] = at(s, o); put('watchtower', px, pz, 0); }
+  for (const [k, s, o] of [['radiomast', 50, 0], ['bunker', 14, 46], ['sandbag', -H + 12, -7], ['sandbag', -H + 12, 7], ['generatorset', 18, -46], ['gastanks', 44, 48], ['lamp', -18, 5], ['lamp', 14, 5], ['lamp', 40, 5]]) { const [px, pz] = at(s, o); put(k, px, pz, 0); }
+  const fence = (s0, o0, s1, o1) => { const L = Math.hypot(s1 - s0, o1 - o0), n = Math.round(L / 6), r = along(ux * (s1 - s0) / L + vx * (o1 - o0) / L, uz * (s1 - s0) / L + vz * (o1 - o0) / L) + Math.PI / 2; for (let i = 0; i < n; i++) { const f = (i + 0.5) / n, s = s0 + (s1 - s0) * f, o = o0 + (o1 - o0) * f; if (s0 === -H && s1 === -H && Math.abs(o) < 7) continue; const [px, pz] = at(s, o); put('stockfence', px, pz, r); } };
+  fence(-H, -H, H, -H); fence(H, -H, H, H); fence(H, H, -H, H); fence(-H, H, -H, -H);
+  return lanes;
+}
+function factoryYard(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), at = (s, o) => [x + ux * s - uz * o, z + uz * s + ux * o], lanes = put.lanes = [[...at(-70, -20), ...at(70, -20), 4.2]], look = o => facing(uz * (o + 20), -ux * (o + 20));
+  { const [px, pz] = at(-14, 8); put.big('factory', px, pz, look(8)); }
+  { const [px, pz] = at(38, 10); put.big('warehouse', px, pz, look(10)); } if (rng.next() < 0.5) { const [px, pz] = at(-60, 10); put.big('warehouse', px, pz, look(10)); }
+  for (const [k, s, o] of [['container', -46, -38], ['container', -36, -38], ['container', -26, -38], ['container', 22, -40], ['tank', 56, -36], ['substation', 66, 22], ['pylon', 76, 46], ['garage', 18, -46], ['lamp', -40, -14], ['lamp', 0, -14], ['lamp', 40, -14], ['gate', -66, -20], ['busstop', 58, -26], ['pallettruck', -12, -28]]) { const [px, pz] = at(s, o); put(k, px, pz, k === 'gate' ? along(ux, uz) : look(o)); }
+  return lanes;
+}
+// a real harbour: jetties out over the water, boats at them, sheds and a hall behind
+function harbour(put, x, z, a, rng, ctx) {
+  const dir = ctx.shoreDir ?? a, dx = Math.cos(dir), dz = Math.sin(dir); let d = 0;
+  for (; d < 170 && ctx.h(dx * d, dz * d) > ctx.sea + 0.1; d += 3);
+  const cx = x + dx * d, cz = z + dz * d, sx = -dz, sz = dx, back = (r, s) => [cx - dx * r + sx * s, cz - dz * r + sz * s], front = facing(dx, dz);
+  put.lanes = [[...back(14, -44), ...back(14, 44), 3.4]];
+  for (const s of [-18, 0, 18]) { const jx = cx + dx * 9 + sx * s, jz = cz + dz * 9 + sz * s; put('jetty', jx, jz, along(dx, dz), { y: ctx.sea, wet: true }); for (const q of [-1, 1]) if (rng.next() < 0.75) put('boat', jx + sx * q * 5.5 + dx * rng.range(-3, 6), jz + sz * q * 5.5 + dz * rng.range(-3, 6), along(dx, dz) + rng.range(-0.15, 0.15), { y: ctx.sea - 0.3, wet: true }); }
+  { const [px, pz] = back(26, -24); put.big('warehouse', px, pz, front); } { const [px, pz] = back(24, 24); put.big('warehouse', px, pz, front); } { const [px, pz] = back(34, 0); put.big('hall', px, pz, front); }
+  for (const [k, r, s] of [['container', 11, -30], ['container', 11, -21], ['container', 11, 28], ['barrels', 8, 8], ['barrels', 8, -8], ['lamp', 6, -12], ['lamp', 6, 12], ['cart', 10, 3], ['inn', 56, -28], ['cottage', 56, 12], ['shop', 56, 34]]) { const [px, pz] = back(r, s); put(k, px, pz, front); }
+  return put.lanes;
+}
 // do two turned footprints overlap? (separating axes) a = { x, z, rot, box }
 function overlaps(a, b, m = 0.6) {
   const corners = q => { const c = Math.cos(q.rot), s = Math.sin(q.rot); return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([i, j]) => { const u = i * (q.box[0] + m / 2), v = j * (q.box[1] + m / 2); return [q.x + u * c + v * s, q.z - u * s + v * c]; }); };
@@ -133,7 +179,8 @@ export function sitesInTile(planet, ti, tj) {
       const h = (dx, dz) => surfaceAt(planet, x + dx, z + dz).h, d = Math.max(Math.abs(h(30, 0) - S.h), Math.abs(h(-30, 0) - S.h), Math.abs(h(0, 30) - S.h), Math.abs(h(0, -30) - S.h));
       let shore = 0, shoreDir = null; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) { shore = 1; shoreDir = k * 0.785; }
       let road = 0; for (let k = 0; k < 8 && !road; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * 40, z + Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
-      const land = { flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
+      let d80 = 0; for (let k = 0; k < 8; k++) d80 = Math.max(d80, Math.abs(h(Math.cos(k * 0.785) * 80, Math.sin(k * 0.785) * 80) - S.h));
+      const land = { plain: d80 < 7 ? 1 : d80 < 14 ? 0.25 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
       const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), K = KINDS[pick], rot0 = rng.range(0, 6.28), items = [];
       const fields = [];
       // one thing placed: a family becomes this planet's version of it, with its own footing and walls; on land, or over water if it says so
@@ -161,7 +208,7 @@ export function sitesInTile(planet, ti, tj) {
         if (gb) {                                                   // you can go in: the floor clears all the ground under it, so none comes up through it, and steps make up the drop
           const c = Math.cos(rot), s = Math.sin(rot); let lo = Infinity, hi = -Infinity;
           for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), g = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; if (g < lo) lo = g; if (g > hi) hi = g; }
-          if (hi - lo > 2.6 || lo < planet.seaLevel + 0.3) return;
+          if (hi - lo > (foot[0] > 9 ? 4.2 : 3.1) || lo < planet.seaLevel + 0.3) return;
           y = hi + 0.12;
         } else if (foot) {                                                 // level on its footing; too steep to build on, and they don't
           const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const u = a * foot[0], v = b * foot[1]; return surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; });
@@ -174,29 +221,34 @@ export function sitesInTile(planet, ti, tj) {
         if (foot && fields.some(f => overlaps(me, f))) return;
         if (gb) {                                                   // the steps up to its door, down to wherever the ground is; if they'd never get there, nobody builds here
           const D = designById(planet, k), pl = designPlan(planet, D), dr = pl.doors[pl.entrance], c = Math.cos(rot), s = Math.sin(rot), u = dr.x - D.w / 2, W = dr.width + 0.5, treads = []; let n = 0, down = false;
-          for (; n < 18; n++) { const v = -D.d / 2 - 0.17 - n * 0.34, top = y - (n + 1) * 0.19, X = px + u * c + v * s, Z = pz - u * s + v * c; if (top < surfaceAt(planet, X, Z).h - 0.04) { down = true; break; } treads.push({ k: 'gb_step', x: X, y: top, z: Z, rot, r: 0, s: W }); }
+          for (let cap = D.w > 18 ? 26 : 18; n < cap; n++) { const v = -D.d / 2 - 0.17 - n * 0.34, top = y - (n + 1) * 0.19, X = px + u * c + v * s, Z = pz - u * s + v * c; if (top < surfaceAt(planet, X, Z).h - 0.04) { down = true; break; } treads.push({ k: 'gb_step', x: X, y: top, z: Z, rot, r: 0, s: W }); }
           if (!down) return;
           if (n) it.stoop = { u, W, n, run: 0.34, rise: 0.19 };
           items.push(it, ...treads); return;
         }
         items.push(it);
       };
+      // something big looks about for a spot it fits: the ground under it, level enough, near where it was meant to go
+      place.big = (k0, px, pz, rot) => { for (const [ox, oz] of [[0, 0], [7, 0], [-7, 0], [0, 7], [0, -7], [13, 6], [-13, 6], [13, -6], [-13, -6], [20, 0], [-20, 0], [0, 20], [0, -20]]) { const n = items.length; place(k0, px + ox, pz + oz, rot); if (items.length === n) continue;
+        const it = items[n], reach = Math.hypot(it.box?.[0] || 1, it.box?.[1] || 1); if ((place.lanes || []).some(([x0, z0, x1, z1, w]) => { const L = Math.hypot(x1 - x0, z1 - z0) || 1, u = Math.max(0, Math.min(L, ((it.x - x0) * (x1 - x0) + (it.z - z0) * (z1 - z0)) / L)); return Math.hypot(x0 + (x1 - x0) * u / L - it.x, z0 + (z1 - z0) * u / L - it.z) < reach + w + 2; })) { items.length = n; continue; }   // (not on the lane)
+        return true; } return false; };
       let lanes = [];
       if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { h: (a, b) => h(a, b), sea: planet.seaLevel, shoreDir });
       else {
-        place(K.core, x, z, rot0);
+        if (K.must) place.big(K.core, x, z, rot0); else place(K.core, x, z, rot0);
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
       }
       // a place people live has a way in: a track from the end of its lane to the nearest road, wandering a little
+      if (K.must && !items.some(i => K.must.test(i.k))) items.length = 0, fields.length = 0;      // what it's all for wouldn't stand here: nobody built it
       const tracks = [];
-      if (items.length && /^(village|township|hamlet|depot|lumber)$/.test(pick)) {
+      if (items.length && /^(village|township|hamlet|depot|lumber|airfield|base|factory|harbour|observatory)$/.test(pick)) {
         const ends = lanes.length ? [[lanes[0][0], lanes[0][1]], [lanes[0][2], lanes[0][3]]] : [[x, z]]; let to = null;
         for (let r = 80; r <= 1300 && !to; r += 70) for (let k = 0; k < 14 && !to; k++) { const a = k * 0.449, X = x + Math.cos(a) * r, Z = z + Math.sin(a) * r; if (surfaceAt(planet, X, Z).road > 0.5) to = [X, Z]; }
         if (to) { const from = ends.slice().sort((p, q) => Math.hypot(p[0] - to[0], p[1] - to[1]) - Math.hypot(q[0] - to[0], q[1] - to[1]))[0], L = Math.hypot(to[0] - from[0], to[1] - from[1]), n = Math.max(2, Math.round(L / 9)), nx = -(to[1] - from[1]) / L, nz = (to[0] - from[0]) / L, p1 = rng.range(0, 6.28), p2 = rng.range(0, 6.28), pts = []; let ok = true;
           for (let i = 0; i <= n; i++) { const f = i / n, off = Math.sin(f * Math.PI) * (Math.sin(f * 7 + p1) * 14 + Math.sin(f * 17 + p2) * 5), px = from[0] + (to[0] - from[0]) * f + nx * off, pz = from[1] + (to[1] - from[1]) * f + nz * off, Q = surfaceAt(planet, px, pz); if (Q.h < planet.seaLevel + 0.4 || Q.town > 0.05) { ok = false; break; } pts.push([+px.toFixed(1), +pz.toFixed(1)]); }
           if (ok) tracks.push({ pts, w: lanes[0]?.[4] ? Math.min(2.8, lanes[0][4]) : 2.4 }); }
       }
-      if (items.length) out.push({ tracks, kind: pick, label: K.label, x, y: S.h, z, items, lanes, fields, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
+      if (items.length) out.push({ guarded: !!K.guarded, tracks, kind: pick, label: K.label, x, y: S.h, z, items, lanes, fields, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
     }
   }
   cache.set(ck, out);

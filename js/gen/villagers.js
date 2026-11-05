@@ -113,9 +113,12 @@ function atHome(planet, H, P, hour) {
 export function siteWalkers(planet, t, x, z, r, max = 40) {
   const out = [];
   sitesNear(planet, x, z, r + 100, S => {
-    if (Math.hypot(S.x - x, S.z - z) > r + S.clear + 40 || !S.items.some(i => HOME.test(i.k))) return;
+    if (Math.hypot(S.x - x, S.z - z) > r + S.clear + 40 || !S.items.some(i => /^gb_(?!step)/.test(i.k))) return;
     const V = villageOf(planet, S), hour = solarHour(planet, t);
-    for (const K of V.keepers) { const d = Math.hypot(K.x - x, K.z - z); if (d > r || !within(K.hours, hour)) continue; out.push({ id: K.id, pos: [K.x, K.y, K.z], facing: K.facing, moving: false, pose: 'stand', age: K.age, d, villager: K, doing: K.what, site: S.label, indoors: K.item }); }
+    if (S.guarded) for (let g = 0; g < 4; g++) {     // guards walking the wire, always, in pure time
+      const w = 1.5 / 48, a = t * w + g * 1.57 + S.x, px = S.x + Math.cos(a) * 48, pz = S.z + Math.sin(a) * 48, d = Math.hypot(px - x, pz - z); if (d < r) out.push({ id: `guard:${S.id}:${g}`, pos: [px, surfaceAt(planet, px, pz).h, pz], facing: a + Math.PI, moving: true, pose: 'walk', age: 27 + g * 3, d, uniform: true, villager: { name: 'A guard', age: 30, job: 'guard', trade: 'keeper', stay: false }, doing: 'on patrol', site: S.label });
+    }
+    for (const K of V.keepers) { const d = Math.hypot(K.x - x, K.z - z); if (d > r || !within(K.hours, hour)) continue; out.push({ id: K.id, pos: [K.x, K.y, K.z], facing: K.facing, moving: false, pose: 'stand', age: K.age, d, villager: K, doing: K.what, site: S.label, indoors: K.item, uniform: S.guarded }); }
     for (const P of V.people) { const q = villagerAt(planet, V, P, t);
       if (!q) { const H = P.homeItem, dh = Math.hypot(H.x - x, H.z - z); if (dh < Math.min(r, 45)) { const a = atHome(planet, H, P, hour); if (a) out.push({ id: P.id, pos: a.pos, facing: a.facing, moving: false, pose: a.pose, age: P.age, d: Math.hypot(a.pos[0] - x, a.pos[2] - z), villager: P, doing: a.pose === 'lie' ? 'asleep' : 'at home', site: S.label, indoors: H }); } continue; }
       const d = Math.hypot(q.x - x, q.z - z); if (d > r) continue;

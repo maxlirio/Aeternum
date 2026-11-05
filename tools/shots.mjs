@@ -208,7 +208,7 @@ for (const F of ['villagewell', 'fountain', 'shrine', 'monument', 'marketcross',
   SHOTS['small_' + F] = 'hour=13.5';
 }
 // a country building, close: wi_out_<family> from the street, wi_in_<family> from its main room
-for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'hall', 'school', 'clinic', 'temple', 'smithy', 'garage', 'warehouse', 'stable', 'barn', 'shed', 'markethall', 'sawmill', 'pumphouse']) for (const inner of [false, true]) {
+for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'hall', 'school', 'clinic', 'temple', 'smithy', 'garage', 'warehouse', 'stable', 'barn', 'shed', 'markethall', 'sawmill', 'pumphouse', 'hangar', 'factory', 'controltower', 'barracks', 'observatory']) for (const inner of [false, true]) {
   const name = `wi_${inner ? 'in' : 'out'}_${fam}`;
   SCRIPTS[name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, S0 = null; for (let i = -60; i <= 60; i++) for (let j = -60; j <= 60; j++) for (const S of P.sitesInTile(O.planet, i, j)) for (const q of S.items) if (q.k.startsWith('gb_${fam}_')) { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { best = q; bd = d; S0 = S; } }
@@ -222,7 +222,7 @@ for (const fam of ['cottage', 'hut', 'longhouse', 'shop', 'inn', 'tenement', 'ha
     document.querySelector('.toasts')?.remove(); await wait(1600); console.log(JSON.stringify(window.__wi));`;
   SHOTS[name] = 'hour=11';
 }
-for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3], ['houses', 'hamlet', 24, 0.26], ['nightvil', 'village', 32, 0.22]]) {
+for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3], ['houses', 'hamlet', 24, 0.26], ['nightvil', 'village', 32, 0.22], ['airfield', 'airfield', 150, 0.28], ['base', 'base', 120, 0.38], ['factory', 'factory', 90, 0.3], ['harbour', 'harbour', 90, 0.3], ['observatory', 'observatory', 42, 0.24]]) {
   SCRIPTS['site_' + name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, bn = 0; const [x0, z0] = O.ctrl.pos; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) for (const S of P.sitesInTile(O.planet, i, j)) if (S.kind === '${kind}') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz), n = S.items.filter(q => q.box).length; if (n * 400 - d > bn * 400 - bd) { best = S; bd = d; bn = n; } }
     if (!best) throw new Error(JSON.stringify({ none: '${kind}' }));
@@ -375,7 +375,7 @@ const profile = join(tmpdir(), 'orbis-shots-' + process.pid);
 preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1600,900',
-  '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank',
+  '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
 guardBrowser(chrome, profile, { maxSeconds: 1200 });
 // a time limit (SIGALRM) or a kill must not leave this browser running: it holds memory and skews the next run

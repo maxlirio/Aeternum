@@ -68,7 +68,7 @@ const hard = m => m === 'rubber' ? 'metal' : m;
 // what a building has that stands outside its walls, the same near and far
 function outside(P, D, plan) {
   const { w, d, h, floors, storey, wall, base, trim } = D, hw = w / 2, hd = d / 2, dr = plan.doors[plan.entrance], doorX = dr.x - hw, dw = dr.width, dh = dr.height, tr = hard(trim);
-  P.box(base, 0, -3.4, 0, w + 0.2, 3.38, d + 0.2);       // the footing, its top just under the floor
+  P.box(base, 0, -5.4, 0, w + 0.2, 5.38, d + 0.2);       // the footing, its top just under the floor
   const top = roofOf(P, D);
   for (const s of [-1, 1]) P.box(tr, doorX + s * (dw / 2 + 0.05), 0, -hd - 0.04, 0.1, dh + 0.05, 0.1);
   P.box(tr, doorX, dh, -hd - 0.04, dw + 0.25, 0.1, 0.12);
@@ -85,9 +85,15 @@ function outside(P, D, plan) {
   if (D.bell) { const x = w * 0.28; P.box(wall, x, top - 0.6, 0, 1, 1.2, 1); P.box(tr, x, top + 0.6, 0, 1.2, 0.08, 1.2); for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.box(tr, x + sx * 0.45, top + 0.68, sz * 0.45, 0.09, 0.8, 0.09); P.box('metal', x, top + 0.86, 0, 0.32, 0.4, 0.32); P.box(tr, x, top + 1.48, 0, 1.3, 0.1, 1.3); }
   if (D.spire) { const sw = Math.min(3.4, w * 0.36), sy = top - 0.5, sh = D.storey * 1.1, z = -hd + sw / 2; P.box(wall, 0, D.h, z, sw, sy - D.h + sh, sw); const a = sy + sh, b = a + sw * 1.5, q = sw / 2 + 0.12;
     P.face(D.roof, [[-q, a, z - q], [0, b, z], [q, a, z - q]]); P.face(D.roof, [[q, a, z + q], [0, b, z], [-q, a, z + q]]); P.face(D.roof, [[q, a, z - q], [0, b, z], [q, a, z + q]]); P.face(D.roof, [[-q, a, z + q], [0, b, z], [-q, a, z - q]]); }
+  if (D.stacks) { const n = 2 + Math.round(D.pitch * 3) % 2; for (let i = 0; i < n; i++) { const x = -hw * 0.6 + i * 2.6, z = d * 0.28, H = top - h + 8 + i * 2.2; roundBox(P, 'brick', x, h - 0.2, z, 0.85, 0.55, H); P.box('metal', x, h + H - 0.2, z, 1.05, 0.25, 1.05); } }
+  if (D.cab) { const y = top - 0.55 + 0.2, W = w + 1.2, Dd = d + 1.2, Hc = 2.6; P.box(wall, 0, y, 0, w, 0.25, d); for (const s of [-1, 1]) { P.box('visor', 0, y + 0.25, s * Dd / 2, W, Hc, 0.05); P.box('visor', s * W / 2, y + 0.25, 0, 0.05, Hc, Dd); for (const q of [-1, 1]) P.box('metal', s * W / 2, y + 0.25, q * Dd / 2, 0.12, Hc, 0.12); } P.box(hard(trim), 0, y + 0.25 + Hc, 0, W + 0.5, 0.2, Dd + 0.5); P.box('metal', W * 0.25, y + 0.45 + Hc, 0, 0.1, 2.4, 0.1); }
+  if (D.dome) { const R = Math.min(w, d) * 0.38, y = top - 0.5; P.box(wall, 0, y, 0, R * 2.1, 0.5, R * 2.1); domeOn(P, 'hull', 0, y + 0.5, 0, R); P.box('visor', 0, y + 0.5 + R * 0.25, -R * 0.9, R * 0.3, R * 0.75, R * 0.2); }
   if (D.flue) { P.box('brick', -hw * 0.5, h - 0.2, d * 0.22, 1.2, top - h + 2.6, 1.2); P.box('metal', -hw * 0.5, top + 2.4, d * 0.22, 0.7, 0.9, 0.7); }
   if (D.balconies) for (const wl of plan.walls) if (wl.exterior && wl.side === 'front' && wl.k > 0) for (const o of wl.openings) if (o.kind === 'window') { const x = (o.a + o.b) / 2 - hw, W = o.b - o.a + 0.6, y = wl.y0; P.box('concrete', x, y - 0.12, -hd - 0.6, W, 0.12, 1.2); P.box(tr, x, y + 0.9, -hd - 1.18, W, 0.05, 0.05); for (let i = 0; i <= 3; i++) P.box(tr, x - W / 2 + i * W / 3, y, -hd - 1.18, 0.04, 0.9, 0.04); }
 }
+// a tapering round stack, and a dome: faces round a circle
+function roundBox(P, m, x, y0, z, r0, r1, h, seg = 10) { for (let i = 0; i < seg; i++) { const a = i / seg * 6.283, b = (i + 1) / seg * 6.283; P.face(m, [[x + Math.cos(a) * r0, y0, z + Math.sin(a) * r0], [x + Math.cos(a) * r1, y0 + h, z + Math.sin(a) * r1], [x + Math.cos(b) * r1, y0 + h, z + Math.sin(b) * r1], [x + Math.cos(b) * r0, y0, z + Math.sin(b) * r0]]); } }
+function domeOn(P, m, x, y, z, R, rows = 6, seg = 14) { for (let j = 0; j < rows; j++) { const p0 = j / rows * Math.PI / 2, p1 = (j + 1) / rows * Math.PI / 2; roundBox(P, m, x, y + Math.sin(p0) * R, z, Math.cos(p0) * R, Math.max(0.001, Math.cos(p1) * R), (Math.sin(p1) - Math.sin(p0)) * R, seg); } }
 export function partsOut(P) {
   const out = [];
   for (const [m, b] of P.by) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2)); out.push({ geometry: g, surface: m, tinted: m === 'tint' ? 'bright' : m === 'paint' ? 'muted' : false }); }

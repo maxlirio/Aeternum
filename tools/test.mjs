@@ -1225,10 +1225,11 @@ suites.countryside = async () => {
     }
   }
   console.log('   ', JSON.stringify(kinds), items, 'items;', 'cultures', [...ways].join(' '));
-  for (const k of ['village', 'hamlet', 'fishing', 'farm', 'graveyard', 'township', 'lumber', 'refuge']) check(kinds[k] > 0, `some land has ${k}s (${kinds[k] || 0})`);
+  for (const k of ['airfield', 'base', 'factory', 'harbour', 'observatory', 'village', 'hamlet', 'fishing', 'farm', 'graveyard', 'township', 'lumber', 'refuge']) check(kinds[k] > 0, `some land has ${k}s (${kinds[k] || 0})`);
   check(!unknown, `every family model placed exists (${unknown} unknown)`);
   check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
   check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
+  { const must = { airfield: /^gb_hangar_/, base: /^gb_barracks_/, factory: /^gb_factory_/, harbour: /^gb_warehouse_/, observatory: /^gb_observatory_/ }; let missing = 0, n = 0; for (const p of planets) for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) for (const S of sitesInTile(p, i, j)) if (must[S.kind]) { n++; if (!S.items.some(q => must[S.kind].test(q.k))) missing++; } check(n > 0 && !missing, `an airfield has hangars, a base barracks, a factory a factory (${n} places, ${missing} without)`); }
   { let sites = 0, joined = 0, wet = 0, tr = 0; const OT = await import('../js/gen/outposts.js'), { surfaceAt } = await import('../js/gen/surface.js'); for (const p of planets.slice(0, 4)) for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) for (const S of sitesInTile(p, i, j)) if (/^(village|township)$/.test(S.kind)) { sites++; if (S.tracks.length) { joined++; const T = S.tracks[0], e = T.pts[T.pts.length - 1]; if (surfaceAt(p, e[0], e[1]).road < 0.3) wet++; tr++; const m = T.pts[T.pts.length >> 1]; if (!OT.workedGround(OT.workedNear(p, m[0], m[1], 20), m[0], m[1])) wet++; } }
     console.log(`    ${joined} of ${sites} villages and townships have a track to a road`); check(joined > 0, 'villages near a road have a track to it'); check(!wet, `each ends on the road and shows as worn ground (${wet} don't)`); }
   { const { SMALL, smallDesigns } = await import('../js/gen/smallgen.js'); const sigs = new Set(); let n = 0; for (const p of planets) for (const f of Object.keys(SMALL)) for (const D of smallDesigns(p, f)) { n++; sigs.add(JSON.stringify({ ...D, id: 0 })); }
@@ -1263,7 +1264,7 @@ suites.walkin = async () => {
       const c = Math.cos(it.rot), sn = Math.sin(it.rot), at = (u, v) => [it.x + u * c + v * sn, it.z - u * sn + v * c], D = rec.design, dr = rec.plan.doors[rec.plan.entrance], u = dr.x - D.w / 2;
       for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const [x, z] = at(a * D.w / 2, b * D.d / 2); if (surfaceHeight(p, x, z) > it.y) poke++; }
       const walk = () => { let [x, z] = at(u, -D.d / 2 - (it.stoop ? it.stoop.n * it.stoop.run : 0) - 2.5), y = surfaceHeight(p, x, z); const [tx, tz] = at(u, -D.d / 2 + 1.2);
-        for (let k = 0; k < 90; k++) { const dx = tx - x, dz = tz - z, L = Math.hypot(dx, dz); if (L < 0.12) break; const st = Math.min(0.1, L); [x, z] = world.resolve(x + dx / L * st, z + dz / L * st, y); y = world.groundAt(x, z, y).h; }
+        for (let k = 0; k < 160; k++) { const dx = tx - x, dz = tz - z, L = Math.hypot(dx, dz); if (L < 0.12) break; const st = Math.min(0.1, L); [x, z] = world.resolve(x + dx / L * st, z + dz / L * st, y); y = world.groundAt(x, z, y).h; }
         return world.locate(x, y + 0.1, z); };
       const inside = walk(); if (inside?.b === rec && inside.room) inOK++; else if (bad.length < 6) bad.push(`${it.k} stoop=${it.stoop?.n ?? 0}`);
       open = false; world.cols.delete(rec.key); if (!walk()?.room) shutOK++;

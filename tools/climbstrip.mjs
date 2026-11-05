@@ -11,7 +11,7 @@ if (qs.includes('rig=real') && !existsSync('out/lab/adventurer_body.glb')) copyF
 const im = readFileSync('index.html', 'utf8').match(/<script type="importmap">([\s\S]*?)<\/script>/)[1];
 writeFileSync('out/lab/lab.html', readFileSync('tools/climblab.html', 'utf8').replace('IMPORTMAP', im).replaceAll("'../js/", "'../../js/").replaceAll("'../out/lab/", "'./"));
 preflight();
-const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1700,700', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
+const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1700,700', '--use-angle=metal', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
 guardBrowser(chrome, profile, { maxSeconds: 900 });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {

@@ -9,7 +9,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms)), CDP = 9335, PORT = 8517
 for (let n = 0; n < tries; n++) {
   preflight();
   const profile = join(tmpdir(), 'orbis-shots-lc' + process.pid + n);
-  const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
+  const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
   guardBrowser(chrome, profile, { maxSeconds: 200 });
   const killMe = () => { try { process.kill(-chrome.pid, 'SIGKILL'); } catch {} };
   let targets = null; for (let i = 0; i < 40 && !targets; i++) { await sleep(250); targets = await fetch(`http://127.0.0.1:${CDP}/json/list`).then(r => r.json()).catch(() => null); }
