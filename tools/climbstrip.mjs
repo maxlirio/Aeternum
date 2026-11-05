@@ -1,6 +1,7 @@
 // Photographs the climber as a strip of frames (tools/climblab.html): front-quarter and side views.
 //   node tools/climbstrip.mjs <name> "rig=real&scene=up"  → out/lab/<name>.png
 // Its own headless Chrome (own profile), closed afterwards. Needs the server on 8517.
+import { preflight, guardBrowser } from './guard.mjs';
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, copyFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os'; import { join } from 'node:path';
@@ -9,7 +10,9 @@ mkdirSync('out/lab', { recursive: true });
 if (qs.includes('rig=real') && !existsSync('out/lab/adventurer_body.glb')) copyFileSync(process.env.HOME + '/Developer/ADVENTURER/web/assets/adventurer_body.glb', 'out/lab/adventurer_body.glb');
 const im = readFileSync('index.html', 'utf8').match(/<script type="importmap">([\s\S]*?)<\/script>/)[1];
 writeFileSync('out/lab/lab.html', readFileSync('tools/climblab.html', 'utf8').replace('IMPORTMAP', im).replaceAll("'../js/", "'../../js/").replaceAll("'../out/lab/", "'./"));
+preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1700,700', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
+guardBrowser(chrome, profile, { maxSeconds: 900 });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {
   for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${CDP}/json/version`); break; } catch { await sleep(200); } }

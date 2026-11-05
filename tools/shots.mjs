@@ -3,6 +3,7 @@
 // Uses an isolated in-memory save (?store=mem) and a fixed seed so shots are repeatable.
 // Kills only the Chrome it started (own --user-data-dir).
 import { spawn } from 'node:child_process';
+import { preflight, guardBrowser } from './guard.mjs';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -342,10 +343,12 @@ for (const n of want) if (n.startsWith('booth')) SHOTS[n] = '';
 const seed = process.env.SEED || '00c0ffee00b0a7e5';
 mkdirSync('out/shots', { recursive: true });
 const profile = join(tmpdir(), 'orbis-shots-' + process.pid);
+preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
   '--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1600,900',
   '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+guardBrowser(chrome, profile, { maxSeconds: 1200 });
 // a time limit (SIGALRM) or a kill must not leave this browser running: it holds memory and skews the next run
 for (const sig of ['SIGALRM', 'SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { try { process.kill(-chrome.pid, 'SIGKILL'); } catch { try { chrome.kill('SIGKILL'); } catch {} } try { rmSync(profile, { recursive: true, force: true }); } catch {} process.exit(124); });
 let stderr = ''; chrome.stderr.on('data', d => { stderr += d; });

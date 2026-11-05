@@ -3,14 +3,17 @@
 //   save → reload (continue) → door still broken, incident in the log, player inside →
 //   simulate 2 days away (rewind realTime) → reload → door repaired, away report lists it.
 import { spawn } from 'node:child_process';
+import { preflight, guardBrowser } from './guard.mjs';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const PORT = 8517, CDP = 9334, slot = 'e2e' + process.pid;
 const profile = join(tmpdir(), 'orbis-e2e-' + process.pid);
+preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`,
   '--window-size=1280,800', '--disable-gpu-vsync', '--disable-frame-rate-limit', '--use-angle=metal', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
+guardBrowser(chrome, profile, { maxSeconds: 1800 });
 // a time limit (SIGALRM) or a kill must not leave this browser running: it holds memory and skews the next run
 for (const sig of ['SIGALRM', 'SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { try { process.kill(-chrome.pid, 'SIGKILL'); } catch { try { chrome.kill('SIGKILL'); } catch {} } try { rmSync(profile, { recursive: true, force: true }); } catch {} process.exit(124); });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
