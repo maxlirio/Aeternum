@@ -23,7 +23,7 @@ const KINDS = {
   solar: { label: 'a solar field', fit: l => l.flat * (1 - l.wet), core: 'substation', ring: [['solarfield', 12, 30], ['workcamp', 1, 22], ['pylon', 1, 50]] },
   oil: { label: 'a well field', fit: l => l.flat * (1 - l.wet) * 0.6, core: 'pumpjack', ring: [['pumpjack', 3, 34], ['gastanks', 2, 12], ['tank', 1, 20], ['generatorset', 1, 12]] },
   well: { label: 'a well', fit: l => (1 - l.wet) * l.flat * 0.5, core: 'villagewell', ring: [['windpump', 1, 12], ['fencepanel', 4, 8], ['bucket', 2, 2], ['campfire', 1, 7], ['tent', 2, 10], ['washingline', 1, 9]] },
-  mill: { label: 'a water mill', clear: 50, fit: l => l.river * 2.2, plan: waterMill },
+  mill: { label: 'a water mill', clear: 50, must: /^waterwheel/, fit: l => l.river * 2.2, plan: waterMill },
   watch: { label: 'a watch post', fit: l => l.high * 0.3, core: 'watchtower', ring: [['bunker', 1, 16], ['radiomast', 1, 22], ['sandbag', 4, 8], ['barricade', 2, 12]] },
   light: { label: 'a lighthouse', fit: l => l.shore * 1.4, core: 'lighthouse', ring: [['cottage', 1, 15], ['fencepanel', 3, 9], ['radiomast', 1, 18]] },
   ruin: { label: 'ruins', fit: () => 0.22, core: 'ruinwall', ring: [['ruinwall', 6, 16], ['cairn', 3, 22], ['stonewall', 4, 24], ['scrapheap', 2, 12]] },
@@ -151,8 +151,8 @@ function villageGrid(put, x, z, a, rng) {
 function waterMill(put, x, z, a, rng, ctx) {
   const dir = ctx.riverDir ?? a, dx = Math.cos(dir), dz = Math.sin(dir); let d = 0, wet = 0;
   for (; d < 150; d += 3) { wet = ctx.wet(dx * d, dz * d); if (wet > 0.5) break; } const bx = x + dx * (d - 2), bz = z + dz * (d - 2), sx = -dz, sz = dx, front = facing(-dx, -dz);
-  put('waterwheel', bx, bz, along(sx, sz), { bank: true });
-  { const px = x + dx * (d - 22), pz = z + dz * (d - 22); put.big('barn', px, pz, front); }
+  put('waterwheel', bx, bz, along(sx, sz), { wet: true, y: ctx.h(dx * (d - 2), dz * (d - 2)) + 0.1 });
+  for (const r of [24, 36, 48, 60]) { const px = x + dx * (d - r), pz = z + dz * (d - r); if (put.big('barn', px, pz, front) || put.big('sawmill', px, pz, front) || put.big('cottage', px, pz, front)) break; }
   for (const [k, r, s] of [['pumphouse', 16, 18], ['cottage', 38, 22], ['shed', 30, -20], ['cart', 18, -12], ['fencepanel', 26, 30], ['fencepanel', 26, -32], ['haybale', 24, 14], ['haybale', 25, 9]]) put(k, x + dx * (d - r) + sx * s, z + dz * (d - r) + sz * s, front);
   return [];
 }
@@ -279,7 +279,7 @@ export function sitesInTile(planet, ti, tj) {
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
       }
       // a place people live has a way in: a track from the end of its lane to the nearest road, wandering a little
-      if (K.must && !items.some(i => K.must.test(i.k))) items.length = 0, fields.length = 0;      // what it's all for wouldn't stand here: nobody built it
+      if (K.must && (!items.some(i => K.must.test(i.k)) || (pick === 'mill' && !(items.some(i => i.k === 'waterwheel') && items.some(i => i.k.startsWith('gb_')))))) items.length = 0, fields.length = 0;      // what it's all for wouldn't stand here: nobody built it
       const tracks = [];
       if (items.length && /^(village|township|hamlet|depot|lumber|airfield|base|factory|harbour|observatory)$/.test(pick)) {
         const ends = lanes.length ? [[lanes[0][0], lanes[0][1]], [lanes[0][2], lanes[0][3]]] : [[x, z]]; let to = null;

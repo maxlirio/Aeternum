@@ -22,7 +22,8 @@ export class RiverView {
       const P = R.pts; let open = -1;
       for (let i = 0; i < P.length; i++) { const on = Math.hypot(P[i].x - x, P[i].z - z) < NEAR;
         if (!on) { open = -1; continue; }
-        const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)], L = Math.hypot(c.x - a.x, c.z - a.z) || 1, nx = -(c.z - a.z) / L, nz = (c.x - a.x) / L, hw = R.w[i] / 2 + 2.4, road = surfaceAt(this.planet, P[i].x, P[i].z).road > 0.2, b = pos.length / 3;
+        const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)], L = Math.hypot(c.x - a.x, c.z - a.z) || 1, nx = -(c.z - a.z) / L, nz = (c.x - a.x) / L, hw = R.w[i] / 2 + 2.4, road = surfaceAt(this.planet, P[i].x, P[i].z).road > 0.2 || P[i].y <= this.planet.seaLevel + 0.25, b = pos.length / 3;     // (it stops at a road's embankment, and where the sea takes over)
+       
         for (const s of [-1, 1]) { pos.push(P[i].x + nx * hw * s, P[i].y, P[i].z + nz * hw * s); nor.push(0, 1, 0); uv.push(s * hw / 6, i * 60 / 6); }
         if (open >= 0 && !road) idx.push(open, b, open + 1, open + 1, b, b + 1);
         open = road ? -1 : b; }

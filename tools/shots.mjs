@@ -234,7 +234,7 @@ for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['vil
     if (!best) throw new Error(JSON.stringify({ none: '${kind}' }));
     const FF = ${name === 'fieldst' ? 'best.fields[0]' : 'null'}, street = ${name === 'villagest' || name === 'townst' ? 'true' : 'false'}, L = best.lanes[0], a = L ? Math.atan2(L[3] - L[1], L[2] - L[0]) : 0, sx = FF ? FF.x + Math.sin(FF.rot) * (FF.box[1] + 2) : street ? L[0] * 0.3 + L[2] * 0.7 : best.x, sz = FF ? FF.z + Math.cos(FF.rot) * (FF.box[1] + 2) : street ? L[1] * 0.3 + L[3] * 0.7 : best.z;
     const y = T.surfaceAt(O.planet, sx, sz).h + 1.2; O.ctrl.pos = [sx, y, sz]; O.ctrl.vel = [0, 0, 0]; for (let i = 0; i < 25; i++) { O.ctrl.pos = [sx, y, sz]; await wait(300); }
-    O.ctrl.facing = FF ? Math.atan2(FF.x - sx, FF.z - sz) : street ? Math.atan2(L[0] - L[2], L[1] - L[3]) : 0.9; O.cam.yaw = O.ctrl.facing; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; document.querySelector('.toasts')?.remove(); await wait(2500);`;
+    const W_ = best.items.find(q => q.k === 'waterwheel'); O.ctrl.facing = W_ ? Math.atan2(W_.x - sx, W_.z - sz) : FF ? Math.atan2(FF.x - sx, FF.z - sz) : street ? Math.atan2(L[0] - L[2], L[1] - L[3]) : 0.9; O.cam.yaw = O.ctrl.facing; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; document.querySelector('.toasts')?.remove(); await wait(2500);`;
   SHOTS['site_' + name] = name === 'folk' ? 'hour=10.5' : name === 'nightvil' ? 'hour=21.5' : 'hour=15';
 }
  SCRIPTS.flycityn = SCRIPTS.flycity; SHOTS.flycityn = 'hour=20.8';
