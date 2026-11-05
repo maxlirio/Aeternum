@@ -23,8 +23,9 @@ for (let n = 0; n < tries; n++) {
     if (m.method === 'Runtime.consoleAPICalled') logs.push(m.params.type + ' ' + m.params.args.map(a => a.value ?? a.description).join(' ').slice(0, 200)); };
   const send = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
   await send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }); await send('Runtime.enable'); await send('Page.enable');
-  const t0 = Date.now(); await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?store=mem&seed=00c0ffee00b0a7e5&auto=new` });
+  const t0 = Date.now(); await send('Page.navigate', { url: process.env.URLTO || `http://127.0.0.1:${PORT}/?store=mem&seed=00c0ffee00b0a7e5&auto=new` });
   let ok = false, title = '';
+  if (process.env.CLICK) for (let k = 0; k < 40; k++) { await sleep(500); const r = await send('Runtime.evaluate', { expression: `(() => { const b = [...document.querySelectorAll('button,a')].find(x => x.textContent.includes(${JSON.stringify(process.env.CLICK)})); if (b) { b.click(); return true; } return false; })()` }); if (r?.result?.value) { console.log('  clicked', process.env.CLICK); break; } }
   while (Date.now() - t0 < 60000) { await sleep(500); const r = await Promise.race([send('Runtime.evaluate', { expression: 'document.title' }), sleep(5000).then(() => null)]); title = r?.result?.value ?? 'BLOCKED'; if (title === 'READY' || title.startsWith('ERROR')) { ok = title === 'READY'; break; } }
   console.log(`load ${n}: ${ok ? 'ok' : 'STALLED'} ${((Date.now() - t0) / 1000).toFixed(1)}s title=${title}`);
   if (!ok) { console.log('  pending:', [...reqs.values()].map(q => `${q.url} (${((Date.now() - q.t) / 1000) | 0}s)`).slice(0, 25).join(', ') || 'none'); console.log('  logs:', logs.slice(-14).join('\n        '));
