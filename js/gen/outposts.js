@@ -10,6 +10,7 @@ import { moisture } from './terrain.js';
 import { cultureOf } from './culture.js';
 import { designOf, footOf } from './designs.js';
 import { designById, designPlan, FORMS } from './housegen.js';
+import { SMALL } from './smallgen.js';
 import { FAMILIES } from './familydata.js';
 
 const TILE = 900, FAM = new Set(FAMILIES);
@@ -151,7 +152,7 @@ export function sitesInTile(planet, ti, tj) {
           return;
         }
         let k = k0, foot = 0;
-        if (FAM.has(k0) || FORMS[k0]) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
+        if (FAM.has(k0) || FORMS[k0] || SMALL[k0]) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
         const Q = surfaceAt(planet, px, pz);
         if (Q.town > 0.01 || Q.road > 0.01) return;
         if (opt.wet) { items.push({ k, x: px, y: opt.y, z: pz, rot, r: 0, s: 1 }); return; }

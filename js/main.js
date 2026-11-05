@@ -62,6 +62,7 @@ import { CityInteriors } from './render/cityreal.js';
 import { HoldsView } from './render/holds.js';
 import { OutpostView } from './render/outposts.js';
 import { buildingParts, setWindowGlow } from './render/housegen.js';
+import { smallParts } from './render/smallgen.js';
 import { SiteInteriors } from './render/sitereal.js';
 import { sitesNear } from './gen/outposts.js';
 import { localTones } from './gen/culture.js';
@@ -195,7 +196,7 @@ async function start(fresh) {
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
-  const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
+  const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
   const doorView = new DoorView(s, town.doors);

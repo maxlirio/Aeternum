@@ -10,8 +10,8 @@ import { surfaceAt } from './surface.js';
 import { designById, designPlan, keeperOf, itemPlan } from './housegen.js';
 import { solarHour, within } from '../sim/clock.js';
 
-const SPEED = 1.25, HOME = /^gb_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^(gb_(shop|garage|smithy|markethall|sawmill)|fam_bandstall)_/;
-const GATHER = [[/^fam_(fountain|villagewell)_/, 'at the well', 2.2], [/^fam_bench_/, 'taking the air', 1], [/^fam_pavilion_/, 'under the pavilion', 3], [/^fam_(shrine|monument)_/, 'paying their respects', 4.5], [/^fam_(marketcross|noticeboard)_/, 'reading the notices', 1.6], [/^fam_hall_/, 'at the hall', 2.5], [/^fam_temple_/, 'at the temple', 2.5], [/^fam_inn_/, 'outside the inn', 2], [/^fam_clinic_/, 'waiting at the clinic', 2], [/^fam_school_/, 'at the school', 3]];
+const SPEED = 1.25, HOME = /^gb_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^(gb_(shop|garage|smithy|markethall|sawmill)|sm_bandstall)_/;
+const GATHER = [[/^sm_(fountain|villagewell)_/, 'at the well', 2.2], [/^sm_bench_/, 'taking the air', 1], [/^sm_pavilion_/, 'under the pavilion', 3], [/^sm_(shrine|monument)_/, 'paying their respects', 4.5], [/^sm_(marketcross|noticeboard)_/, 'reading the notices', 1.6], [/^gb_hall_/, 'at the hall', 2.5], [/^fam_temple_/, 'at the temple', 2.5], [/^fam_inn_/, 'outside the inn', 2], [/^fam_clinic_/, 'waiting at the clinic', 2], [/^fam_school_/, 'at the school', 3]];
 const JOBS = { field: ['farmer', 'hand on the land', 'grower'], shop: ['shopkeeper', 'stallholder'], jetty: ['fisher', 'boat hand'], yard: ['carter', 'smith', 'mender', 'beekeeper', 'mason'] };
 
 // a turned footprint, grown a little: is (x, z) in it? and does a straight walk cross it?

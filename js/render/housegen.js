@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { designById, designPlan } from '../gen/housegen.js';
 
-class Parts {
+export class Parts {
   constructor() { this.by = new Map(); }
   into(m) { let b = this.by.get(m); if (!b) this.by.set(m, b = { pos: [], nor: [], uv: [] }); return b; }
   // a flat polygon (convex, outward by winding), planar UVs in metres as the kit does
@@ -88,7 +88,7 @@ function outside(P, D, plan) {
   if (D.flue) { P.box('brick', -hw * 0.5, h - 0.2, d * 0.22, 1.2, top - h + 2.6, 1.2); P.box('metal', -hw * 0.5, top + 2.4, d * 0.22, 0.7, 0.9, 0.7); }
   if (D.balconies) for (const wl of plan.walls) if (wl.exterior && wl.side === 'front' && wl.k > 0) for (const o of wl.openings) if (o.kind === 'window') { const x = (o.a + o.b) / 2 - hw, W = o.b - o.a + 0.6, y = wl.y0; P.box('concrete', x, y - 0.12, -hd - 0.6, W, 0.12, 1.2); P.box(tr, x, y + 0.9, -hd - 1.18, W, 0.05, 0.05); for (let i = 0; i <= 3; i++) P.box(tr, x - W / 2 + i * W / 3, y, -hd - 1.18, 0.04, 0.9, 0.04); }
 }
-function partsOut(P) {
+export function partsOut(P) {
   const out = [];
   for (const [m, b] of P.by) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2)); out.push({ geometry: g, surface: m, tinted: m === 'tint' ? 'bright' : m === 'paint' ? 'muted' : false }); }
   return out;

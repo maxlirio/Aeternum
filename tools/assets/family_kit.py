@@ -815,7 +815,7 @@ def fam_shelterhut(p, r, W):
         for k in range(3 - q): add_cyl(p, 0.15 + q * 0.26, -d / 2 - 0.5 + k * 0.28 + q * 0.14, w * 0.2, w * 0.2 + 1.3, 0.12, 'bark', seg=8, axis='x')
     return (w / 2, d / 2, h)
 
-FAMILIES = 'shrine monument fountain villagewell marketcross noticeboard busstop poweredge culvert watertower windpump dam footbridge jetty boat graves pavilion picnic swings gate cart lamp bench crop scarecrow beehives trough bandstall stockfence coolingtower column spheretank'.split()
+FAMILIES = 'poweredge culvert windpump dam footbridge jetty boat graves picnic swings cart crop scarecrow beehives trough stockfence coolingtower column spheretank'.split()
 
 def build_family():
     import json
