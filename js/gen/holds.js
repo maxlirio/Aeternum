@@ -50,13 +50,14 @@ function cityRows(b, y0, y1) {
   return fill([{ y: y0, kind: 'ground' }, ...rows]);
 }
 // Where drainpipes run down a wall: usually one close by a corner, and on a long wall others between the window bays. By the wall's own numbers.
-function pipesOf(f, bay) {
+function pipesOf(f, bay, clear = []) {
   let h = 0; for (const ch of f.key) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
   const out = [], r = k => ((h ^ Math.imul(k + 1, 2654435761)) >>> 0) % 1000 / 1000;
   if (f.w < 4) return out;
-  if (r(0) < 0.85) out.push(r(1) < 0.5 ? 0.42 : f.w - 0.42);
+  const free = q => !clear.some(([p0, p1]) => q > p0 - 0.25 && q < p1 + 0.25);    // (a pipe doesn't cross a window or a door)
+  if (r(0) < 0.85) { const e = r(1) < 0.5 ? 0.42 : f.w - 0.42; if (free(e)) out.push(e); }
   const b = bay > 1 ? bay : 4.5, gap = 6 + r(2) * 2; for (let a = gap; a < f.w - 3; a += gap) { const q = Math.round(a / b) * b;   // (the first always: there's something to leap to from the corner)
-      if (q > 2 && q < f.w - 2 && !out.includes(q) && (a === gap || r(3 + out.length) < 0.62)) out.push(q); }
+      let spot = q; if (!free(spot)) { spot = null; for (const d of [0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4]) if (free(q + d)) { spot = q + d; break; } } if (spot != null && spot > 2 && spot < f.w - 2 && !out.includes(spot) && (a === gap || r(3 + out.length) < 0.62)) out.push(spot); }
   return out;
 }
 const SIDES = [   // the four sides of a tier in the order you meet them going round (a increasing)
@@ -131,6 +132,7 @@ function makeTownFace(world, b, side) {
   rows.push({ y: F * H + 0.7, kind: 'top' });    // the parapet
   const f = { key: `t:${b.key}:${side}`, o: toW(...def.o), t: dir(...def.t), n: dir(...def.n), w: def.L, y0: base, y1: base + F * H + 0.7, town: b, label: b.owner,
     rows: fill(rows).map(r => ({ ...r, y: base + r.y })) };
+  { const clear = []; for (const wl of plan.walls) if (wl.exterior && wl.side === def.sd) for (const o of wl.openings) clear.push([Math.min(lat(o.a), lat(o.b)), Math.max(lat(o.a), lat(o.b))]); f.pipes = pipesOf(f, 0, clear); }
   f.next = () => townFace(world, b, (side + 1) % 4);
   f.prev = () => townFace(world, b, (side + 3) % 4);
   return f;

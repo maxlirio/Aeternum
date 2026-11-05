@@ -7,6 +7,7 @@ import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
 import { rocksNear } from '../gen/rocks.js';
+import { towerOf } from '../gen/towers.js';
 import { sitesNear } from '../gen/outposts.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
@@ -112,6 +113,9 @@ export class CollisionWorld {
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
     let best = surfaceHeight(this.planet, x, z), where = null;
+    // the roof of a standing car; the deck of a watchtower
+    if (this.carBoxes) for (const V of this.carBoxes) { if (!V.roof || Math.abs(x - V.x) > V.reach || Math.abs(z - V.z) > V.reach) continue; const dx = x - V.x, dz = z - V.z, top = V.y + V.h; if (top <= yFeet + STEP && top > best && Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) { best = top; where = { car: true, roof: true }; } }
+    if (this.flora) sitesNear(this.planet, x, z, 6, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) { if (!/watchtower/.test(it.k) || Math.abs(it.x - x) > 4 || Math.abs(it.z - z) > 4) continue; const T = towerOf(this.planet, it); if (!T?.deck) continue; const top = it.y + T.deck.y, c = Math.cos(it.rot || 0), s = Math.sin(it.rot || 0), dx = x - it.x, dz = z - it.z; if (top <= yFeet + STEP && top > best && Math.abs(dx * c - dz * s) < T.deck.half && Math.abs(dx * s + dz * c) < T.deck.half) { best = top; where = { deck: true, roof: true }; } } });
     this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && inBox(box, u, v)) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
@@ -187,7 +191,7 @@ export class CollisionWorld {
       });
       // vehicles standing or passing: their own boxes, turned with them (set each frame by main.js; empty while you're driving one)
       if (this.carBoxes) for (const V of this.carBoxes) {
-        const dx = x - V.x, dz = z - V.z; if (Math.abs(dx) > V.reach + r || Math.abs(dz) > V.reach + r || yFeet > V.y + V.h || yFeet + h < V.y) continue;
+        const dx = x - V.x, dz = z - V.z; if (Math.abs(dx) > V.reach + r || Math.abs(dz) > V.reach + r || yFeet > V.y + V.h - 0.12 || yFeet + h < V.y) continue;
         const fx = V.fx, fz = V.fz, lu = dx * fx + dz * fz, lv = dx * fz - dz * fx, pu = V.hl + r - Math.abs(lu), pv = V.hw + r - Math.abs(lv); if (pu <= 0 || pv <= 0) continue;
         if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true;
       }

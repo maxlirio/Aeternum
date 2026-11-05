@@ -666,9 +666,9 @@ async function start(fresh) {
   const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
   // On foot, a vehicle's in your way like anything else, and you can get up onto one: its box stops at its roof.
   function carsSolid() {
-    const me = ctrl.pos, out = [], add = (x, y, z, facing, T) => { if (Math.abs(x - me[0]) > 14 || Math.abs(z - me[2]) > 14 || Math.abs(y - me[1]) > 8) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5 }); };
-    for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v)); }
-    for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D);
+    const me = ctrl.pos, out = [], add = (x, y, z, facing, T, roof = false) => { if (Math.abs(x - me[0]) > 14 || Math.abs(z - me[2]) > 14 || Math.abs(y - me[1]) > 8) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5, roof }); };
+    for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v), true); }
+    for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D, true);
     for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
     for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
     world.carBoxes = out;

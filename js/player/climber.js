@@ -52,12 +52,12 @@ export class Climber {
     const R = this.right(), sgn = (face.t[0] * R[0] + face.t[1] * R[2]) > 0 ? 1 : -1;       // +a is your right, or your left
     const reach = from[1] + 1.95;
     const lh = pick(a - sgn * 0.3, reach, 0.6, 0.9), rh = pick(a + sgn * 0.3, reach, 0.6, 0.9);
-    if (!face.tower && (!lh || !rh || lh === rh || lh.a === rh.a)) { this.ok = false; return; }
+    if (!face.tower && pipeA == null && (!lh || !rh || lh === rh || lh.a === rh.a)) { this.ok = false; return; }
     const footY = Math.max(from[1], Math.min(lh?.y ?? reach, rh?.y ?? reach) - 1.55);
     const lf = pick(a - sgn * 0.18, footY, 0.5, 0.75), rf = pick(a + sgn * 0.18, footY, 0.5, 0.75);
     const hold = { lh, rh, lf, rf };
     // A drainpipe within reach: both hands round it, feet against the wall either side
-    if (pipeA != null) { const onPipe = want => { let b = null, bd = Infinity; holdsNear(world, face, pipeA, want, 0.05, 0.5, h => { if (h.kind === 'pipe' && Math.abs(h.y - want) < bd) { bd = Math.abs(h.y - want); b = h; } }); return b; }; const hi = onPipe(reach), lo = hi && onPipe(hi.y - CORNER_STEP); if (hi && lo) { hold[sgn > 0 ? 'rh' : 'lh'] = hi; hold[sgn > 0 ? 'lh' : 'rh'] = lo; } }
+    if (pipeA != null) { const onPipe = want => { let b = null, bd = Infinity; holdsNear(world, face, pipeA, want, 0.05, 0.5, h => { if (h.kind === 'pipe' && Math.abs(h.y - want) < bd) { bd = Math.abs(h.y - want); b = h; } }); return b; }; const hi = onPipe(reach), lo = hi && onPipe(hi.y - CORNER_STEP); if (hi && lo) { hold[sgn > 0 ? 'rh' : 'lh'] = hi; hold[sgn > 0 ? 'lh' : 'rh'] = lo; } else if (!lh || !rh || lh === rh || lh.a === rh.a) { this.ok = false; return; } }
     // At a corner, take it the way a climber does: a hand and a foot on each side of the edge, body square to the arris.
     const edge = pipeA != null ? 0 : face.tower ? (a < face.w / 2 ? -1 : 1) : a < 0.8 ? -1 : a > face.w - 0.8 ? 1 : 0;     // (a tower's way up is its legs)
     if (edge) {
@@ -99,7 +99,7 @@ export class Climber {
   }
   // The pelvis stays outside every wall a limb is on (at a corner: outside either one is enough).
   offWall(p) {
-    const faces = new Set(); for (const k of LIMBS) { const h = this.limb[k]?.hold; if (h) faces.add(h.face); } faces.add(this.face);
+    const faces = this.leapFaces || new Set(); if (!this.leapFaces) { for (const k of LIMBS) { const h = this.limb[k]?.hold; if (h) faces.add(h.face); } faces.add(this.face); }      // (in the air, only the wall you're going to counts)
     let best = -Infinity, bf = null;
     for (const f of faces) { const o = outOf(f, p[0], p[2], p[1]); if (o > best) { best = o; bf = f; } }
     const lo = this.face.tower ? 0.04 : 0.2, hi = 0.5;     // (on steelwork you hug the leg)
@@ -257,6 +257,8 @@ export class Climber {
     const dir = this.dirOf(input), { R, right } = dir, up = input.fwd || (right ? 0 : 1), H = this.limb;
     if (input.tired) { this.blocked = 'too tired to leap'; return false; }
     if (right && this.atCorner()) { const q = this.leapAcross(R, right); if (q) { this.beginLeap(q.lh, q.rh, q.far); return true; } }
+    // Down and jump: push off backward. To the wall behind you if there's one in range; if not, it's a clean drop away from this one.
+    if (input.fwd < 0 && !right) { const q = this.leapBack(); if (q) { this.beginLeap(q.lh, q.rh, true, q.face); return true; } if (!this.onGround()) { const n = this.normal; this.done = { kind: 'fall', pos: [this.pelvis[0], this.pelvis[1] - BODY.hipHeight, this.pelvis[2]], vel: [n[0] * 4.5, 2.6, n[2] * 4.5], facing: Math.atan2(n[0], n[2]) }; return true; } }
     const hy = Math.max(H.lh.hold.p[1], H.rh.hold.p[1]), cx = lerp3(H.lh.hold.p, H.rh.hold.p, 0.5);
     let best = null, bs = Infinity;
     const want = add(add(cx, [0, 1, 0], up > 0 ? 1.5 : up < 0 ? -1.4 : 0.2), R, right * 1.5);
@@ -294,8 +296,25 @@ export class Climber {
     const rFirst = right > 0;     // the leading hand gets there first and higher
     return { lh: rFirst ? other : best, rh: rFirst ? best : other, far: true };
   }
-  beginLeap(lh, rh, far = false) {
+  // The wall at your back: nearest face looking at this one, within a long jump, with something to catch a little below you.
+  leapBack(MAX = 7.5) {
+    const n = this.normal, P = this.pelvis, hy = Math.max(this.limb.lh.hold?.p[1] ?? P[1], this.limb.rh.hold?.p[1] ?? P[1]); let best = null, bs = Infinity;
+    const faces = new Set(), at = [P[0] + n[0] * MAX * 0.5, P[1], P[2] + n[2] * MAX * 0.5]; facesNear(this.world, at[0], at[1], at[2], MAX * 0.6, f => faces.add(f));
+    for (const f of faces) { if (f.n[0] * n[0] + f.n[1] * n[2] > -0.8) continue; const gap = outOf(f, P[0], P[2]); if (gap < 1.2 || gap > MAX) continue;
+      holdsNear(this.world, f, aOf(f, P[0], P[2]), hy - 0.5, 1.6, 1.6, h => { if (h.kind === 'ground') return; const s = Math.abs(h.y - (hy - 0.5)) + Math.abs(h.a - aOf(f, P[0], P[2])) + gap * 0.2 + (h.kind === 'pipe' || h.kind === 'corner' ? -0.3 : 0); if (s < bs) { bs = s; best = h; } }); }
+    if (!best) return null;
+    let other = null, od = Infinity; if (best.kind === 'pipe' || best.kind === 'corner') holdsNear(this.world, best.face, best.a, best.y - CORNER_STEP, 0.02, 0.05, h => { if (h.kind === best.kind) other = h; });
+    if (!other) holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
+    if (!other) return null;
+    // left and right as you'll be facing that wall
+    const r = [best.face.n[1], 0, -best.face.n[0]], leftFirst = dot(sub(best.p, other.p), r) < 0;
+    return { lh: leftFirst ? best : other, rh: leftFirst ? other : best, face: best.face };
+  }
+  beginLeap(lh, rh, far = false, turnFace = null) {
+    const n0 = this.normal; if (turnFace) this.normal = [turnFace.n[0], 0, turnFace.n[1]];
+    this.leapFaces = new Set([lh.face, rh.face]);
     const sol = this.solve({ lh: endAt('lh', lh), rh: endAt('rh', rh), lf: null, rf: null });
+    this.turn = turnFace ? { from: n0, to: this.normal } : null; this.normal = n0;
     this.leap = { lh, rh, t: 0, gather: far ? 0.28 : 0.22, air: 0, from: this.pelvis.slice(), to: sol.p, handsFrom: { lh: this.limb.lh.p, rh: this.limb.rh.p }, feetFrom: { lf: this.limb.lf.p, rf: this.limb.rf.p } };
     const dy = sol.p[1] - this.pelvis[1], g = 9.81, dist = Math.hypot(sol.p[0] - this.pelvis[0], sol.p[2] - this.pelvis[2]), apex = Math.max(0.15, dy + 0.18), vUp = Math.sqrt(2 * g * Math.max(0.15, apex));
     let T = dy >= 0 ? vUp / g + Math.sqrt(Math.max(0, 2 * (apex - dy) / g)) : (vUp + Math.sqrt(vUp * vUp - 2 * g * dy)) / g, v = vUp;
@@ -308,14 +327,15 @@ export class Climber {
       const f = ease(q.t / q.gather); this.pelvis = add(q.from, [0, -1, 0], 0.14 * f); return;
     }
     const f = Math.min(1, (q.t - q.gather) / q.air), T = f * q.air, from = add(q.from, [0, -0.14, 0]);
+    if (this.turn) { const e = ease(f), a0 = Math.atan2(this.turn.from[0], this.turn.from[2]), side = 1.2 * Math.sin(e * Math.PI), xx = this.turn.from[0] + (this.turn.to[0] - this.turn.from[0]) * e + this.turn.from[2] * side, zz = this.turn.from[2] + (this.turn.to[2] - this.turn.from[2]) * e - this.turn.from[0] * side, l = Math.hypot(xx, zz) || 1; this.normal = [xx / l, 0, zz / l]; }     // turning in the air to face it
     this.pelvis = [from[0] + (q.to[0] - from[0]) * f, from[1] + q.vy * T - 4.905 * T * T + 0.14 * f, from[2] + (q.to[2] - from[2]) * f];
-    if (f > 0.8) this.pelvis = this.offWall(this.pelvis);
+    if (f > 0.8 && !this.turn) this.pelvis = this.offWall(this.pelvis);
     for (const k of ['lh', 'rh']) { H[k].hold = null; H[k].f = 0; H[k].p = lerp3(q.handsFrom[k], endAt(k, q[k]), ease(clamp(f * 1.5, 0, 1))); }
     for (const k of ['lf', 'rf']) { H[k].hold = null; H[k].free = true; H[k].p = lerp3(H[k].p, this.restEnd(k, this.pelvis), 1 - Math.exp(-dt * 7)); }
     if (f >= 1) {
-      if (input.exhausted) { for (const k of ['lh', 'rh']) H[k].hold = q[k]; this.fall(input, true); return; }
+      if (input.exhausted) { this.leapFaces = null; for (const k of ['lh', 'rh']) H[k].hold = q[k]; this.fall(input, true); return; }
       for (const k of ['lh', 'rh']) { const L = H[k]; L.hold = q[k]; L.to = endAt(k, q[k]); L.p = L.to.slice(); L.from = L.p; L.f = 1; L.dur = 0; L.free = false; }
-      this.pelvis = q.to.slice(); this.state = 'hold'; this.leap = null; this.moving = null; this.caught = 1; this.face = q.lh.face; this.turnTo = null;
+      this.pelvis = q.to.slice(); this.state = 'hold'; this.leap = null; this.moving = null; this.caught = 1; this.face = q.lh.face; this.turnTo = null; this.leapFaces = null; if (this.turn) { this.normal = this.turn.to; this.turn = null; }
     }
   }
 

@@ -132,7 +132,7 @@ export function cityMaterial(shape = 'box') {
                 fr = mix(fr, fr * (0.82 + 0.3 * rib) * (1.0 - 0.5 * seam), cl); fr = mix(fr, vec3(0.27, 0.14, 0.08), lap * cl * 0.6 * vn(w * vec2(1.3, 0.4)));
               } else {                             // precast panels: joints, a tone per panel, render's fine grain
                 vec2 pc = w / vec2(max(bw, 1.2), fh * 0.5), pid = floor(pc), pf = abs(fract(pc) - 0.5) * 2.0;
-                float joint = max(smoothstep(0.985, 0.998, pf.x), smoothstep(0.975, 0.995, pf.y));
+                float jwx = fwidth(pf.x), jwy = fwidth(pf.y), joint = max(smoothstep(0.985 - jwx, 0.998 + jwx, pf.x) * 0.02 / (0.02 + jwx), smoothstep(0.975 - jwy, 0.995 + jwy, pf.y) * 0.03 / (0.03 + jwy));     // (smoothed by the pixel's own size, or a thin joint breaks into dashes)
                 fr = mix(fr, fr * (0.9 + 0.2 * h21(pid + seed)) * (1.0 - 0.4 * joint) * (0.94 + 0.12 * vn(w * 9.0)), cl);
               }
               // rain runs down from each sill; grime gathers at the foot of the wall
