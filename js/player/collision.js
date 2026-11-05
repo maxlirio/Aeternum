@@ -8,6 +8,7 @@ import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
 import { rocksNear } from '../gen/rocks.js';
 import { towerOf } from '../gen/towers.js';
+import { deckAt, railHold } from '../gen/surface.js';
 import { sitesNear } from '../gen/outposts.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
@@ -113,6 +114,7 @@ export class CollisionWorld {
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
     let best = surfaceHeight(this.planet, x, z), where = null;
+    { const d = deckAt(this.planet, x, z); if (d !== null && d <= yFeet + STEP && d > best) { best = d; where = { bridge: true }; } }
     // the roof of a standing car; the deck of a watchtower
     if (this.carBoxes) for (const V of this.carBoxes) { if (!V.roof || Math.abs(x - V.x) > V.reach || Math.abs(z - V.z) > V.reach) continue; const dx = x - V.x, dz = z - V.z, top = V.y + V.h; if (top <= yFeet + STEP && top > best && Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) { best = top; where = { car: true, roof: true, V }; } }
     if (this.flora) sitesNear(this.planet, x, z, 6, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) { if (!/watchtower/.test(it.k) || Math.abs(it.x - x) > 4 || Math.abs(it.z - z) > 4) continue; const T = towerOf(this.planet, it); if (!T?.deck) continue; const top = it.y + T.deck.y, c = Math.cos(it.rot || 0), s = Math.sin(it.rot || 0), dx = x - it.x, dz = z - it.z; if (top <= yFeet + STEP && top > best && Math.abs(dx * c - dz * s) < T.deck.half && Math.abs(dx * s + dz * c) < T.deck.half) { best = top; where = { deck: true, roof: true }; } } });
@@ -170,6 +172,7 @@ export class CollisionWorld {
   // Push a vertical capsule (radius r, height h) out of walls and furniture.
   resolve(x, z, yFeet, r = 0.32, h = 1.75) {
     const C = this.city;
+    { const held = railHold(this.planet, x, z, yFeet, r); if (held) { x = held[0]; z = held[1]; } }
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
       this.cityNear(x, z, r + 0.2, (box, u, v) => {

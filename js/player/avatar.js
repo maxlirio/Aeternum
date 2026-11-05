@@ -46,7 +46,7 @@ export function applyPose(rig, st) {
   const { hips, torso, legL, legR, armL, armR } = rig;
   const s = Math.sin(st.phase), amp = (0.35 + 0.55 * st.k) * st.blend;
   rig.root.rotation.x = 0;
-  hips.position.y = 0.95; hips.rotation.set(0, 0, 0); torso.rotation.set(0, 0, 0);
+  hips.position.y = 0.95; hips.position.z = 0; hips.rotation.set(0, 0, 0); torso.rotation.set(0, 0, 0);
   // (a climb turns these joints every way: the poses below only set their bend, so clear the rest)
   legL.lower.rotation.set(0, 0, 0); legR.lower.rotation.set(0, 0, 0); armL.lower.rotation.set(0, 0, 0); armR.lower.rotation.set(0, 0, 0);
   legL.upper.rotation.set(s * amp, 0, 0); legR.upper.rotation.set(-s * amp, 0, 0);
@@ -69,6 +69,12 @@ export function applyPose(rig, st) {
     armL.lower.rotation.x = -0.5 - 0.3 * Math.max(0, b); armR.lower.rotation.x = -0.5 - 0.3 * Math.max(0, -b);
     legL.upper.rotation.set(-0.5 - 0.5 * Math.max(0, a), 0, 0); legR.upper.rotation.set(-0.5 - 0.5 * Math.max(0, -a), 0, 0);
     legL.lower.rotation.x = 0.8 + 0.4 * Math.max(0, a); legR.lower.rotation.x = 0.8 + 0.4 * Math.max(0, -a);
+  }
+  if (st.mode === 'swim') {     // face down, head up, arms pulling in turn, legs fluttering; treading water when still
+    const going = Math.min(1, st.k / 0.6), a = st.phase; const lie = 1.25 * going + 0.15, L = 0.95 + 0.12 * going; rig.root.rotation.x = lie; hips.position.y = L * Math.cos(lie); hips.position.z = -L * Math.sin(lie);   // turned about the middle of the body, not the feet: on the water, not under it
+    torso.rotation.x = -0.5 * going; armL.upper.rotation.set(-2.2 * going - 0.5 + Math.sin(a) * 1.3 * going, 0, 0.35 - 0.2 * going); armR.upper.rotation.set(-2.2 * going - 0.5 - Math.sin(a) * 1.3 * going, 0, -0.35 + 0.2 * going);
+    armL.lower.rotation.x = -0.5 + (1 - going) * Math.sin(a) * 0.4; armR.lower.rotation.x = -0.5 - (1 - going) * Math.sin(a) * 0.4;
+    legL.upper.rotation.x = Math.sin(a * 2.2) * 0.34; legR.upper.rotation.x = -Math.sin(a * 2.2) * 0.34; legL.lower.rotation.x = 0.25 + Math.max(0, Math.sin(a * 2.2)) * 0.3; legR.lower.rotation.x = 0.25 + Math.max(0, -Math.sin(a * 2.2)) * 0.3;
   }
   if (st.mode === 'lie') {
     rig.root.rotation.x = -Math.PI / 2; hips.position.y = 0.95;
@@ -119,6 +125,7 @@ export function createPlaceholderAvatar() {
     punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated
       if (onWall) { onWall = false; rig.hips.quaternion.identity(); rig.root.quaternion.identity(); }
+      if (pose === 'swim') { phase += dt * (speed > 0.15 ? 5 : 1.6); applyPose(rig, { mode: 'swim', phase, blend: 0, k: speed }); return; }
       if (pose) { blend = 0; applyPose(rig, { mode: pose, phase, blend: 0, k: 0 }); return; }
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);

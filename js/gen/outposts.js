@@ -6,6 +6,7 @@
 import { Rng } from '../core/prng.js';
 import { derive, hash01 } from '../core/hash.js';
 import { surfaceAt, bareSurfaceAt } from './surface.js';
+import { riverWithin } from './rivers.js';
 import { moisture } from './terrain.js';
 import { cultureOf } from './culture.js';
 import { designOf, footOf } from './designs.js';
@@ -221,6 +222,7 @@ function siteHead(planet, ti, tj, rng) {
   let d80 = 0; for (let k = 0; k < 8; k++) d80 = Math.max(d80, Math.abs(h(Math.cos(k * 0.785) * 80, Math.sin(k * 0.785) * 80) - S.h));
   // somewhere that gets levelled wants open dry ground all round it: it can't level a river, a town, or the shore
   let room = 1, spread = 0, sum = S.h, n = 1; for (const r of [70, 140, 210, 290]) for (let k = 0; k < 8; k++) { const q = q0(Math.cos(k * 0.785) * r, Math.sin(k * 0.785) * r); if (r < 290) { sum += q.h; n++; spread = Math.max(spread, Math.abs(q.h - S.h)); } if (q.wet > 0.02 || q.town > 0.01 || q.h < planet.seaLevel + 3) room = 0; }
+  if (room && riverWithin(planet, x, z, 300)) room = 0;
   const land = { river, plain: !room ? 0 : spread < 22 ? 1 : spread < 45 ? 0.4 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
   const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), rot0 = rng.range(0, 6.28), G = GRADED[pick];
   return { x, z, S, pick, rot0, shoreDir, riverDir, land, pad: G ? { x, z, h: sum / n, R: G[0], F: G[1] } : null };

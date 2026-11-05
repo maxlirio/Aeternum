@@ -60,6 +60,7 @@ import { GroundMarks } from './render/prints.js';
 import { Crashes, toLocal, dirLocal } from './sim/crash.js';
 import { felledOf, fellKey, floraNear } from './gen/flora.js';
 import { FX } from './render/fx.js';
+import { bridgeGroup } from './render/bridges.js';
 import { WreckView } from './render/wrecks.js';
 import { PAINTS_VEHICLE } from './render/props.js';
 import { FaunaSim } from './sim/fauna.js';
@@ -213,6 +214,7 @@ async function start(fresh) {
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const pipes = new PipeView(); root.add(pipes.group);
+  root.add(bridgeGroup(planet, s));
   const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
@@ -1359,7 +1361,7 @@ async function start(fresh) {
       avatar.object.rotation.set(0, ride.facing, 0);
     }
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
-    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
+    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
     avatar.object.visible = !flight;
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
     pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]);

@@ -74,7 +74,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const edge = i => {
       const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)], dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
       const nx = -dz / L, nz = dx / L;
-      return [-1, 1].map(side => { const x = P[i][0] + nx * side * hw, z = P[i][1] + nz * side * hw, [u, v] = s.toLocal(x, z); return [u, surfaceHeight(planet, x, z) + 0.12, v]; });
+      return [-1, 1].map(side => { const x = P[i][0] + nx * side * hw, z = P[i][1] + nz * side * hw, [u, v] = s.toLocal(x, z); return [u, r.bridges.some(B => i >= B.i0 - 1 && i <= B.i1 + 1) ? r.h[i] + 0.03 : surfaceHeight(planet, x, z) + 0.12, v]; });     // (over a bridge it's on the deck, not down in the gorge)
     };
     let prev = edge(0), along = 0;
     for (let i = 1; i < P.length - 6; i++) {

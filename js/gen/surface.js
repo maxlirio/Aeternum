@@ -7,7 +7,7 @@ import { settlementNear } from './settlement.js';
 import { outRoutes, nearRoute } from './highways.js';
 import { lerp, smoothstep } from '../core/noise.js';
 import { getCity, cityWeight, CURB } from './city.js';
-import { carve } from './rivers.js';
+import { carve, riverAt } from './rivers.js';
 import { padAt } from './outposts.js';
 
 export function plateauWeight(s, u, v) {
@@ -25,19 +25,21 @@ export function bareSurfaceAt(planet, x, z) {
   const [u, v] = s.toLocal(x, z);
   const wp = plateauWeight(s, u, v);
   let h = wp > 0 ? lerp(raw, s.h, wp) : raw;
-  let road = 0, roadW = 0;
+  let road = 0, roadW = 0, deck = 0;
   // two roads running close share the ground between them, so neither leaves a step where the other starts
   let sumW = 0, sumH = 0, sumL = 0, top = 0;
   for (const r of outRoutes(planet, s)) {
     const q = nearRoute(r, x, z); if (!q || q.d > r.w / 2 + 16) continue;
     const hw = r.w / 2, endFade = 1 - smoothstep(r.pts.length - 12, r.pts.length - 2, q.i + q.f);   // the cut eases out at the far end
-    const w = (1 - smoothstep(hw + 1, hw + 16, q.d)) * endFade; if (w <= 0) continue;
+    let w = (1 - smoothstep(hw + 1, hw + 16, q.d)) * endFade; if (w <= 0) continue;
+    // on a bridge the ground stays where the river left it: the road's up on the deck
+    if (r.bridges?.length) { const qi = q.i + q.f; let gap = 0; for (const B of r.bridges) if (qi > B.i0 - 1 && qi < B.i1 + 1) { gap = Math.max(gap, Math.min(1, Math.min(qi - (B.i0 - 1), (B.i1 + 1) - qi))); } if (gap > 0) { w *= 1 - gap; deck = 1; if (gap > 0.6) continue; } }
     const near = 1 / (1e-3 + Math.max(0, q.d - hw) ** 4);
     sumW += near; sumH += near * q.h; top = Math.max(top, w);
     road = Math.max(road, (1 - smoothstep(hw, hw + 1.5, q.d)) * (endFade > 0.5 ? 1 : 0));
   }
   if (sumW > 0) { h = lerp(h, sumH / sumW, top); roadW = top; }      // (the profile already starts flat at the plateau)
-  return { h, town: wp, road, wet, roadW };
+  return { h, town: wp, road, wet, roadW, deck };
 }
 
 // Returns { h, town } — town ∈ [0,1] is how much the ground is graded/compacted. An airfield or a
@@ -48,4 +50,19 @@ export function surfaceAt(planet, x, z) {
   return b;
 }
 
+// The top of a bridge at (x, z), if there is one there: { h } or null. Only ever looked up where there's a river.
+export function deckAt(planet, x, z) {
+  const K = riverAt(planet, x, z); if (!K) return null;
+  const s = settlementNear(planet, x, z); if (!s) return null;
+  for (const r of outRoutes(planet, s)) { if (!r.bridges?.length) continue; const q = nearRoute(r, x, z); if (!q || q.d > r.w / 2 + 0.7) continue; const qi = q.i + q.f; if (r.bridges.some(B => qi >= B.i0 - 1 && qi <= B.i1 + 1)) return q.h; }
+  return null;
+}
+// A bridge's parapets hold you in: (x, z) moved back inside them if you've walked into one, else null.
+export function railHold(planet, x, z, yFeet, reach) {
+  const K = riverAt(planet, x, z); if (!K) return null;
+  const s = settlementNear(planet, x, z); if (!s) return null;
+  for (const r of outRoutes(planet, s)) { if (!r.bridges?.length) continue; const q = nearRoute(r, x, z); if (!q || q.d > r.w / 2 + 1.5) continue; const qi = q.i + q.f; if (!r.bridges.some(B => qi >= B.i0 - 1 && qi <= B.i1 + 1)) continue; if (yFeet > q.h + 0.6 || yFeet < q.h - 1.5) continue;
+    const most = Math.max(0.2, r.w / 2 + 0.7 - 0.28 - reach); if (q.d <= most) return null; const a = r.pts[q.i], b = r.pts[Math.min(q.i + 1, r.pts.length - 1)], cx = a[0] + (b[0] - a[0]) * q.f, cz = a[1] + (b[1] - a[1]) * q.f, k = most / (q.d || 1); return [cx + (x - cx) * k, cz + (z - cz) * k]; }
+  return null;
+}
 export const surfaceHeight = (planet, x, z) => surfaceAt(planet, x, z).h;

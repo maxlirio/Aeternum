@@ -16,7 +16,7 @@ export function rockTile(planet, ti, tj) {
   const out = [], seed = planet.universeSeed[1] ^ 0x70cc5, x0 = ti * TILE, z0 = tj * TILE, LT = gridTraits(planet, x0, z0, TILE, 2), tracks = tracksNear(planet, x0 + TILE / 2, z0 + TILE / 2, TILE);
   const put = (x, z, sp, size, r) => {
     const s = surfaceAt(planet, x, z);
-    if (s.town > 0.01 || s.road > 0.01 || s.wet > 0.05 || s.h < planet.seaLevel + 1) return;
+    if (s.town > 0.01 || s.road > 0.01 || s.deck || s.wet > 0.05 || s.h < planet.seaLevel + 1) return;
     if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) return;
     const e = Math.max(0.8, size * 0.4), hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h, ny = e / Math.hypot(hx, e, hz);
     if (ny < 0.62) return;          // nothing rests on a cliff

@@ -63,7 +63,7 @@ export function floraTile(planet, ti, tj) {
     const Lt = LT(x, z, 'trees'), Ls = LT(x, z, 'shrub'), Lf = LT(x, z, 'fern');
     if (r(3) > 0.02 + 1.3 * Lt + 0.5 * Ls + 0.6 * Lf) continue;                          // (bare land: don't even look)
     const s = surfaceAt(planet, x, z);
-    if (s.town > 0.01 || s.road > 0.01 || s.wet > 0.02 || s.h < planet.seaLevel + 2) continue;
+    if (s.town > 0.01 || s.road > 0.01 || s.deck || s.wet > 0.02 || s.h < planet.seaLevel + 2) continue;
     if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
     if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) continue;       // nothing grows through a farm or a mine, or on the track to it
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;

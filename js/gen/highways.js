@@ -6,17 +6,40 @@
 // Pure and cached: (planet, settlement) → routes. Only logical data — the mesh drapes
 // over it, the ground (gen/surface.js) is graded by it.
 import { rawHeight } from './terrain.js';
+import { riverAt } from './rivers.js';
 import { REGION } from '../core/units.js';
 import { smoothstep, lerp } from '../core/noise.js';
 
 export const MAX_GRADE = 0.09;          // road profile never steeper than 9%
 const CELL = 32, STEP = 4, EDGE = 60;   // search grid (coarse enough that hairpins have room to turn), resample spacing, keep-off from region edge
 
-const cache = new Map();
+const caches = new WeakMap();   // planet -> routes by town
+// Just where the roads run. Knows nothing of rivers, so rivers can be laid out across them.
+export function routeLines(planet, s) {
+  let cache = caches.get(planet); if (!cache) caches.set(planet, cache = new Map());
+  if (!cache.has(s.key)) { const rs = []; s.outRoads.forEach((o, i) => rs.push(route(planet, s, o, i, rs))); cache.set(s.key, rs); }
+  return cache.get(s.key);
+}
+const bridged = new WeakSet();
 export function outRoutes(planet, s) {
-  const ck = planet.universeSeed.join(':') + '|' + s.key;
-  if (!cache.has(ck)) { const rs = []; s.outRoads.forEach((o, i) => rs.push(route(planet, s, o, i, rs))); cache.set(ck, rs); }
-  return cache.get(ck);
+  const rs = routeLines(planet, s);
+  if (!bridged.has(rs)) { bridged.add(rs); if (s.rx === 0 && s.rz === 0) for (const r of rs) addBridges(planet, r); }     // (the one town that's built: elsewhere a deck would be nothing you could see)
+  return rs;
+}
+// Over a river the road goes on a bridge: a span from bank to bank, high enough to clear the water, easing up to it either side.
+function addBridges(planet, r) {
+  const { pts, h: prof, lead: leadN } = r, dh = MAX_GRADE * STEP, bridges = r.bridges = []; let start = -1;
+  const inRiver = i => { const q = riverAt(planet, pts[i][0], pts[i][1]); return q && q.d < q.hw + 7 ? q : null; };
+  for (let i = leadN + 1; i <= pts.length; i++) { const q = i < pts.length ? inRiver(i) : null; if (q && start < 0) start = i; if (!q && start >= 0) { bridges.push({ i0: Math.max(leadN + 1, start - 1), i1: Math.min(pts.length - 1, i), y: -1e9 }); start = -1; } }
+  if (!bridges.length) return;
+  for (let k = bridges.length - 2; k >= 0; k--) if (bridges[k + 1].i0 - bridges[k].i1 < 14) { bridges[k].i1 = bridges[k + 1].i1; bridges.splice(k + 1, 1); }     // (two crossings this close are one long bridge)
+  for (const B of bridges) { let wy = -1e9; for (let i = B.i0; i <= B.i1; i++) { const q = riverAt(planet, pts[i][0], pts[i][1]); if (q) wy = Math.max(wy, q.y); } let top = wy + 3.4; for (let i = B.i0; i <= B.i1; i++) top = Math.max(top, prof[i]); B.water = wy; B.y = top; for (let i = B.i0; i <= B.i1; i++) prof[i] = top; }
+  // two bridges close together: the road between them can only climb so fast, so the lower one comes up to meet it
+  for (let pass = 0; pass < 2; pass++) for (let k = 0; k + 1 < bridges.length; k++) { const A = bridges[k], C = bridges[k + 1], most = (C.i0 - A.i1) * dh; if (C.y - A.y > most) A.y = C.y - most; if (A.y - C.y > most) C.y = A.y - most; }
+  for (const B of bridges) for (let i = B.i0; i <= B.i1; i++) prof[i] = B.y;
+  const fixed = i => bridges.some(B => i >= B.i0 && i <= B.i1);
+  for (let i = leadN + 1; i < prof.length; i++) if (!fixed(i)) prof[i] = Math.max(prof[i], prof[i - 1] - dh);
+  for (let i = prof.length - 2; i > leadN; i--) if (!fixed(i)) prof[i] = Math.max(prof[i], prof[i + 1] - dh);
 }
 
 function route(planet, s, o, idx, earlier) {
@@ -111,7 +134,7 @@ function route(planet, s, o, idx, earlier) {
         const key = gx * 100003 + gz; (grid.get(key) || grid.set(key, []).get(key)).push(i);
       }
   }
-  return { id: idx, w: o.w, pts, h: prof, lead: leadN, grid, B, length: (pts.length - 1) * STEP };
+  return { id: idx, w: o.w, pts, h: prof, lead: leadN, grid, B, length: (pts.length - 1) * STEP, bridges: [] };
 }
 
 // Nearest point of a route to (x, z) within reach: { d, h, i, f } or null.

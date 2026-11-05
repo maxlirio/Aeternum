@@ -87,7 +87,7 @@ suites.roads = async () => {
   for (let k = 0; k < 24; k++) {
     const p = makePlanet(uni(k), HOMEWORLD), s = getSettlement(p, 0, 0);
     for (const r of outRoutes(p, s)) {
-      const hs = r.pts.map(([x, z]) => surfaceHeight(p, x, z));
+      const hs = r.pts.map(([x, z], i) => r.bridges?.some(B => i >= B.i0 - 1 && i <= B.i1 + 1) ? r.h[i] : surfaceHeight(p, x, z));
       for (let i = 3; i < hs.length - 14; i++) worst = Math.max(worst, Math.abs(hs[i] - hs[i - 3]) / 12);
       check(r.pts.every(([x, z]) => x > s.rx * REGION + 30 && z > s.rz * REGION + 30 && x < (s.rx + 1) * REGION - 30 && z < (s.rz + 1) * REGION - 30), `seed ${k}: road ${r.id} leaves its region`);
       check(r.length > 600 || r.id > 0, `seed ${k}: road ${r.id} only ${r.length} m`);    // (a later road can stop short of one it could never meet)
@@ -514,6 +514,7 @@ suites.life = async () => {
 };
 
 suites.climb = async () => {
+  const { riverAt: climbRiver } = await import('../js/gen/rivers.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
   const { Controller } = await import('../js/player/controller.js');
   const { laddersIn } = await import('../js/gen/climb.js');
@@ -559,7 +560,7 @@ suites.climb = async () => {
   // a slope too steep to walk can be scrambled up, slowly; exhausted, you can't
   let found = null;
   for (let k = 0; k < 4000 && !found; k++) {
-    const a = k * 2.39996, r = s.R + 400 + (k % 400) * 3, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r;
+    const a = k * 2.39996, r = s.R + 400 + (k % 400) * 3, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r; if (climbRiver(p, x, z)) continue;     // (a river's bank is loose ground: you slide)
     for (let q = 0; q < 8; q++) { const th = q * Math.PI / 4, dx = Math.sin(th), dz = Math.cos(th), h0 = surfaceHeight(p, x, z), h1 = surfaceHeight(p, x + dx, z + dz), h2 = surfaceHeight(p, x + 6 * dx, z + 6 * dz);
       if ((h1 - h0) > 1.4 && (h2 - h0) / 6 > 1.3) { found = { x, z, facing: th }; break; } }
   }
@@ -1369,12 +1370,33 @@ suites.crashes = async () => {
   // dead in the air: it falls
   { const { flyT } = { flyT: Object.keys(TYPES)[0] }, y0 = surfaceHeight(p, wx, wz) + 40, r = new Ride(W, p, { type: 'sedan', fly: true, pos: [wx, y0, wz], facing: f + 3.14, colour: 0, id: 't' }); r.pos[1] = y0; r.dead = true; let hit = null; for (let t = 0; t < 6 && !hit; t += 1 / 60) { r.step(1 / 60, { fwd: 0, right: 0 }); if (r.crash) hit = r.crash; } check(hit && hit.dv > 15, `a dead sky car drops and hits (${hit?.dv.toFixed(1)} m/s)`); }
 };
+suites.bridges = async () => {
+  const { outRoutes } = await import('../js/gen/highways.js'), { surfaceHeight, deckAt } = await import('../js/gen/surface.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Ride } = await import('../js/player/ride.js'), { Controller } = await import('../js/player/controller.js');
+  let towns = 0, withB = 0, n = 0, low = 0, under = 0, tried = 0, crossed = 0, steep = 0, deckMiss = 0, ghost = 0;
+  for (let k = 0; k < 40; k++) { const p = makePlanet(uni(k), HOMEWORLD), s = getSettlement(p, 0, 0); if (!s) continue; towns++; const rs = outRoutes(p, s); if (rs.some(r => r.bridges.length)) withB++;
+    for (let a = 1; a <= 3; a++) { const o = getSettlement(p, a, 0); if (o && outRoutes(p, o).some(r => r.bridges.length)) ghost++; }
+    for (const r of rs) { for (const B of r.bridges) for (let i = Math.max(r.lead + 1, B.i0 - 60); i + 1 < r.h.length && i < B.i1 + 60; i++) if (Math.abs(r.h[i + 1] - r.h[i]) > 0.8) steep++;
+      for (const B of r.bridges) { n++; const mid = Math.floor((B.i0 + B.i1) / 2), [x, z] = r.pts[mid], d = deckAt(p, x, z); if (d === null || Math.abs(d - B.y) > 0.3) deckMiss++; if (B.y < B.water + 3) low++; if (B.y - surfaceHeight(p, x, z) > 2) under++;
+        if (tried < 12) { tried++; const W = new CollisionWorld(p, s, () => false); W.flora = false; const i0 = Math.max(r.lead + 1, B.i0 - 25), a0 = r.pts[i0], a1 = r.pts[i0 + 1], R = new Ride(W, p, { type: 'sedan', pos: [a0[0], r.h[i0], a0[1]], facing: Math.atan2(a1[0] - a0[0], a1[1] - a0[1]), colour: 0, id: 't' }); R.speed = 12; let at = i0, ok = false; for (let t = 0; t < 14; t += 1 / 60) { while (at + 1 < r.pts.length && Math.hypot(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]) < 6) at++; R.facing = Math.atan2(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]); R.step(1 / 60, { fwd: 1, right: 0 }); if (at > B.i1 + 2) { ok = true; break; } if (at >= mid && R.pos[1] < B.y - 1.2) break; } if (ok) crossed++; } } } }
+  { let held = 0, ofT = 0; for (let k = 0; k < 40 && ofT < 8; k++) { const p = makePlanet(uni(k), HOMEWORLD), s = getSettlement(p, 0, 0); for (const r of outRoutes(p, s)) for (const B of r.bridges) { if (ofT >= 8) break; ofT++; const mid = Math.floor((B.i0 + B.i1) / 2), [x, z] = r.pts[mid], [ax, az] = r.pts[mid + 1], L = Math.hypot(ax - x, az - z), nx = (az - z) / L, nz = -(ax - x) / L, W = new CollisionWorld(p, s, () => false); W.flora = false; const c = new Controller(W, [x, r.h[mid] + 0.1, z]); const face = Math.atan2(nx, nz); for (let t = 0; t < 4; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw: face, run: true }); if (Math.abs(c.pos[1] - r.h[mid]) < 0.3 && Math.hypot(c.pos[0] - x, c.pos[2] - z) <= r.w / 2 + 0.7) held++; } } check(held === ofT, `the parapets hold you on the deck (${held} of ${ofT})`); }
+  console.log(`    ${n} bridges, ${withB} of ${towns} home towns`);
+  check(withB >= towns * 0.5, `most towns have a river across a road (${withB} of ${towns})`); check(!ghost, `no bridges on towns that aren't built (${ghost})`); check(!low, `bridges clear the water (${low} too low)`); check(under >= n * 0.8, `the ground really is lower under them (${under} of ${n})`); check(!deckMiss, `you can stand on every deck (${deckMiss} missing)`); check(!steep, `no steps in the approach (${steep})`); check(crossed >= tried - 1, `a car drives across (${crossed} of ${tried})`);
+};
+suites.swim = async () => {
+  const { surfaceAt, surfaceHeight } = await import('../js/gen/surface.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js'), { riversNear } = await import('../js/gen/rivers.js');
+  const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false); W.flora = false;
+  let sea = null; for (let i = 0; i < 3000 && !sea; i++) { const a = i * 2.4, r = 400 + i * 12, x = Math.cos(a) * r, z = Math.sin(a) * r; if (surfaceHeight(p, x, z) < -3) sea = [x, z]; }
+  if (check(sea, 'found deep water')) { const c = new Controller(W, [sea[0], 8, sea[1]]); c.grounded = false; for (let t = 0; t < 6; t += 1 / 60) c.step(1 / 60, { fwd: 0, right: 0, yaw: 0 }); check(c.swimming, 'jumped in: swimming'); check(Math.abs(c.pos[1] - (p.seaLevel - 1.2)) < 0.15, `floats at the surface (feet ${c.pos[1].toFixed(2)})`); check(!c.landed || c.landed < 9, 'a splash, not a hard landing'); const a = c.pos.slice(); for (let t = 0; t < 3; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw: 0, run: false }); const sp = Math.hypot(c.pos[0] - a[0], c.pos[2] - a[2]) / 3; check(sp > 0.6 && sp < 2, `swims slower than walking (${sp.toFixed(2)} m/s)`); check(Math.abs(c.pos[1] - (p.seaLevel - 1.2)) < 0.15, 'stays at the surface'); }
+  // and out again up the shore
+  { let at = null; for (let i = 0; i < 4000 && !at; i++) { const a = i * 2.4, r = 300 + i * 6, x = Math.cos(a) * r, z = Math.sin(a) * r, h = surfaceHeight(p, x, z); if (h < -2 && h > -6) { for (let k = 0; k < 16 && !at; k++) { const f = k * 0.39; for (let d = 10; d < 90; d += 10) if (surfaceHeight(p, x + Math.sin(f) * d, z + Math.cos(f) * d) > 2) { let clean = true; for (let e = 0; e < d; e += 4) if (surfaceHeight(p, x + Math.sin(f) * e, z + Math.cos(f) * e) > 2 + 8) clean = false; if (clean) at = [x, z, f]; break; } } } }
+    if (at) { const c = new Controller(W, [at[0], -1.2, at[1]]); c.swimming = true; c.grounded = true; for (let t = 0; t < 80 && c.swimming; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw: at[2], run: true }); check(!c.swimming, `swam ashore and stood up (${c.pos[1].toFixed(1)} m)`); } }
+};
 suites.rivers = async () => {
   const { riversNear, riverAt } = await import('../js/gen/rivers.js'), { surfaceAt } = await import('../js/gen/surface.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { floraTile, CELL, TILE } = await import('../js/gen/flora.js');
   const nearRoad = (p, x, z) => { for (let k = 0; k < 8; k++) if (surfaceAt(p, x + Math.cos(k * 0.785) * 24, z + Math.sin(k * 0.785) * 24).road > 0.1) return true; return false; };   // (a road's embankment is allowed to meet it)
   let total = 0, up = 0, inTown = 0, dry = 0, built = 0, lens = [], planets = [1, 2, 3, 4, 5, 6, 7, 8].map(n => makePlanet(uni(n), HOMEWORLD));
   for (const p of planets) { const rs = [...riversNear(p, 0, 0)]; for (const R of rs) { total++; lens.push(R.pts.length * 60); for (let i = 1; i < R.pts.length; i++) if (R.pts[i].y > R.pts[i - 1].y + 1e-6) up++;
-      const e = R.pts[R.pts.length - 1]; if (e.y > p.seaLevel + 0.1) dry++;
+      const e = R.pts[R.pts.length - 1]; if (e.y > p.seaLevel + 0.1 && !R.lake) dry++;
       for (let i = 2; i < R.pts.length; i += 5) { const S = surfaceAt(p, R.pts[i].x, R.pts[i].z); if (S.town > 0.01) inTown++; else { const qr = riverAt(p, R.pts[i].x, R.pts[i].z); if (!S.road && S.h > R.pts[i].y + (qr?.R === R ? 0.4 : 1e9) && !nearRoad(p, R.pts[i].x, R.pts[i].z)) dry++; } } }
     for (let i = -14; i <= 14; i++) for (let j = -14; j <= 14; j++) for (const S of sitesInTile(p, i, j)) for (const it of S.items) if (it.box) { const c = Math.cos(it.rot), s = Math.sin(it.rot), [a, b] = it.box; if (/^(gb_|sm_)/.test(it.k) && surfaceAt(p, it.x, it.z).wet > 0.3) built++; } }
   console.log(`    ${total} rivers on ${planets.length} planets, ${Math.min(...lens)}–${Math.max(...lens)} m`);

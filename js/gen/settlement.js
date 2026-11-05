@@ -35,10 +35,11 @@ function regionHasSettlement(planet, rx, rz) {
   return (rx === 0 && rz === 0) || hash01(planet.seed, [rx, rz, 77]) < 0.35;
 }
 
-const cache = new Map();
+const caches = new WeakMap();    // by planet, so a planet's towns go when it does
 
 export function getSettlement(planet, rx, rz) {
-  const ck = planet.universeSeed.join(':') + '|' + planet.address.key + '|' + rx + ',' + rz;
+  let cache = caches.get(planet); if (!cache) caches.set(planet, cache = new Map());
+  const ck = rx + ',' + rz;
   if (cache.has(ck)) return cache.get(ck);
   const s = regionHasSettlement(planet, rx, rz) ? generate(planet, rx, rz) : null;
   cache.set(ck, s);

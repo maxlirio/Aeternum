@@ -173,3 +173,13 @@ Every headless browser goes through `tools/guard.mjs` and `tools/guard.sh`: a se
 |---|---|
 | **Crashes** (`sim/crash.js`, `render/wrecks.js`, `render/fx.js`, `player/ride.js`): by change in velocity: scuff, dent, crumple, dead engine, fire, explosion. Models are tessellated per wreck and bent where struck. Wrecks spin, bounce, tumble, can land on a side or roof, are saved, and cars brake for them. A dead sky car falls. Blasts hurt, knock over, kill, scare animals and people, and spread to nearby vehicles. Bullets can set vehicles alight. Bikes throw you | Done for your own vehicle, parked cars, road and city traffic, ships. **Traffic hitting traffic doesn't happen**: only what you hit or shoot. **Ships: walk-in interior still works after a wreck.** No repair yet. Tree, lamp and other world props don't break when hit |
 | **Climbing**: corners are holds all the way up with a hand and foot either side; masts, pylons, headframes, drill rigs, watchtowers, lattice water towers and wind pumps climbable (`gen/towers.js`). Twice as fast | Done. Drainpipes on every building (city, town, country when walk-in), clear of windows and doors. Leaps: left/right + Space between corners and pipes up to 8 m, also to other buildings; S + Space pushes off to the wall behind or drops clear. Watchtower decks and standing car roofs can be stood on. Not yet: city rooftop aerials climbable |
+
+## Water and crossings
+
+| What works | Tested by |
+|---|---|
+| **Rivers near town**: rivers bend around towns instead of being discarded; about half of home towns get a river laid across a road, running to the sea or filling a lake where it stops | `test.mjs bridges`, `rivers` |
+| **Bridges**: deck, parapets and piers where the built town's roads cross water; ground stays cut beneath; road surface runs over the deck; parapets stop people and cars | `test.mjs bridges`; `shots bridge`, `bridgetop` |
+| **Swimming**: deep sea or river holds you at the surface, slower than walking, swim pose, jump disabled, wade out at the shore | `test.mjs swim`; `shots swim` |
+
+Limit: only the home settlement is built as visible geometry. Other towns exist as data (graded ground, rivers avoid them, residents can reference them), so they have no bridges.
