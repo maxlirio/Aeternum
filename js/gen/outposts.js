@@ -23,13 +23,13 @@ const KINDS = {
   solar: { label: 'a solar field', fit: l => l.flat * (1 - l.wet), core: 'substation', ring: [['solarfield', 12, 30], ['workcamp', 1, 22], ['pylon', 1, 50]] },
   oil: { label: 'a well field', fit: l => l.flat * (1 - l.wet) * 0.6, core: 'pumpjack', ring: [['pumpjack', 3, 34], ['gastanks', 2, 12], ['tank', 1, 20], ['generatorset', 1, 12]] },
   well: { label: 'a well', fit: l => (1 - l.wet) * l.flat * 0.5, core: 'villagewell', ring: [['windpump', 1, 12], ['fencepanel', 4, 8], ['bucket', 2, 2], ['campfire', 1, 7], ['tent', 2, 10], ['washingline', 1, 9]] },
-  mill: { label: 'a water mill', fit: l => l.wet * l.shore, core: 'waterwheel', ring: [['pumphouse', 1, 14], ['barn', 1, 16], ['fencepanel', 4, 14], ['haybale', 3, 12]] },
+  mill: { label: 'a water mill', clear: 50, fit: l => l.river * 2.2, plan: waterMill },
   watch: { label: 'a watch post', fit: l => l.high * 0.3, core: 'watchtower', ring: [['bunker', 1, 16], ['radiomast', 1, 22], ['sandbag', 4, 8], ['barricade', 2, 12]] },
   light: { label: 'a lighthouse', fit: l => l.shore * 1.4, core: 'lighthouse', ring: [['cottage', 1, 15], ['fencepanel', 3, 9], ['radiomast', 1, 18]] },
   ruin: { label: 'ruins', fit: () => 0.22, core: 'ruinwall', ring: [['ruinwall', 6, 16], ['cairn', 3, 22], ['stonewall', 4, 24], ['scrapheap', 2, 12]] },
   camp: { label: 'a camp', fit: () => 0.16, core: 'campfire', ring: [['tent', 3, 6], ['tarp', 1, 8], ['backpack', 2, 4], ['gascan', 1, 6], ['washingline', 1, 7]] },
   // people living together, and what they build in common: laid out by plan() below
-  village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * 1.5, plan: (put, x, z, a, rng, ctx) => (rng.weighted(Object.entries(LAYOUT[ctx.culture] || LAYOUT.corporate)) === 'street' ? village : ctx.culture === 'garden' || ctx.culture === 'masonry' ? villageGreen : villageGrid)(put, x, z, a, rng, ctx) },
+  village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * (1.5 + l.river), plan: (put, x, z, a, rng, ctx) => (rng.weighted(Object.entries(LAYOUT[ctx.culture] || LAYOUT.corporate)) === 'street' ? village : ctx.culture === 'garden' || ctx.culture === 'masonry' ? villageGreen : villageGrid)(put, x, z, a, rng, ctx) },
   township: { label: 'a township', clear: 135, fit: l => l.flat * l.low * 0.34, plan: township },
   lumber: { label: 'a sawmill', clear: 40, fit: l => l.wet * l.flat * 0.32, core: 'sawmill', ring: [['cottage', 1, 24], ['shed', 1, 19], ['cart', 2, 15], ['poweredge', 1, 14]] },
   refuge: { label: 'a mountain refuge', fit: l => l.high * l.steep * 0.28 + 0.02, core: 'shelterhut', ring: [['cairn', 2, 7], ['noticeboard', 1, 4]] },
@@ -147,6 +147,15 @@ function villageGrid(put, x, z, a, rng) {
   for (const [s, o] of [[-34, 62], [34, -62], [L + 26, 12]]) { const [p, q] = at(s, o); put('cropfield', p, q, a); }
   return lanes;
 }
+// on a bank, the wheel in the water
+function waterMill(put, x, z, a, rng, ctx) {
+  const dir = ctx.riverDir ?? a, dx = Math.cos(dir), dz = Math.sin(dir); let d = 0, wet = 0;
+  for (; d < 150; d += 3) { wet = ctx.wet(dx * d, dz * d); if (wet > 0.5) break; } const bx = x + dx * (d - 2), bz = z + dz * (d - 2), sx = -dz, sz = dx, front = facing(-dx, -dz);
+  put('waterwheel', bx, bz, along(sx, sz), { bank: true });
+  { const px = x + dx * (d - 22), pz = z + dz * (d - 22); put.big('barn', px, pz, front); }
+  for (const [k, r, s] of [['pumphouse', 16, 18], ['cottage', 38, 22], ['shed', 30, -20], ['cart', 18, -12], ['fencepanel', 26, 30], ['fencepanel', 26, -32], ['haybale', 24, 14], ['haybale', 25, 9]]) put(k, x + dx * (d - r) + sx * s, z + dz * (d - r) + sz * s, front);
+  return [];
+}
 // a strip of mown ground, hangars along one side of it, a tower, fuel
 function airfield(put, x, z, a, rng) {
   const ux = Math.cos(a), uz = Math.sin(a), L = 150, at = (s, o) => [x + ux * s - uz * o, z + uz * s + ux * o], lanes = put.lanes = [[x - ux * L, z - uz * L, x + ux * L, z + uz * L, 11]];
@@ -203,13 +212,14 @@ export function sitesInTile(planet, ti, tj) {
   const out = [], rng = new Rng(derive(planet.seed, 'outposts', [ti, tj])), cul = cultureOf(planet);
   if (rng.next() < 0.5) {     // about every other 900 m square has someone in it
     const x = (ti + rng.range(0.15, 0.85)) * TILE, z = (tj + rng.range(0.15, 0.85)) * TILE, S = surfaceAt(planet, x, z);
-    if (S.town < 0.01 && S.h > planet.seaLevel + 2 && !S.road) {
+    if (S.town < 0.01 && S.h > planet.seaLevel + 2 && !S.road && !(S.wet > 0.05)) {
       // what's the land like here?
       const h = (dx, dz) => surfaceAt(planet, x + dx, z + dz).h, d = Math.max(Math.abs(h(30, 0) - S.h), Math.abs(h(-30, 0) - S.h), Math.abs(h(0, 30) - S.h), Math.abs(h(0, -30) - S.h));
       let shore = 0, shoreDir = null; for (let k = 0; k < 8 && !shore; k++) if (h(Math.cos(k * 0.785) * 160, Math.sin(k * 0.785) * 160) < planet.seaLevel) { shore = 1; shoreDir = k * 0.785; }
+      let river = 0, riverDir = null; for (const q of [40, 90, 140]) for (let k = 0; k < 8 && !river; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * q, z + Math.sin(k * 0.785) * q).wet > 0.5) { river = 1; riverDir = k * 0.785; }
       let road = 0; for (let k = 0; k < 8 && !road; k++) if (surfaceAt(planet, x + Math.cos(k * 0.785) * 40, z + Math.sin(k * 0.785) * 40).road > 0.5) road = 1;
       let d80 = 0; for (let k = 0; k < 8; k++) d80 = Math.max(d80, Math.abs(h(Math.cos(k * 0.785) * 80, Math.sin(k * 0.785) * 80) - S.h));
-      const land = { plain: d80 < 7 ? 1 : d80 < 14 ? 0.25 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
+      const land = { river, plain: d80 < 7 ? 1 : d80 < 14 ? 0.25 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
       const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), K = KINDS[pick], rot0 = rng.range(0, 6.28), items = [];
       const fields = [];
       // one thing placed: a family becomes this planet's version of it, with its own footing and walls; on land, or over water if it says so
@@ -218,7 +228,7 @@ export function sitesInTile(planet, ti, tj) {
         if (k0 === 'cropfield') {
           const A = rng.range(11, 20), B = rng.range(8, 14), yard = { x: px, z: pz, rot, box: [A, B] }, Q0 = surfaceAt(planet, px, pz);
           const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => surfaceAt(planet, px + a * A * c + b * B * s, pz - a * A * s + b * B * c));
-          if (Q0.town > 0.01 || hs.some(q => q.road > 0.01 || q.town > 0.01 || q.h < planet.seaLevel + 0.6) || Math.max(...hs.map(q => q.h)) - Math.min(...hs.map(q => q.h)) > 7) return;
+          if (Q0.town > 0.01 || Q0.wet > 0.02 || hs.some(q => q.wet > 0.02 || q.road > 0.01 || q.town > 0.01 || q.h < planet.seaLevel + 0.6) || Math.max(...hs.map(q => q.h)) - Math.min(...hs.map(q => q.h)) > 7) return;
           if (items.some(o => (o.box || o.r) && overlaps(yard, { x: o.x, z: o.z, rot: o.rot, box: o.box || [o.r, o.r] })) || fields.some(f => overlaps(yard, f))) return;
           fields.push({ ...yard, crop: designOf(planet, 'crop', 1, 0.12) });
           if (rng.next() < 0.6) { const fence = designOf(planet, 'stockfence', 2, 0);
@@ -231,12 +241,13 @@ export function sitesInTile(planet, ti, tj) {
         if (FAM.has(k0) || FORMS[k0] || SMALL[k0]) { k = designOf(planet, k0, Math.round(px * 7 + pz * 13)); foot = footOf(k, planet); }
         const Q = surfaceAt(planet, px, pz);
         if (Q.town > 0.01 || Q.road > 0.01) return;
+        if (Q.wet > 0.05 && !opt.wet && !opt.bank) return;                    // nobody builds in a river
         if (opt.wet) { items.push({ k, x: px, y: opt.y, z: pz, rot, r: 0, s: 1 }); return; }
         if (Q.h < planet.seaLevel + 0.5) return;
         let y = Q.h, gb = k.startsWith('gb_');
         if (gb) {                                                   // you can go in: the floor clears all the ground under it, so none comes up through it, and steps make up the drop
           const c = Math.cos(rot), s = Math.sin(rot); let lo = Infinity, hi = -Infinity;
-          for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), g = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; if (g < lo) lo = g; if (g > hi) hi = g; }
+          for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), Gq = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c), g = Gq.h; if (Gq.wet > 0.05) return; if (g < lo) lo = g; if (g > hi) hi = g; }
           if (hi - lo > (foot[0] > 9 ? 4.2 : 3.1) || lo < planet.seaLevel + 0.3) return;
           y = hi + 0.12;
         } else if (foot) {                                                 // level on its footing; too steep to build on, and they don't
@@ -262,7 +273,7 @@ export function sitesInTile(planet, ti, tj) {
         const it = items[n], reach = Math.hypot(it.box?.[0] || 1, it.box?.[1] || 1); if ((place.lanes || []).some(([x0, z0, x1, z1, w]) => { const L = Math.hypot(x1 - x0, z1 - z0) || 1, u = Math.max(0, Math.min(L, ((it.x - x0) * (x1 - x0) + (it.z - z0) * (z1 - z0)) / L)); return Math.hypot(x0 + (x1 - x0) * u / L - it.x, z0 + (z1 - z0) * u / L - it.z) < reach + w + 2; })) { items.length = n; continue; }   // (not on the lane)
         return true; } return false; };
       let lanes = [];
-      if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { culture: cul.key, h: (a, b) => h(a, b), sea: planet.seaLevel, shoreDir });
+      if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { culture: cul.key, h: (a, b) => h(a, b), wet: (a, b) => surfaceAt(planet, x + a, z + b).wet, riverDir, sea: planet.seaLevel, shoreDir });
       else {
         if (K.must) place.big(K.core, x, z, rot0); else place(K.core, x, z, rot0);
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }

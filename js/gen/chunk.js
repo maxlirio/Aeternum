@@ -10,10 +10,10 @@ import { workedNear, workedGround } from './outposts.js';
 export function chunkData(planet, lod, i, j) {
   const size = CHUNK * 2 ** lod, step = size / CHUNK_RES, n = CHUNK_RES + 1, x0 = i * size, z0 = j * size;
   const m = n + 2;                                    // one-sample border for normals
-  const H = new Float64Array(m * m), TOWN = new Float32Array(m * m), ROAD = new Float32Array(m * m);
+  const H = new Float64Array(m * m), TOWN = new Float32Array(m * m), ROAD = new Float32Array(m * m), WET = new Float32Array(m * m);
   for (let b = 0; b < m; b++) for (let a = 0; a < m; a++) {
     const s = surfaceAt(planet, x0 + (a - 1) * step, z0 + (b - 1) * step);
-    H[b * m + a] = s.h; TOWN[b * m + a] = s.town; ROAD[b * m + a] = s.road;
+    H[b * m + a] = s.h; TOWN[b * m + a] = s.town; ROAD[b * m + a] = s.road; WET[b * m + a] = s.wet || 0;
   }
   const skirt = 4 * CHUNK_RES;
   const vcount = n * n + skirt;
@@ -39,6 +39,7 @@ export function chunkData(planet, lod, i, j) {
     const snow = smoothstep(C.treeline + 250, C.treeline + 500, h) * smoothstep(0.6, 0.8, ny);
     c = mix3(c, [C.snow, C.snow, C.snow * 1.02], snow);
     c = mix3(c, [0.40, 0.37, 0.32], TOWN[k] * 0.85);
+    c = mix3(c, [0.42, 0.33, 0.25], WET[k]);                                  // river mud
     c = mix3(c, [0.30, 0.29, 0.27], ROAD[k]);
     if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) c = [0.65, 0.39, 0.27]; else if (w === 1) c = [0.2, 0.13, 0.09]; }  
     col[v * 3] = c[0]; col[v * 3 + 1] = c[1]; col[v * 3 + 2] = c[2];

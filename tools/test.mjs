@@ -1244,6 +1244,18 @@ suites.countryside = async () => {
   check(FAMILIES.length * 7 === Object.keys(FOOT).length, `every family exists in every way of building (${Object.keys(FOOT).length})`);
 };
 
+suites.rivers = async () => {
+  const { riversNear, riverAt } = await import('../js/gen/rivers.js'), { surfaceAt } = await import('../js/gen/surface.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { floraTile, CELL, TILE } = await import('../js/gen/flora.js');
+  const nearRoad = (p, x, z) => { for (let k = 0; k < 8; k++) if (surfaceAt(p, x + Math.cos(k * 0.785) * 24, z + Math.sin(k * 0.785) * 24).road > 0.1) return true; return false; };   // (a road's embankment is allowed to meet it)
+  let total = 0, up = 0, inTown = 0, dry = 0, built = 0, lens = [], planets = [1, 2, 3, 4, 5, 6, 7, 8].map(n => makePlanet(uni(n), HOMEWORLD));
+  for (const p of planets) { const rs = riversNear(p, 0, 0); for (const R of rs) { total++; lens.push(R.pts.length * 60); for (let i = 1; i < R.pts.length; i++) if (R.pts[i].y > R.pts[i - 1].y + 1e-6) up++;
+      const e = R.pts[R.pts.length - 1]; if (e.y > p.seaLevel + 0.1) dry++;
+      for (let i = 2; i < R.pts.length; i += 5) { const S = surfaceAt(p, R.pts[i].x, R.pts[i].z); if (S.town > 0.01) inTown++; else { const qr = riverAt(p, R.pts[i].x, R.pts[i].z); if (!S.road && S.h > R.pts[i].y + (qr?.R === R ? 0.4 : 1e9) && !nearRoad(p, R.pts[i].x, R.pts[i].z)) dry++; } } }
+    for (let i = -14; i <= 14; i++) for (let j = -14; j <= 14; j++) for (const S of sitesInTile(p, i, j)) for (const it of S.items) if (it.box) { const c = Math.cos(it.rot), s = Math.sin(it.rot), [a, b] = it.box; if (/^(gb_|sm_)/.test(it.k) && surfaceAt(p, it.x, it.z).wet > 0.3) built++; } }
+  console.log(`    ${total} rivers on ${planets.length} planets, ${Math.min(...lens)}–${Math.max(...lens)} m`);
+  check(total > planets.length, 'planets have rivers'); check(!up, `water only runs downhill (${up} rises)`); check(!dry, `each reaches the sea, and the water sits above its bed (${dry} don't)`); check(!inTown, `none runs through a town (${inTown})`); check(!built, `nobody builds in one (${built})`);
+  const p = planets[0], R = riversNear(p, 0, 0)[0], q = R.pts[10], a = surfaceAt(p, q.x, q.z), b = surfaceAt(makePlanet(uni(1), HOMEWORLD), q.x, q.z); check(a.h === b.h, 'the same seed cuts the same channels');
+};
 suites.walkin = async () => {
   const { sitesInTile } = await import('../js/gen/outposts.js'), { FORMS, designsFor, designPlan } = await import('../js/gen/housegen.js'), { siteReal } = await import('../js/world/sitereal.js'), { roomGraph } = await import('../js/gen/building.js');
   const { surfaceHeight } = await import('../js/gen/surface.js'), { CollisionWorld } = await import('../js/player/collision.js');

@@ -64,6 +64,7 @@ import { OutpostView } from './render/outposts.js';
 import { buildingParts, setWindowGlow } from './render/housegen.js';
 import { smallParts } from './render/smallgen.js';
 import { SiteInteriors } from './render/sitereal.js';
+import { RiverView } from './render/rivers.js';
 import { sitesNear } from './gen/outposts.js';
 import { localTones } from './gen/culture.js';
 import { Goods } from './render/goods.js';
@@ -194,6 +195,7 @@ async function start(fresh) {
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   propLib?.setLocal(localTones(planet));
   let trespassAt = null;
+  const rivers = new RiverView(planet); root.add(rivers.group);
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const holdsView = new HoldsView(); scene.add(holdsView.mesh);
@@ -1323,7 +1325,7 @@ async function start(fresh) {
     cityRooms.update(ctrl.pos);
     if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
     flora.update(ctrl.pos[0], ctrl.pos[2]);
-    outposts.update(ctrl.pos[0], ctrl.pos[2]);
+    outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);

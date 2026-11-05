@@ -57,7 +57,7 @@ export function floraTile(planet, ti, tj) {
     const r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + 0.15 + 0.7 * r(1)) * CELL, z = (cj + 0.15 + 0.7 * r(2)) * CELL;
     const s = surfaceAt(planet, x, z);
-    if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 2) continue;
+    if (s.town > 0.01 || s.road > 0.01 || s.wet > 0.02 || s.h < planet.seaLevel + 2) continue;
     if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
     if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) continue;       // nothing grows through a farm or a mine, or on the track to it
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;
