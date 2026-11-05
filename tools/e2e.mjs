@@ -529,7 +529,7 @@ try {
     return out; })()`);
   check(sb.rode && sb.onIt && sb.gap < 3, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
   check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.5, `took it: driver out, in the air, heat ${sb.hot}`);     // (2.2 if anyone below saw it; a quarter of that if not)
-  check(sb.speed > 5, `flew it (${sb.speed} m/s)`);
+  check(sb.speed > 2, `flew it (${sb.speed} m/s)`);     // (in a busy lane it can clip someone: that counts as a crash now)
   check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);
   check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
   check(sb.smashed, `smashed street furniture; crimes on record: ${(sb.crimes || []).join(', ')}`);
@@ -582,7 +582,13 @@ try {
     out.hurt = P.hp < 100; out.sparks = O.fx.glow.life.some(v => v > 0) || O.fx.dark.life.some(v => v > 0);
     // light it and let it go up
     if (D) { O.wrecks.rnd = () => 0.1; O.wrecks.ignite(D); out.fire = D.fire > 0; D.fuse = 0.3; await wait(1200); out.blew = D.exploded; out.burnt = D.burnt; out.throwable = !O.getRide2() || true; }
+    // thrown off a bike
+    { const [bx, bz] = C.toWorld(u + 3, v + 3), Rb = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'tb', pos: [bx, y, bz], facing: yaw }); P.hp = 100; O.setRideForTest(Rb); Rb.speed = 30; for (let i = 0; i < 300 && O.getRide2(); i++) await wait(40); out.thrown = !O.getRide2(); out.bikeHurt = P.hp < 100; await wait(400); O.ctrl.mode = 'walk'; }
+    // a ship flown into the ground
+    { const sh = O.getShips()[0], ox = O.ctrl.pos[0], oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; await wait(400); P.hp = 100; }
     return out; })()`);
+  check(cr.thrown && cr.bikeHurt, 'crashed a bike and was thrown off it');
+  check(cr.shipOut && cr.shipHits > 0 && cr.shipDead, `flew a ship into the ground: wrecked, and out of it (${cr.shipHits} hits)`);
   check(cr.hit && cr.depth > 0.05, `drove into a wall and it dented the car (${JSON.stringify(cr).slice(0, 180)})`);
   check(cr.model && cr.moved > 20, `the model's own metal moved (${cr.moved} points)`);
   check(cr.hurt, 'and it hurt');

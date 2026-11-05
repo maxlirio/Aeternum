@@ -1239,8 +1239,8 @@ async function start(fresh) {
         afterFlight(dt, t);
         if (flight && myCraft && firing) war.fireGuns(myCraft, dt);
         // chase camera: behind and a little above, following the heading and part of the pitch
-        cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
-        cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3);
+        if (flight) { cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
+          cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3); }
       } else if (ride) {
         rideBumps(t);
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run, up: keys.has('Space'), down: keys.has('KeyQ') });
