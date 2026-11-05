@@ -29,7 +29,7 @@ const KINDS = {
   ruin: { label: 'ruins', fit: () => 0.22, core: 'ruinwall', ring: [['ruinwall', 6, 16], ['cairn', 3, 22], ['stonewall', 4, 24], ['scrapheap', 2, 12]] },
   camp: { label: 'a camp', fit: () => 0.16, core: 'campfire', ring: [['tent', 3, 6], ['tarp', 1, 8], ['backpack', 2, 4], ['gascan', 1, 6], ['washingline', 1, 7]] },
   // people living together, and what they build in common: laid out by plan() below
-  village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * 1.5, plan: village },
+  village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * 1.5, plan: (put, x, z, a, rng, ctx) => (rng.weighted(Object.entries(LAYOUT[ctx.culture] || LAYOUT.corporate)) === 'street' ? village : ctx.culture === 'garden' || ctx.culture === 'masonry' ? villageGreen : villageGrid)(put, x, z, a, rng, ctx) },
   township: { label: 'a township', clear: 135, fit: l => l.flat * l.low * 0.34, plan: township },
   lumber: { label: 'a sawmill', clear: 40, fit: l => l.wet * l.flat * 0.32, core: 'sawmill', ring: [['cottage', 1, 24], ['shed', 1, 19], ['cart', 2, 15], ['poweredge', 1, 14]] },
   refuge: { label: 'a mountain refuge', fit: l => l.high * l.steep * 0.28 + 0.02, core: 'shelterhut', ring: [['cairn', 2, 7], ['noticeboard', 1, 4]] },
@@ -117,6 +117,35 @@ function fishing(put, x, z, a, rng, ctx) {
   for (let i = -1; i <= 1; i++) { const r = 18 + rng.range(0, 7), px = cx - dx * r + sx * i * 13, pz = cz - dz * r + sz * i * 13; put(rng.next() < 0.6 ? 'hut' : 'shed', px, pz, facing(dx, dz)); }
   for (const [k, r, s] of [['cart', 9, 7], ['barrels', 7, -6], ['lamp', 6, 3], ['villagewell', 30, -20]]) put(k, cx - dx * r + sx * s, cz - dz * r + sz * s, rng.range(0, 6.28));
   return [];
+}
+// how a people lays out a village: along one street, or their own way (round a green, or squared off in blocks)
+const LAYOUT = { masonry: { street: 3, own: 4 }, garden: { street: 1, own: 4 }, corporate: { street: 1, own: 5 }, brutalist: { street: 1, own: 6 }, foundry: { street: 3, own: 3 }, neon: { street: 3, own: 3 } };
+const CIVIC = ['inn', 'smithy', 'garage', 'clinic', 'school', 'shop', 'shop'];
+// houses in a ring, all looking in at a common with the well on it, a track out each side
+function villageGreen(put, x, z, a, rng) {
+  const R = rng.range(30, 40), n = Math.round(2 * Math.PI * R / 14), at = (b, r) => [x + Math.cos(b) * r, z + Math.sin(b) * r], lanes = put.lanes = [], out = [a, a + Math.PI + rng.range(-0.5, 0.5)];
+  for (const b of out) { const [p, q] = at(b, 4), [u, v] = at(b, R + 34); lanes.push([p, q, u, v, 2.8]); }
+  put(rng.next() < 0.5 ? 'fountain' : 'villagewell', x, z, rng.range(0, 6.28));
+  { const [p, q] = at(a + 2, 9); put('pavilion', p, q, rng.range(0, 6.28)); } { const [p, q] = at(a + 4, 10); put('marketcross', p, q, 0); } { const [p, q] = at(a + 1, 12); put('bench', p, q, a + 1); } { const [p, q] = at(a + 5, 12); put('noticeboard', p, q, a + 5); }
+  const civ = rng.shuffle(CIVIC.slice());
+  for (let i = 0; i < n; i++) { const b = a + (i + 0.5) / n * 6.283; if (out.some(o => Math.abs(Math.atan2(Math.sin(b - o), Math.cos(b - o))) < 0.3)) continue;
+    const [p, q] = at(b, R), k = i === 2 ? 'hall' : i === Math.floor(n / 2) + 1 ? (rng.next() < 0.5 ? 'temple' : 'hall') : civ.length && rng.next() < 0.3 ? civ.pop() : rng.next() < 0.18 ? 'hut' : 'cottage'; put(k, p, q, facing(-Math.cos(b), -Math.sin(b)));
+    if (rng.next() < 0.5) { const [s, t] = at(b + 0.04, R + 14); put('shed', s, t, facing(-Math.cos(b), -Math.sin(b)) + rng.range(-0.3, 0.3)); }
+    if (i % 3 === 0) { const [s, t] = at(b + 3.14 / n, R - 12); put('lamp', s, t, b); } }
+  for (const b of [a + 1.2, a + 2.6, a + 4.2]) { const [p, q] = at(b, R + 44); put('cropfield', p, q, b + 1.57); }
+  for (const [k, b, r] of [['watertower', a + 1.8, R + 26], ['graves', a + 3.6, R + 30], ['swings', a + 0.8, 18], ['stable', a + 5.4, R + 24], ['beehives', a + 2.2, R + 22]]) { const [p, q] = at(b, r); put(k, p, q, b); }
+  return lanes;
+}
+// squared off: parallel streets and a cross street, a row of houses to each block
+function villageGrid(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), vx = -uz, vz = ux, at = (s, o) => [x + ux * s + vx * o, z + uz * s + vz * o], rows = [-22, 22], L = 58, lanes = put.lanes = rows.map(o => [...at(-L, o), ...at(L, o), 3]).concat([[...at(0, -44), ...at(0, 44), 3]]);
+  const civ = rng.shuffle(CIVIC.slice());
+  for (const o of rows) for (const side of [-1, 1]) { const O = o + side * 11.5; for (let s = -L + 9; s < L - 6; s += 13.5) { if (Math.abs(s) < 8) continue; const [p, q] = at(s, O), k = civ.length && rng.next() < 0.3 ? civ.pop() : rng.next() < 0.14 ? 'tenement' : rng.next() < 0.12 ? 'longhouse' : 'cottage'; put(k, p, q, facing(-vx * side, -vz * side)); } }
+  { const [p, q] = at(-9, 0); put('hall', p, q, facing(ux, uz)); } { const [p, q] = at(11, 0); put(rng.next() < 0.5 ? 'fountain' : 'villagewell', p, q, 0); }
+  for (let s = -L + 12; s < L; s += 22) { const [p, q] = at(s, 18); put('lamp', p, q, a); const [e, f] = at(s + 8, -18); put('poweredge', e, f, a); }
+  for (const [k, s, o] of [['busstop', L - 6, 26], ['noticeboard', 5, 7], ['bench', 5, -7], ['watertower', L + 8, -38], ['warehouse', -L - 8, 40], ['gate', 0, 44], ['swings', 22, 4]]) { const [p, q] = at(s, o); put(k, p, q, k === 'gate' ? along(vx, vz) : facing(-vx, -vz)); }
+  for (const [s, o] of [[-34, 62], [34, -62], [L + 26, 12]]) { const [p, q] = at(s, o); put('cropfield', p, q, a); }
+  return lanes;
 }
 // a strip of mown ground, hangars along one side of it, a tower, fuel
 function airfield(put, x, z, a, rng) {
@@ -233,7 +262,7 @@ export function sitesInTile(planet, ti, tj) {
         const it = items[n], reach = Math.hypot(it.box?.[0] || 1, it.box?.[1] || 1); if ((place.lanes || []).some(([x0, z0, x1, z1, w]) => { const L = Math.hypot(x1 - x0, z1 - z0) || 1, u = Math.max(0, Math.min(L, ((it.x - x0) * (x1 - x0) + (it.z - z0) * (z1 - z0)) / L)); return Math.hypot(x0 + (x1 - x0) * u / L - it.x, z0 + (z1 - z0) * u / L - it.z) < reach + w + 2; })) { items.length = n; continue; }   // (not on the lane)
         return true; } return false; };
       let lanes = [];
-      if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { h: (a, b) => h(a, b), sea: planet.seaLevel, shoreDir });
+      if (K.plan) lanes = K.plan(place, x, z, rot0, rng, { culture: cul.key, h: (a, b) => h(a, b), sea: planet.seaLevel, shoreDir });
       else {
         if (K.must) place.big(K.core, x, z, rot0); else place(K.core, x, z, rot0);
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
