@@ -12,6 +12,8 @@ import { prevailing } from '../gen/land.js';
 const VIEW = 16000, SPLIT = 1.7;
 
 export const terrainWind = { value: new THREE.Vector2(0, 0) };   // today's wind (main.js)
+// the ground's dents around the player (render/prints.js): a height map, c its centre, s its width in metres
+export const terrainMarks = { tex: { value: null }, c: { value: new THREE.Vector2() }, s: { value: 40 } };
 export const terrainTime = { value: 0 };    // advanced by main.js (shoreline wash)
 function terrainMaterial(planet) {
   // The ground surfaces (grass, sand, cracked salt, ash, rocks...) as detail over the land's own colour
@@ -23,13 +25,13 @@ function terrainMaterial(planet) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.normalScale.set(0.8, 0.8);
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
+    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
       attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = position; vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform vec2 uPrev; uniform vec3 uCanopy;
+      uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
       .replace('#include <normal_fragment_maps>', '')
       .replace('#include <normalmap_pars_fragment>', 'uniform vec2 normalScale;')
@@ -37,7 +39,17 @@ function terrainMaterial(planet) {
       vec3 wn = normalize(vWN);
       float W[16] = float[16](vS0.x, vS0.y, vS0.z, vS0.w, vS1.x, vS1.y, vS1.z, vS1.w, vS2.x, vS2.y, vS2.z, vS2.w, vR.x, vR.y, vR.z, vR.w);
       float rockW = vS2.w + vR.x + vR.y + vR.z + vR.w;
-      vec2 top = vWP.xz, dTx = dFdx(top), dTy = dFdy(top), sd = vWP.zy, dSx = dFdx(sd), dSy = dFdy(sd), fr = vWP.xy, dFx = dFdx(fr), dFy = dFdy(fr);
+      vec2 top = vWP.xz;
+      // Pressed ground. Look down into the dent along the line of sight, so its near wall hides what's behind it and the sand inside sits lower
+      float markD = 0.0; vec3 markN = vec3(0.0, 1.0, 0.0);
+      if (vViewPosition.z < 30.0) {
+        vec3 Vw = normalize(transpose(mat3(viewMatrix)) * vViewPosition); vec2 stepUv = Vw.xz / max(Vw.y, 0.28) * 0.07 / 7.0; vec2 pm = top; float rayH = 1.0;
+        for (int i = 0; i < 7; i++) { float hh = markH(pm) * 0.5 + 0.5; if (hh >= rayH) break; pm -= stepUv; rayH -= 1.0 / 7.0; }
+        float fadeM = smoothstep(30.0, 16.0, vViewPosition.z); top = mix(top, pm, fadeM);
+        const float eM = 0.035; float hL = markH(top - vec2(eM, 0.0)), hR = markH(top + vec2(eM, 0.0)), hD = markH(top - vec2(0.0, eM)), hU = markH(top + vec2(0.0, eM)); markD = markH(top);
+        markN = normalize(vec3((hL - hR) * 0.07 / (2.0 * eM), 1.0, (hD - hU) * 0.07 / (2.0 * eM)));
+      }
+      vec2 dTx = dFdx(vWP.xz), dTy = dFdy(vWP.xz), sd = vWP.zy, dSx = dFdx(sd), dSy = dFdy(sd), fr = vWP.xy, dFx = dFdx(fr), dFy = dFdy(fr);
       vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
       vec3 detail = vec3(0.0), nAcc = vec3(0.0);
       float near = clamp(1.0 - vViewPosition.z / 300.0, 0.0, 1.0);
@@ -70,6 +82,7 @@ function terrainMaterial(planet) {
         }
       }
       float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
+      detail *= 1.0 - 0.4 * clamp(-markD, 0.0, 1.0);        // (little sky reaches the bottom of a hollow)
       diffuseColor.rgb *= 0.55 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // real ground is dark: grass and soil reflect 10–25%
       // sandstone shows its beds from a long way off: pale and red bands that wander a little with the land
       if (W[12] > 0.01) {
@@ -104,8 +117,9 @@ function terrainMaterial(planet) {
       .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
       if (near > 0.0) {   // tangent frame from the world: x along east, z along south, y the surface's own normal
         vec3 mapN = nAcc * 2.0 - 1.0; mapN.xy *= normalScale * near;
-        vec3 Tn = normalize(cross(vec3(0.0, 0.0, 1.0), wn) + vec3(1e-4, 0.0, 0.0)), Bn = normalize(cross(wn, Tn));
-        normal = normalize(normalMatrix * (Tn * mapN.x + Bn * mapN.y + wn * max(mapN.z, 0.05)));
+        vec3 wm = normalize(wn + vec3(markN.x, 0.0, markN.z));     // the dent's own walls, lit by the same sun
+        vec3 Tn = normalize(cross(vec3(0.0, 0.0, 1.0), wm) + vec3(1e-4, 0.0, 0.0)), Bn = normalize(cross(wm, Tn));
+        normal = normalize(normalMatrix * (Tn * mapN.x + Bn * mapN.y + wm * max(mapN.z, 0.05)));
       }`);
   };
   return m;

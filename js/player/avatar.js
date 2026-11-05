@@ -42,7 +42,9 @@ export function applyPose(rig, st) {
   const { hips, torso, legL, legR, armL, armR } = rig;
   const s = Math.sin(st.phase), amp = (0.35 + 0.55 * st.k) * st.blend;
   rig.root.rotation.x = 0;
-  hips.position.y = 0.95; torso.rotation.set(0, 0, 0);
+  hips.position.y = 0.95; hips.rotation.set(0, 0, 0); torso.rotation.set(0, 0, 0);
+  // (a climb turns these joints every way: the poses below only set their bend, so clear the rest)
+  legL.lower.rotation.set(0, 0, 0); legR.lower.rotation.set(0, 0, 0); armL.lower.rotation.set(0, 0, 0); armR.lower.rotation.set(0, 0, 0);
   legL.upper.rotation.set(s * amp, 0, 0); legR.upper.rotation.set(-s * amp, 0, 0);
   legL.lower.rotation.x = Math.max(0, -Math.cos(st.phase)) * amp * 1.3; legR.lower.rotation.x = Math.max(0, Math.cos(st.phase)) * amp * 1.3;
   armL.upper.rotation.set(-s * amp * 0.8, 0, 0.08); armR.upper.rotation.set(s * amp * 0.8, 0, -0.08);
@@ -88,6 +90,7 @@ export function createPlaceholderAvatar() {
   let onWall = false;
   return {
     object: rig.root,
+    rig,
     isPlaceholder: true,
     // on a wall: every joint from the climber's pose
     climb(pose, toRender) { onWall = true; rig.root.position.set(0, 0, 0); applyClimbPose(ik, pose, toRender); },

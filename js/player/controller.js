@@ -6,7 +6,7 @@
 //   seat     — sitting or lying at a furniture anchor; any move key gets you up
 //   wall     — on a building's facade, hand over hand (player/climber.js)
 // Every surface comes from the collision world's logical data, never from meshes.
-import { groundFeel } from '../gen/land.js';
+import { underfoot } from '../gen/underfoot.js';
 import { Climber } from './climber.js';
 export const GRAVITY = 9.81;
 const WALK = 3.0, RUN = 6.5, JUMP = 4.6, MAX_SLOPE = 1.1; // rise/run ≈ 48°
@@ -35,9 +35,9 @@ export class Controller {
   seatAt(pos, facing, pose, standAt) { this.mode = 'seat'; this.seat = { pose, standAt: standAt.slice() }; this.pos = pos.slice(); this.facing = facing; this.vel = [0, 0, 0]; }
   standUp() { if (this.mode !== 'seat') return; this.mode = 'walk'; this.pos = this.seat.standAt.slice(); this.vel = [0, 0, 0]; this.seat = null; }
   // Hit by something: thrown along (vx, vz), off your feet for a moment.
-  feelAt(x, z) {            // (looked up afresh every 1.5 m: it changes over hundreds)
-    if (this._fp && Math.abs(x - this._fp[0]) < 1.5 && Math.abs(z - this._fp[1]) < 1.5) return this.feel;
-    this._fp = [x, z]; return this.feel = groundFeel(this.world.planet, x, z);
+  feelAt(x, y, z) {         // (looked up afresh every metre or so, or when you've gone up or down)
+    if (this.feel && this._fp && Math.abs(x - this._fp[0]) < 1 && Math.abs(z - this._fp[1]) < 1 && Math.abs(y - this._fp[2]) < 0.25) return this.feel;
+    this._fp = [x, z, y]; return this.feel = underfoot(this.world.planet, x, z, y);
   }
   knock(vx, vz, up, stun) { if (this.mode !== 'walk') return; this.vel = [vx, up, vz]; this.grounded = false; this.pos[1] += 0.05; this.stun = stun; }
   mantleTo(to, dur) { this.mode = 'mantle'; this.mantle = { from: this.pos.slice(), to, t: 0, dur }; this.vel = [0, 0, 0]; }
@@ -54,7 +54,7 @@ export class Controller {
     const w = this.world;
     let [x, y, z] = this.pos;
     // what's underfoot: sand and bog drag at you; firm salt flat doesn't (gen/land.js)
-    const F = w.planet && w.flora !== false && this.grounded ? this.feelAt(x, z) : null;
+    const F = w.planet && w.flora !== false && this.grounded && !this.where ? this.feelAt(x, y, z) : null; if (!F) this.feel = null;
     if (F) speedFactor *= F.speed;
     // desired horizontal velocity in camera space
     let mx = input.right, mz = input.fwd;

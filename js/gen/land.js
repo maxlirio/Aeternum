@@ -26,23 +26,23 @@ export const LANDS = {
   moor:      { soft: { heath: 0.85, peat: 0.15 }, rock: 'granite', grass: 0.3,  trees: 0.025, fern: 0.1, shrub: 0.6, stones: 0.8,  big: 0.25, spire: 0, bare: 0.1, steep: 0.82 },
   karst:     { soft: { grass: 0.7, gravel: 0.3 }, rock: 'pale',    grass: 0.75, trees: 0.28, fern: 0.3, shrub: 0.5,  stones: 0.9,  big: 0.4,  spire: 0.35, bare: 0.22, steep: 0.84 },
 };
-// How the ground takes your weight. speed: of a walk (1 = firm). sink: how far your feet go in (m). print: how well it holds a footprint (0..1).
+// How each land takes your weight (gen/underfoot.js decides whether you're on it). speed: of a walk (1 = firm). sink: how far your feet go in (m).
 // loose: it runs under you on a steep face, as dry sand does. dust: what a footfall kicks up.
 export const FEEL = {
-  meadow:    { speed: 1, sink: 0.01, print: 0.12, loose: 0, dust: 0 },
-  forest:    { speed: 0.95, sink: 0.02, print: 0.1, loose: 0, dust: 0 },
-  rockfield: { speed: 0.88, sink: 0, print: 0, loose: 0.25, dust: 0.1 },
-  badlands:  { speed: 0.96, sink: 0.005, print: 0.25, loose: 0.3, dust: 0.45 },
-  dunes:     { speed: 0.76, sink: 0.07, print: 1, loose: 1, dust: 0.8 },
-  saltpan:   { speed: 1.04, sink: 0, print: 0.14, loose: 0, dust: 0.2 },
-  marsh:     { speed: 0.6, sink: 0.14, print: 0.85, loose: 0, dust: 0 },
-  lava:      { speed: 0.84, sink: 0.015, print: 0.55, loose: 0.55, dust: 0.9 },
-  moor:      { speed: 0.84, sink: 0.05, print: 0.35, loose: 0, dust: 0 },
-  karst:     { speed: 0.97, sink: 0.01, print: 0.1, loose: 0, dust: 0.1 },
+  meadow:    { speed: 1, sink: 0.01, loose: 0, dust: 0 },
+  forest:    { speed: 0.95, sink: 0.02, loose: 0, dust: 0 },
+  rockfield: { speed: 0.88, sink: 0, loose: 0.25, dust: 0.1 },
+  badlands:  { speed: 0.96, sink: 0.005, loose: 0.3, dust: 0.45 },
+  dunes:     { speed: 0.76, sink: 0.07, loose: 1, dust: 0.8 },
+  saltpan:   { speed: 1.04, sink: 0, loose: 0, dust: 0.2 },
+  marsh:     { speed: 0.6, sink: 0.14, loose: 0, dust: 0 },
+  lava:      { speed: 0.84, sink: 0.015, loose: 0.55, dust: 0.9 },
+  moor:      { speed: 0.84, sink: 0.05, loose: 0, dust: 0 },
+  karst:     { speed: 0.97, sink: 0.01, loose: 0, dust: 0.1 },
 };
 export function groundFeel(planet, x, z) {
-  const o = { speed: 0, sink: 0, print: 0, loose: 0, dust: 0, kind: 'meadow' }; let b = 0;
-  for (const { c, w } of landAt(planet, x, z)) { const F = FEEL[c.kind]; for (const k of ['speed', 'sink', 'print', 'loose', 'dust']) o[k] += F[k] * w; if (w > b) { b = w; o.kind = c.kind; } }
+  const o = { speed: 0, sink: 0, loose: 0, dust: 0, kind: 'meadow' }; let b = 0;
+  for (const { c, w } of landAt(planet, x, z)) { const F = FEEL[c.kind]; for (const k of ['speed', 'sink', 'loose', 'dust']) o[k] += F[k] * w; if (w > b) { b = w; o.kind = c.kind; } }
   return o;
 }
 export const KINDS = Object.keys(LANDS);
