@@ -1302,7 +1302,8 @@ async function start(fresh) {
     { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : [], town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
     if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
-      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.peopleNear = peopleNear; cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
+      mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
+      cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
     if (!paused) stepMayhem(dt);
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);

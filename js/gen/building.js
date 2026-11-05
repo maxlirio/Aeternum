@@ -440,6 +440,13 @@ function furnish(plan, room, rng, H) {
       }
     }
   }
+  // a small home still has somewhere to sleep: a single bed against whichever wall takes it
+  if (plan.designed && (room.purpose === 'bedroom' || room.purpose === 'studio') && !placed.length) for (let tries = 0; tries < 40; tries++) {
+    const side = rng.int(0, 3), L = 1.9, W = 0.9;
+    if (side < 2 && x1 - x0 > L + 0.2) { const bx0 = rng.range(x0 + 0.1, x1 - L - 0.1), bz0 = side === 0 ? z0 + 0.05 : z1 - W - 0.05; if (ok(bx0, bz0, bx0 + L, bz0 + W)) { add('bed', bx0, bz0, bx0 + L, bz0 + W, 0.55, side === 0 ? 2 : 0); break; } }
+    else if (side >= 2 && z1 - z0 > L + 0.2) { const bz0 = rng.range(z0 + 0.1, z1 - L - 0.1), bx0 = side === 2 ? x0 + 0.05 : x1 - W - 0.05; if (ok(bx0, bz0, bx0 + W, bz0 + L)) { add('bed', bx0, bz0, bx0 + W, bz0 + L, 0.55, side === 2 ? 1 : 3); break; } }
+  }
+  if (plan.designed && (room.purpose === 'bedroom' || room.purpose === 'studio') && !plan.props.some(p => p.kind === 'bed' && p.room === room.i)) { const L = 1.9, W = 0.9, r = plan.props.filter(p => p.room === room.i && !p.soft); /* the room's small things make way for the bed */ for (const p of r) p.soft = true; if (x1 - x0 >= z1 - z0) add('bed', x0 + 0.1, z1 - W - 0.05, x0 + 0.1 + Math.min(L, x1 - x0 - 0.2), z1 - 0.05, 0.55, 0); else add('bed', x1 - W - 0.05, z0 + 0.1, x1 - 0.05, z0 + 0.1 + Math.min(L, z1 - z0 - 0.2), 0.55, 3); }
   const centre = CENTRE_PROPS[room.purpose] || [];
   for (const [kind, len, dep, h] of centre) {
     const n = CENTRE_N[room.purpose] ?? (room.purpose === 'office' ? 2 : room.purpose === 'shopfloor' || room.purpose === 'hangar' ? 3 : 1);

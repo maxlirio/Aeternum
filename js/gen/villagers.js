@@ -7,7 +7,7 @@ import { derive, hash01 } from '../core/hash.js';
 import { personName } from './names.js';
 import { sitesNear } from './outposts.js';
 import { surfaceAt } from './surface.js';
-import { designById, designPlan, keeperOf } from './housegen.js';
+import { designById, designPlan, keeperOf, itemPlan } from './housegen.js';
 import { solarHour, within } from '../sim/clock.js';
 
 const SPEED = 1.25, HOME = /^gb_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^(gb_(shop|garage|smithy|markethall|sawmill)|fam_bandstall)_/;
@@ -50,12 +50,12 @@ export function villageOf(planet, S) {
     for (let n = 0; n < size; n++) {
       const age = n === 0 ? rng.int(26, 70) : rng.chance(0.45) ? rng.int(6, 17) : rng.int(19, 80);
       const trade = age < 16 ? null : spots.shop.length && rng.chance(0.14) ? 'shop' : spots.field.length && rng.chance(0.6) ? 'field' : 'yard';
-      people.push({ id: `sw:${S.id}:${hi}:${n}`, name: personName(rng), age, home: door, trade, job: trade ? rng.pick(JOBS[trade]) : 'child', k: people.length, stay: rng.chance(0.14) });
+      people.push({ id: `sw:${S.id}:${hi}:${n}`, name: personName(rng), age, home: door, trade, job: trade ? rng.pick(JOBS[trade]) : 'child', k: people.length, stay: rng.chance(0.14), homeItem: h, slot: n });
     }
   });
   // and whoever minds the place, indoors, in working hours
   const keepers = [];
-  S.items.forEach((i, n) => { if (!/^gb_(?!step)/.test(i.k)) return; const q = keeperOf(planet, designById(planet, i.k), i); if (q) keepers.push({ ...q, id: `sk:${S.id}:${n}`, name: personName(rng), age: rng.int(24, 66), job: q.what, k: people.length + keepers.length, trade: 'keeper' }); });
+  S.items.forEach((i, n) => { if (!/^gb_(?!step)/.test(i.k)) return; const q = keeperOf(planet, designById(planet, i.k), i); if (q) keepers.push({ ...q, item: i, id: `sk:${S.id}:${n}`, name: personName(rng), age: rng.int(24, 66), job: q.what, k: people.length + keepers.length, trade: 'keeper' }); });
   return S.folk = { people, boxes, spots, site: S, lane: S.lanes[0] || null, keepers };
 }
 
@@ -102,14 +102,23 @@ export function villagerAt(planet, V, P, t) {
   }
   return null;
 }
+// someone at home: in bed at night, otherwise in a seat or on their feet, somewhere of their own in the house. Or null, if there's no room for them
+function atHome(planet, H, P, hour) {
+  const night = hour >= 22 || hour < 6.5, key = night ? 'bed' : 'day', cached = P.spot?.[key]; if (cached !== undefined) return cached;
+  const D = designById(planet, H.k), A = itemPlan(planet, D, H).anchors || [], beds = A.filter(a => a.kind === 'sleep'), seats = A.filter(a => a.kind === 'sit' || a.kind === 'stand'), list = night ? beds : seats, a = list[P.slot % (list.length || 1)];
+  const c = Math.cos(H.rot), s = Math.sin(H.rot), out = a && !(night && P.slot >= beds.reduce((n, b) => n + (b.slots || 1), 0)) ? (() => { const u = a.x - D.w / 2, v = a.z - D.d / 2; return { pos: [H.x + u * c + v * s, H.y + a.y, H.z - u * s + v * c], facing: H.rot + a.facing, pose: a.pose }; })() : null;
+  (P.spot || (P.spot = {}))[key] = out; return out;
+}
 // the people out and about near (x, z), nearest first
 export function siteWalkers(planet, t, x, z, r, max = 40) {
   const out = [];
   sitesNear(planet, x, z, r + 100, S => {
     if (Math.hypot(S.x - x, S.z - z) > r + S.clear + 40 || !S.items.some(i => HOME.test(i.k))) return;
     const V = villageOf(planet, S), hour = solarHour(planet, t);
-    for (const K of V.keepers) { const d = Math.hypot(K.x - x, K.z - z); if (d > r || !within(K.hours, hour)) continue; out.push({ id: K.id, pos: [K.x, K.y, K.z], facing: K.facing, moving: false, pose: 'stand', age: K.age, d, villager: K, doing: K.what, site: S.label }); }
-    for (const P of V.people) { const q = villagerAt(planet, V, P, t); if (!q) continue; const d = Math.hypot(q.x - x, q.z - z); if (d > r) continue;
+    for (const K of V.keepers) { const d = Math.hypot(K.x - x, K.z - z); if (d > r || !within(K.hours, hour)) continue; out.push({ id: K.id, pos: [K.x, K.y, K.z], facing: K.facing, moving: false, pose: 'stand', age: K.age, d, villager: K, doing: K.what, site: S.label, indoors: K.item }); }
+    for (const P of V.people) { const q = villagerAt(planet, V, P, t);
+      if (!q) { const H = P.homeItem, dh = Math.hypot(H.x - x, H.z - z); if (dh < Math.min(r, 45)) { const a = atHome(planet, H, P, hour); if (a) out.push({ id: P.id, pos: a.pos, facing: a.facing, moving: false, pose: a.pose, age: P.age, d: Math.hypot(a.pos[0] - x, a.pos[2] - z), villager: P, doing: a.pose === 'lie' ? 'asleep' : 'at home', site: S.label, indoors: H }); } continue; }
+      const d = Math.hypot(q.x - x, q.z - z); if (d > r) continue;
       out.push({ id: P.id, pos: [q.x, surfaceAt(planet, q.x, q.z).h, q.z], facing: q.facing, moving: q.moving, pose: q.moving ? 'walk' : 'stand', age: P.age, d, villager: P, doing: q.doing, site: S.label }); }
   });
   return out.sort((a, b) => a.d - b.d).slice(0, max);
