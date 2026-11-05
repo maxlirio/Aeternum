@@ -102,7 +102,7 @@ export function cityMaterial(shape = 'box') {
             if (shop > 0.5) cell = vec2(vFac.x / (bw * 2.2), vFac.y / 5.2);
             vec2 id = floor(cell), f = fract(cell);
             float fx = shop > 0.5 ? 0.9 : W.x, fy = shop > 0.5 ? 0.62 : W.y;
-            vec2 fw = fwidth(cell);
+            vec2 fw = fwidth(vFac.xy) / (shop > 0.5 ? vec2(bw * 2.2, 5.2) : vec2(bw, fh));     // (from the wall's own smooth coordinates: the cell number jumps where the shop band ends, and a jump would read as distance)
             float aa = clamp(1.0 - max(fw.x, fw.y) * 2.2, 0.0, 1.0);
             float ex = smoothstep(fx * 0.5 + fw.x, fx * 0.5 - fw.x, abs(f.x - 0.5));
             float ey = smoothstep(fy * 0.5 + fw.y, fy * 0.5 - fw.y, abs(f.y - (shop > 0.5 ? 0.42 : 0.55)));
