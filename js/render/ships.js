@@ -25,6 +25,7 @@ export class ShipView {
       const down = new THREE.Vector3(0, -L.deck, L.ramp.z0 - L.ramp.z1).normalize();
       this.models[model] = {
         L, hinge, raise: new THREE.Quaternion().setFromUnitVectors(down, new THREE.Vector3(0, 1, 0)),
+        hullPrims: hull ? hull.prims : [],
         hull: mk(hull ? hull.prims : box(hx1 - hx0 + 0.6, L.ceiling - L.deck + 1, hz1 - hz0, (hx0 + hx1) / 2, (L.deck + L.ceiling) / 2, (hz0 + hz1) / 2)),
         ramp: mk(ramp ? ramp.prims : box(L.ramp.x1 - L.ramp.x0, 0.1, L.ramp.z1 - L.ramp.z0, hinge.x, L.deck / 2, (L.ramp.z0 + L.ramp.z1) / 2)),
       };
@@ -36,7 +37,7 @@ export class ShipView {
   update(list, dt) {
     const n = {};
     for (const s of list) {
-      const M = this.models[s.model || 'shuttle']; if (!M) continue;
+      const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue;
       const i = n[s.model || 'shuttle'] = (n[s.model || 'shuttle'] ?? 0); if (i >= MAX) continue;
       const { W, D } = M.L;
       this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);

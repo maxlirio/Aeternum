@@ -567,6 +567,26 @@ try {
   check(cw.inside, `walked up the steps and into the ${cw.room} (${cw.y} above the floor; HUD "${cw.hud}")`);
   check(cw.gone && cw.stillBroken, 'went away and came back: the lock is still broken');
   check(cw.scared?.flag && cw.scared.ran > 5 && cw.scared.away, `someone who saw it ran from it (${JSON.stringify(cw.scared)})`);
+  // ---- crashes: a real car, driven at a real wall
+  console.log('[crashes]');
+  const cr = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), out = {}, key = (c, d = true) => { document.dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { code: c, bubbles: true })); dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { code: c })); };
+    const P = O.store.player; P.hp = 100; P.heat = null; const C = O.city, G = await import('./js/gen/city.js'); const [u, v] = [G.lineAt(C, 0, 2), G.lineAt(C, 1, 2)], [x, z] = C.toWorld(u, v), y = C.h + 0.3;
+    // a straight street, a block ahead: find the wall by driving at it
+    const yaw = Math.atan2(...C.toWorld(u + 40, v).map((q, i) => q - [x, z][i])) + 0.75; O.ctrl.pos = [x, y, z]; await wait(1500);
+    const car = O.getVehicles().find(q => q.type === 'sedan') || O.getVehicles().find(q => q.type !== 'speeder' && !q.fly); const id = car.id, keep = car.pos.slice(); car.pos = [x, y, z]; car.facing = yaw; O.ctrl.pos = [x + 1, y, z]; O.ctrl.mode = 'walk'; await wait(200);
+    const { Ride } = await import('./js/player/ride.js');
+    const R = new Ride(O.world, O.planet, { ...car, pos: [x, y, z], facing: yaw }); O.setRideForTest(R); const hits = []; R.speed = 30;
+    for (let i = 0; i < 400 && hits.length < 1; i++) { await wait(40); const D = O.wrecks.get(id); if (D?.hits?.length) hits.push(D.hits[D.hits.length - 1]); if (!O.getRide2()) break; }
+    const D = O.wrecks.get(id); out.hit = !!D?.hits?.length; out.depth = D?.hits?.[0]?.depth; out.hp = D?.hp; out.dv = R.impact; await wait(500);
+    const W = O.wreckView.items.get(id); out.model = !!W; if (W) { const q = W.parts.find(p => p.moved.some(v => v)); out.moved = q ? q.moved.reduce((a, v) => a + v, 0) : 0; }
+    out.hurt = P.hp < 100; out.sparks = O.fx.glow.life.some(v => v > 0) || O.fx.dark.life.some(v => v > 0);
+    // light it and let it go up
+    if (D) { O.wrecks.rnd = () => 0.1; O.wrecks.ignite(D); out.fire = D.fire > 0; D.fuse = 0.3; await wait(1200); out.blew = D.exploded; out.burnt = D.burnt; out.throwable = !O.getRide2() || true; }
+    return out; })()`);
+  check(cr.hit && cr.depth > 0.05, `drove into a wall and it dented the car (${JSON.stringify(cr).slice(0, 180)})`);
+  check(cr.model && cr.moved > 20, `the model's own metal moved (${cr.moved} points)`);
+  check(cr.hurt, 'and it hurt');
+  check(cr.fire && cr.blew && cr.burnt > 0.3, 'set alight it went up and left a burnt wreck');
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

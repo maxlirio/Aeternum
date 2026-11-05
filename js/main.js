@@ -57,6 +57,10 @@ import { ShipView } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { RockView } from './render/rocks.js';
 import { GroundMarks } from './render/prints.js';
+import { Crashes, toLocal, dirLocal } from './sim/crash.js';
+import { FX } from './render/fx.js';
+import { WreckView } from './render/wrecks.js';
+import { PAINTS_VEHICLE } from './render/props.js';
 import { FaunaSim } from './sim/fauna.js';
 import { FaunaView } from './render/fauna.js';
 import { CityView } from './render/city.js';
@@ -647,12 +651,119 @@ async function start(fresh) {
     vehicles = allVehicles(); mount(vehicles.find(v => v.id === r.v.id) || r.v);
     ui.toast(r.moving ? `You drag <b>${esc(r.name)}</b> out and take the wheel.${r.seen ? ` <b>${r.seen} saw it.</b>` : ''}${r.v.fly ? ' <small><kbd>Space</kbd>/<kbd>Q</kbd> up and down</small>' : ''}` : `You hotwire ${esc(r.name)}'s ${typeOf(r.v).name.toLowerCase()}.${r.seen ? ` <b>${r.seen} saw it.</b>` : ''}${r.v.fly ? ' <small><kbd>Space</kbd>/<kbd>Q</kbd> up and down</small>' : ''}`, 'bad', 7000);
   }
+  // ---- crashes (sim/crash.js: what happens; render/wrecks.js and fx.js: what it looks like)
+  const fx = new FX(); root.add(fx.group);
+  const trafficGone = new Set();
+  const wrecks = new Crashes({ ground: (x, z, y) => Math.max(world.groundAt(x, z, y).h, planet.seaLevel), load: id => store.getDelta('wreck/' + id) || null, save: (id, d) => store.patchDelta('wreck/' + id, d) });
+  const wreckView = new WreckView(D => {
+    if (D.kind === 'ship') { const M = shipView.models?.[D.model]; if (!M) return null; const { W, D: dp } = M.L; return { prims: M.hullPrims, fit: new THREE.Matrix4().makeRotationY(Math.PI / 2).multiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, -dp / 2)) }; }
+    const K = vehView.types[D.type]; if (!K) return null; return { prims: K.prims, fit: K.fit };
+  }, D => { const T = D.type && typeOf({ type: D.type }); return T?.paint || PAINTS_VEHICLE[((D.colour % PAINTS_VEHICLE.length) + PAINTS_VEHICLE.length) % PAINTS_VEHICLE.length]; });
+  root.add(wreckView.group);
+  shipView.hidden = sh => { const D = wrecks.get('ship:' + sh.id); return !!D && (D.hits.length > 0 || D.burnt > 0); };
+  for (const [k, v] of store.deltas) if (k.startsWith('wreck/') && v.type && v.pos) { const id = k.slice(6), D = wrecks.of(id, v); if (id.startsWith('tr:') || id.startsWith('city:')) trafficGone.add(id); }      // what's still lying where you left it
+  const kindOf = T => T.kind === 'bike' ? 'bike' : 'car';
+  const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
+  // Things you can hit that aren't walls: parked vehicles, the road's and the city's traffic
+  function rideBumps(t) {
+    if (!ride) return; const me = ride.pos, T = ride.T, R0 = Math.max(T.L, T.W) * 0.5;
+    const hitOne = (id, pos, facing, speed, O, make) => {
+      const dx = me[0] - pos[0], dz = me[2] - pos[2], d = Math.hypot(dx, dz), R = R0 * 0.72 + Math.max(O.L, O.W) * 0.36; if (d >= R || d < 1e-3 || Math.abs(pos[1] - me[1]) > Math.max(T.H, O.H)) return;
+      const nx = dx / d, nz = dz / d, ov = [Math.sin(facing) * speed, Math.cos(facing) * speed], mine = T.L * T.W, theirs = O.L * O.W, share = theirs / (mine + theirs);
+      const dv = ride.collide(nx, nz, 0.15, share * 1.15 + 0.15, ov, 0.9, 0); if (!dv) return;
+      ride.pos[0] += nx * (R - d) * 0.6; ride.pos[2] += nz * (R - d) * 0.6;
+      const D = make(), big = (dv / Math.max(0.2, share)) * (1 - share);
+      const lx = toLocal(D, me[0], pos[1] + O.H * 0.5, me[2]), L = Math.hypot(lx[0], lx[2]) || 1, at = [lx[0] / L * Math.min(O.L * 0.5, Math.abs(lx[0])), O.H * 0.5, lx[2] / L * Math.min(O.W * 0.5, Math.abs(lx[2]))], w = dirLocal(D, -nx, 0, -nz);
+      wrecks.hit(D, big, at, w); wrecks.shove(D, -nx * big * 0.75 + ov[0] * 0.8, big * 0.08, -nz * big * 0.75 + ov[1] * 0.8); fx.sparks([(me[0] + pos[0]) / 2, pos[1] + O.H * 0.5, (me[2] + pos[2]) / 2], Math.min(40, Math.round(dv * 2.5)), Math.min(14, 3 + dv * 0.4));
+      if (mayhem && dv > 3) mayhem.crime(t, 'a smash', Math.min(0.8, dv * 0.03), pos);
+    };
+    for (const v of vehicles) { if (v.id === ride.v.id) continue; const O = typeOf(v); if (Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const live = wrecks.get(v.id); hitOne(v.id, live ? live.pos : v.pos, live ? live.facing : v.facing, 0, O, () => crashRec(v.id, v, O)); }
+    for (const D of wrecks.list.values()) { if (D.ride || D.kind === 'ship' || vehicles.some(v => v.id === D.id) || Math.abs(D.pos[0] - me[0]) > 15 || Math.abs(D.pos[2] - me[2]) > 15) continue; hitOne(D.id, D.pos, D.facing, 0, D, () => D); }
+    const near = trafficNear(planet, s, clock.now(), me[0], me[2], 18, cityTraffic.life.delayOf);
+    for (const v of near) { if (v.parked || trafficGone.has(v.id)) continue; const O = typeOf(v); hitOne(v.id, v.pos, v.facing, v.speed * cityTraffic.life.rateOf(v.id), O, () => { trafficGone.add(v.id); return crashRec(v.id, v, O); }); }
+    for (const v of cityTraffic.nearby) { if (v.ship || v.parked || v.car === mayhem?.rider?.car || Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const O = typeOf(v), id = 'city:' + v.car?.i; if (trafficGone.has(id)) continue; hitOne(id, v.pos, v.facing, v.speed || 0, O, () => { trafficGone.add(id); if (v.car) cityTraffic.taken.add(v.car.i); return crashRec(id, { ...v, type: v.type }, O); }); }
+  }
+  // A crash of the vehicle you're in: what it did to the machine, and what it did to you.
+  function afterRide(dt) {
+    if (!ride) return;
+    const T = ride.T, D = crashRec(ride.v.id, { ...ride.v, pos: ride.pos, facing: ride.facing }, T);
+    D.ride = true; D.pos = ride.pos.slice(); D.facing = ride.facing; D.pitch = ride.pitch; D.roll = ride.roll; ride.dead = D.dead;
+    const C = ride.crash; ride.crash = null;
+    if (C) {
+      const dir = C.ground ? [0, 1, 0] : C.dir, at = C.ground ? [0, 0.05, 0] : C.at, r = wrecks.hit(D, C.dv, at, dir); ride.dead = D.dead;
+      if (!r.none) {
+        const p = [ride.pos[0] + Math.sin(ride.facing) * at[0] - Math.cos(ride.facing) * at[2], ride.pos[1] + T.H * 0.5, ride.pos[2] + Math.cos(ride.facing) * at[0] + Math.sin(ride.facing) * at[2]];
+        fx.sparks(p, Math.min(60, Math.round(C.dv * 3)), Math.min(13, 3 + C.dv * 0.4), [C.nx || 0, 0, C.nz || 0]); if (C.dv > 8) fx.dust(p, Math.min(24, Math.round(C.dv)));
+        fx.shake = Math.max(fx.shake, Math.min(0.9, C.dv * 0.03));
+        const hurt = C.dv > 7 ? (C.dv - 7) ** 1.5 * (T.kind === 'bike' ? 1.8 : 0.72) : 0; if (hurt) hurtPlayer(Math.min(150, hurt), `a crash at ${Math.round(C.dv * 3.6)} km/h`);
+        scare(ride.pos, clock.now()); fauna?.scare(ride.pos[0], ride.pos[2], 50);
+        // on a bike you keep going when it doesn't. In a car, only if it's bad.
+        if (ride && ((T.kind === 'bike' && C.dv > 11) || C.dv > 33)) throwClear(C);
+      }
+    }
+    if (ride && ride.dead) { D.smoke = Math.max(D.smoke, 0.3); }
+    if (ride && D.fire > 0.55) { burnTick += dt; if (burnTick > 1) { burnTick = 0; hurtPlayer(7, 'the fire'); } }
+  }
+  let burnTick = 0;
+  function throwClear(C) {
+    const v = ride.v, sp = Math.abs(ride.speed) + C.dv * 0.8, f = ride.facing; park(store, v, ride.pos, f); wrecks.get(v.id) && (wrecks.get(v.id).ride = false);
+    ctrl.pos = [ride.pos[0] + Math.sin(f) * (ride.T.L * 0.5 + 0.6), ride.pos[1] + 1.1, ride.pos[2] + Math.cos(f) * (ride.T.L * 0.5 + 0.6)];
+    ctrl.mode = 'walk'; const nx = -(C.nx || 0) * -0.6, nz = -(C.nz || 0) * -0.6; ride = null; cam.dist = camDist; vehicles = allVehicles();
+    ctrl.knock((Math.sin(f) * 0.7 + nx) * Math.min(14, sp), Math.min(7, 2 + C.dv * 0.2), (Math.cos(f) * 0.7 + nz) * Math.min(14, sp), 1.6);
+  }
+  function stepCrashes(dt, t, _, traffic) {
+    wrecks.step(dt);
+    for (const e of wrecks.drain()) {
+      if (e.type === 'blast') {
+        fx.blast(e.pos, e.R); wreckView.throwBits(e.D, [0, e.D.H * 0.6, 0], [0, -0.3, 0], 40, 15, wreckView.items.get(e.D.id)?.paint || [0.2, 0.2, 0.2]);
+        wrecks.blastAt(e.pos, e.R * 1.5, e.D);
+        // you
+        const me = ride ? ride.pos : flight ? flight.pos : ctrl.pos, d = Math.hypot(me[0] - e.pos[0], me[1] - e.pos[1], me[2] - e.pos[2]);
+        if (ride && e.D.id === ride.v.id) { hurtPlayer(95, 'the explosion'); if (ride) throwClear({ dv: 26, nx: 0, nz: 0 }); }
+        else if (d < e.R * 1.6) { const f = Math.max(0, 1 - d / (e.R * 1.6)); hurtPlayer(130 * f * f, 'an explosion'); if (!ride && !flight) ctrl.knock((me[0] - e.pos[0]) / (d || 1) * 13 * f, 5 * f + 1, (me[2] - e.pos[2]) / (d || 1) * 13 * f, 1.2 * f + 0.2); }
+        fx.shake = Math.max(fx.shake, Math.max(0, 1 - d / (e.R * 8)));
+        // anyone in it, and everyone who heard it
+        for (const a of agents) { if (String(a.id).startsWith('tr:') || !a.person || bodies.some(b => b.id === a.id)) continue; const q = Math.hypot(a.pos[0] - e.pos[0], a.pos[2] - e.pos[2]); if (q < e.R) { const res = strike(ctx, a.person, q < e.R * 0.55 ? 'marksman' : 'pistol', t, []); if (!downAt.has(a.person.id)) downAt.set(a.person.id, { pos: a.pos.slice(), facing: a.facing }); if (res.killed) bodies.push({ id: a.person.id, person: a.person, pos: a.pos.slice(), facing: a.facing, until: t + planet.dayLength / 24 }); } }
+        scare(e.pos, t); fauna?.scare(e.pos[0], e.pos[2], 180); for (const A of fauna?.animals || []) { const q = Math.hypot(A.x - e.pos[0], A.z - e.pos[2]); if (q < e.R) fauna.hurt(A, 200 * (1 - q / e.R)); }
+        if (mayhem) mayhem.crime(t, 'an explosion', 1.4, e.pos);
+      }
+    }
+    const wx = weatherAt(planet, t).wind;
+    wreckView.update(dt, wrecks, (x, z, y) => Math.max(world.groundAt(x, z, y).h, planet.seaLevel), fx, wx, ctrl.pos[0], ctrl.pos[2]);
+    fx.update(dt, renderer);
+    // forget the far old ones that aren't yours (saved all the same)
+    for (const D of wrecks.list.values()) if (!D.ride && !D.hits.length && !D.burnt && !D.fire && Math.hypot(D.pos[0] - ctrl.pos[0], D.pos[2] - ctrl.pos[2]) > 800) wrecks.forget(D.id);
+  }
+  // A ship that hits something: the same rules at its scale.
+  function afterFlight(dt, t) {
+    if (!flight) return;
+    const sh = flight.ship, id = 'ship:' + sh.id, L = flight.L, D = wrecks.of(id, { kind: 'ship', model: sh.model, L: L.D, W: L.W, H: L.H ?? (L.ceiling + 1), type: null, colour: sh.colour || 0, pos: [flight.pos[0], flight.pos[1], flight.pos[2]], facing: flight.facing, pitch: flight.pitch, roll: flight.roll });
+    D.ride = true; D.pos = [flight.pos[0], flight.pos[1] - (L.gear ?? 0), flight.pos[2]]; D.facing = flight.facing; D.pitch = flight.pitch; D.roll = flight.roll; flight.dead = D.dead;
+    if (flight.impact > 3) {
+      const v = flight.vel, sp = Math.hypot(...v) || 1, r = wrecks.hit(D, flight.impact, [L.D * 0.42, (L.H ?? 3) * 0.4, 0], [-1, 0, 0]);
+      if (!r.none) { fx.sparks(flight.pos, Math.min(90, Math.round(flight.impact * 3)), 14); fx.shake = Math.max(fx.shake, Math.min(1, flight.impact * 0.03)); if (flight.impact > 15) hurtPlayer(Math.min(120, (flight.impact - 15) ** 1.4 * 0.6), `a crash at ${Math.round(flight.impact * 3.6)} km/h`); }
+    }
+    // down and dead on the ground, or blown apart: you're out of it
+    if (D.exploded || (D.dead && flight.onGround && Math.hypot(...flight.vel) < 3)) {
+      D.ride = false; player.piloting = null; sh.wrecked = true; const p = flight.pos.slice(), f = flight.facing;
+      leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk'; ctrl.pos = [p[0] + Math.cos(f) * (L.W * 0.5 + 2), world.groundAt(p[0], p[2], p[1] + 2).h + 0.2, p[2] - Math.sin(f) * (L.W * 0.5 + 2)]; ctrl.vel = [0, 0, 0];
+      if (D.exploded) ctrl.knock(Math.cos(f) * 7, 4, -Math.sin(f) * 7, 1.6);
+      syncShips();
+    }
+  }
+  // A shot that finds a vehicle
+  function shotVehicles(wo, dir, best, W, list) {
+    let hit = null, bd = best;
+    for (const q of list) { const T = q.T, cx = q.pos[0], cy = q.pos[1] + T.H * 0.5, cz = q.pos[2], dx = cx - wo[0], dy = cy - wo[1], dz = cz - wo[2], along = dx * dir[0] + dy * dir[1] + dz * dir[2]; if (along < 1 || along > bd) continue; if (Math.hypot(dx - dir[0] * along, dy - dir[1] * along, dz - dir[2] * along) < Math.max(T.W * 0.55, T.H * 0.5) + (W.wide ? 0.4 : 0)) { bd = along; hit = { ...q, along }; } }
+    return hit;
+  }
   function mount(v) {
+    if (wrecks.get(v.id)?.dead) { ui.toast("It's a wreck. It won't start.", 'warn', 2500); return; }
     ride = new Ride(world, planet, v); ctrl.mode = 'ride'; camDist = cam.dist; cam.dist = Math.max(cam.dist, 6.5);
   }
   function getOff() {
     if (Math.abs(ride.speed) > 4 && !ride.v.fly) { ui.toast('Slow down first.', 'warn', 2000); return; }
-    park(store, ride.v, ride.pos, ride.facing);
+    park(store, ride.v, ride.pos, ride.facing); if (wrecks.get(ride.v.id)) wrecks.get(ride.v.id).ride = false;
     if (ride.v.fly && ride.pos[1] - world.groundAt(ride.pos[0], ride.pos[2], ride.pos[1]).h > 3) {       // out of a sky car, in the sky
       ctrl.pos = [ride.pos[0] - Math.cos(ride.facing) * 1.6, ride.pos[1], ride.pos[2] + Math.sin(ride.facing) * 1.6]; ctrl.vel = [Math.sin(ride.facing) * ride.speed * 0.8, 0, Math.cos(ride.facing) * ride.speed * 0.8]; ctrl.grounded = false; ctrl.mode = 'walk'; ctrl.facing = ride.facing; ride = null; cam.dist = camDist; vehicles = allVehicles(); return;
     }
@@ -946,6 +1057,10 @@ async function start(fresh) {
           if (off < (lying ? 0.45 : 0.3) * (W.wide || 1)) { best = along; target = a; }
         }
       }
+      { const list = []; for (const v of vehicles) { if (ride?.v.id === v.id) continue; const D = wrecks.get(v.id); list.push({ id: v.id, v, T: typeOf(v), pos: D ? D.pos : v.pos }); }
+        for (const D of wrecks.list.values()) if (!D.ride && D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) list.push({ id: D.id, D, T: D, pos: D.pos });
+        const q = shotVehicles(wo, [dir.x, dir.y, dir.z], best, W, list);
+        if (q) { best = q.along; const D = q.D || crashRec(q.id, q.v, q.T), hp = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best]; wrecks.shot(D, W.dmg, toLocal(D, ...hp), dirLocal(D, dir.x, dir.y, dir.z)); fx.sparks(hp, 8, 4); target = null; } }
       const shot = fauna?.onRay(wo, [dir.x, dir.y, dir.z], best);
       if (shot) { best = shot.along; target = null; fauna.hurt(shot.A, W.dmg); }
       hitPoint = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best];
@@ -1121,16 +1236,17 @@ async function start(fresh) {
         flight.step(dt, { throttle: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), pitch: Math.max(-1, Math.min(1, stick[1] + kp)), roll: Math.max(-1, Math.min(1, stick[0] + kr)),
           yaw: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: weatherAt(planet, t).wind });
         ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;
-        if (flight.impact > 15) { player.fatigue = Math.min(1, player.fatigue + 0.1); ui.toast(`Impact at ${Math.round(flight.impact * 3.6)} km/h.`, 'bad', 3000); }
-        if (myCraft && firing) war.fireGuns(myCraft, dt);
+        afterFlight(dt, t);
+        if (flight && myCraft && firing) war.fireGuns(myCraft, dt);
         // chase camera: behind and a little above, following the heading and part of the pitch
         cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
         cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3);
       } else if (ride) {
+        rideBumps(t);
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run, up: keys.has('Space'), down: keys.has('KeyQ') });
         ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
-        if (ride.impact > 12) { player.fatigue = Math.min(1, player.fatigue + 0.08); ui.toast(`You hit something at ${Math.round(ride.impact * 3.6)} km/h.`, 'bad', 3000); }
-        cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
+        afterRide(dt);
+        if (ride) cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
       } else {
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
         const hard = mayhem?.afterStep(t, dt, ctrl);
@@ -1225,8 +1341,9 @@ async function start(fresh) {
     }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
       .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
-    vehView.update(traffic.map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
-      .concat(ride ? [{ type: ride.v.type, pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
+    stepCrashes(dt, t, wx0 => wx0, traffic);
+    vehView.update(traffic.filter(v => !trafficGone.has(v.id)).map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => !wrecks.get(v.id)?.hits?.length && !(wrecks.get(v.id)?.burnt > 0) && (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
+      .concat(ride && !(wrecks.get(ride.v.id)?.hits?.length) ? [{ type: ride.v.type, pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
@@ -1326,7 +1443,7 @@ async function start(fresh) {
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
-    { const me = flight ? null : ride ? ride.pos : ctrl.pos; cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, me ? [me] : [], town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
+    { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
     if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
       mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.onAlarm = (A, n) => { if (n && A.kind !== 'trespassing') ui.toast(`<i>“${SHOUTS[Math.floor(A.t * 7) % SHOUTS.length]}”</i>`, 'bad', 2600); }; mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
@@ -1416,11 +1533,12 @@ async function start(fresh) {
       ui.debug(`${fps} fps · ${info.calls} calls · ${(info.triangles / 1e3).toFixed(0)}k tris · tiles ${terrain.count} (+${terrain.pending}) · pos ${camW.map(v => v.toFixed(0)).join(',')} · jobs ${store.jobs.length} · deltas ${store.deltas.size}`);
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
-    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
+    if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
+    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { rocks, prints, flora, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

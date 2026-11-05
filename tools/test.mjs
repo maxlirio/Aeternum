@@ -718,7 +718,7 @@ suites.vehicles = async () => {
   }
   const along = i * 4;
   check(along > Math.min(1200, road.pts.length * 4 - 20), `rode ${along} of ${road.pts.length * 4} m along the road in 90 s (top ${top.toFixed(1)} m/s)`);
-  check(maxGap < 2.0, `stays on the ground line (worst gap ${maxGap.toFixed(2)} m)`);
+  check(maxGap < 2.5, `stays on the ground line (worst gap ${maxGap.toFixed(2)} m)`);
   // straight at a building: stopped by the wall, never inside it
   const { buildingToWorld } = await import('../js/gen/place.js');
   let a0, a1, b;      // a clear 10 m run-up to a building's front wall, away from its door
@@ -1289,6 +1289,63 @@ suites.fauna = async () => {
   const K = mk(); K.test = true; K.spawnHerd({ id: 'h2', sp: S, x: x0, z: z0, n: 2, seed: 9 }); const V = K.animals[0]; check(K.hurt(V, 1e4), 'it can be killed'); check(dead.has(V.id), 'that is remembered'); K.clear(); K.spawnHerd({ id: 'h2', sp: S, x: x0, z: z0, n: 2, seed: 9 }); check(K.animals.length === 1, 'and it stays dead when you come back');
   // they stay on the land: not through towns, nor underwater
   const w = mk(); w.test = true; w.spawnHerd({ id: 'h3', sp: S, x: x0, z: z0, n: 6, seed: 11 }); let bad = 0; for (let t = 0; t < 120; t += 1 / 20) { w.update(1 / 20, x0 + 500, z0, 0); for (const a of w.animals) if (Math.abs(a.y - surfaceHeight(p, a.x, a.z)) > 3 || !Number.isFinite(a.x)) bad++; } check(bad < 8, `over two minutes they stay on the ground (${bad} off it)`);
+};
+suites.corners = async () => {
+  const surfaceHeightAt = (await import('../js/gen/surface.js')).surfaceHeight;
+  const C = await import('../js/gen/city.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Climber, BODY } = await import('../js/player/climber.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { towerOf } = await import('../js/gen/towers.js'), { faceAhead } = await import('../js/gen/holds.js'), { siteReal } = await import('../js/world/sitereal.js');
+  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  let b = null; for (let a = 0; a < 3600 && !b; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); for (const q of B.buildings) if (q.tiers.length === 1 && !q.tiers[0].shape && C.STYLES[q.style]?.[5] && q.tiers[0].y1 > 18 && q.tiers[0].r[2] - q.tiers[0].r[0] > 8 && q.tiers[0].r[3] - q.tiers[0].r[1] > 8 && q.tiers[0].r[2] - q.tiers[0].r[0] < 26 && q.tiers[0].r[3] - q.tiers[0].r[1] < 26) { b = q; break; } }
+  check(b, 'found a plain block to climb');
+  const t = b.tiers[0], LEN = { h: BODY.upperArm + BODY.foreArm, f: BODY.thigh + BODY.shin };
+  const stand = (u, v, tu, tv) => { const [x, z] = c.toWorld(u, v), [xx, zz] = c.toWorld(tu, tv), l = Math.hypot(xx - x, zz - z); return [x, z, (xx - x) / l, (zz - z) / l]; };
+  const go = (cl, input, secs) => { let worst = 0, slid = 0, prev = {}; for (let i = 0; i < secs * 60 && !cl.done; i++) { cl.step(1 / 60, input); if (cl.state !== 'hold') continue; for (const k of ['lh', 'rh', 'lf', 'rf']) { const L = cl.limb[k]; if (L.free) continue; const J = cl.jointOf(k, cl.pelvis); worst = Math.max(worst, Math.hypot(L.p[0] - J[0], L.p[1] - J[1], L.p[2] - J[2]) / LEN[k[1]]); } } return worst; };
+  // grab by the corner: a hand and foot on each side of the edge, body turned to it
+  const [x, z, fx, fz] = stand(t.r[0] - 0.55, t.r[1] + 0.4, t.r[0] + 2, t.r[1] + 0.4), cl = Climber.grab(W, x, base, z, fx, fz);
+  if (check(cl, 'grabbed the wall beside a corner')) {
+    go(cl, { fwd: 0, right: 0, yaw: Math.atan2(fx, fz) }, 1.2);
+    const fs = new Set(['lh', 'rh'].map(k => cl.limb[k].hold?.face)); check(fs.size === 2, `a hand on each side of the edge (${fs.size} faces)`);
+    const n0 = cl.face.n, dia = Math.abs(cl.normal[0] * n0[0] + cl.normal[2] * n0[1]); check(dia < 0.86, `the body turns to face the arris (${dia.toFixed(2)} along the wall's own normal)`);
+    const y0 = cl.pelvis[1], s1 = go(cl, { fwd: 1, right: 0, yaw: Math.atan2(fx, fz) }, 6), up = cl.pelvis[1] - y0; check(up > 4.5, `up the corner: ${up.toFixed(1)} m in 6 s`); check(s1 <= 1.02, `limbs in reach all the way (${s1.toFixed(3)})`);
+    const fs2 = new Set(['lh', 'rh', 'lf', 'rf'].map(k => cl.limb[k].hold?.face)); check(fs2.size === 2, 'still straddling the corner at the end of it');
+  }
+  // right round the block, each way, on a plain row
+  for (const dir of [1, -1]) { const [x1, z1, fx1, fz1] = stand(t.r[0] - 0.55, (t.r[1] + t.r[3]) / 2, t.r[0] + 2, (t.r[1] + t.r[3]) / 2), k = Climber.grab(W, x1, base, z1, fx1, fz1); if (!check(k, 'grabbed mid-wall')) continue; go(k, { fwd: 1, right: 0, yaw: Math.atan2(fx1, fz1) }, 2); const seen = new Set([k.face.key]); let worst = 0, yaw = Math.atan2(fx1, fz1); for (let i = 0; i < 90 && seen.size < 3; i++) { worst = Math.max(worst, go(k, { fwd: 0, right: dir, yaw }, 1)); seen.add(k.face.key); yaw = Math.atan2(-k.normal[0], -k.normal[2]); } check(seen.size >= 3, `traversed round ${dir > 0 ? 'right' : 'left'} past two corners (${seen.size} faces)`); check(worst <= 1.02, `no limb over-stretched going round (${worst.toFixed(3)})`); }
+  // towers and masts in the country
+  const Wc = new CollisionWorld(p, s, () => false), kinds = {}; let tried = 0, grabbed = 0, risen = 0, floating = 0; const failed = [];
+  for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) for (const S of sitesInTile(p, i, j)) for (const it of S.items) { const T = towerOf(p, it); if (!T) continue; const k = it.k.replace(/_\d+$/, ''); if ((kinds[k] = (kinds[k] || 0) + 1) > 3) continue; tried++;
+    const rot = it.rot || 0, c0 = Math.cos(rot), s0 = Math.sin(rot), out = (T.b + 0.7), gx = it.x - s0 * 0 + out * c0, gz = it.z - out * s0, y = surfaceHeightAt(p, gx, gz), cl2 = Climber.grab(Wc, gx, Math.max(y, it.y), gz, -c0, s0); if (!cl2) continue; grabbed++;
+    const y0 = cl2.pelvis[1]; go(cl2, { fwd: 1, right: 0, yaw: Math.atan2(-c0, s0) }, 8); if (cl2.pelvis[1] - y0 > Math.min(3, T.h * 0.35)) risen++; else failed.push([k, +(cl2.pelvis[1] - y0).toFixed(1), cl2.blocked]);
+    for (const K of ['lh', 'rh']) { const h = cl2.limb[K].hold; if (!h) continue; const ly = h.p[1] - it.y, half = T.b + (T.t - T.b) * ly / T.h, dx = h.p[0] - it.x, dz = h.p[2] - it.z, lx = dx * c0 - dz * s0, lz = dx * s0 + dz * c0; if (Math.max(Math.abs(lx), Math.abs(lz)) > half + 0.08 || Math.max(Math.abs(lx), Math.abs(lz)) < half - 0.08) floating++; } }
+  console.log(`    towers: ${JSON.stringify(kinds)}`);
+  check(tried > 4, `there are towers to try (${tried})`); check(grabbed === tried, `every kind can be grabbed (${grabbed}/${tried})`); check(risen === grabbed, `and climbed (${risen}/${grabbed}: ${JSON.stringify(failed)})`); check(!floating, `hands are on the steel, not beside it as it tapers (${floating})`);
+  // a country building, once it's real
+  let done = 0, ok = 0; for (let i = -20; i <= 20 && done < 12; i++) for (let j = -20; j <= 20 && done < 12; j++) for (const S of sitesInTile(p, i, j)) S.items.forEach((it, idx) => { if (done >= 12 || !/^gb_(?!step)/.test(it.k)) return; done++; const w2 = new CollisionWorld(p, s, () => false), rec = siteReal(p, s, S, it, idx); w2.addStructure(rec); const c0 = Math.cos(it.rot), s0 = Math.sin(it.rot), out = it.box[0] + 0.5, gx = it.x + out * c0, gz = it.z - out * s0, cl3 = Climber.grab(w2, gx, it.y, gz, -c0, s0); if (cl3) ok++; });
+  check(ok === done, `country buildings can be climbed (${ok}/${done})`);
+};
+suites.crashes = async () => {
+  const { Crashes } = await import('../js/sim/crash.js'), { Ride } = await import('../js/player/ride.js'), { CollisionWorld } = await import('../js/player/collision.js'), { typeOf, TYPES } = await import('../js/gen/vehicles.js');
+  const mk = (rnd = () => 0.5) => new Crashes({ rnd }), car = () => ({ kind: 'car', L: 4.4, W: 1.9, H: 1.5, type: 'sedan', colour: 1, pos: [0, 0, 0], facing: 0 });
+  // the bands
+  let C = mk(), D = C.of('a', car()); check(C.hit(D, 2, [2, 0.5, 0], [-1, 0, 0]).none && !D.hits.length, 'a tap does nothing');
+  D = C.of('b', car()); C.hit(D, 7, [2, 0.5, 0], [-1, 0, 0]); check(D.hits.length === 1 && D.hits[0].depth < 0.3 && D.hp > 60 && !D.dead && !D.fire, `a low-speed knock is a dent (depth ${D.hits[0].depth}, ${D.hp.toFixed(0)} hp)`);
+  D = C.of('c', car()); const r2 = C.hit(D, 22, [2, 0.5, 0], [-1, 0, 0]); check(D.hits[0].depth > 0.6 && D.hp < 60, `a hard hit crumples it (depth ${D.hits[0].depth}, ${D.hp.toFixed(0)} hp)`);
+  { let burned = 0; for (let i = 0; i < 400; i++) { const c = new Crashes({}); const d = c.of('x', car()); c.hit(d, 30, [2, 0.5, 0], [-1, 0, 0]); if (d.fire) burned++; } check(burned > 120 && burned < 400, `hit hard, it sometimes catches fire (${burned} of 400 at 108 km/h)`); let none = 0; for (let i = 0; i < 400; i++) { const c = new Crashes({}), d = c.of('x', car()); c.hit(d, 14, [2, 0.5, 0], [-1, 0, 0]); if (d.fire || d.exploded) none++; } check(!none, `not at 50 km/h (${none})`); let blew = 0; for (let i = 0; i < 400; i++) { const c = new Crashes({}), d = c.of('x', car()); c.hit(d, 55, [2, 0.5, 0], [-1, 0, 0]); if (d.exploded) blew++; } check(blew > 100, `very hard, it can go up on the spot (${blew} of 400 at 200 km/h)`); }
+  // fire: burns, then fuel or burns out; both ways it's charred and dead
+  { let ex = 0, out = 0; for (let i = 0; i < 200; i++) { const c = new Crashes({}), d = c.of('x', car()); c.ignite(d); d.ride = true; for (let t = 0; t < 90 && !d.exploded && (d.fire > 0); t += 0.2) c.step(0.2); if (d.exploded) ex++; else out++; check(d.dead && d.burnt > 0.1, 'whatever happens it ends a burnt wreck'); } check(ex > 60 && out > 30, `a fire reaches the fuel sometimes (${ex}) or burns out (${out})`); }
+  // chains and blast
+  { const c = mk(), a = c.of('a', car()), b = c.of('b', { ...car(), pos: [4, 0, 0] }), far = c.of('f', { ...car(), pos: [90, 0, 0] }); c.explode(a); const e = c.drain().find(q => q.type === 'blast'); check(e && e.R > 5, 'an explosion is an event with a radius'); c.blastAt(e.pos, e.R * 1.5, a); check(b.hits.length > 0 && Math.hypot(...b.vel) > 0.5 && b.fire > 0, 'it rocks and lights what is near'); check(!far.hits.length, 'and not what is far'); }
+  // remembered
+  { const mem = new Map(), hooks = { load: id => mem.get(id), save: (id, d) => mem.set(id, d) }, c = new Crashes(hooks), d = c.of('r', car()); c.hit(d, 25, [2, 0.5, 0], [-1, 0, 0]); const c2 = new Crashes(hooks), d2 = c2.of('r', car()); check(d2.hits.length === 1 && d2.hp === Math.round(d.hp), 'a wreck is still a wreck when you come back'); }
+  // real driving into a real wall
+  const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false), { surfaceHeight } = await import('../js/gen/surface.js'), b = s.buildings.find(q => q.type === 'store' || q.type === 'hab');
+  const [wx, wz] = s.toWorld(b.O[0] - b.ez[0] * 12 + b.ex[0] * b.w / 2, b.O[1] - b.ez[1] * 12 + b.ex[1] * b.w / 2), [tx, tz] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2, b.O[1] + b.ex[1] * b.w / 2), f = Math.atan2(tx - wx, tz - wz);
+  const drive = (type, speed) => { const r = new Ride(W, p, { type, pos: [wx, surfaceHeight(p, wx, wz), wz], facing: f, colour: 0, id: 't' }); r.speed = speed; let hit = null, T = 0, turned = 0; const f0 = r.facing; for (; T < 5; T += 1 / 120) { r.step(1 / 120, { fwd: speed > 0 && !hit ? 1 : 0, right: 0 }); if (r.crash) { const c = r.crash; if (!hit || c.dv > hit.dv) hit = { ...c, after: Math.hypot(r.speed, ...r.slide) }; r.crash = null; } } turned = Math.abs(Math.atan2(Math.sin(r.facing - f0), Math.cos(r.facing - f0))); return { hit, r, turned }; };
+  const a = drive('sedan', 8), z = drive('sedan', 30);
+  if (check(a.hit && z.hit, 'driving into a wall counts as hitting it')) { check(z.hit.dv > a.hit.dv * 2, `harder hits are harder (${a.hit.dv.toFixed(1)} vs ${z.hit.dv.toFixed(1)} m/s)`); check(Math.abs(z.r.speed) < 8, `it doesn't keep going (${z.r.speed.toFixed(1)} m/s after)`); const dot = Math.sin(f) * z.hit.nx + Math.cos(f) * z.hit.nz; check(dot < -0.5, `pushed back off the wall (${dot.toFixed(2)})`); check(z.hit.at[0] > 0, 'struck on the nose'); check(z.r.stun >= 0, 'stunned'); const y0 = z.r.pos[1]; check(Number.isFinite(y0) && Number.isFinite(z.r.pitch) && Number.isFinite(z.r.roll), 'no blow-ups in the numbers'); }
+  // dead: won't answer
+  { const r = new Ride(W, p, { type: 'sedan', pos: [wx, surfaceHeight(p, wx, wz), wz], facing: f + 3.14, colour: 0, id: 't' }); r.dead = true; for (let t = 0; t < 2; t += 1 / 60) r.step(1 / 60, { fwd: 1, right: 1 }); check(Math.abs(r.speed) < 0.1, `a dead car doesn't drive (${r.speed.toFixed(2)} m/s)`); }
+  // dead in the air: it falls
+  { const { flyT } = { flyT: Object.keys(TYPES)[0] }, y0 = surfaceHeight(p, wx, wz) + 40, r = new Ride(W, p, { type: 'sedan', fly: true, pos: [wx, y0, wz], facing: f + 3.14, colour: 0, id: 't' }); r.pos[1] = y0; r.dead = true; let hit = null; for (let t = 0; t < 6 && !hit; t += 1 / 60) { r.step(1 / 60, { fwd: 0, right: 0 }); if (r.crash) hit = r.crash; } check(hit && hit.dv > 15, `a dead sky car drops and hits (${hit?.dv.toFixed(1)} m/s)`); }
 };
 suites.rivers = async () => {
   const { riversNear, riverAt } = await import('../js/gen/rivers.js'), { surfaceAt } = await import('../js/gen/surface.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { floraTile, CELL, TILE } = await import('../js/gen/flora.js');

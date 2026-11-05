@@ -74,6 +74,7 @@ export class Flight {
     const m = this.mass, F = this.fwd, U = this.up, X = this.left;
     const wind = inp.wind ? [inp.wind[0], 0, inp.wind[1]] : [0, 0, 0];
     this.throttle = clamp(this.throttle + (inp.throttle || 0) * dt * 0.45, 0, 1);
+    if (this.dead) { this.throttle = 0; inp = { ...inp, up: false, down: false, boost: false }; this.assist = false; }     // nothing's answering
     const burner = !!inp.boost && this.throttle > 0.95;
     const va = add(this.vel, wind, -1), V = len(va), vh = V > 0.5 ? norm(va) : F;
     const vf = dot(va, F), vu = dot(va, U), vl = dot(va, X);

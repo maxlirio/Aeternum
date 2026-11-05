@@ -9,6 +9,8 @@
 // bands, the parapet at the top, and where a storey leaves too long a blank stretch, rails. Glass curtain walls
 // and round towers have nothing to hold.
 import { STYLES, blocksNear, CURB } from './city.js';
+import { sitesNear } from './outposts.js';
+import { towerOf } from './towers.js';
 
 export { MAX_GAP };
 export const STEP_A = 0.45;       // spacing of holds along a row (m)
@@ -133,9 +135,28 @@ function townFaces(world, x, y, z, r, fn) {
   }
 }
 
+// ---- steelwork in the country: a face per side of the frame, drawing in as it rises
+const towerFace = (world, it, T, side) => memo(world, `m:${it.k}:${it.x}:${it.z}:${side}`, () => {
+  const b = T.b, c = Math.cos(it.rot || 0), s = Math.sin(it.rot || 0), w = (x, z) => [x * c + z * s, -x * s + z * c], at = (x, z) => { const [a, e] = w(x, z); return [it.x + a, it.z + e]; };
+  const def = [{ o: [b, -b], t: [0, 1], n: [1, 0] }, { o: [b, b], t: [-1, 0], n: [0, 1] }, { o: [-b, b], t: [0, -1], n: [-1, 0] }, { o: [-b, -b], t: [1, 0], n: [0, -1] }][side];
+  const rows = [{ y: it.y, kind: 'ground' }]; for (let y = T.step; y < T.h - 0.2; y += T.step) rows.push({ y: it.y + y, kind: 'rail' }); rows.push({ y: it.y + T.h, kind: 'top' });
+  const f = { key: `m:${it.k}:${it.x}:${it.z}:${side}`, o: at(...def.o), t: w(...def.t), n: w(...def.n), w: 2 * b, y0: it.y, y1: it.y + T.h, rows, tower: true, taper: (b - T.t) / T.h, label: 'the tower' };
+  f.next = () => towerFace(world, it, T, (side + 1) % 4); f.prev = () => towerFace(world, it, T, (side + 3) % 4);
+  return f;
+});
+function towerFaces(world, x, y, z, r, fn) {
+  if (world.flora === false || !world.planet) return;
+  sitesNear(world.planet, x, z, r + 8, S => { if (Math.abs(S.x - x) > S.clear + 80 || Math.abs(S.z - z) > S.clear + 80) return; for (const it of S.items) {
+    if (Math.abs(it.x - x) > r + 5 || Math.abs(it.z - z) > r + 5) continue;
+    const T = towerOf(world.planet, it); if (!T || y < it.y - r || y > it.y + T.h + r) continue;
+    for (let q = 0; q < 4; q++) fn(towerFace(world, it, T, q));
+  } });
+}
+
 // ---- reading faces
+const insetAt = (f, y) => f.taper && y != null ? f.taper * Math.max(0, y - f.y0) : 0;
 export const aOf = (f, x, z) => (x - f.o[0]) * f.t[0] + (z - f.o[1]) * f.t[1];
-export const outOf = (f, x, z) => (x - f.o[0]) * f.n[0] + (z - f.o[1]) * f.n[1];
+export const outOf = (f, x, z, y = null) => (x - f.o[0]) * f.n[0] + (z - f.o[1]) * f.n[1] + insetAt(f, y);
 export const pointOn = (f, a, y, out = 0) => [f.o[0] + f.t[0] * a + f.n[0] * out, y, f.o[1] + f.t[1] * a + f.n[1] * out];
 
 // The face you'd grab from (x, y, z) looking along (fx, fz): within `reach`, in front of you.
@@ -149,6 +170,7 @@ export function faceAhead(world, x, y, z, fx, fz, reach = 1.0) {
   };
   cityFaces(world, x, y + 1, z, reach, test);
   townFaces(world, x, y + 1, z, reach, test);
+  towerFaces(world, x, y + 1, z, reach, test);
   return best;
 }
 // The wall under the edge you're standing near, on a roof, looking out over it. (Glass and round
@@ -170,18 +192,31 @@ export function smoothAhead(world, x, y, z, fx, fz) {
   const q = 0.9; return world.solidAt(x + fx * q, y + 1.2, z + fz * q, 0.05);
 }
 
-// The holds on a face in a box round (a, y). Each is clear of whatever else stands there.
+// The holds on a face in a box round (a, y). Each is clear of whatever else stands there. A corner is a hold all the way up:
+// a building's arris or a tower's leg is something to wrap your hands round, row or no row.
+export const CORNER_STEP = 0.45;
 export function holdsNear(world, f, a, y, ra, ry, fn) {
   for (const row of f.rows) {
     if (row.y < y - ry || row.y > y + ry) continue;
-    const a0 = Math.max(0.12, a - ra), a1 = Math.min(f.w - 0.12, a + ra);
+    const ins = insetAt(f, row.y), a0 = Math.max(0.12 + ins, a - ra), a1 = Math.min(f.w - 0.12 - ins, a + ra);
     const at = []; for (let k = Math.ceil(a0 / STEP_A); k * STEP_A <= a1; k++) at.push(k * STEP_A);
-    if (a0 <= 0.15) at.unshift(0.15);                     // ...and right up to the corners, to reach round them
-    if (a1 >= f.w - 0.15) at.push(f.w - 0.15);
+    if (a0 <= 0.15 + ins) at.unshift(0.15 + ins);                     // ...and right up to the corners, to reach round them
+    if (a1 >= f.w - 0.15 - ins) at.push(f.w - 0.15 - ins);
     for (const h of at) {
-      const p = pointOn(f, h, row.y), n = f.n;
-      if (row.kind !== 'top' && row.kind !== 'ground') { if (world.solidAt(p[0] + n[0] * 0.32, row.y + 0.15, p[2] + n[1] * 0.32, 0.05)) continue; }   // someone else's wall is in the way
+      const p = pointOn(f, h, row.y, -ins), n = f.n;
+      if (!f.tower && row.kind !== 'top' && row.kind !== 'ground') { if (world.solidAt(p[0] + n[0] * 0.32, row.y + 0.15, p[2] + n[1] * 0.32, 0.05)) continue; }   // someone else's wall is in the way
       fn({ p, n, a: h, y: row.y, kind: row.kind, face: f });
+    }
+  }
+  // the corners themselves
+  const y0 = Math.max(f.y0 + 0.4, y - ry), y1 = Math.min(f.y1 - 0.15, y + ry);
+  for (let k = Math.ceil((y0 - f.y0) / CORNER_STEP); f.y0 + k * CORNER_STEP <= y1; k++) {
+    const hy = f.y0 + k * CORNER_STEP, ins = insetAt(f, hy);
+    for (const h of [ins + 0.05, f.w - ins - 0.05]) {
+      if (Math.abs(h - a) > ra) continue;
+      const p = pointOn(f, h, hy, -ins), n = f.n;
+      if (!f.tower && world.solidAt(p[0] + n[0] * 0.32, hy + 0.15, p[2] + n[1] * 0.32, 0.05)) continue;
+      fn({ p, n, a: h, y: hy, kind: 'corner', face: f });
     }
   }
 }

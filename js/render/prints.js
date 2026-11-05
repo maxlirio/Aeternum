@@ -26,8 +26,8 @@ export class GroundMarks {
     const tone = landTones(planet).sand; this.pos = new Float32Array(GRAINS * 3); this.life = new Float32Array(GRAINS * 2); this.vel = new Float32Array(GRAINS * 3); this.size = new Float32Array(GRAINS); this.alpha = new Float32Array(GRAINS);
     const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage)); pg.setAttribute('aSize', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage)); pg.setAttribute('aA', new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     const pm = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uC: { value: new THREE.Color(tone[0] * 1.1, tone[1] * 1.08, tone[2] * 1.05) } },
-      vertexShader: 'attribute float aSize; attribute float aA; varying float vA; void main() { vA = aA; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = aSize * 700.0 / max(1.0, -mv.z); }',
-      fragmentShader: 'uniform vec3 uC; varying float vA; void main() { vec2 d = gl_PointCoord - 0.5; float a = smoothstep(0.5, 0.05, length(d)); if (a * vA < 0.004) discard; gl_FragColor = vec4(uC, a * vA); }' });
+      vertexShader: '#include <common>\n#include <logdepthbuf_pars_vertex>\nattribute float aSize; attribute float aA; varying float vA; void main() { vA = aA; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = aSize * 700.0 / max(1.0, -mv.z);\n#include <logdepthbuf_vertex>\n}',
+      fragmentShader: '#include <common>\n#include <logdepthbuf_pars_fragment>\nuniform vec3 uC; varying float vA; void main() {\n#include <logdepthbuf_fragment>\nvec2 d = gl_PointCoord - 0.5; float a = 1.0 - smoothstep(0.05, 0.5, length(d)); if (a * vA < 0.004) discard; gl_FragColor = vec4(uC, a * vA); }' });
     this.points = new THREE.Points(pg, pm); this.points.frustumCulled = false; this.group.add(this.points); this.pi = 0; this.acc = 0;
   }
   // Press one boot into the map. strength 0..1: how soft the ground is, how little it has blown in since.

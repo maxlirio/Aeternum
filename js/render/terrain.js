@@ -45,7 +45,7 @@ function terrainMaterial(planet) {
       if (vViewPosition.z < 30.0) {
         vec3 Vw = normalize(transpose(mat3(viewMatrix)) * vViewPosition); vec2 stepUv = Vw.xz / max(Vw.y, 0.28) * 0.07 / 7.0; vec2 pm = top; float rayH = 1.0;
         for (int i = 0; i < 7; i++) { float hh = markH(pm) * 0.5 + 0.5; if (hh >= rayH) break; pm -= stepUv; rayH -= 1.0 / 7.0; }
-        float fadeM = smoothstep(30.0, 16.0, vViewPosition.z); top = mix(top, pm, fadeM);
+        float fadeM = 1.0 - smoothstep(16.0, 30.0, vViewPosition.z); top = mix(top, pm, fadeM);
         const float eM = 0.035; float hL = markH(top - vec2(eM, 0.0)), hR = markH(top + vec2(eM, 0.0)), hD = markH(top - vec2(0.0, eM)), hU = markH(top + vec2(0.0, eM)); markD = markH(top);
         markN = normalize(vec3((hL - hR) * 0.07 / (2.0 * eM), 1.0, (hD - hU) * 0.07 / (2.0 * eM)));
       }
@@ -65,7 +65,7 @@ function terrainMaterial(planet) {
           vec3 a = textureGrad(tG, vec3(p / t, fi), px / t, py / t).rgb, b = textureGrad(tG, vec3(p / t2 + 0.37, fi), px / t2, py / t2).rgb;
           vec3 lay = (a * 0.6 + b * 0.4) / uMean[i], layN = near > 0.0 ? textureGrad(tGN, vec3(p / t, fi), px / t, py / t).xyz : vec3(0.5, 0.5, 1.0);
           if (i == 3) {   // a slip face has just avalanched: smooth, no ripples on it
-            float slip = smoothstep(0.93, 0.85, wn.y); lay = mix(lay, vec3(1.0), slip); layN = mix(layN, vec3(0.5, 0.5, 1.0), slip);
+            float slip = 1.0 - smoothstep(0.85, 0.93, wn.y); lay = mix(lay, vec3(1.0), slip); layN = mix(layN, vec3(0.5, 0.5, 1.0), slip);
           }
           detail += w * lay;
           if (near > 0.0) nAcc += w * layN;
