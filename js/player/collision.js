@@ -114,7 +114,7 @@ export class CollisionWorld {
   groundAt(x, z, yFeet) {
     let best = surfaceHeight(this.planet, x, z), where = null;
     // the roof of a standing car; the deck of a watchtower
-    if (this.carBoxes) for (const V of this.carBoxes) { if (!V.roof || Math.abs(x - V.x) > V.reach || Math.abs(z - V.z) > V.reach) continue; const dx = x - V.x, dz = z - V.z, top = V.y + V.h; if (top <= yFeet + STEP && top > best && Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) { best = top; where = { car: true, roof: true }; } }
+    if (this.carBoxes) for (const V of this.carBoxes) { if (!V.roof || Math.abs(x - V.x) > V.reach || Math.abs(z - V.z) > V.reach) continue; const dx = x - V.x, dz = z - V.z, top = V.y + V.h; if (top <= yFeet + STEP && top > best && Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) { best = top; where = { car: true, roof: true, V }; } }
     if (this.flora) sitesNear(this.planet, x, z, 6, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) { if (!/watchtower/.test(it.k) || Math.abs(it.x - x) > 4 || Math.abs(it.z - z) > 4) continue; const T = towerOf(this.planet, it); if (!T?.deck) continue; const top = it.y + T.deck.y, c = Math.cos(it.rot || 0), s = Math.sin(it.rot || 0), dx = x - it.x, dz = z - it.z; if (top <= yFeet + STEP && top > best && Math.abs(dx * c - dz * s) < T.deck.half && Math.abs(dx * s + dz * c) < T.deck.half) { best = top; where = { deck: true, roof: true }; } } });
     this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && inBox(box, u, v)) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
     for (const b of this.near(x, z)) {
@@ -233,7 +233,7 @@ export class CollisionWorld {
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = it.x + ux * R; z = it.z + uz * R; moved = true;
       } });
       if (this.flora) floraNear(this.planet, x, z, r + 1.4, p => {
-        if (!p.solid || yFeet > p.y + p.size || yFeet + h < p.y) return;
+        if (!p.solid || p.felled || yFeet > p.y + p.size || yFeet + h < p.y) return;
         const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), R = r + p.solid;
         if (d >= R) return;
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;

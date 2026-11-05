@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aeternum</title>
+<script>
+// If the game can't start, say so and offer a way out, rather than a blank page.
+(() => {
+  const show = msg => { if (window.__booted || document.getElementById('bootfail')) return; const d = document.createElement('div'); d.id = 'bootfail'; d.style = 'position:fixed;inset:0;z-index:9999;display:grid;place-content:center;gap:14px;background:#14171b;color:#e6e4df;font:16px system-ui;text-align:center;padding:24px'; d.innerHTML = '<b style="font-size:24px">The game didn\'t start</b><div id="bfm" style="max-width:70ch;opacity:.75;font:13px ui-monospace,monospace;white-space:pre-wrap"></div><div>Your save is safe. This is usually a new version arriving part-way.</div><button id="bfr" style="font:16px system-ui;padding:12px 22px;justify-self:center;cursor:pointer">Load the newest version</button>'; document.body.appendChild(d); d.querySelector('#bfm').textContent = String(msg || '').slice(0, 600); d.querySelector('#bfr').onclick = async () => { try { for (const r of await navigator.serviceWorker?.getRegistrations?.() || []) await r.unregister(); for (const k of await caches?.keys?.() || []) await caches.delete(k); } catch {} location.replace(location.pathname + '?fresh=' + Date.now()); }; };
+  window.__bootFail = show;
+  addEventListener('error', e => { if (!window.__started) show(e.message); });
+  addEventListener('unhandledrejection', e => { if (!window.__started) show(e.reason?.message || e.reason); });
+  setTimeout(() => { if (!window.__started) show('It took too long to load.'); }, 45000);
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+})();
+</script>
 <script type="importmap">
 { "imports": {
   "three": "./vendor/three/build/three.module.js",

@@ -17,12 +17,16 @@ export function buildRig(mats) {
   const root = new THREE.Group(); root.rotation.order = 'YXZ';   // yaw, then lie back
   const hips = new THREE.Group(); hips.position.y = 0.95; root.add(hips);
   const torso = new THREE.Group(); hips.add(torso);
-  const chest = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.36, 4, 12), mats.suit), 'suit'); chest.position.y = 0.3; chest.scale.set(1.05, 1, 0.72); torso.add(chest);
-  const vest = tag(new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.3, 0.26), mats.pad), 'pad'); vest.position.set(0, 0.38, 0); torso.add(vest);
-  const stripe = tag(new THREE.Mesh(new THREE.BoxGeometry(0.37, 0.03, 0.27), mats.accent), 'accent'); stripe.position.set(0, 0.45, 0); torso.add(stripe);
-  const neck = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.1, 8), mats.skin), 'skin'); neck.position.y = 0.62; torso.add(neck);
-  const head = tag(new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 12), mats.skin), 'skin'); head.scale.set(0.9, 1.1, 1); head.position.y = 0.76; torso.add(head);
-  const hair = tag(new THREE.Mesh(new THREE.SphereGeometry(0.115, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), mats.hair), 'hair'); hair.scale.set(0.92, 1.1, 1.02); hair.position.y = 0.775; torso.add(hair);
+  // pelvis, waist, ribcage, shoulders: a person's taper, not an egg
+  const pelvis = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.125, 0.09, 4, 12), mats.suit), 'suit'); pelvis.rotation.z = Math.PI / 2; pelvis.scale.set(1, 1, 0.78); pelvis.position.y = 0.0; hips.add(pelvis);
+  const waist = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.115, 0.14, 4, 12), mats.suit), 'suit'); waist.position.y = 0.13; waist.scale.set(1.05, 1, 0.8); torso.add(waist);
+  const chest = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.2, 4, 12), mats.suit), 'suit'); chest.position.y = 0.36; chest.scale.set(1.14, 1, 0.76); torso.add(chest);
+  const shoulders = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.058, 0.33, 4, 10), mats.suit), 'suit'); shoulders.rotation.z = Math.PI / 2; shoulders.position.y = 0.5; torso.add(shoulders);
+  const vest = tag(new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.26, 0.225), mats.pad), 'pad'); vest.position.set(0, 0.35, 0); torso.add(vest);
+  const stripe = tag(new THREE.Mesh(new THREE.BoxGeometry(0.315, 0.018, 0.23), mats.accent), 'accent'); stripe.position.set(0, 0.42, 0); torso.add(stripe);
+  const neck = tag(new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.054, 0.1, 10), mats.skin), 'skin'); neck.position.y = 0.585; torso.add(neck);
+  const head = tag(new THREE.Mesh(new THREE.SphereGeometry(0.1, 18, 14), mats.skin), 'skin'); head.scale.set(0.86, 1.14, 0.98); head.position.y = 0.71; torso.add(head);
+  const hair = tag(new THREE.Mesh(new THREE.SphereGeometry(0.104, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), mats.hair), 'hair'); hair.scale.set(0.88, 1.08, 1.02); hair.position.set(0, 0.725, -0.006); torso.add(hair);
   const limb = (parent, x, y, r1, l1, r2, l2, kind) => {
     const upper = new THREE.Group(); upper.position.set(x, y, 0); parent.add(upper);
     upper.add(cap(r1, l1, kind));
@@ -30,10 +34,10 @@ export function buildRig(mats) {
     lower.add(cap(r2, l2, kind));
     return { upper, lower };
   };
-  const legL = limb(hips, 0.1, 0, 0.075, 0.33, 0.06, 0.34, 'suit'), legR = limb(hips, -0.1, 0, 0.075, 0.33, 0.06, 0.34, 'suit');
-  for (const L of [legL, legR]) { const boot = tag(new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.08, 0.24), mats.pad), 'pad'); boot.position.set(0, -0.5, 0.04); L.lower.add(boot); }
-  const armL = limb(torso, 0.25, 0.52, 0.055, 0.22, 0.045, 0.22, 'suit'), armR = limb(torso, -0.25, 0.52, 0.055, 0.22, 0.045, 0.22, 'suit');
-  for (const A of [armL, armR]) { const hand = tag(new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), mats.skin), 'skin'); hand.position.y = -0.36; A.lower.add(hand); }
+  const legL = limb(hips, 0.095, -0.03, 0.073, 0.31, 0.052, 0.36, 'suit'), legR = limb(hips, -0.095, -0.03, 0.073, 0.31, 0.052, 0.36, 'suit');
+  for (const L of [legL, legR]) { const boot = tag(new THREE.Mesh(new THREE.CapsuleGeometry(0.048, 0.16, 4, 10), mats.pad), 'pad'); boot.rotation.x = Math.PI / 2; boot.scale.set(1.08, 1, 0.82); boot.position.set(0, -0.455, 0.05); L.lower.add(boot); }
+  const armL = limb(torso, 0.225, 0.5, 0.05, 0.235, 0.04, 0.23, 'suit'), armR = limb(torso, -0.225, 0.5, 0.05, 0.235, 0.04, 0.23, 'suit');
+  for (const A of [armL, armR]) { const hand = tag(new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), mats.skin), 'skin'); hand.scale.set(0.72, 1.3, 0.95); hand.position.y = -0.335; A.lower.add(hand); }
   return { root, hips, torso, legL, legR, armL, armR, parts };
 }
 

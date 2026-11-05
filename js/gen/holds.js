@@ -157,8 +157,16 @@ const towerFace = (world, it, T, side) => memo(world, `m:${it.k}:${it.x}:${it.z}
   f.next = () => towerFace(world, it, T, (side + 1) % 4); f.prev = () => towerFace(world, it, T, (side + 3) % 4);
   return f;
 });
+// Steelwork on the city's roofs and yards: same frames, on props.
+const CITY_STEEL = /^(antenna|aerial|antennacluster|watertower|crane)$/;
+function cityTowerFaces(world, x, y, z, r, fn) {
+  const c = world.city; if (!c || Math.abs(x - c.cx) > c.R + 200 || Math.abs(z - c.cz) > c.R + 200) return;
+  const [u, v] = c.toLocal(x, z), base = c.h + CURB;
+  blocksNear(c, u, v, r + 8, B => { for (const p of B.props) { if (!CITY_STEEL.test(p.k) || Math.abs(p.u - u) > r + 5 || Math.abs(p.v - v) > r + 5) continue; const [wx, wz] = c.toWorld(p.u, p.v), wy = base + p.y, T = towerOf(world.planet, p); if (!T || y < wy - r || y > wy + T.h * (p.s || 1) + r) continue; const S = p.s || 1, it = p._it || (p._it = { k: p.k, x: wx, y: wy, z: wz, rot: p.rot || 0 }), TT = p._T || (p._T = S === 1 ? T : { ...T, h: T.h * S, b: T.b * S, t: T.t * S, step: T.step * S }); for (let q = 0; q < 4; q++) fn(towerFace(world, it, TT, q)); } });
+}
 function towerFaces(world, x, y, z, r, fn) {
   if (world.flora === false || !world.planet) return;
+  cityTowerFaces(world, x, y, z, r, fn);
   sitesNear(world.planet, x, z, r + 8, S => { if (Math.abs(S.x - x) > S.clear + 80 || Math.abs(S.z - z) > S.clear + 80) return; for (const it of S.items) {
     if (Math.abs(it.x - x) > r + 5 || Math.abs(it.z - z) > r + 5) continue;
     const T = towerOf(world.planet, it); if (!T || y < it.y - r || y > it.y + T.h + r) continue;
@@ -201,6 +209,13 @@ export function faceBelowEdge(world, x, y, z, fx, fz, reach = 1.4) {
   return best;
 }
 // Every climbable wall within r of a point (for what's drawn on them, and for leaping between buildings).
+// Country buildings beyond walk-in range: the same walls and pipes they'll have when you get there.
+const siteRecs = new WeakMap(); let makeRec = null; export const setSiteRec = f => { makeRec = f; };
+export function siteFacesNear(world, x, z, R, fn, budget = 2) {
+  if (!world.planet || !makeRec) return true; let done = true;
+  sitesNear(world.planet, x, z, R + 10, S => { if (Math.abs(S.x - x) > S.clear + R + 20 || Math.abs(S.z - z) > S.clear + R + 20) return; S.items.forEach((it, i) => { if (!/^gb_(?!step)/.test(it.k) || it.live || Math.hypot(it.x - x, it.z - z) > R) return; let rec = siteRecs.get(it); if (!rec) { if (budget-- <= 0) { done = false; return; } rec = makeRec(world.planet, world.s, S, it, i); siteRecs.set(it, rec); } for (let q = 0; q < 4; q++) fn(townFace(world, rec, q)); }); });
+  return done;
+}
 export function facesNear(world, x, y, z, r, fn) { cityFaces(world, x, y, z, r, fn); townFaces(world, x, y, z, r, fn); towerFaces(world, x, y, z, r, fn); }
 // Is there a wall here at all, too smooth to climb? (For telling the player why not.)
 export function smoothAhead(world, x, y, z, fx, fz) {

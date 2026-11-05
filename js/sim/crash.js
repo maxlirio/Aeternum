@@ -21,7 +21,7 @@ export class Crashes {
     this.list.set(id, D);
     return D;
   }
-  save(D) { this.h.save?.(D.id, { hp: Math.round(D.hp), hits: D.hits.slice(-10), burnt: D.burnt, dead: D.dead, exploded: D.exploded, pos: D.pos.map(v => +v.toFixed(2)), facing: +D.facing.toFixed(3), pitch: +D.pitch.toFixed(2), roll: +D.roll.toFixed(2), type: D.type, colour: D.colour, kind: D.kind, L: D.L, W: D.W, H: D.H }); }
+  save(D) { this.h.save?.(D.id, { hp: Math.round(D.hp), hits: D.hits.slice(-10), burnt: D.burnt, dead: D.dead, exploded: D.exploded, pos: D.pos.map(v => +v.toFixed(2)), facing: +D.facing.toFixed(3), pitch: +D.pitch.toFixed(2), roll: +D.roll.toFixed(2), type: D.type, model: D.model, colour: D.colour, kind: D.kind, L: D.L, W: D.W, H: D.H }); }
   // Struck. dv: change in velocity. at, dir: where and which way, in the vehicle's own frame (x forward, y up, z to its left), dir pointing into it.
   hit(D, dv, at, dir) {
     if (dv < SCUFF) return { dv, none: true };

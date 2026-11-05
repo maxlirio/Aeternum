@@ -25,8 +25,10 @@ export class Ride {
     const wx = ax + otherV[0], wz = az + otherV[1];
     this.speed = wx * fx + wz * fz; this.slide = [wx - fx * this.speed, wz - fz * this.speed];
     // it turns about where it was hit: the harder and the further off-centre, the more it spins; a hard front hit dips the nose and lifts the tail
+    // A scrape only takes off the speed into the wall. It takes a real knock to turn you, or a graze along a kerb would flick you side to side.
+    if (dv < 6) { this.impact = Math.max(this.impact, dv); if (dv >= 3) { const lp = [lever * this.T.L * 0.5, this.T.H * y, lat * this.T.W * 0.5], c = this.crash; if (!c || dv > c.dv) this.crash = { dv, at: lp, dir: [-(nx * fx + nz * fz), 0, -(-nx * fz + nz * fx)], nx, nz }; } return dv; }
     const torque = (lever * (nx * fz * -1 + nz * fx) + lat * (nx * fx + nz * fz)) * dv;
-    this.yawRate += Math.max(-5, Math.min(5, torque * 2.4 / Math.max(1, this.T.L)));
+    this.yawRate += Math.max(-3, Math.min(3, torque * 1.1 / Math.max(1, this.T.L)));
     this.stun = Math.max(this.stun, Math.min(2.6, dv * 0.09));
     const heavy = dv > 12;
     this.pitchV += (lever > 0 ? -1 : 1) * dv * (heavy ? 0.075 : 0.03) * Math.min(1, 3.5 / this.T.L); this.rollV += lat * dv * 0.14 + (heavy ? (Math.random() - 0.5) * (dv - 12) * 0.32 : 0);
@@ -68,7 +70,7 @@ export class Ride {
     this.impact = 0;
     for (const s of [1, -1]) {
       const cx = x + nfx * off * s, cz = z + nfz * off * s;
-      const [rx, rz] = this.world.resolve(cx, cz, y + 0.25, R, Math.min(this.T.H, 1.6));
+      const [rx, rz] = this.world.resolve(cx, cz, y + 0.55, R, Math.min(this.T.H, 1.6));      // (it hovers: low stones and kerbs pass under)
       if (rx !== cx || rz !== cz) {
         const px = rx - cx, pz = rz - cz, pl = Math.hypot(px, pz) || 1, nx = px / pl, nz = pz / pl; x += px; z += pz;
         // where on the body: nose, tail or a flank, from the way it was pushed

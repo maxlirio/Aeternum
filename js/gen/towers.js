@@ -8,6 +8,8 @@ const FIXED = {
   pylon: { h: 28, b: 3, t: 0.75, step: 2 },
   headframe: { h: 22, b: 4, t: 1, step: 2 },
   drillrig: { h: 14, b: 1.3, t: 0.325, step: 2 },
+  // up on city roofs
+  antenna: { h: 6, b: 0.12, t: 0.08, step: 1 }, aerial: { h: 4, b: 0.1, t: 0.07, step: 1 }, antennacluster: { h: 6, b: 0.45, t: 0.12, step: 1.2 }, watertower: { h: 5, b: 1.3, t: 1, step: 1.5 }, crane: { h: 28, b: 1, t: 1, step: 2 },
 };
 export function towerOf(planet, it) {
   const k = it.k.replace(/^fam_/, '').replace(/_\d+$/, '');

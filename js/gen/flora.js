@@ -46,6 +46,10 @@ export function plantSet(planet) {
   return chosen;
 }
 
+// Trees knocked down, by position: part of the save, laid over what's generated.
+const fellings = new WeakMap();
+export const felledOf = planet => fellings.get(planet) || fellings.set(planet, new Map()).get(planet);
+export const fellKey = p => Math.round(p.x * 4) + ',' + Math.round(p.z * 4);
 const cache = new Map();
 // Everything in the TILE × TILE square whose corner is (ti·TILE, tj·TILE).
 export function floraTile(planet, ti, tj) {
@@ -87,6 +91,7 @@ export function floraTile(planet, ti, tj) {
     const S = SPECIES[sp], size = (S.h[0] + (S.h[1] - S.h[0]) * r(5) ** 1.5) * (S.tree ? 1 + 0.65 * deep : 1);    // (old woods grow big)
     out.push({ sp, x, y: s.h, z, size, rot: r(6) * Math.PI * 2, tint: r(7), solid: S.solid, dry: +(1 - lush).toFixed(2) });
   }
+  const fl = felledOf(planet); if (fl.size) for (const p of out) { const a = fl.get(fellKey(p)); if (a !== undefined) p.felled = { a }; }
   cache.set(ck, out);
   if (cache.size > 4000) cache.delete(cache.keys().next().value);
   return out;

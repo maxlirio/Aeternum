@@ -58,6 +58,7 @@ import { FloraView } from './render/flora.js';
 import { RockView } from './render/rocks.js';
 import { GroundMarks } from './render/prints.js';
 import { Crashes, toLocal, dirLocal } from './sim/crash.js';
+import { felledOf, fellKey, floraNear } from './gen/flora.js';
 import { FX } from './render/fx.js';
 import { WreckView } from './render/wrecks.js';
 import { PAINTS_VEHICLE } from './render/props.js';
@@ -100,8 +101,9 @@ const ui = new UI();
 const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || 'main');
 const store = new WorldStore(backend);
 window.ORBIS = { store, ready: false };
+window.__started = true;      // (the code all loaded and linked: from here on, failures have their own handling)
 
-boot().catch(e => { console.error(e); ui.panel(`<h2>Something broke</h2><pre>${String(e.stack || e)}</pre>`); document.title = 'ERROR ' + e.message; });
+boot().catch(e => { console.error(e); ui.panel(`<h2>Something broke</h2><pre>${String(e.stack || e)}</pre><p>Your save is safe. <button onclick="location.reload()">Reload</button></p>`); document.title = 'ERROR ' + e.message; });
 
 async function boot() {
   const has = await store.open();
@@ -661,16 +663,17 @@ async function start(fresh) {
   }, D => { const T = D.type && typeOf({ type: D.type }); return T?.paint || PAINTS_VEHICLE[((D.colour % PAINTS_VEHICLE.length) + PAINTS_VEHICLE.length) % PAINTS_VEHICLE.length]; });
   root.add(wreckView.group);
   shipView.hidden = sh => { const D = wrecks.get('ship:' + sh.id); return !!D && (D.hits.length > 0 || D.burnt > 0); };
-  for (const [k, v] of store.deltas) if (k.startsWith('wreck/') && v.type && v.pos) { const id = k.slice(6), D = wrecks.of(id, v); if (id.startsWith('tr:') || id.startsWith('city:')) trafficGone.add(id); }      // what's still lying where you left it
+  { const fel = store.getDelta('felled'); if (fel?.list) for (const [k, a] of fel.list) felledOf(planet).set(k, a); }
+  for (const [k, v] of store.deltas) if (k.startsWith('wreck/') && (v.type || v.kind === 'ship') && v.pos) { const id = k.slice(6), D = wrecks.of(id, v); if (id.startsWith('tr:') || id.startsWith('city:')) trafficGone.add(id); }      // what's still lying where you left it
   const kindOf = T => T.kind === 'bike' ? 'bike' : 'car';
   const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
   // On foot, a vehicle's in your way like anything else, and you can get up onto one: its box stops at its roof.
   function carsSolid() {
-    const me = ctrl.pos, out = [], add = (x, y, z, facing, T, roof = false) => { if (Math.abs(x - me[0]) > 14 || Math.abs(z - me[2]) > 14 || Math.abs(y - me[1]) > 8) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5, roof }); };
+    const me = ctrl.pos, out = [], add = (x, y, z, facing, T, roof = false, speed = 0) => { if (Math.abs(x - me[0]) > 14 || Math.abs(z - me[2]) > 14 || Math.abs(y - me[1]) > 8) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5, roof, vx: fx * (speed || 0), vz: fz * (speed || 0) }); };
     for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v), true); }
     for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D, true);
-    for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
-    for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
+    for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), true, (v.speed || 0) * cityTraffic.life.rateOf(v.id));
+    for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), !mayhem?.rider, v.moving === false ? 0 : (v.speed || 0));
     world.carBoxes = out;
   }
   let lastTraffic = [], waterTick = 0, shadowTick = 0, rezT = 0, rezN = 0, resolution = Math.min(devicePixelRatio, 2);
@@ -689,6 +692,8 @@ async function start(fresh) {
     };
     for (const v of vehicles) { if (v.id === ride.v.id) continue; const O = typeOf(v); if (Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const live = wrecks.get(v.id); hitOne(v.id, live ? live.pos : v.pos, live ? live.facing : v.facing, 0, O, () => crashRec(v.id, v, O)); }
     for (const D of wrecks.list.values()) { if (D.ride || D.kind === 'ship' || vehicles.some(v => v.id === D.id) || Math.abs(D.pos[0] - me[0]) > 15 || Math.abs(D.pos[2] - me[2]) > 15) continue; hitOne(D.id, D.pos, D.facing, 0, D, () => D); }
+    // a tree in the way goes over, if you're moving and it isn't too big
+    if (Math.abs(ride.speed) > 9) floraNear(planet, me[0] + Math.sin(ride.facing) * T.L * 0.5, me[2] + Math.cos(ride.facing) * T.L * 0.5, T.W * 0.5 + 1.2, p => { if (!p.solid || p.felled || Math.abs(p.y - me[1]) > 3 || p.size > 8 + Math.abs(ride.speed) * 0.7) return; const a = Math.atan2(Math.sin(ride.facing), Math.cos(ride.facing)); felledOf(planet).set(fellKey(p), +ride.facing.toFixed(2)); p.felled = { a: ride.facing }; store.patchDelta('felled', { list: [...felledOf(planet).entries()] }); flora.at = null; fx.dust([p.x, p.y + 0.2, p.z], 16, [0.32, 0.28, 0.2]); wreckView.throwBits({ facing: 0, pos: [p.x, p.y, p.z] }, [0, 1, 0], [0, 0, 0], 16, 4, [0.26, 0.17, 0.09]); ride.speed *= 0.72; const dv = Math.abs(ride.speed) * 0.3; if (!ride.crash || dv > ride.crash.dv) ride.crash = { dv, at: [T.L * 0.48, T.H * 0.4, 0], dir: [-1, 0, 0], nx: 0, nz: 0 }; });
     const near = trafficNear(planet, s, clock.now(), me[0], me[2], 18, cityTraffic.life.delayOf);
     for (const v of near) { if (v.parked || trafficGone.has(v.id)) continue; const O = typeOf(v); hitOne(v.id, v.pos, v.facing, v.speed * cityTraffic.life.rateOf(v.id), O, () => { trafficGone.add(v.id); return crashRec(v.id, v, O); }); }
     for (const v of cityTraffic.nearby) { if (v.ship || v.parked || v.car === mayhem?.rider?.car || Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const O = typeOf(v), id = 'city:' + v.car?.i; if (trafficGone.has(id)) continue; hitOne(id, v.pos, v.facing, v.speed || 0, O, () => { trafficGone.add(id); if (v.car) cityTraffic.taken.add(v.car.i); return crashRec(id, { ...v, type: v.type }, O); }); }
@@ -726,6 +731,10 @@ async function start(fresh) {
     for (const e of wrecks.drain()) {
       if (e.type === 'blast') {
         fx.blast(e.pos, e.R); wreckView.throwBits(e.D, [0, e.D.H * 0.6, 0], [0, -0.3, 0], 40, 15, wreckView.items.get(e.D.id)?.paint || [0.2, 0.2, 0.2]);
+        // what's on the road when it goes up goes with it
+        for (const v of trafficNear(planet, s, t, e.pos[0], e.pos[2], e.R * 1.4, cityTraffic.life.delayOf)) { if (v.parked || trafficGone.has(v.id) || Math.hypot(v.pos[0] - e.pos[0], v.pos[2] - e.pos[2]) > e.R * 1.2) continue; trafficGone.add(v.id); crashRec(v.id, v, typeOf(v)); }
+        for (const v of cityTraffic.nearby) { if (v.ship || !v.car || v.car === mayhem?.rider?.car || Math.hypot(v.pos[0] - e.pos[0], v.pos[2] - e.pos[2]) > e.R * 1.2) continue; const id = 'city:' + v.car.i; if (trafficGone.has(id)) continue; trafficGone.add(id); cityTraffic.taken.add(v.car.i); crashRec(id, v, typeOf(v)); }
+        for (const v of vehicles) { if (ride?.v.id !== v.id && Math.hypot(v.pos[0] - e.pos[0], v.pos[2] - e.pos[2]) < e.R * 1.2) crashRec(v.id, v); }
         wrecks.blastAt(e.pos, e.R * 1.5, e.D);
         // you
         const me = ride ? ride.pos : flight ? flight.pos : ctrl.pos, d = Math.hypot(me[0] - e.pos[0], me[1] - e.pos[1], me[2] - e.pos[2]);
@@ -738,6 +747,8 @@ async function start(fresh) {
         if (mayhem) mayhem.crime(t, 'an explosion', 1.4, e.pos);
       }
     }
+    // a wreck still moving carries on into whatever's next
+    for (const D of wrecks.list.values()) { const sp = Math.hypot(D.vel[0], D.vel[2]); if (D.ride || sp < 4 || D.kind === 'ship') continue; const hitAny = (O, id, make) => { const d = Math.hypot(O.pos[0] - D.pos[0], O.pos[2] - D.pos[2]); if (d > (D.L + O.L) * 0.42 || d < 0.01) return; const M = make(), nx = (O.pos[0] - D.pos[0]) / d, nz = (O.pos[2] - D.pos[2]) / d, vn = D.vel[0] * nx + D.vel[2] * nz; if (vn < 1) return; wrecks.hit(M, vn, [0, M.H * 0.5, 0], [0, 0, 1]); wrecks.shove(M, nx * vn * 0.6, vn * 0.05, nz * vn * 0.6); wrecks.hit(D, vn * 0.7, [D.L * 0.45, D.H * 0.5, 0], [-1, 0, 0]); D.vel[0] -= nx * vn * 0.7; D.vel[2] -= nz * vn * 0.7; fx.sparks([(O.pos[0] + D.pos[0]) / 2, D.pos[1] + 0.7, (O.pos[2] + D.pos[2]) / 2], 22, 8); }; for (const O of wrecks.list.values()) if (O !== D && !O.ride && O.kind !== 'ship') hitAny(O, O.id, () => O); for (const v of vehicles) if (v.id !== D.id && ride?.v.id !== v.id) hitAny({ pos: v.pos, L: typeOf(v).L }, v.id, () => crashRec(v.id, v)); for (const v of traffic) if (!v.parked && !trafficGone.has(v.id)) hitAny({ pos: v.pos, L: typeOf(v).L }, v.id, () => { trafficGone.add(v.id); return crashRec(v.id, v, typeOf(v)); }); }
     const wx = weatherAt(planet, t).wind;
     wreckView.update(dt, wrecks, (x, z, y) => Math.max(world.groundAt(x, z, y).h, planet.seaLevel), fx, wx, ctrl.pos[0], ctrl.pos[2]);
     fx.update(dt, renderer);
@@ -780,7 +791,17 @@ async function start(fresh) {
     ctrl.pos = ride.dismountSpot(); ctrl.vel = [0, 0, 0]; ctrl.mode = 'walk'; ctrl.facing = ride.facing;
     ride = null; cam.dist = camDist; vehicles = allVehicles();
   }
+  const garageNear = () => { const [x, z] = ctrl.pos; for (const b of s.buildings) { if (b.type !== 'workshop') continue; const [wx, wz] = s.toWorld(b.O[0], b.O[1]); if (Math.hypot(wx - x, wz - z) < 200) return b.owner || 'the workshop'; } let hit = null; sitesNear(planet, x, z, 200, S => { for (const it of S.items) if (/^gb_(garage|smithy)/.test(it.k) && Math.hypot(it.x - x, it.z - z) < 200) hit = 'the garage'; }); return hit; };
+  async function repairFlow(v, D) {
+    const T = typeOf(v), g = garageNear();
+    if (D.exploded || D.burnt > 0.5) { ui.toast('Burnt out. Nothing left to fix.', 'warn', 3000); return; }
+    if (!g) { ui.toast(D.dead ? "It's a wreck, and there's no garage near enough to tow it to." : 'It needs a garage.', 'warn', 3500); return; }
+    const cost = Math.max(40, Math.round((100 - D.hp) / 100 * T.price * 0.45)); let pick = null;
+    await modal(async () => { pick = await ui.choose({ title: 'Repair it', sub: `${esc(g)} can have it right. It's ${Math.round(D.hp)}% what it was.`, options: [{ a: 'fix', label: `Fix it — ${cost} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < cost }] }); });
+    if (pick?.a !== 'fix') return; player.credits -= cost; store.touchPlayer(); const key = 'wreck/' + v.id, keep = store.getDelta(key); if (keep) { const clear = {}; for (const q of Object.keys(keep)) clear[q] = undefined; store.patchDelta(key, clear); } wrecks.forget(v.id); ui.toast('Good as new.', '', 2500);
+  }
   async function bikeFlow(v) {
+    { const D = wrecks.get(v.id); if (isYours(v, player) && D && (D.hits.length || D.burnt > 0)) { await repairFlow(v, D); if (wrecks.get(v.id)) { if (D.dead) return; } } }
     if (isYours(v, player)) return mount(v);
     if (v.forSale) {
       let pick = null;
@@ -813,7 +834,7 @@ async function start(fresh) {
     for (const sh of ships) {
       // a cargo run due while you're aboard waits: today's run is off
       if (onRun(sh) && placed.has(sh.id) && world.locate(...ctrl.pos)?.b?.key === sh.id) { holdRun(store, sh); ships = shipsIn(store, planet, s, clock.now()); return syncShips(); }
-      const want = !sh.flying && !onRun(sh) && !(flight && flight.ship.id === sh.id), have = placed.get(sh.id);
+      const want = !sh.flying && !onRun(sh) && !(flight && flight.ship.id === sh.id) && !wrecks.get('ship:' + sh.id)?.exploded, have = placed.get(sh.id);     // (blown apart: there's no inside left)
       const sig = JSON.stringify([sh.at, sh.O]);
       if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
       if (want && !placed.has(sh.id)) {
@@ -1227,9 +1248,11 @@ async function start(fresh) {
   }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
+  // A frame that throws must not freeze the game on a blank picture: say what happened, and keep trying.
+  let frameFails = 0; function safeFrame(now) { try { frame(now); frameFails = 0; } catch (e) { console.error(e); if (++frameFails === 5) ui.panel(`<h2>Something broke</h2><pre>${String(e.stack || e).slice(0, 700)}</pre><p>Your save is safe.</p><button onclick="location.reload()">Reload</button>`); if (frameFails < 300 && running) requestAnimationFrame(safeFrame); } }
   function frame(now) {
     if (!running) return;
-    requestAnimationFrame(frame);
+    requestAnimationFrame(safeFrame);
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const t = clock.now();
     if (!paused && !shot) {
@@ -1261,6 +1284,7 @@ async function start(fresh) {
         if (ride) cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
       } else {
         carsSolid();
+        { const V = ctrl.where?.V; if (V && ctrl.grounded && (V.vx || V.vz)) { const [nx, nz] = world.resolve(ctrl.pos[0] + V.vx * dt, ctrl.pos[2] + V.vz * dt, ctrl.pos[1]); ctrl.pos = [nx, ctrl.pos[1], nz]; } }     // standing on something moving
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
         const hard = mayhem?.afterStep(t, dt, ctrl);
         if (hard > 9) hurtPlayer(Math.min(120, (hard - 8.5) ** 2 * 0.9), 'a hard landing');
@@ -1556,7 +1580,7 @@ async function start(fresh) {
     rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);
   }
-  requestAnimationFrame(frame);
+  requestAnimationFrame(safeFrame);
   window.ORBIS = { camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);

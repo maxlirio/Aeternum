@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.js';
 
 const NEAR_TREE = 190, NEAR = { shrub: 95, fern: 70 };     // full model within (m)
-const MAX_FULL_TREES = 70;
+const MAX_FULL_TREES = 42;
 const FAR = 1000;                                                // trees as stand-ins out to (m)
 const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf']);
 // Leaf colours: familiar trees take the planet's own green; the others have their own
@@ -29,7 +29,7 @@ export class FloraView {
     const g = planet.climate.grass, l = Math.max(...g);
     this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.3);
     this.at = null; this.tiles = new Map(); this.queue = [];
-    this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._c = new THREE.Color(); this.up = new THREE.Vector3(0, 1, 0);
+    this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._q2 = new THREE.Quaternion(); this._fx = new THREE.Vector3(); this._c = new THREE.Color(); this.up = new THREE.Vector3(0, 1, 0);
   }
   get ok() { return Object.keys(this.kinds).length > 0; }
   leafColour(sp, tint, out) {
@@ -91,6 +91,7 @@ export class FloraView {
       if (Math.abs((a + 0.5) * TILE - x) > FAR + TILE || Math.abs((b + 0.5) * TILE - z) > FAR + TILE) { this.tiles.delete(key); continue; }
       for (const p of list) {
         const d = Math.hypot(p.x - x, p.z - z), K = this.kinds[p.sp]; if (!K) continue;
+        if (p.felled) { if (d < NEAR_TREE) K.list.push(p); continue; }
         if (SPECIES[p.sp].tree && d < NEAR_TREE) { nearT.push(p, d); continue; }
         if (!SPECIES[p.sp].tree && d < NEAR[p.sp]) K.list.push(p);
         else if (SPECIES[p.sp].tree && d < FAR && (d < 220 || p.tint < (d < 450 ? 0.6 : d < 700 ? 0.38 : 0.2))) this.kinds[p.sp + '_far'].list.push(p);
@@ -117,6 +118,7 @@ export class FloraView {
     K.list.forEach((p, i) => {
       const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint) * (K.far ? 1.2 : 1);
       this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
+      if (p.felled) { this._q.setFromAxisAngle(this._fx.set(Math.cos(p.felled.a), 0, -Math.sin(p.felled.a)), 1.5).multiply(this._q2.setFromAxisAngle(this.up, p.rot)); }
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));
       if (K.far) this._c.setScalar(1.25 + 0.5 * p.tint);
       else { this.leafColour(K.sp, p.tint, this._c); if (p.sp === 'fern') this._c.multiplyScalar(0.85); if (p.sp === 'shrub') this._c.lerp(new THREE.Color(0.62, 0.55, 0.34), 0.2 * p.tint + 0.6 * (p.dry || 0)); }

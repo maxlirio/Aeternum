@@ -1,7 +1,9 @@
 // Drainpipes on the city's walls, as real pipes you can see and climb (the same ones gen/holds.js gives your hands). Drawn near you only: thin
 // things, they'd be nothing but cost from further off.
 import * as THREE from 'three';
-import { facesNear } from '../gen/holds.js';
+import { facesNear, siteFacesNear, setSiteRec } from '../gen/holds.js';
+import { siteReal } from '../world/sitereal.js';
+setSiteRec(siteReal);
 
 const R = 70, MAX = 260, BRACKET = 2.4;
 export class PipeView {
@@ -15,7 +17,8 @@ export class PipeView {
   update(world, x, y, z) {
     if (this.at && Math.abs(x - this.at[0]) + Math.abs(z - this.at[1]) + Math.abs(y - this.at[2]) < 8) return; this.at = [x, z, y];
     let n = 0, b = 0;
-    const seen = new Set(); facesNear(world, x, y, z, R, f => seen.add(f));
+    const seen = new Set(); facesNear(world, x, y, z, R, f => seen.add(f)); const allIn = siteFacesNear(world, x, z, R, f => seen.add(f));
+    if (!allIn) this.at = null;      // (a couple of new buildings a frame: more next time)
     for (const f of seen) { if (!f.pipes?.length || f.y1 - f.y0 < 3) continue;
       for (const a of f.pipes) { if (n >= MAX) break;
         const px = f.o[0] + f.t[0] * a + f.n[0] * 0.09, pz = f.o[1] + f.t[1] * a + f.n[1] * 0.09; if (Math.hypot(px - x, pz - z) > R) continue;
