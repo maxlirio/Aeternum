@@ -242,6 +242,9 @@ SCRIPTS.arms = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)
   const rot = 0; g.position.set(x0 - O.scene.children.find(c => c.name === 'x')?.position.x || x0, y0, 0); const root = O.fauna.view.group.parent; g.position.set(x0, y0 + 1.5, z0 + 2.05); root.add(g);
   O.ctrl.facing = 0; O.cam.yaw = 0; O.cam.pitch = 0; O.cam.dist = 0.05; document.querySelector('.toasts')?.remove(); await wait(2400);`;
 SHOTS.arms = 'hour=12';
+// what a newcomer sees: nothing in the URL, walked in from the front door
+SCRIPTS.golive = `const wait = ms => new Promise(r => setTimeout(r, ms)); await wait(1500); console.log(JSON.stringify({ href: location.href, title: document.title, ready: !!window.ORBIS?.ready, ground: !!window.ORBIS?.rocks?.ok, fauna: !!window.ORBIS?.fauna?.sim, renderer: window.ORBIS?.renderer?.info?.render?.triangles }));`;
+SHOTS.golive = 'hour=11';
 // a herd going about its business in its own country, seen from nearby
 for (const kind of ['forest', 'badlands', 'meadow']) { SCRIPTS['herd_' + kind] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), L = await import('./js/gen/land.js'), T = await import('./js/gen/surface.js'), Fa = await import('./js/gen/fauna.js');
     let H = null, bd = 1e12; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) { const q = Fa.herdInTile(O.planet, i, j); if (!q || q.sp.plan === 'glider') continue; const ls = L.landAt(O.planet, q.x, q.z); if (ls.length !== 1 || ls[0].c.kind !== '${kind}') continue; const d = Math.hypot(q.x - O.ctrl.pos[0], q.z - O.ctrl.pos[2]); if (d < bd) { bd = d; H = q; } }
@@ -448,8 +451,9 @@ try {
     // booth[:variant] → the asset booth (tools/booth.html): every variant on a grid, or one up close
     // boothm:<material> → one surface; GALLERY=1 hides the booth's label
     const bq = name.includes(':') ? (name.startsWith('boothm') ? '?m=' : '?v=') + name.split(':')[1] + (process.env.GALLERY ? '&clean' : '') : '';
-    const url = name.startsWith('booth') ? `http://127.0.0.1:${PORT}/tools/booth.html${bq}`
-      : `http://127.0.0.1:${PORT}/?store=mem&auto=new&seed=${seed}&${SHOTS[name]}`;
+    const BASE = process.env.BASE || `http://127.0.0.1:${PORT}/`;     // (BASE=https://… to test a deployed copy)
+    const url = name.startsWith('booth') ? `${BASE}tools/booth.html${bq}`
+      : `${BASE}?store=mem&auto=new&seed=${seed}&${SHOTS[name]}`;
     const t0 = Date.now();
     await send('Page.navigate', { url });
     let ready = false;
