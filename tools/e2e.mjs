@@ -585,10 +585,10 @@ try {
     // thrown off a bike
     { const [bx, bz] = C.toWorld(u + 3, v + 3), Rb = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'tb', pos: [bx, y, bz], facing: yaw }); P.hp = 100; O.setRideForTest(Rb); Rb.speed = 30; for (let i = 0; i < 300 && O.getRide2(); i++) await wait(40); out.thrown = !O.getRide2(); out.bikeHurt = P.hp < 100; await wait(400); O.ctrl.mode = 'walk'; }
     // a ship flown into the ground
-    { const sh = O.getShips()[0], ox = O.ctrl.pos[0], oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; await wait(400); P.hp = 100; }
+    { const sh = O.getShips()[0], ox = O.ctrl.pos[0], oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; out.shipHp = Ds?.hp; out.shipDepth = Ds?.hits?.map(h => h.depth); await wait(400); P.hp = 100; }
     return out; })()`);
   check(cr.thrown && cr.bikeHurt, 'crashed a bike and was thrown off it');
-  check(cr.shipOut && cr.shipHits > 0 && cr.shipDead, `flew a ship into the ground: wrecked, and out of it (${cr.shipHits} hits)`);
+  check(cr.shipOut && cr.shipHits > 0 && cr.shipDead, `flew a ship into the ground: wrecked, and out of it (${cr.shipHits} hits, ${cr.shipHp} hp, ${cr.shipDepth}, out ${cr.shipOut})`);
   check(cr.hit && cr.depth > 0.05, `drove into a wall and it dented the car (${JSON.stringify(cr).slice(0, 180)})`);
   check(cr.model && cr.moved > 20, `the model's own metal moved (${cr.moved} points)`);
   check(cr.hurt, 'and it hurt');

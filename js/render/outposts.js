@@ -1,5 +1,6 @@
 // The country's farms, mines, masts and ruins near you (gen/outposts.js), from the shared kit.
 // Rebuilt when you've moved a way; far ones are simply not there yet, past the haze.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { sitesNear } from '../gen/outposts.js';
 import { kitTint } from './city.js';
@@ -26,7 +27,7 @@ export class OutpostView {
     }
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
     for (const [k, list] of plants) { const parts = this.kitOf(k); if (!parts) continue;
-      for (const part of parts) { const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+      for (const part of parts) { const im = new THREE.InstancedMesh(share(part.geometry), part.material, list.length);
         list.forEach(([px, py, pz, r, sc], q) => { M.compose(P.set(px, py, pz), Q.setFromAxisAngle(up, r), S.setScalar(sc)); im.setMatrixAt(q, M); if (part.tinted) im.setColorAt(q, tint.setRGB(...kitTint(part.tinted, k, 3, 7))); });
         im.computeBoundingSphere(); im.castShadow = false; im.receiveShadow = true; this.group.add(im); } }
     this.plants = [...plants.values()].reduce((n, l) => n + l.length, 0);
@@ -68,7 +69,7 @@ export class OutpostView {
     for (const [k, list] of by) {
       const parts = this.kitOf(k); if (!parts) continue;
       for (const part of parts) {
-        const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        const im = new THREE.InstancedMesh(share(part.geometry), part.material, list.length);
         list.forEach((it, q) => { const off = this.hidden.has(it); M.compose(P.set(it.x, it.y, it.z), Q.setFromAxisAngle(up, it.rot), off ? S.set(0, 0, 0) : S.set(it.s || 1, 1, 1)); im.setMatrixAt(q, M); if (it.box) (this.where.get(it) || this.where.set(it, []).get(it)).push([im, q]); if (part.tinted) im.setColorAt(q, col.setRGB(...kitTint(part.tinted, k, it.x, it.z))); });
         im.computeBoundingSphere(); im.castShadow = !!part.cast; im.receiveShadow = true; this.group.add(im);
       }

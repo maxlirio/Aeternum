@@ -25,7 +25,7 @@ export class FX {
     this.group = new THREE.Group(); this.group.name = 'fx'; this.glow = system(true); this.dark = system(false); this.group.add(this.dark.points, this.glow.points); this.t = 0;
     this.lights = [0, 1, 2].map(() => { const l = new THREE.PointLight(0xff9040, 0, 40, 1.6); this.group.add(l); return { l, at: null, v: 0, decay: 0, flicker: 0 }; }); this.shake = 0;
   }
-  put(S, x, y, z, vx, vy, vz, life, size, grow, r, g, b, a, drag, grav) { const i = S.i; S.i = (i + 1) % N; S.pos.set([x, y, z], i * 3); S.vel.set([vx, vy, vz], i * 3); S.life[i] = life; S.max[i] = life; S.size[i] = size; S.grow[i] = grow; S.col.set([r, g, b, a], i * 4); S.a0[i] = a; S.drag[i] = drag; S.grav[i] = grav; S.seed[i] = Math.random(); this.seedDirty = true; }
+  put(S, x, y, z, vx, vy, vz, life, size, grow, r, g, b, a, drag, grav) { const i = S.i; S.i = (i + 1) % N; S.pos.set([x, y, z], i * 3); S.vel.set([vx, vy, vz], i * 3); S.life[i] = life; S.max[i] = life; S.size[i] = size; S.grow[i] = grow; S.col.set([r, g, b, a], i * 4); S.a0[i] = a; S.drag[i] = drag; S.grav[i] = grav; S.seed[i] = Math.random(); this.seedDirty = true; S.fresh = true; }
   sparks(p, n = 20, sp = 7, dir = null) { for (let k = 0; k < n; k++) { const a = Math.random() * 6.28, u = Math.random(), s = sp * (0.3 + Math.random()), hx = Math.cos(a) * Math.sqrt(1 - u * u), hz = Math.sin(a) * Math.sqrt(1 - u * u); const dx = dir ? dir[0] * 0.8 : 0, dz = dir ? dir[2] * 0.8 : 0; this.put(this.glow, p[0], p[1], p[2], (hx + dx) * s, (u + 0.3) * s, (hz + dz) * s, 0.25 + Math.random() * 0.55, 0.035 + Math.random() * 0.03, -0.02, 2.6, 1.5, 0.5, 1, 0.6, 9.8); } }
   dust(p, n = 10, c = [0.5, 0.46, 0.4]) { for (let k = 0; k < n; k++) this.put(this.dark, p[0] + (Math.random() - 0.5) * 0.6, p[1] + 0.1, p[2] + (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 3, 0.5 + Math.random(), (Math.random() - 0.5) * 3, 0.7 + Math.random() * 0.8, 0.5, 0.9, c[0], c[1], c[2], 0.28, 1.5, 0); }
   glass(p, n = 14) { for (let k = 0; k < n; k++) { const a = Math.random() * 6.28, s = 1.5 + Math.random() * 3.5; this.put(this.glow, p[0], p[1], p[2], Math.cos(a) * s, 1 + Math.random() * 3, Math.sin(a) * s, 0.4 + Math.random() * 0.5, 0.025, 0, 0.8, 0.95, 1, 0.8, 0.3, 9.8); } }
@@ -47,6 +47,8 @@ export class FX {
     this.t += dt; this.shake = Math.max(0, this.shake - dt * 1.4);
     const H = renderer ? renderer.domElement.height * 0.9 : 900;
     for (const S of [this.glow, this.dark]) {
+      let live = S.fresh ? 1 : 0; S.fresh = false; for (let i = 0; i < N && !live; i++) if (S.life[i] > 0) live = 1;
+      S.points.visible = !!live; if (!live && !S.wasLive) continue; S.wasLive = !!live;      // nothing burning: nothing to do
       S.points.material.uniforms.uT.value = this.t; S.points.material.uniforms.uH.value = H;
       for (let i = 0; i < N; i++) {
         if (S.life[i] <= 0) { S.col[i * 4 + 3] = 0; continue; }

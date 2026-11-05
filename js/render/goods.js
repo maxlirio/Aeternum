@@ -1,5 +1,6 @@
 // What a shop actually has: the stock in its shelves (sim/processes/use.js contents) drawn on them,
 // each item its own model at true size. Buy the last one and it's gone from the shelf.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { usablesOf, contents } from '../sim/processes/use.js';
 import { kitTint } from './city.js';
@@ -30,7 +31,7 @@ export class Goods {
     }
     const M = new THREE.Matrix4(), q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), ex), col = new THREE.Color();
     for (const [k, pts] of places) for (const part of this.lib.cityPart(k)) {
-      const im = new THREE.InstancedMesh(part.geometry, part.material, pts.length);
+      const im = new THREE.InstancedMesh(share(part.geometry), part.material, pts.length);
       pts.forEach((p, i) => { M.compose(p, q, new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, M); if (part.tinted) im.setColorAt(i, col.setRGB(...kitTint(part.tinted, k, p.x, p.z))); });
       im.frustumCulled = false; this.group.add(im);
     }

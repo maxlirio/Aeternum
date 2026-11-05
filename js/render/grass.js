@@ -145,16 +145,20 @@ export class GrassField {
     return res;
   }
   flowerPick(x, z) { const v = Math.sin(x * 0.045 + Math.sin(z * 0.03) * 3) * Math.cos(z * 0.05 + Math.sin(x * 0.02) * 2); return (v * 0.5 + 0.5) * 0.999; }   // meadows of one colour
-  update(x, z, dt, wind) {
+  update(x, z, dt, wind, yaw = null) {
     this.time.value += dt;
     if (wind) this.wind.value.set(wind[0], wind[1]);
-    const moved = !this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 3;
+    const turned = yaw !== null && (this.yaw === undefined || Math.abs(Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw))) > 0.5);
+    const moved = !this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 3 || turned;
     if (!moved) return;
+    if (yaw !== null) this.yaw = yaw;
     // generate missing patches nearest first, within a frame budget; then rebuild the buffers
     const R = Math.ceil(FAR / PATCH) + 1, ci = Math.floor(x / PATCH), cj = Math.floor(z / PATCH), need = [];
     for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) {
       const cx = (ci + a + 0.5) * PATCH, cz = (cj + b + 0.5) * PATCH, d = Math.hypot(cx - x, cz - z);
       if (d > FAR + PATCH) continue;
+      // behind you, past arm's length: not drawn (wide enough that a quick look round is covered until the next fill)
+      if (yaw !== null && d > PATCH * 1.6) { const dot = ((cx - x) * Math.sin(yaw) + (cz - z) * Math.cos(yaw)) / d; if (dot < -0.45) continue; }
       need.push([ci + a, cj + b, d < NEAR + PATCH * 0.7, d]);
     }
     need.sort((p, q) => p[3] - q[3]);

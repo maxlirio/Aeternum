@@ -6,6 +6,7 @@
 // instanced draw (tiers + kerbs + crowns + pads) plus street paint. Street furniture,
 // rooftop kit and stalls are instanced from the city kit only near you.
 // Everything is read from gen/city.js records; the mesh never decides anything.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { materials } from './materials.js';
 import { weather } from './grime.js';
@@ -234,6 +235,7 @@ export class CityView {
       const dd = Math.hypot(s.cu - u, s.cv - v), near = dd < 1500;
       if (s.mesh && s.mesh.castShadow !== near) { s.mesh.castShadow = near; s.mesh.receiveShadow = true; }
       if (s.paint) s.paint.visible = dd < 2200;
+      if (s.minor) { const on = dd < 2600; if (s.minorOn !== on) { s.minorOn = on; for (const m of s.minor) m.visible = on; } }      // (caps, doors and bridges: too small to see from further)
     }
     this.updateProps(u, v, viewer[1]);
   }
@@ -273,7 +275,7 @@ export class CityView {
     this.sectors.set(a + ',' + b, sec);
     if (!kerbs.length) return;
     // tiers + kerb slabs: one instanced draw
-    const n = tiers.length + kerbs.length, mesh = new THREE.InstancedMesh(this.box, this.mat, n), attr = new Float32Array(n * 4), M = new THREE.Matrix4();
+    const n = tiers.length + kerbs.length, mesh = new THREE.InstancedMesh(share(this.box), this.mat, n), attr = new Float32Array(n * 4), M = new THREE.Matrix4();
     let k = 0;
     const put = (r, y, h, st, seed, id, floor = 1, bay = 1) => {
       M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2);
@@ -288,43 +290,43 @@ export class CityView {
       const g = this.shapes[shape].clone(), at = new Float32Array(list.length * 4), sm = new THREE.InstancedMesh(g, cityMaterial(shape), list.length);
       list.forEach(([r, y, h, st, seed, , floor, bay], q) => { M.makeScale(r[2] - r[0], h, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); sm.setMatrixAt(q, M); at[q * 4] = st; at[q * 4 + 1] = seed; at[q * 4 + 2] = floor; at[q * 4 + 3] = bay; });
       g.setAttribute('aCity', new THREE.InstancedBufferAttribute(at, 4)); sm.computeBoundingSphere(); sm.receiveShadow = true; sm.castShadow = true; sec.group.add(sm);
-      const cm = new THREE.InstancedMesh(this.shapes[shape], this.capMat, list.length);    // their cornices
+      const cm = new THREE.InstancedMesh(share(this.shapes[shape]), this.capMat, list.length);    // their cornices
       list.forEach(([r, y, h], q) => { M.makeScale(r[2] - r[0] + 0.9, Math.min(1.4, 0.5 + h * 0.01), r[3] - r[1] + 0.9); M.setPosition((r[0] + r[2]) / 2, y + h, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
-      cm.computeBoundingSphere(); sec.group.add(cm);
+      cm.computeBoundingSphere(); sec.group.add(cm); (sec.minor ||= []).push(cm);
       this.stats.tiers += list.length;
     }
     this.stats.tiers += tiers.length;
     for (const [kind, list] of Object.entries(crowns)) {
-      const cm = new THREE.InstancedMesh(this.crowns[kind], this.crownMat, list.length);
+      const cm = new THREE.InstancedMesh(share(this.crowns[kind]), this.crownMat, list.length);
       list.forEach(([r, y, h, [sw, sd]], q) => { M.makeScale(sw, Math.max(1, h), sd); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
       cm.computeBoundingSphere(); sec.group.add(cm);
     }
     {   // cornices and parapet caps: a thin, slightly proud band on each tier's top (and a plinth band on podiums)
       const caps = tiers.filter(t => t[3] !== STYLE.shed || true);
-      const cm = new THREE.InstancedMesh(this.box, this.capMat, caps.length);
+      const cm = new THREE.InstancedMesh(share(this.box), this.capMat, caps.length);
       caps.forEach(([r, y, h], q) => { const o = Math.min(0.6, 0.012 * Math.min(r[2] - r[0], r[3] - r[1]) + 0.25); M.makeScale(r[2] - r[0] + o * 2, Math.min(1.4, 0.5 + h * 0.01), r[3] - r[1] + o * 2); M.setPosition((r[0] + r[2]) / 2, y + h, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
-      cm.computeBoundingSphere(); cm.receiveShadow = true; sec.group.add(cm);
+      cm.computeBoundingSphere(); cm.receiveShadow = true; sec.group.add(cm); (sec.minor ||= []).push(cm);
     }
     if (bridges.length) {   // skybridges: a deck, a glass tube, a roof with a light strip
-      const deck = new THREE.InstancedMesh(this.box, this.capMat, bridges.length * 2), tube = new THREE.InstancedMesh(this.box, this.bridgeGlass, bridges.length), strip = new THREE.InstancedMesh(this.box, this.stripMat, bridges.length * 2);
+      const deck = new THREE.InstancedMesh(share(this.box), this.capMat, bridges.length * 2), tube = new THREE.InstancedMesh(share(this.box), this.bridgeGlass, bridges.length), strip = new THREE.InstancedMesh(share(this.box), this.stripMat, bridges.length * 2);
       bridges.forEach((q, n) => { const [u0, v0, u1, v1] = q.r, y = base + q.y, cu = (u0 + u1) / 2, cv = (v0 + v1) / 2, w = u1 - u0, d = v1 - v0;
         M.makeScale(w, 0.8, d); M.setPosition(cu, y - 0.8, cv); deck.setMatrixAt(n * 2, M);
         M.makeScale(w, 0.4, d); M.setPosition(cu, y + 3.4, cv); deck.setMatrixAt(n * 2 + 1, M);
         M.makeScale(w - (q.axis ? 0.1 : 0), 3.4, d - (q.axis ? 0 : 0.1)); M.setPosition(cu, y, cv); tube.setMatrixAt(n, M);
         if (q.axis) { M.makeScale(0.15, 0.12, d); M.setPosition(u0 + 0.1, y - 0.2, cv); strip.setMatrixAt(n * 2, M); M.setPosition(u1 - 0.1, y - 0.2, cv); strip.setMatrixAt(n * 2 + 1, M); }
         else { M.makeScale(w, 0.12, 0.15); M.setPosition(cu, y - 0.2, v0 + 0.1); strip.setMatrixAt(n * 2, M); M.setPosition(cu, y - 0.2, v1 - 0.1); strip.setMatrixAt(n * 2 + 1, M); } });
-      for (const m of [deck, tube, strip]) { m.computeBoundingSphere(); sec.group.add(m); } deck.castShadow = true; deck.receiveShadow = true;
+      for (const m of [deck, tube, strip]) { m.computeBoundingSphere(); sec.group.add(m); (sec.minor ||= []).push(m); } deck.castShadow = true; deck.receiveShadow = true;
     }
     if (doors.length) {     // lift lobbies: a lit doorway at each tower's street door
-      const dm = new THREE.InstancedMesh(this.box, this.stripMat, doors.length * 2);
+      const dm = new THREE.InstancedMesh(share(this.box), this.stripMat, doors.length * 2);
       doors.forEach((d, n) => { const along = d.face < 2; M.makeScale(along ? 2.4 : 0.12, 0.18, along ? 0.12 : 2.4); M.setPosition(d.u, base + 3.0, d.v); dm.setMatrixAt(n * 2, M);
         M.makeScale(along ? 1.6 : 0.06, 2.6, along ? 0.06 : 1.6); M.setPosition(d.u, base, d.v); dm.setMatrixAt(n * 2 + 1, M); });
-      dm.computeBoundingSphere(); sec.group.add(dm);
+      dm.computeBoundingSphere(); sec.group.add(dm); (sec.minor ||= []).push(dm);
     }
     if (pads.length) {
-      const pm = new THREE.InstancedMesh(this.box, this.padMat, pads.length);
+      const pm = new THREE.InstancedMesh(share(this.box), this.padMat, pads.length);
       pads.forEach((p, q) => { const r = p.r; M.makeScale(r[2] - r[0], 1.2, r[3] - r[1]); M.setPosition((r[0] + r[2]) / 2, base + p.y - 1.2, (r[1] + r[3]) / 2); pm.setMatrixAt(q, M); });
-      pm.computeBoundingSphere(); pm.receiveShadow = true; sec.group.add(pm);
+      pm.computeBoundingSphere(); pm.receiveShadow = true; sec.group.add(pm); (sec.minor ||= []).push(pm);
     }
     if (beacons.length) {
       const bm = new THREE.InstancedMesh(new THREE.SphereGeometry(0.55, 6, 4), this.beaconMat, beacons.length);
@@ -393,7 +395,7 @@ export class CityView {
     for (const [k, list] of byKind) {
       const proto = this.kit(k); if (!proto) continue;
       for (const part of proto) {
-        const im = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        const im = new THREE.InstancedMesh(share(part.geometry), part.material, list.length);
         list.forEach((p, q) => { Q.setFromAxisAngle(up, p.rot); S.setScalar(p.s || 1); P.set(p.u, base + p.y, p.v); M.compose(P, Q, S).multiply(part.matrix); im.setMatrixAt(q, M);
           if (part.tinted) im.setColorAt(q, col.setRGB(...kitTint(part.tinted, k, p.u, p.v))); });
         im.computeBoundingSphere(); im.castShadow = part.cast; im.receiveShadow = true; this.props.add(im);

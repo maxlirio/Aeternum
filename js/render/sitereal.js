@@ -2,6 +2,7 @@
 // floors, stairs, rooms and furniture, and joins the collision world; its model in the outposts' view
 // is hidden meanwhile. Outside it looks the same as the model it stands in for (one design, one plan).
 // A few at a time, nearest first, built one per frame as you approach.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { buildBuilding } from './building-mesh.js';
@@ -34,7 +35,7 @@ export class SiteInteriors {
     const shell = new THREE.Group(); shell.position.set(it.x - rec.worldO[0], 0, it.z - rec.worldO[1]); shell.rotation.y = it.rot; g.add(shell);
     const col = new THREE.Color(), parts = [];
     for (const p of shellOf(D, rec.plan)) {
-      const im = new THREE.InstancedMesh(p.geometry, this.lib.wornSurface(p.surface, p.tinted), 1); im.setMatrixAt(0, new THREE.Matrix4());
+      const im = new THREE.InstancedMesh(share(p.geometry), this.lib.wornSurface(p.surface, p.tinted), 1); im.setMatrixAt(0, new THREE.Matrix4());
       if (p.tinted) im.setColorAt(0, col.setRGB(...kitTint(p.tinted, it.k, it.x, it.z)));
       im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; shell.add(im); parts.push(p.geometry);
     }
@@ -46,7 +47,7 @@ export class SiteInteriors {
     leaf.castShadow = true;
     // what it's fitted out with: kit models on the floor, built only when you're close to it
     for (const q of rec.plan.decor || []) for (const part of this.kitOf(q.k) || this.kitOf('common_' + q.k) || []) {
-      const im = new THREE.InstancedMesh(part.geometry, part.material, 1), P = new THREE.Vector3(c * q.x + sn * q.z, 0, -sn * q.x + c * q.z), M = new THREE.Matrix4().makeRotationY(it.rot + q.rot).setPosition(P); im.setMatrixAt(0, M); im.userData.shared = true;
+      const im = new THREE.InstancedMesh(share(part.geometry), part.material, 1), P = new THREE.Vector3(c * q.x + sn * q.z, 0, -sn * q.x + c * q.z), M = new THREE.Matrix4().makeRotationY(it.rot + q.rot).setPosition(P); im.setMatrixAt(0, M); im.userData.shared = true;
       if (part.tinted) im.setColorAt(0, col.setRGB(...kitTint(part.tinted, q.k, q.x, q.z))); im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; g.add(im);
     }
     this.group.add(g);

@@ -76,7 +76,7 @@ export class GroundMarks {
     const ws = Math.hypot(wind[0], wind[1]), erode = 1 + ws * ws * 0.05;
     for (const P of this.steps) P.age += dt * erode;
     this.rebuilt += dt; if (this.rebuilt > 6 && this.steps.length) { this.rebuilt = 0; this.rebuild(x, z); }
-    if (this.dirty) { this.dirty = false; this.tex.needsUpdate = true; }
+    if (this.dirty) { this.dirty = false; this.tex.needsUpdate = true; terrainMarks.on.value = this.steps.length ? 1 : 0; }
     // sand lifting off the dunes: a few per frame near you, above a breeze, more on the crests
     if (ws > 3.5) {
       this.acc += dt * 70 * Math.min(1, (ws - 3.5) / 6);
@@ -90,12 +90,13 @@ export class GroundMarks {
         for (let k = 0, n = crest ? 5 : 1; k < n; k++) this.spawn(px + Math.random() * 2, h + 0.05 + Math.random() * (crest ? 0.8 : 0.25), pz + Math.random() * 2, wind[0] * (0.7 + 0.4 * Math.random()), crest ? 0.5 + Math.random() : 0.15, wind[1] * (0.7 + 0.4 * Math.random()), 1 + Math.random() * 2, crest ? 0.11 : 0.06, crest ? 0.13 : 0.09);
       }
     }
-    for (let i = 0; i < GRAINS; i++) {
-      if (this.life[i * 2] <= 0) { this.alpha[i] = 0; continue; }
+    let live = 0; for (let i = 0; i < GRAINS; i++) {
+      if (this.life[i * 2] <= 0) { this.alpha[i] = 0; continue; } live++;
       this.life[i * 2] -= dt; const f = Math.max(0, this.life[i * 2] / this.life[i * 2 + 1]);
       this.vel[i * 3 + 1] -= dt * 0.5; this.pos[i * 3] += this.vel[i * 3] * dt; this.pos[i * 3 + 1] += this.vel[i * 3 + 1] * dt; this.pos[i * 3 + 2] += this.vel[i * 3 + 2] * dt;
       this.size[i] *= 1 + dt * 0.5; if (f < 0.4) this.alpha[i] *= 1 - dt * 3;
     }
+    this.points.visible = live > 0; if (!live && !this.wasLive) return; this.wasLive = live > 0;
     const A = this.points.geometry.attributes; A.position.needsUpdate = true; A.aSize.needsUpdate = true; A.aA.needsUpdate = true;
   }
 }

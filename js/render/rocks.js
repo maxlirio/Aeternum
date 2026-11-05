@@ -87,7 +87,7 @@ export class RockView {
     const k = rock + shape + v + (hi ? 'h' : 'l'); let S = this.sets.get(k); if (S) return S;
     const geo = rockGeometry(hashInts(this.seed, [hashStr(5, rock + shape), v]), shape, rock, hi ? 9 : 3);
     const mat = this.mats[rock] || (this.mats[rock] = rockMaterial(LAYER[rock]));
-    S = { geo, mat, list: [], im: null }; this.sets.set(k, S);
+    S = { geo, mat, list: [], im: null, hi }; this.sets.set(k, S);
     return S;
   }
   update(x, z) {
@@ -121,7 +121,7 @@ export class RockView {
       if (!S.im || S.im.instanceMatrix.count < n) {
         if (S.im) { this.group.remove(S.im); S.im.dispose(); }
         const cap = Math.max(32, Math.ceil(n * 1.5));
-        S.im = new THREE.InstancedMesh(S.geo, S.mat, cap); S.im.frustumCulled = false; S.im.castShadow = true; S.im.receiveShadow = true;
+        S.im = new THREE.InstancedMesh(S.geo, S.mat, cap); S.im.frustumCulled = false; S.im.castShadow = S.hi; S.im.receiveShadow = S.hi;
         S.im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
         S.moss = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1); S.geo = S.geo.clone(); S.geo.setAttribute('aMoss', S.moss); S.im.geometry = S.geo;
         this.group.add(S.im);

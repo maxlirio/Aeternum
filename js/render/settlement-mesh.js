@@ -2,6 +2,7 @@
 // (shell + interior + furniture), streetlights and door leaves. Static geometry is
 // merged per material per 128 m cell so the town costs tens of draw calls, not
 // thousands, while frustum culling still works by cell.
+import { share } from './share.js';
 import { outRoutes } from '../gen/highways.js';
 import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';

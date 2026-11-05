@@ -49,6 +49,16 @@ function cityRows(b, y0, y1) {
   rows.push({ y: y1, kind: 'top' });
   return fill([{ y: y0, kind: 'ground' }, ...rows]);
 }
+// Where drainpipes run down a wall: usually one close by a corner, and on a long wall others between the window bays. By the wall's own numbers.
+function pipesOf(f, bay) {
+  let h = 0; for (const ch of f.key) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
+  const out = [], r = k => ((h ^ Math.imul(k + 1, 2654435761)) >>> 0) % 1000 / 1000;
+  if (f.w < 4) return out;
+  if (r(0) < 0.85) out.push(r(1) < 0.5 ? 0.42 : f.w - 0.42);
+  const b = bay > 1 ? bay : 4.5, gap = 6 + r(2) * 2; for (let a = gap; a < f.w - 3; a += gap) { const q = Math.round(a / b) * b;   // (the first always: there's something to leap to from the corner)
+      if (q > 2 && q < f.w - 2 && !out.includes(q) && (a === gap || r(3 + out.length) < 0.62)) out.push(q); }
+  return out;
+}
 const SIDES = [   // the four sides of a tier in the order you meet them going round (a increasing)
   (r) => ({ o: [r[2], r[1]], t: [0, 1], n: [1, 0], w: r[3] - r[1] }),
   (r) => ({ o: [r[2], r[3]], t: [-1, 0], n: [0, 1], w: r[2] - r[0] }),
@@ -77,6 +87,7 @@ function makeCityFace(world, b, ti, side) {
   const [ox, oz] = c.toWorld(S.o[0], S.o[1]);
   const f = { key: `c:${b.id}:${ti}:${side}`, o: [ox, oz], t: w(...S.t), n: w(...S.n), w: S.w, y0: base + t.y0, y1: base + top, b,
     rows: cityRows(b, t.y0, top).map(r => ({ ...r, y: base + r.y })), label: b.label };
+  f.pipes = pipesOf(f, b.bay);
   f.next = () => cityFace(world, b, ti, (side + 1) % 4);
   f.prev = () => cityFace(world, b, ti, (side + 3) % 4);
   return f;
@@ -187,6 +198,8 @@ export function faceBelowEdge(world, x, y, z, fx, fz, reach = 1.4) {
   townFaces(world, x, y - 0.5, z, reach, test);
   return best;
 }
+// Every climbable wall within r of a point (for what's drawn on them, and for leaping between buildings).
+export function facesNear(world, x, y, z, r, fn) { cityFaces(world, x, y, z, r, fn); townFaces(world, x, y, z, r, fn); towerFaces(world, x, y, z, r, fn); }
 // Is there a wall here at all, too smooth to climb? (For telling the player why not.)
 export function smoothAhead(world, x, y, z, fx, fz) {
   const q = 0.9; return world.solidAt(x + fx * q, y + 1.2, z + fz * q, 0.05);
@@ -208,6 +221,10 @@ export function holdsNear(world, f, a, y, ra, ry, fn) {
       fn({ p, n, a: h, y: row.y, kind: row.kind, face: f });
     }
   }
+  // a drainpipe is a hold all the way up
+  for (const a0 of f.pipes || []) { if (Math.abs(a0 - a) > ra) continue;
+    const y0 = Math.max(f.y0 + 0.4, y - ry), y1 = Math.min(f.y1 - 0.2, y + ry);
+    for (let k = Math.ceil((y0 - f.y0) / CORNER_STEP); f.y0 + k * CORNER_STEP <= y1; k++) { const hy = f.y0 + k * CORNER_STEP, p = pointOn(f, a0, hy, 0.09); if (!f.tower && world.solidAt(p[0] + f.n[0] * 0.25, hy + 0.15, p[2] + f.n[1] * 0.25, 0.05)) continue; fn({ p, n: f.n, a: a0, y: hy, kind: 'pipe', face: f }); } }
   // the corners themselves
   const y0 = Math.max(f.y0 + 0.4, y - ry), y1 = Math.min(f.y1 - 0.15, y + ry);
   for (let k = Math.ceil((y0 - f.y0) / CORNER_STEP); f.y0 + k * CORNER_STEP <= y1; k++) {

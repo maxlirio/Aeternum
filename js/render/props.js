@@ -6,6 +6,7 @@
 //
 // Only props near the player are drawn (interiors are only seen up close); the set is
 // refreshed at the NEAR tier.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { weather } from './grime.js';
@@ -138,7 +139,7 @@ export class PropView {
     for (const [name, list] of this.place) {
       const v = this.lib.variants.get(name);
       for (const pr of v.prims) {
-        const im = new THREE.InstancedMesh(pr.geometry, pr.material, list.length);
+        const im = new THREE.InstancedMesh(share(pr.geometry), pr.material, list.length);
         im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
         if (pr.tinted) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 3), 3);
         this.group.add(im); this.meshes.push({ im, list, tinted: pr.tinted });

@@ -67,7 +67,7 @@ import { CityView } from './render/city.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
-import { HoldsView } from './render/holds.js';
+import { PipeView } from './render/pipes.js';
 import { OutpostView } from './render/outposts.js';
 import { buildingParts, setWindowGlow } from './render/housegen.js';
 import { smallParts } from './render/smallgen.js';
@@ -210,7 +210,7 @@ async function start(fresh) {
   let fauna = null;      // (made once the clock and the store exist)
   let siteRooms = null;        // and walk-in country buildings
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
-  const holdsView = new HoldsView(); scene.add(holdsView.mesh);
+  const pipes = new PipeView(); root.add(pipes.group);
   const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
@@ -664,6 +664,16 @@ async function start(fresh) {
   for (const [k, v] of store.deltas) if (k.startsWith('wreck/') && v.type && v.pos) { const id = k.slice(6), D = wrecks.of(id, v); if (id.startsWith('tr:') || id.startsWith('city:')) trafficGone.add(id); }      // what's still lying where you left it
   const kindOf = T => T.kind === 'bike' ? 'bike' : 'car';
   const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
+  // On foot, a vehicle's in your way like anything else, and you can get up onto one: its box stops at its roof.
+  function carsSolid() {
+    const me = ctrl.pos, out = [], add = (x, y, z, facing, T) => { if (Math.abs(x - me[0]) > 14 || Math.abs(z - me[2]) > 14 || Math.abs(y - me[1]) > 8) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5 }); };
+    for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v)); }
+    for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D);
+    for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
+    for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v));
+    world.carBoxes = out;
+  }
+  let lastTraffic = [], waterTick = 0, shadowTick = 0, rezT = 0, rezN = 0, resolution = Math.min(devicePixelRatio, 2);
   // Things you can hit that aren't walls: parked vehicles, the road's and the city's traffic
   function rideBumps(t) {
     if (!ride) return; const me = ride.pos, T = ride.T, R0 = Math.max(T.L, T.W) * 0.5;
@@ -1232,6 +1242,7 @@ async function start(fresh) {
       if (flight) {
         // the stick: mouse moves it, it springs back to centre; arrow keys too (Up = nose down, like a stick)
         stick[0] *= Math.exp(-dt * 2.5); stick[1] *= Math.exp(-dt * 2.5);
+        world.carBoxes = null;
         const kp = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0), kr = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
         flight.step(dt, { throttle: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), pitch: Math.max(-1, Math.min(1, stick[1] + kp)), roll: Math.max(-1, Math.min(1, stick[0] + kr)),
           yaw: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: weatherAt(planet, t).wind });
@@ -1242,12 +1253,14 @@ async function start(fresh) {
         if (flight) { cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
           cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3); }
       } else if (ride) {
+        world.carBoxes = null;
         rideBumps(t);
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ride.step(dt / n, { fwd: input.fwd, right: input.right, boost: input.run, up: keys.has('Space'), down: keys.has('KeyQ') });
         ctrl.pos = ride.pos.slice(); ctrl.facing = ride.facing; ctrl.speed = Math.abs(ride.speed);
         afterRide(dt);
         if (ride) cam.yaw += Math.atan2(Math.sin(ride.facing - cam.yaw), Math.cos(ride.facing - cam.yaw)) * Math.min(1, dt * (ride.speed > 2 ? 2.5 : 0));   // the camera swings in behind
       } else {
+        carsSolid();
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
         const hard = mayhem?.afterStep(t, dt, ctrl);
         if (hard > 9) hurtPlayer(Math.min(120, (hard - 8.5) ** 2 * 0.9), 'a hard landing');
@@ -1325,13 +1338,15 @@ async function start(fresh) {
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
     avatar.object.visible = !flight;
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
-    holdsView.update(ctrl.mode === 'wall' ? ctrl.wall : null, toRender);
+    pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]);
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
+    shipView.viewer = toRender(...ctrl.pos);
     shipView.update(ships.map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
       if (sh.flying) return null;
+      if (sh.at?.c && Math.hypot(sh.at.c[0] - ctrl.pos[0], sh.at.c[2] - ctrl.pos[2]) > 2200 && !onRun(sh)) return null;     // parked, and too far to see
       if (onRun(sh)) {   // on a cargo run: drawn along its path, recomputed every frame so it moves smoothly
         const tr = tripOf(planet, sh, t, centreOf(s, sh), sh.skip);
         return tr.c ? { id: sh.id, model: sh.model, c: toRender(...tr.c), facing: tr.facing, pitch: tr.pitch, colour: sh.colour, rampDown: false } : null;
@@ -1341,7 +1356,7 @@ async function start(fresh) {
     }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
       .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
-    stepCrashes(dt, t, wx0 => wx0, traffic);
+    stepCrashes(dt, t, wx0 => wx0, traffic); lastTraffic = traffic;
     vehView.update(traffic.filter(v => !trafficGone.has(v.id)).map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => !wrecks.get(v.id)?.hits?.length && !(wrecks.get(v.id)?.burnt > 0) && (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride && !(wrecks.get(ride.v.id)?.hits?.length) ? [{ type: ride.v.type, pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
@@ -1460,7 +1475,7 @@ async function start(fresh) {
     if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
     fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]);
     outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt);
-    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
+    if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind, cam.yaw + (cam.cur != null && cam.cur < 1 ? 0 : 0)); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
@@ -1533,12 +1548,16 @@ async function start(fresh) {
       ui.debug(`${fps} fps · ${info.calls} calls · ${(info.triangles / 1e3).toFixed(0)}k tris · tiles ${terrain.count} (+${terrain.pending}) · pos ${camW.map(v => v.toFixed(0)).join(',')} · jobs ${store.jobs.length} · deltas ${store.deltas.size}`);
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
+    waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
     if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
+    renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0;     // (the sun's slow and the map's sharp: every other frame doesn't show)
+    // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
+    rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

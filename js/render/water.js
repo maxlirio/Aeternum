@@ -124,7 +124,9 @@ export function makeSea(planet) {
   sea.renderReflection = (renderer, scene, camera, hide = []) => {
     const h = planet.seaLevel;
     if (camera.position.y < h + 0.3) { u.uReflOn.value = 0; return; }
-    if ((frameN++ & 1) && u.uReflOn.value) return;           // every other frame is plenty for a reflection
+    // Every other frame is plenty for a reflection; with no water anywhere near, a distant glint can't show whether it's a second old.
+    const every = sea.waterNear === false ? 45 : 2;
+    if ((frameN++ % every) && u.uReflOn.value) return;
     const size = renderer.getDrawingBufferSize(new THREE.Vector2()), w = Math.max(256, Math.round(size.x * 0.4)), ht = Math.max(256, Math.round(size.y * 0.4));
     if (rt.width !== w || rt.height !== ht) rt.setSize(w, ht);
     mirror.copy(camera);

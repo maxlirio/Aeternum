@@ -185,6 +185,12 @@ export class CollisionWorld {
         else { const d = Math.sqrt(d2); pu = du / d * (r - d); pv = dv / d * (r - d); }
         x += pu * C.cos - pv * C.sin; z += pu * C.sin + pv * C.cos; moved = true;
       });
+      // vehicles standing or passing: their own boxes, turned with them (set each frame by main.js; empty while you're driving one)
+      if (this.carBoxes) for (const V of this.carBoxes) {
+        const dx = x - V.x, dz = z - V.z; if (Math.abs(dx) > V.reach + r || Math.abs(dz) > V.reach + r || yFeet > V.y + V.h || yFeet + h < V.y) continue;
+        const fx = V.fx, fz = V.fz, lu = dx * fx + dz * fz, lv = dx * fz - dz * fx, pu = V.hl + r - Math.abs(lu), pv = V.hw + r - Math.abs(lv); if (pu <= 0 || pv <= 0) continue;
+        if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true;
+      }
       for (const b of this.near(x, z)) {
         let [lx, lz] = this.toB(b, x, z);
         if (!this.inside(b, lx, lz, r + 0.5)) continue;

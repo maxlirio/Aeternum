@@ -1,6 +1,7 @@
 // Draws ships: each model's hull and boarding ramp from the asset library, placed by the
 // ship's logical frame (landed) or its flight state (centre, heading, pitch, roll). Models
 // are built in their ship frame, so they need no fitting; a ramp swings about its hinge.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { shipPlan, LAYOUTS } from '../gen/ships.js';
 import { PAINTS_VEHICLE } from './props.js';
@@ -11,7 +12,7 @@ export class ShipView {
     this.group = new THREE.Group(); this.group.name = 'ships';
     const find = k => lib ? [...lib.variants.values()].find(v => v.kind === k) : null;
     const mk = prims => prims.map(pr => {
-      const im = new THREE.InstancedMesh(pr.geometry, pr.material, MAX);
+      const im = new THREE.InstancedMesh(share(pr.geometry), pr.material, MAX);
       im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
       if (pr.tinted) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
       this.group.add(im); return { im, tinted: pr.tinted };
@@ -37,7 +38,7 @@ export class ShipView {
   update(list, dt) {
     const n = {};
     for (const s of list) {
-      const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue;
+      const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue; if (this.viewer && Math.hypot(s.c[0] - this.viewer[0], s.c[2] - this.viewer[2]) > 2400) continue;     // (too far to see)
       const i = n[s.model || 'shuttle'] = (n[s.model || 'shuttle'] ?? 0); if (i >= MAX) continue;
       const { W, D } = M.L;
       this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);

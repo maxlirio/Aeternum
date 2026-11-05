@@ -2,6 +2,7 @@
 // (shell with real openings, floors, stairs, rooms, furniture) and joins the collision
 // world as a structure; its stand-in box in the city's instanced mesh is hidden meanwhile.
 // Built a couple per frame as you approach, dropped when you're far.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { buildBuilding } from './building-mesh.js';
@@ -30,7 +31,7 @@ export class CityInteriors {
     const [o, ex, ez] = this.frame(rec), X = new THREE.Vector3(...ex), Z = new THREE.Vector3(...ez), Y = new THREE.Vector3(0, 1, 0), base = new THREE.Matrix4().makeBasis(X, Y, Z), M = new THREE.Matrix4(), col = new THREE.Color();
     for (const d of rec.decor) for (const part of this.cityView.kit(d.k) || this.cityView.kit('common_' + d.k)) {
       const P = new THREE.Vector3(...o).addScaledVector(X, d.x).addScaledVector(Z, d.z);
-      const im = new THREE.InstancedMesh(part.geometry, part.material, 1); M.copy(base).multiply(new THREE.Matrix4().makeRotationY(d.rot)).setPosition(P); im.setMatrixAt(0, M);
+      const im = new THREE.InstancedMesh(share(part.geometry), part.material, 1); M.copy(base).multiply(new THREE.Matrix4().makeRotationY(d.rot)).setPosition(P); im.setMatrixAt(0, M);
       if (part.tinted) im.setColorAt(0, col.setRGB(...kitTint(part.tinted, d.k, d.x, d.z))); im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; this.group.add(im); L.items.push(im);
     }
   }

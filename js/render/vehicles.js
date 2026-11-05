@@ -1,6 +1,7 @@
 // Draws vehicles: each catalogue type's model (assets/vehicles.json → 'veh_<id>' in the
 // asset library), instanced, fitted to its type's box at its logical position, heading and
 // (for the one being ridden) pitch and lean. Paint per vehicle; taxis and limousines wear their own.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { TYPES } from '../gen/vehicles.js';
 import { PAINTS_VEHICLE } from './props.js';
@@ -22,7 +23,7 @@ export class VehicleView {
   meshesFor(K) {
     if (K.meshes) return K.meshes;
     K.meshes = K.prims.map(pr => {
-      const im = new THREE.InstancedMesh(pr.geometry, pr.material, MAX);
+      const im = new THREE.InstancedMesh(share(pr.geometry), pr.material, MAX);
       im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
       if (pr.tinted) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
       this.group.add(im); return { im, tinted: pr.tinted };

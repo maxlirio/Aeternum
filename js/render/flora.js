@@ -2,6 +2,7 @@
 // stand-in for trees further out, nothing beyond. Tiles are generated a few per frame
 // as you move, so nothing stalls; instance buffers are rebuilt when you've moved far
 // enough to matter. Leaves take the planet's own grass colour.
+import { share } from './share.js';
 import * as THREE from 'three';
 import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.js';
 
@@ -92,7 +93,7 @@ export class FloraView {
         const d = Math.hypot(p.x - x, p.z - z), K = this.kinds[p.sp]; if (!K) continue;
         if (SPECIES[p.sp].tree && d < NEAR_TREE) { nearT.push(p, d); continue; }
         if (!SPECIES[p.sp].tree && d < NEAR[p.sp]) K.list.push(p);
-        else if (SPECIES[p.sp].tree && d < FAR && (d < 300 || p.tint < (d < 600 ? 0.55 : 0.25))) this.kinds[p.sp + '_far'].list.push(p);
+        else if (SPECIES[p.sp].tree && d < FAR && (d < 220 || p.tint < (d < 450 ? 0.6 : d < 700 ? 0.38 : 0.2))) this.kinds[p.sp + '_far'].list.push(p);
       }
     }
     // Only so many full trees: in deep forest the nearest get the real model and the rest their stand-ins
@@ -108,13 +109,13 @@ export class FloraView {
       if (!P.im || P.im.instanceMatrix.count < n) {
         if (P.im) { this.group.remove(P.im); P.im.dispose(); }
         const cap = Math.max(64, Math.ceil(n * 1.4));
-        P.im = new THREE.InstancedMesh(P.pr.geometry, P.pr.material, cap); P.im.frustumCulled = false; P.im.castShadow = !K.far; P.im.receiveShadow = true;
+        P.im = new THREE.InstancedMesh(share(P.pr.geometry), P.pr.material, cap); P.im.frustumCulled = false; P.im.castShadow = !K.far; P.im.receiveShadow = !K.far;
         if (P.leafy || K.far) P.im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
         this.group.add(P.im);
       }
     }
     K.list.forEach((p, i) => {
-      const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint);
+      const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint) * (K.far ? 1.2 : 1);
       this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));
       if (K.far) this._c.setScalar(1.25 + 0.5 * p.tint);
