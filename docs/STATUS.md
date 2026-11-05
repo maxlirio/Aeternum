@@ -183,3 +183,5 @@ Every headless browser goes through `tools/guard.mjs` and `tools/guard.sh`: a se
 | **Swimming**: deep sea or river holds you at the surface, slower than walking, swim pose, jump disabled, wade out at the shore | `test.mjs swim`; `shots swim` |
 
 Limit: only the home settlement is built as visible geometry. Other towns exist as data (graded ground, rivers avoid them, residents can reference them), so they have no bridges.
+
+Surfaces: canvas on tents, tarps and stalls; carpet on rugs and office floors; cobbled lanes where a planet's culture builds in stone (masonry, garden).

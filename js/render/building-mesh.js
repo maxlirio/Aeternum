@@ -135,9 +135,10 @@ function roomDecor(mb, M, plan, b, rng) {
     };
     if (home || b.type === 'office') { run('x', z0, x0 + ins, x1 - ins, 1); run('x', z1, x0 + ins, x1 - ins, -1); run('z', x0, z0 + ins, z1 - ins, 1); run('z', x1, z0 + ins, z1 - ins, -1); }
     const p = room.purpose, w = x1 - x0, d = z1 - z0;
+    if (b.type === 'office' && w > 2.2 && d > 2.2) mb.box(M.carpet, x0 + 0.03, y + 0.002, z0 + 0.03, x1 - 0.03, y + 0.01, z1 - 0.03, [0.62, 0.64, 0.7]);     // offices are carpeted
     if (home && (p === 'living' || p === 'bedroom' || p === 'studio') && w > 2.5 && d > 2.5) {
       const rw = Math.min(2.6, w * 0.5), rd = Math.min(1.8, d * 0.45), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-      mb.box(M.fabric, cx - rw / 2, y + 0.002, cz - rd / 2, cx + rw / 2, y + 0.014, cz + rd / 2, rng.pick(FABRIC));                       // rug
+      mb.box(M.carpet, cx - rw / 2, y + 0.002, cz - rd / 2, cx + rw / 2, y + 0.014, cz + rd / 2, rng.pick(FABRIC));                       // rug
       mb.box(M.fabric, cx - rw / 2 + 0.08, y + 0.014, cz - rd / 2 + 0.08, cx + rw / 2 - 0.08, y + 0.016, cz + rd / 2 - 0.08, rng.pick(FABRIC));   // its border
     }
     if (home || b.type === 'office') {   // a picture or two, on walls without doors

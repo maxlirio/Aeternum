@@ -1,5 +1,6 @@
 // The country's farms, mines, masts and ruins near you (gen/outposts.js), from the shared kit.
 // Rebuilt when you've moved a way; far ones are simply not there yet, past the haze.
+import { cultureOf } from '../gen/culture.js';
 import { share } from './share.js';
 import * as THREE from 'three';
 import { sitesNear } from '../gen/outposts.js';
@@ -38,7 +39,7 @@ export class OutpostView {
     sitesNear(this.planet, x, z, NEAR + 300, s => { if (!s.lanes?.length || Math.hypot(s.x - x, s.z - z) > NEAR + 300) return;
       for (const [x0, z0, x1, z1, w] of s.lanes) { const L = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(L / 3)), ux = (x1 - x0) / L, uz = (z1 - z0) / L, b = pos.length / 3;
         for (let i = 0; i <= n; i++) { const t = i / n, f = t * L, wob = Math.sin(f * 0.09) * 1.1 + Math.sin(f * 0.031 + 2) * 1.6, W = w * (0.85 + 0.15 * Math.sin(f * 0.21)), cx = x0 + ux * f - uz * wob, cz = z0 + uz * f + ux * wob;
-          for (const q of [-1, -0.45, 0.45, 1]) { const px = cx - uz * W * q, pz = cz + ux * W * q; pos.push(px, surfaceAt(this.planet, px, pz).h + 0.05, pz); uv.push(px, pz); col.push(1, 1, 1, Math.abs(q) === 1 ? 0 : 0.92); } }
+          for (const q of [-1, -0.45, 0.45, 1]) { const px = cx - uz * W * q, pz = cz + ux * W * q; pos.push(px, surfaceAt(this.planet, px, pz).h + 0.05, pz); uv.push(px, pz); col.push(1, 1, 1, Math.abs(q) === 1 ? 0 : 0.92 * Math.min(1, Math.min(i, n - i) / 2)); } }     // (both edges and both ends fade into the ground)
         for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) { const a = b + i * 4 + j, c = a + 4; idx.push(a, a + 1, c, a + 1, c + 1, c); }
       } });
     // the tracks that bring them in from the road (near stretches only: from further off it's the land's own colour)
@@ -49,7 +50,8 @@ export class OutpostView {
     this.sowFields(x, z);
     if (!idx.length) return;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals();
-    if (!this.laneMat) { const b = this.lib?.surface('dirt'); this.laneMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x776a55, roughness: 1 }); this.laneMat.vertexColors = true; this.laneMat.transparent = true; this.laneMat.depthWrite = false; this.laneMat.polygonOffset = true; this.laneMat.polygonOffsetFactor = -3; this.laneMat.polygonOffsetUnits = -12; }     // fades out into the grass at its edges
+    if (!this.laneMat) { const paved = ['masonry', 'garden'].includes(cultureOf(this.planet).key), b = this.lib?.surface(paved ? 'cobble' : 'dirt');     // (a people who build in stone lay their lanes in it too)
+      this.laneMat = b ? b.clone() : new THREE.MeshStandardMaterial({ color: 0x776a55, roughness: 1 }); this.laneMat.vertexColors = true; this.laneMat.transparent = true; this.laneMat.depthWrite = false; this.laneMat.polygonOffset = true; this.laneMat.polygonOffsetFactor = -3; this.laneMat.polygonOffsetUnits = -12; }     // fades out into the grass at its edges
     const m = new THREE.Mesh(g, this.laneMat); m.receiveShadow = true; m.name = 'lanes'; this.group.add(m);
   }
   // a building close enough to be real (render/sitereal.js) stands in for its model here

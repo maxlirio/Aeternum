@@ -125,6 +125,7 @@ export function materials() {
     plaster: std('plaster', 3, { vertexColors: true }, 'render'),
     tiles: std('tiles', 4, { vertexColors: true }, 'floortile'),
     fabric: std('fabric', 1, { vertexColors: true }, 'fabric'),
+    carpet: std('fabric', 2, { vertexColors: true }, 'carpet'),
     wood: std('wood', 1.5, { vertexColors: true }, 'wood'),
     metal: std('metal', 1.5, { vertexColors: true, metalness: 0.6 }, 'metal'),
     door: std('metal', 2, { color: 0x8a9096, metalness: 0.7, roughness: 0.4 }),
