@@ -56,7 +56,7 @@ const TONES = {
   sandstone: [[0.62, 0.3, 0.16], [0.72, 0.44, 0.24], [0.68, 0.36, 0.3], [0.74, 0.58, 0.36], [0.56, 0.32, 0.34], [0.8, 0.66, 0.5]],
   sand:      [[0.8, 0.66, 0.44], [0.82, 0.56, 0.32], [0.88, 0.8, 0.66], [0.72, 0.46, 0.3], [0.78, 0.7, 0.58]],
   heath:     [[0.42, 0.3, 0.32], [0.46, 0.3, 0.2], [0.34, 0.32, 0.26], [0.38, 0.28, 0.38], [0.5, 0.36, 0.22]],
-  moss:      [[0.26, 0.34, 0.12], [0.18, 0.32, 0.22], [0.36, 0.34, 0.14], [0.2, 0.28, 0.24]],
+  moss:      [[0.26, 0.34, 0.11], [0.22, 0.31, 0.1], [0.36, 0.34, 0.12], [0.26, 0.3, 0.09]],
   litter:    [[0.44, 0.28, 0.08], [0.5, 0.28, 0.06], [0.38, 0.3, 0.09], [0.46, 0.26, 0.05]],
 };
 
@@ -176,7 +176,7 @@ export function shapeLand(planet, x, z, h) {
 // ny: 1 = flat. Worked or graded ground, shores and snow are the caller's to lay over this.
 export function groundAt(planet, x, z, ny, moist, w, col, C = planet.climate) {
   w.fill(0);
-  const tones = landTones(planet), N = planet.noise, patch = 0.5 + 0.5 * N.detail.fbm(x / 21, z / 21, 3), gm = smoothstep(0.25, 0.75, moist), T = { grass: [C.dry[0] + (C.grass[0] - C.dry[0]) * gm, C.dry[1] + (C.grass[1] - C.dry[1]) * gm, C.dry[2] + (C.grass[2] - C.dry[2]) * gm], dirt: C.dry, litter: tones.litter, sand: tones.sand, cracked: [0.86, 0.82, 0.74], moss: tones.moss, peat: [0.22, 0.17, 0.08], ash: [0.2, 0.19, 0.18], heath: tones.heath, gravel: [0.3, 0.29, 0.27], snow: [C.snow, C.snow, C.snow * 1.02] };
+  const tones = landTones(planet), N = planet.noise, patch = 0.5 + 0.5 * N.detail.fbm(x / 21, z / 21, 3), gm = smoothstep(0.25, 0.75, moist), T = { grass: [C.dry[0] + (C.grass[0] - C.dry[0]) * gm, C.dry[1] + (C.grass[1] - C.dry[1]) * gm, C.dry[2] + (C.grass[2] - C.dry[2]) * gm], dirt: C.dry, litter: tones.litter, sand: tones.sand, cracked: [0.86, 0.82, 0.74], moss: tones.moss, peat: [0.2, 0.17, 0.06], ash: [0.2, 0.19, 0.18], heath: tones.heath, gravel: [0.3, 0.29, 0.27], snow: [C.snow, C.snow, C.snow * 1.02] };
   const R = { plain: C.rock, sandstone: tones.sandstone, basalt: [0.13, 0.12, 0.12], granite: [0.29, 0.28, 0.27], pale: [0.6, 0.57, 0.5] };
   let rockTot = 0, r0 = 0, g0 = 0, b0 = 0, s0 = 0, g1 = 0, b1 = 0;
   const lands = landAt(planet, x, z);

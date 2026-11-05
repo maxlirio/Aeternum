@@ -467,7 +467,7 @@ def mat_sandstone(seed):  # bedded sandstone cliff: many thin strata of differin
     beds = sum(np.sin(2 * math.pi * (y * k + w * q + p)) * e for k, q, p, e in ((5, 0.7, 0.1, 0.5), (11, 0.9, 0.37, 0.3), (23, 1.2, 0.61, 0.2), (47, 1.4, 0.83, 0.12)))
     beds = np.clip(0.5 + 0.5 * beds, 0, 1)
     f1, f2, _ = worley(7, seed + 3); wob = spectral(N, 1.4, seed + 4)
-    joint = np.clip(1 - (f2 - f1 + 0.15 * (wob - 0.5)) * 30, 0, 1) * np.clip((spectral(N, 1.5, seed + 5) - 0.42) * 4, 0, 1)
+    joint = 0.5 * np.clip(1 - (f2 - f1 + 0.3 * (wob - 0.5)) * 42, 0, 1) * np.clip((spectral(N, 1.5, seed + 5) - 0.5) * 4, 0, 1)
     pit = np.clip((spectral(N, 0.7, seed + 6) - 0.74) * 8, 0, 1)
     v = 0.3 + 0.42 * beds + 0.1 * (a - 0.5) + 0.08 * (f - 0.5)
     col = lerp3([0.38, 0.27, 0.2], [0.82, 0.68, 0.53], np.clip(v, 0, 1)) * (1 - 0.55 * joint - 0.3 * pit)[..., None]

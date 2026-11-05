@@ -153,3 +153,16 @@ not been measured beyond headless runs (40–120 fps headless).
 
 ## Test browsers
 Every headless browser goes through `tools/guard.mjs` and `tools/guard.sh`: a separate process that stops it if the tool dies, past a time limit, over 7 GB, under 20% machine memory or over 4 GB of swap. Each run logs its peak in `out/guard.log`. Added after a kernel panic on 2026-11-04 with one Chrome helper at 47 GB. Test browsers also run with background-timer throttling off: a fresh headless tab sometimes counted as hidden, and the load crawled for minutes.
+
+## Kinds of land, behaviour of ground, animals, weapons (5 Nov 2026)
+
+| Thing | State |
+|---|---|
+| **Kinds of land** (`gen/land.js`): meadow, forest, boulder field, badlands, dunes, salt pan, marsh, lava, moor, karst. Regions about 1.5 km across, each with its own landform, ground, rock and plants. Which a planet has, how common and what colour comes from its seed | Done |
+| **Ground texture arrays**: terrain blends 16 surfaces per vertex; soft ground from above, rock from three sides | Done |
+| **Rock models** (`gen/rocks.js`, `render/rocks.js`): boulders, slabs, pillars generated per planet, solid to walkers, moss where damp | Done |
+| **Ground behaviour** (`FEEL` in `gen/land.js`): speed, sink, footprints, dust, loose slopes. Dune slip faces carry you down; prints fill in with wind; sand blows off crests; ripples lie across the planet's prevailing wind | Done. **Dunes don't migrate over time**: terrain is a pure function of position |
+| **Animals** (`gen/fauna.js`, `gen/creature.js`, `sim/fauna.js`, `render/fauna.js`): six original body plans, skin generated from soft shapes, planted feet by leg IK, herding, fear, charging when hurt, kills remembered three days, vehicles hit them | Done. No sounds, no feeding or breeding, no predators hunting them. Gliders are only seen circling |
+| **Weapons** (`gen/weapons.js`, `render/weapons.js`): 15, designed per planet from its culture; grip at origin, +z along barrel or blade, `meta.off` for a second hand, `meta.muzzle`/`tip` | Done. Placeholder arms only approximate the second hand until the real character arrives. Shots use a thicker hit for the scatter gun, not separate pellets |
+| **Levelled sites**: airfields, bases and factories stand on graded pads (`padAt` in `gen/outposts.js`) | Done |
+| **Not used yet**: cobble, canvas, carpet textures are baked but on nothing | Open |

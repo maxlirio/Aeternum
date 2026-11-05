@@ -19,6 +19,7 @@ export function rockTile(planet, ti, tj) {
     if (s.town > 0.01 || s.road > 0.01 || s.wet > 0.05 || s.h < planet.seaLevel + 1) return;
     if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) return;
     const e = Math.max(0.8, size * 0.4), hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h, ny = e / Math.hypot(hx, e, hz);
+    if (ny < 0.62) return;          // nothing rests on a cliff
     const c = mainLand(planet, x, z), shape = sp, tall = shape === 'pillar' ? size * (2 + 2.2 * r(9)) : shape === 'slab' ? size * (0.3 + 0.25 * r(9)) : size * (0.65 + 0.5 * r(9));
     const sink = 0.12 + 0.2 * (1 - ny);     // sat in the ground, not on it
     out.push({ x, z, y: s.h - tall * sink, shape, rock: c.T.rock, moss: c.T.soft.moss || c.T.soft.peat ? 1 : c.kind === 'meadow' || c.kind === 'moor' || c.kind === 'karst' ? 0.3 : 0,
