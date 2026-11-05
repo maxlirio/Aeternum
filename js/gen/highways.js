@@ -23,7 +23,7 @@ export function routeLines(planet, s) {
 const bridged = new WeakSet();
 export function outRoutes(planet, s) {
   const rs = routeLines(planet, s);
-  if (!bridged.has(rs)) { bridged.add(rs); if (s.rx === 0 && s.rz === 0) for (const r of rs) addBridges(planet, r); }     // (the one town that's built: elsewhere a deck would be nothing you could see)
+  if (!bridged.has(rs)) { bridged.add(rs); for (const r of rs) addBridges(planet, r); }
   return rs;
 }
 // Over a river the road goes on a bridge: a span from bank to bank, high enough to clear the water, easing up to it either side.

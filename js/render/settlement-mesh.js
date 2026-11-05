@@ -8,7 +8,7 @@ import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { materials } from './materials.js';
-import { buildBuilding } from './building-mesh.js';
+import { buildBuilding, facadeOf } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
 import { surfaceHeight } from '../gen/surface.js';
 
@@ -23,15 +23,10 @@ export function buildingFrame(s, b) {
   return [[o[0], s.h + PLINTH, o[2]], rot(b.ex), rot(b.ez)];
 }
 
-export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null) {
+// Streets, pavements, pads and the roads out of town, in the town's own space. Cheap enough to stand for a town seen from far off.
+export function buildStreets(planet, s) {
   const M = materials();
-  const group = new THREE.Group();
-  group.name = 'settlement:' + s.name;
-  group.position.set(s.cx, 0, s.cz);
-  const cells = new Map();
-  const cellFor = (u, v) => { const k = Math.floor(u / CELL) + ',' + Math.floor(v / CELL); if (!cells.has(k)) { const mb = new MeshBuilder(); if (propView) mb.propSink = (pr, fr, len, dep, rng) => propView.add(pr, fr, len, dep, rng); cells.set(k, mb); } return cells.get(k); };
   const rotFrame = () => [[0, 0, 0], [s.cos, 0, s.sin], [-s.sin, 0, s.cos]];
-
   // ---- streets (flat plateau: exact heights)
   const gb = new MeshBuilder(); gb.setFrame(...rotFrame());
   const y = s.h;
@@ -102,7 +97,32 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     for (const [a, b2, c2, d2] of [[x0 + 1, z0 + 1, x1 - 1, z0 + 1.3], [x0 + 1, z1 - 1.3, x1 - 1, z1 - 1], [x0 + 1, z0 + 1, x0 + 1.3, z1 - 1], [x1 - 1.3, z0 + 1, x1 - 1, z1 - 1], [cx - 3, cz - 0.2, cx + 3, cz + 0.2], [cx - 0.2, cz - 3, cx + 0.2, cz + 3]])
       flat(M.marking, a, b2, c2, d2, y + 0.125, [0.95, 0.75, 0.2]);
   }
-  group.add(...gb.build({ castShadow: false }));
+  return gb.build({ castShadow: false });
+}
+
+// Each building as a plain block in its own colours: a town from a long way off, standing in until the real one's built.
+export function buildBlocks(planet, s) {
+  const M = materials(), mb = new MeshBuilder();
+  for (const b of s.buildings) {
+    const plan = buildingPlan(planet, s, b), { mat, col } = facadeOf(b, M);
+    mb.setFrame(...buildingFrame(s, b));
+    mb.box({ default: mat, py: M.concrete }, 0.25, -0.5, 0.25, b.w - 0.25, plan.F * plan.H - 0.1, b.d - 0.25, col, new Set(['ny']));
+  }
+  return mb.build();
+}
+
+// Options: streets (false: only what stands on them), slice (ms: give each frame back after this long, for a town built while you play), into (the group's put in the world as it fills).
+export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null, { streets = true, slice = 0, into = null } = {}) {
+  const M = materials();
+  const group = new THREE.Group();
+  group.name = 'settlement:' + s.name;
+  group.position.set(s.cx, 0, s.cz);
+  into?.add(group);
+  const cells = new Map();
+  const cellFor = (u, v) => { const k = Math.floor(u / CELL) + ',' + Math.floor(v / CELL); if (!cells.has(k)) { const mb = new MeshBuilder(); if (propView) mb.propSink = (pr, fr, len, dep, rng) => propView.add(pr, fr, len, dep, rng); cells.set(k, mb); } return cells.get(k); };
+  let lastBreath = performance.now();
+  const breathe = () => new Promise(r => { const done = () => { lastBreath = performance.now(); r(); }; requestAnimationFrame(done); setTimeout(done, 200); });
+  if (streets) group.add(...buildStreets(planet, s));
 
   // ---- buildings
   const doors = [];
@@ -116,9 +136,10 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const lad = ladderOf(planet, s, b);
     if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
     for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame });
-    if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
+    if (slice) { if (performance.now() - lastBreath > slice) await breathe(); }
+    else if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
   }
-  for (const mb of cells.values()) group.add(...mb.build());
+  for (const mb of cells.values()) { group.add(...mb.build()); if (slice) await breathe(); }     // (a block at a time: each goes up to the graphics card as it's drawn)
   if (propView) group.add(propView.build());
 
   // ---- streetlights (instanced)

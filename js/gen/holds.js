@@ -110,7 +110,7 @@ function cityFaces(world, x, y, z, r, fn) {
 // ---- town buildings: the real windows and storey bands of the plan
 const townFace = (world, b, side) => memo(world, `t:${b.key}:${side}`, () => makeTownFace(world, b, side));
 function makeTownFace(world, b, side) {
-  const s = world.s, plan = world.colliders(b).plan, { w, d, F, H } = plan, base = world.baseOf(b);
+  const s = world.townOf(b), plan = world.colliders(b).plan, { w, d, F, H } = plan, base = world.baseOf(b);
   const toW = (lx, lz) => s.toWorld(b.O[0] + b.ex[0] * lx + b.ez[0] * lz, b.O[1] + b.ex[1] * lx + b.ez[1] * lz);
   const dir = (lx, lz) => { const [a, e] = toW(lx, lz), [a0, e0] = toW(0, 0); return [a - a0, e - e0]; };
   const def = [

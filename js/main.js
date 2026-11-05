@@ -6,11 +6,13 @@ import * as THREE from 'three';
 import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
 import { HOMEWORLD } from './core/address.js';
 import { makePlanet } from './gen/planet.js';
-import { getSettlement, address } from './gen/settlement.js';
+import { getSettlement, settlementNear, townOfKey, address } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { occupation } from './gen/population.js';
-import { livePopulation, refreshLife } from './world/town.js';
+import { livePopulation, refreshLife, townContext } from './world/town.js';
+import { RiverFeed } from './world/riverfeed.js';
+import { TownStreamer } from './render/towns.js';
 import { registerLifeJobs, scheduleLife, LIFE_EVENTS } from './sim/processes/life.js';
 import { Residents } from './sim/residents.js';
 import { CrowdView } from './render/crowd.js';
@@ -131,13 +133,15 @@ async function start(fresh) {
   ui.loading('Generating the world…', 0);
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, HOMEWORLD);
-  const s = getSettlement(planet, 0, 0);
+  // s, pop, polity, ctx and the like below are the town you're in. homeS and homeCtx stay where you started.
+  let s = getSettlement(planet, 0, 0); const homeS = s;
   const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched); registerUseJobs(sched);
   ui.loading('Counting the townsfolk…', 0.01); await tick();
   // the town as it stands now: generated residents with their lives since laid over them
-  const pop = livePopulation(planet, s, store, store.meta.gameTime), polity = getPolity(planet, s);
-  const ctx = { store, sched, planet, s, pop, polity };
-  ctx.doorstepOf = bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; };
+  let pop = livePopulation(planet, s, store, store.meta.gameTime), polity = getPolity(planet, s);
+  const homeCtx = { store, sched, planet, s, pop, polity }; let ctx = homeCtx;
+  sched.ctxFor = (town, c) => townContext(homeCtx, town) === homeCtx ? c : { ...townContext(homeCtx, town), offline: c.offline };
+  ctx.doorstepOf = bKey => { const q = townOfKey(planet, bKey) || homeS, b = q.buildings.find(x => x.key === bKey); return doorstep(q, b, buildingPlan(planet, q, b)).pos; };
   { const pl = store.player; // saves from before careers / fines existed
     if (pl) { pl.inventory ??= []; pl.hunger ??= 0.25; pl.skills ??= startingSkills(U, pl.serial || 1, pl.age); pl.applications ??= []; pl.career ??= []; pl.job ??= null; pl.fines ??= []; pl.warrant ??= null; pl.custody ??= null; } }
 
@@ -195,12 +199,12 @@ async function start(fresh) {
   const terrain = new TerrainStreamer(planet, root);
   // furniture from the built asset library; the box furniture remains the fallback if it can't load
   const propLib = params.has('boxprops') ? null : await loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
-  const propView = propLib ? new PropView(propLib) : null;
+  let propView = propLib ? new PropView(propLib) : null;
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
   const grass = new GrassField(planet); root.add(grass.group);
-  const town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
+  let town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
@@ -218,10 +222,12 @@ async function start(fresh) {
   const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
-  const doorView = new DoorView(s, town.doors);
+  let doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
-  const doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
-  const world = new CollisionWorld(planet, s, (b, id) => doorView.isPassable(doorIndex.get(b.key + '#' + id)));
+  let doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
+  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet);
+  const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
+  const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
   const sea = makeSea(planet); scene.add(sea);
   // where someone told you to go: a tall pale beam you can see over the rooftops
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 120, 12, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, fog: false }));
@@ -238,7 +244,7 @@ async function start(fresh) {
   const roomLight = new THREE.PointLight(0xffe2c0, 0, 14, 1.6); scene.add(roomLight);
   // ---- residents
   ui.loading('Waking the town…', 0.68); await tick();
-  const residents = new Residents(pop);
+  let residents = new Residents(pop);
   residents.refresh(clock.now(), ctrl.pos, null);
   avatar.planet = planet;
   const crowd = new CrowdView(scene);
@@ -263,7 +269,7 @@ async function start(fresh) {
     }
     return best;
   };
-  ctx.onServe = t => startPursuit(nearestOfficerOnDuty(t), player.warrant?.reason || 'a warrant');
+  homeCtx.onServe = function (t) { if (this.s === s) startPursuit(nearestOfficerOnDuty(t), player.warrant?.reason || 'a warrant'); };     // (the law where the warrant was issued: it can only send someone if you're there)
 
   // warm up the terrain around the player before revealing the world
   for (let i = 0; terrain.pending || i === 0; i++) {
@@ -289,7 +295,7 @@ async function start(fresh) {
   let seenEvents = store.events.length;
   sched.add(TIER.NEAR, { update: () => {
     for (const e of store.events.slice(seenEvents)) {
-      if (e.type === 'fined' && e.who === player.id) ui.toast(`${polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}. Pay at their office within ${PAY_DAYS} days.`, 'bad', 9000);
+      if (e.type === 'fined' && e.who === player.id) ui.toast(`${e.authority || polity.securityName} fined you <b>${e.amount} ${e.currency}</b> — ${e.offence.toLowerCase()}. Pay at their office within ${PAY_DAYS} days.`, 'bad', 9000);
       if (e.type === 'case_opened') ui.toast(`${e.reporter} reported a break-in to ${e.authority}.`, 'warn', 6000);
       if (e.type === 'case_cold') ui.toast(`${e.authority} closed a break-in case unsolved.`, '', 6000);
       if (LIFE_EVENTS.includes(e.type) && e.rel) ui.toast(describeEvent(e, planet).replace(/<span class="when">.*?<\/span>\s*/, ''), e.type === 'died' ? 'bad' : '', 10000);
@@ -320,7 +326,7 @@ async function start(fresh) {
   sched.add(TIER.NEAR, { update: dt => { // shift attendance: being inside the workplace while the shift runs
     const t = clock.now();
     atWork = attend(ctx, t, dt, world.locate(...ctrl.pos)?.b?.key || null);
-    if (onShiftNow(player, t) && !atWork && shiftNoticed !== player.shift.t0) { shiftNoticed = player.shift.t0; ui.toast(`Your shift at <b>${player.job.employer}</b> has started (${address(s, pop.buildingByKey.get(player.job.b))}).`, 'warn', 8000); }
+    if (onShiftNow(player, t) && !atWork && shiftNoticed !== player.shift.t0) { shiftNoticed = player.shift.t0; ui.toast(`Your shift at <b>${player.job.employer}</b> has started (${(q => address(q, q.buildings.find(x => x.key === player.job.b)))(townOfKey(planet, player.job.b))}).`, 'warn', 8000); }
     if (atWork) shiftNoticed = player.shift.t0;
   } });
   sched.add(TIER.NEAR, { update: dt => { player.hp = Math.min(100, (player.hp ?? 100) + 80 * dt / planet.dayLength); } });
@@ -383,7 +389,7 @@ async function start(fresh) {
   };
   const insideBuilding = b => { const loc = world.locate(...ctrl.pos); return loc?.b === b; };
   // ladders: at the foot, or on the roof by the top
-  const ladders = laddersIn(planet, s);
+  let ladders = laddersIn(planet, s);
   const nearLadder = () => {
     if (ctrl.mode !== 'walk') return null;
     const [x, y, z] = ctrl.pos;
@@ -490,7 +496,7 @@ async function start(fresh) {
     const [ax, az] = world.toB(loc.b, ctrl.pos[0] + Math.sin(ctrl.facing), ctrl.pos[2] + Math.cos(ctrl.facing));
     const fx = ax - loc.lx, fz = az - loc.lz;           // your facing, in the building's frame
     let best = null, bs = Infinity;
-    for (const u of usablesOf(planet, s, loc.b)) {
+    for (const u of usablesOf(planet, world.townOf(loc.b), loc.b)) {
       const pr = u.pr; if (pr.k !== loc.k) continue;
       const nx = Math.max(pr.x0, Math.min(loc.lx, pr.x1)), nz = Math.max(pr.z0, Math.min(loc.lz, pr.z1));
       const d = Math.hypot(nx - loc.lx, nz - loc.lz); if (d > 1.0) continue;
@@ -501,7 +507,7 @@ async function start(fresh) {
     }
     return best;
   };
-  const toWorldDir = (b, a) => { const p0 = buildingToWorld(s, b, 0, 0, 0), p1 = buildingToWorld(s, b, Math.sin(a), 0, Math.cos(a)); return Math.atan2(p1[0] - p0[0], p1[2] - p0[2]); };
+  const toWorldDir = (b, a) => { const p0 = b2w(b, 0, 0, 0), p1 = b2w(b, Math.sin(a), 0, Math.cos(a)); return Math.atan2(p1[0] - p0[0], p1[2] - p0[2]); };
   const witnessesHere = () => { const here = world.locate(...ctrl.pos); return residents.witnesses(clock.now(), ctrl.pos, here?.b?.key || null, here?.k ?? null); };
   async function modal(fn) {
     if (paused) return; paused = true; keys.clear(); document.exitPointerLock?.();
@@ -525,9 +531,9 @@ async function start(fresh) {
     }
     const t = clock.now();
     if (verb === 'sit' || verb === 'sleep') {
-      const away = q => { const w = buildingToWorld(s, b, q.x, q.y, q.z); return Math.hypot(w[0] - ctrl.pos[0], w[2] - ctrl.pos[2]); };
+      const away = q => { const w = b2w(b, q.x, q.y, q.z); return Math.hypot(w[0] - ctrl.pos[0], w[2] - ctrl.pos[2]); };
       const a = u.seats.slice().sort((p, q) => away(p) - away(q))[0]; if (!a) return;
-      ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), a.pose, ctrl.pos);
+      ctrl.seatAt(b2w(b, a.x, a.y, a.z), toWorldDir(b, a.facing), a.pose, ctrl.pos);
       if (verb === 'sleep') sleepFlow();
       return;
     }
@@ -640,8 +646,10 @@ async function start(fresh) {
   }
 
   // ---- speeder bikes (gen/vehicles.js, world/vehicles.js, player/ride.js)
-  let vehicles = vehiclesIn(store, planet, s), ride = null, camDist = cam.dist, hotwire = 0;
-  const allVehicles = () => vehiclesIn(store, planet, s).concat((player.cityCars || []).map(i => { const id = 'cf:' + i, d = store.getDelta('veh/' + id); return d && { id, city: true, ...d, ownerName: 'you' }; }).filter(Boolean));
+  // Whatever's been moved or bought stays where you left it, wherever it came from: so every town anything has come from is looked at, as well as this one.
+  const fleetTowns = new Set([homeS]); for (const k of store.deltas.keys()) if (/^(veh|ship)\//.test(k)) { const q = townOfKey(planet, k); if (q) fleetTowns.add(q); }
+  let vehicles = [], ride = null, camDist = cam.dist, hotwire = 0;
+  const allVehicles = () => [...fleetTowns].flatMap(q => vehiclesIn(store, planet, q)).concat((player.cityCars || []).map(i => { const id = 'cf:' + i, d = store.getDelta('veh/' + id); return d && { id, city: true, ...d, ownerName: 'you' }; }).filter(Boolean));
   vehicles = allVehicles();
   sched.add(TIER.NEAR, { update: () => { vehicles = allVehicles(); } });
   const nearVehicle = () => {
@@ -812,7 +820,7 @@ async function start(fresh) {
         options: [{ a: 'buy', label: `Buy it — ${T.price} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < T.price }] }); });
       if (pick?.a !== 'buy') return;
       const r = buyVehicle(store, v, clock.now());
-      ui.toast(r.ok ? 'It\'s yours.' : r.why, r.ok ? '' : 'warn'); vehicles = vehiclesIn(store, planet, s);
+      ui.toast(r.ok ? 'It\'s yours.' : r.why, r.ok ? '' : 'warn'); vehicles = allVehicles();
       return;
     }
     ui.toast(`This belongs to ${esc(v.ownerName)}. Hold <kbd>F</kbd> to hotwire it.`, 'warn');
@@ -823,26 +831,27 @@ async function start(fresh) {
     const cop = seen.find(w => isOfficer(pop.byId.get(w.id)));
     if (cop) startPursuit(pop.byId.get(cop.id), 'you were seen stealing a bike');
     ui.toast(`You hotwired ${esc(v.ownerName)}'s bike. ${seen.length ? `<b>${seen} ${seen === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
-    vehicles = vehiclesIn(store, planet, s); mount(vehicles.find(x => x.id === v.id));
+    vehicles = allVehicles(); mount(vehicles.find(x => x.id === v.id));
   }
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
-  let ships = shipsIn(store, planet, s, clock.now()), flight = null, rampHold = 0, cockpitView = false;
+  const allShips = t => [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)), shipTown = sh => townOfKey(planet, sh.id) || homeS;
+  let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
   cam.onMouse = (dx, dy) => { if (!flight) return false; stick[0] = Math.max(-1, Math.min(1, stick[0] + dx * 0.006)); stick[1] = Math.max(-1, Math.min(1, stick[1] + dy * 0.006)); return true; };   // mouse forward = nose down
   const placed = new Map();          // ship id → structure in the collision world
   const shipById = id => ships.find(x => x.id === id);
   function syncShips() {
-    ships = shipsIn(store, planet, s, clock.now());
+    ships = allShips(clock.now());
     for (const sh of ships) {
       // a cargo run due while you're aboard waits: today's run is off
-      if (onRun(sh) && placed.has(sh.id) && world.locate(...ctrl.pos)?.b?.key === sh.id) { holdRun(store, sh); ships = shipsIn(store, planet, s, clock.now()); return syncShips(); }
+      if (onRun(sh) && placed.has(sh.id) && world.locate(...ctrl.pos)?.b?.key === sh.id) { holdRun(store, sh); ships = allShips(clock.now()); return syncShips(); }
       const want = !sh.flying && !onRun(sh) && !(flight && flight.ship.id === sh.id) && !wrecks.get('ship:' + sh.id)?.exploded, have = placed.get(sh.id);     // (blown apart: there's no inside left)
       const sig = JSON.stringify([sh.at, sh.O]);
       if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
       if (want && !placed.has(sh.id)) {
-        const b = structureOf(s, sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)), planet);
-        b.sig = sig; world.addStructure(b); placed.set(sh.id, b);
+        const b = structureOf(shipTown(sh), sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)), planet);
+        b.sig = sig; world.addStructure(b, shipTown(sh)); placed.set(sh.id, b);
       }
     }
   }
@@ -852,7 +861,7 @@ async function start(fresh) {
     if (ctrl.mode !== 'walk') return null;
     for (const [id, b] of placed) {
       const L = b.plan.layout, mx = (L.ramp.x0 + L.ramp.x1) / 2;
-      const foot = buildingToWorld(s, b, mx, 0, L.ramp.z0 - 0.4), top = buildingToWorld(s, b, mx, L.deck, L.ramp.z1 + 0.6);
+      const foot = b2w(b, mx, 0, L.ramp.z0 - 0.4), top = b2w(b, mx, L.deck, L.ramp.z1 + 0.6);
       for (const q of [foot, top]) if (Math.hypot(q[0] - ctrl.pos[0], q[2] - ctrl.pos[2]) < 1.6 && Math.abs(q[1] - ctrl.pos[1]) < 1.2) {
         const sh = shipById(id); return { sh, b, down: rampDown(sh, planet, clock.now(), player), locked: rampLocked(sh, player), inside: q === top };
       }
@@ -878,13 +887,13 @@ async function start(fresh) {
       const seen = witnessesHere(), inc = stealShip(store, s, sh, t, seen); lodgeIncident(ctx, inc);
       ui.toast(`You overrode the ${esc(sh.name)}'s lockout. ${seen.length ? `<b>${seen} ${seen === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
     }
-    takeOff(shipsIn(store, planet, s, clock.now()).find(x => x.id === sh.id));
+    takeOff(allShips(clock.now()).find(x => x.id === sh.id));
   }
   function takeOff(sh) {
     const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
-    const { c, facing } = centreOf(s, sh);
+    const { c, facing } = centreOf(shipTown(sh), sh);
     launch(store, sh); setRamp(store, sh, false);
-    ships = shipsIn(store, planet, s, clock.now());
+    ships = allShips(clock.now());
     flight = new Flight(world, planet, shipById(sh.id), c, facing);
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25;
     joinWar();
@@ -897,7 +906,7 @@ async function start(fresh) {
     land(store, sh, flight.pos, flight.facing); setRamp(store, sh, false);
     leaveWar(); flight = null; cam.dist = camDist; syncShips();
     const b = placed.get(sh.id), a = b.plan.anchors.find(x => x.kind === 'pilot');
-    ctrl.mode = 'walk'; ctrl.seatAt(buildingToWorld(s, b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', buildingToWorld(s, b, a.x, b.plan.layout.deck, a.z - 0.8));
+    ctrl.mode = 'walk'; ctrl.seatAt(b2w(b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', b2w(b, a.x, b.plan.layout.deck, a.z - 0.8));
    
   }
   if (player.piloting) { // you were flying when you left: you're still at the helm
@@ -1159,7 +1168,7 @@ async function start(fresh) {
       const tgt = inCity ? [ctrl.pos[0] * 0.6 + C.cx * 0.4, C.h + 260, ctrl.pos[2] * 0.6 + C.cz * 0.4] : [s.cx, s.h, s.cz], n = inCity ? R.n + 2 : R.n, nd = inCity ? R.defenders + 2 : R.defenders;
       raid = { k, t0: t, raiders: [], defenders: [], city: inCity };
       for (let i = 0; i < n; i++) raid.raiders.push(Object.assign(war.spawn(R.models[i % R.models.length], 'raider', [tgt[0] + bx * dist + (i - n / 2) * 140, Math.max(tgt[1], s.h) + 1300 + i * 90, tgt[2] + bz * dist + i * 60], R.bearing + Math.PI, 170), { groundTarget: tgt }));
-      const hq = pop.buildingByKey.get(polity.security), at = inCity ? [tgt[0] - bx * 1500, C.h + 400, tgt[2] - bz * 1500] : hq ? buildingToWorld(s, hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
+      const hq = pop.buildingByKey.get(polity.security), at = inCity ? [tgt[0] - bx * 1500, C.h + 400, tgt[2] - bz * 1500] : hq ? b2w(hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
       for (let i = 0; i < nd; i++) raid.defenders.push(war.spawn(R.defModels[i % R.defModels.length], 'security', [at[0] + i * 60, (inCity ? at[1] : s.h + 260) + i * 40, at[2] - 80], R.bearing, inCity ? 170 : 140));
       const dir = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((-R.bearing + Math.PI * 2.5) % (Math.PI * 2)) / (Math.PI / 4)) % 8];
       ui.toast(`<b>Raiders inbound</b> — ${n} fighters from the ${dir}${inCity ? `, making for ${esc(C.name)}` : ''}. ${inCity ? `${esc(C.name)} Defence` : esc(polity.securityName)} is scrambling ${nd}.`, 'bad', 10000);
@@ -1194,7 +1203,7 @@ async function start(fresh) {
   async function showCharacter() {
     if (paused) return;
     paused = true; keys.clear(); document.exitPointerLock?.();
-    await ui.character(player, pop, planet, s, polity);
+    await ui.character(player, homeTown.pop, planet, homeS, homeTown.polity);
     ui.closePanel(); paused = false;
   }
   async function showWork() {
@@ -1206,7 +1215,7 @@ async function start(fresh) {
       if (here?.key === polity.security) listing = { title: `Job board — ${polity.name}`, note: 'Every opening posted in town this week. Postings change weekly.', jobs: vacancies(pop, store, t) };
       else if (here && pop.jobs.some(j => j.b === here.key)) listing = { title: `Openings at ${here.owner}`, note: 'What this workplace is hiring for this week.', jobs: openings(pop, store, here.key, t) };
       const sec = pop.buildingByKey.get(polity.security);
-      const r = await ui.work({ player, pop, planet, s, polity, t, listing, civic: here?.key === polity.security, register: store.events.filter(e => LIFE_EVENTS.includes(e.type)), boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
+      const r = await ui.work({ player, pop, planet, s, polity, t, listing, civic: here?.key === polity.security, register: store.events.filter(e => LIFE_EVENTS.includes(e.type) && (e.town ? e.town[0] === s.rx && e.town[1] === s.rz : s === homeS)), boardAt: sec ? `the ${polity.securityName} office, ${address(s, sec)}` : 'the civic office' });
       if (r.a === 'ok') break;
       if (r.a === 'resign') leaveJob(ctx, t, 'resigned', 'resigned');
       if (r.a === 'pay') { const res = payFines(ctx, t); ui.toast(res.ok ? `Paid ${res.total} cr.${res.cleared ? ' The warrant is withdrawn.' : ''}` : res.why, res.ok ? '' : 'warn', 7000); }
@@ -1239,6 +1248,30 @@ async function start(fresh) {
 
   // ---- screenshot / test hooks (?cam=...)
   const shot = params.get('cam');
+  // ---- the other towns: built as you come to them, and when you walk into one, it's the one that's here
+  const enterTown = T => {
+    T.pop ??= livePopulation(planet, T.s, store, clock.now()); T.polity ??= getPolity(planet, T.s); T.ctx ??= T === homeTown ? homeCtx : townContext(homeCtx, [T.s.rx, T.s.rz]);
+    T.residents ??= new Residents(T.pop); T.ladders ??= laddersIn(planet, T.s);
+    currentTown = T; ({ s, pop, polity, ctx, residents, town: town, doorView, doorIndex, propView, ladders } = T);
+    world.gridAt(s.cx, s.cz);
+    store.jobTown = T === homeTown ? null : [s.rx, s.rz];
+    if (T !== homeTown) scheduleLife(store, planet, s, clock.now());     // (its people get on with their lives from now on, with you here or not)
+    fleetTowns.add(s); vehicles = allVehicles(); syncShips();
+    if (goods) { goods.s = s; goods.group.position.set(s.cx, 0, s.cz); goods.key = null; }
+    agents = []; residents.refresh(clock.now(), ctrl.pos, null); doorView.refresh(store, planet, clock.now());
+  };
+  const homeTown = { s: homeS, ready: true, town, doorView, doorIndex, propView, pop, polity, ctx: homeCtx, residents, ladders };
+  let currentTown = homeTown;
+  sched.add(TIER.NEAR, { update: () => {
+    const [x, , z] = ride ? ride.pos : ctrl.pos;
+    riverFeed.update(x, z); towns.update(x, z, currentTown);
+    const q = settlementNear(planet, x, z);
+    if (!q || q === s || pursuit || player.custody || Math.hypot(q.cx - x, q.cz - z) > q.R + 500) return;
+    const T = q === homeS ? homeTown : towns.full.get(q.key);
+    if (T?.ready) { enterTown(T); ui.toast(`<b>${esc(s.name)}</b> · ${pop.people.length} people`, '', 5000); }
+  } });
+  { const [x, , z] = ctrl.pos, q = settlementNear(planet, x, z);     // a game saved in another town starts there
+    if (q && q !== homeS && Math.hypot(q.cx - x, q.cz - z) < q.R + 500) { ui.loading(`Building ${q.name}…`, 0.97); enterTown(await towns.ensure(q)); } }
   if (shot) applyShot(shot, { s, planet, ctrl, cam, town, doorView, store, sched, clock, world, pop });
 
   // ---- loop
@@ -1375,10 +1408,10 @@ async function start(fresh) {
       if (sh.flying) return null;
       if (sh.at?.c && Math.hypot(sh.at.c[0] - ctrl.pos[0], sh.at.c[2] - ctrl.pos[2]) > 2200 && !onRun(sh)) return null;     // parked, and too far to see
       if (onRun(sh)) {   // on a cargo run: drawn along its path, recomputed every frame so it moves smoothly
-        const tr = tripOf(planet, sh, t, centreOf(s, sh), sh.skip);
+        const tr = tripOf(planet, sh, t, centreOf(shipTown(sh), sh), sh.skip);
         return tr.c ? { id: sh.id, model: sh.model, c: toRender(...tr.c), facing: tr.facing, pitch: tr.pitch, colour: sh.colour, rampDown: false } : null;
       }
-      const { c, facing } = centreOf(s, sh);
+      const { c, facing } = centreOf(shipTown(sh), sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
       .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
@@ -1485,13 +1518,13 @@ async function start(fresh) {
     }
     war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
     if (myCraft && !myCraft.alive && flight) eject();
-    sched.tick(dt, t, ctx);
+    sched.tick(dt, t, homeCtx);
     terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
-    town.group.visible = Math.hypot(ctrl.pos[0] - s.cx, ctrl.pos[2] - s.cz) < 7000;   // (the town is a speck from the city)
+    homeTown.town.group.visible = Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 7000;   // (the town is a speck from the city)
     { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
-    if (!cityRooms) { cityRooms = new CityInteriors(planet, s, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
+    if (!cityRooms) { cityRooms = new CityInteriors(planet, homeS, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
       mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.onAlarm = (A, n) => { if (n && A.kind !== 'trespassing') ui.toast(`<i>“${SHOUTS[Math.floor(A.t * 7) % SHOUTS.length]}”</i>`, 'bad', 2600); }; mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
       cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
     if (!paused) stepMayhem(dt);
@@ -1499,7 +1532,7 @@ async function start(fresh) {
     if (!paused && mayhem && !flight) { let g = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 100, S => { if (S.guarded && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < 58) g = S; }); if (g && clock.now() > (trespassAt ?? 0)) { const first = trespassAt === null; trespassAt = clock.now() + 25; const seen = mayhem.crime(clock.now(), 'trespassing', 0.9, ctrl.pos); if (first || seen) ui.toast(`You're inside <b>${esc(g.label)}</b> with no business being here${seen ? ', and they\'ve seen you' : ''}.`, 'bad', 6000); } }
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);
-    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
+    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, homeS, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     rocks.update(ctrl.pos[0], ctrl.pos[2]);
     if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
@@ -1521,7 +1554,7 @@ async function start(fresh) {
     // interior lighting follows the room you are in
     const loc = world.locate(...ctrl.pos);
     if (loc?.room) {
-      const r = loc.room.rect, c = buildingToWorld(s, loc.b, (r[0] + r[2]) / 2, (loc.k + 1) * loc.plan.H - 0.5, (r[1] + r[3]) / 2);
+      const r = loc.room.rect, c = b2w(loc.b, (r[0] + r[2]) / 2, (loc.k + 1) * loc.plan.H - 0.5, (r[1] + r[3]) / 2);
       const lp = toRender(...c); roomLight.position.set(lp[0], lp[1], lp[2]);
       roomLight.intensity = lightOn(store, loc.b.key, loc.k, loc.room.i) ? 6 + 10 * (1 - (sky.state.day ?? 1)) : 0;
     } else roomLight.intensity = 0;
@@ -1588,7 +1621,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

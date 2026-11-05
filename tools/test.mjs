@@ -3,12 +3,14 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { seedFromString, hashStr, seedHex } from '../js/core/hash.js';
 import { HOMEWORLD, Address } from '../js/core/address.js';
 import { Rng } from '../js/core/prng.js';
-import { makePlanet } from '../js/gen/planet.js';
+import { makePlanet as realPlanet } from '../js/gen/planet.js';
 import { rawHeight } from '../js/gen/terrain.js';
 import { surfaceHeight } from '../js/gen/surface.js';
 import { getSettlement, roadRect, rectsOverlap } from '../js/gen/settlement.js';
 import { buildingPlan, roomGraph } from '../js/gen/building.js';
 
+// Nearly every suite here is about the home town, over hundreds of worlds; working out the rivers of all the towns around each one would take minutes. (suites.towns and the browser tests use the real thing.)
+const makePlanet = (...a) => Object.assign(realPlanet(...a), { onlyHomeRiver: true });
 const suites = {};
 let failures = 0;
 const check = (cond, msg) => { if (!cond) { failures++; console.log('  FAIL', msg); } return cond; };
@@ -1476,6 +1478,63 @@ suites.villagers = async () => {
   check(total > sites.length * 10, `villages have people (${total})`); check(day > 100, `people are out by day (${day} samples)`); check(!night, `and indoors in the small hours (${night})`);
   check(through / Math.max(1, day) < 0.002, `nobody walks through a house (${through} of ${day})`); check(!jump, `nobody teleports (${jump})`);
   const S = sites[0], w = siteWalkers(p, t0 + D * (0.25 + 9 / 24), S.x, S.z, 150, 60); check(JSON.stringify(w) === JSON.stringify(siteWalkers(p, t0 + D * (0.25 + 9 / 24), S.x, S.z, 150, 60)), 'the same moment gives the same people');
+};
+
+
+suites.towns = async () => {
+  // Every town is solid and has its roads and bridges, drawn or not; what's done there runs with that town's people.
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  const { outRoutes, nearRoute } = await import('../js/gen/highways.js');
+  const { townOfKey } = await import('../js/gen/settlement.js');
+  const { deckAt } = await import('../js/gen/surface.js');
+  const { riverAt, cellRivers } = await import('../js/gen/rivers.js');
+  const { townContext, livePopulation } = await import('../js/world/town.js');
+  const { Scheduler } = await import('../js/sim/scheduler.js');
+  const { WorldStore } = await import('../js/world/store.js');
+  const { MemoryBackend } = await import('../js/world/store-mem.js');
+  const { buildingToWorld } = await import('../js/gen/place.js');
+  const { getPolity } = await import('../js/gen/polity.js');
+  let towns = 0, blocked = 0, floors = 0, withBridge = 0, decks = 0, located = 0;
+  for (let u = 1; u <= 3; u++) {
+    const p = realPlanet(uni(u), HOMEWORLD), home = getSettlement(p, 0, 0); if (!home) continue;
+    const w = new CollisionWorld(p, home, () => false); w.flora = false;
+    for (let rx = -2; rx <= 2; rx++) for (let rz = -2; rz <= 2; rz++) {
+      const s = getSettlement(p, rx, rz); if (!s || s === home) continue; towns++;
+      const b = s.buildings[0], plan = buildingPlan(p, s, b);
+      check(townOfKey(p, b.key) === s, 'a key finds its town');
+      const mid = buildingToWorld(s, b, b.w / 2, 0.1, b.d / 2);
+      const g = w.groundAt(mid[0], mid[2], mid[1] + 0.3); if (check(g.where?.b === b, 'standing on its floor ' + s.name)) floors++;
+      if (w.locate(mid[0], mid[1], mid[2])?.b === b) located++;
+      const c = buildingToWorld(s, b, 0, 0, 0); if (w.solidAt(c[0] + (mid[0] - c[0]) * 0.001, mid[1] + 1, c[2] + (mid[2] - c[2]) * 0.001, 0.3)) blocked++;
+      check(Math.abs(w.baseOf(b) - (mid[1] - 0.1)) < 1e-6, 'floor height from its own town');
+      let any = false;
+      for (const r of outRoutes(p, s)) for (const B of r.bridges) {
+        any = true; decks++; const i = (B.i0 + B.i1) >> 1, [x, z] = r.pts[i];
+        check(B.i1 - B.i0 <= 40, `bridge no causeway (${(B.i1 - B.i0) * 4} m) ${s.name}`);
+        check(B.y > B.water + 2, 'deck clears the water');
+        const d = deckAt(p, x, z); check(d !== null && Math.abs(d - r.h[i]) < 0.5, 'deck where the road is ' + s.name);
+      }
+      if (any) withBridge++;
+    }
+    // rivers come out the same whether found here or handed over from the background thread
+    const a = JSON.stringify(cellRivers(p, 0, 0)), b2 = JSON.stringify(cellRivers(realPlanet(uni(u), HOMEWORLD), 0, 0)); check(a === b2, 'river cell repeatable');
+  }
+  check(towns >= 10, 'towns looked at: ' + towns); check(floors === towns, 'floors'); check(located === towns, 'locate finds the building: ' + located); check(blocked === towns, 'corner is solid: ' + blocked);
+  check(withBridge >= towns * 0.3, `bridges on ${withBridge} of ${towns} towns`);
+  // a job set going in another town runs with that town's people, and what it starts stays there
+  const p = realPlanet(uni(1), HOMEWORLD), home = getSettlement(p, 0, 0); let far = null; for (let a = -3; a <= 3 && !far; a++) for (let b = -3; b <= 3 && !far; b++) { const q = getSettlement(p, a, b); if (q && q !== home) far = q; }
+  const store = new WorldStore(new MemoryBackend()); store.create(seedHex(uni(1)), 0, 0);
+  const sched = new Scheduler(store), homeCtx = { store, sched, planet: p, s: home, pop: livePopulation(p, home, store, 0), polity: getPolity(p, home) };
+  sched.ctxFor = (town, c) => townContext(homeCtx, town);
+  const seen = [], again = [];
+  sched.on('t.a', (j, c) => { seen.push(c.s); store.schedule({ at: 2, kind: 't.b', target: 'x', data: {} }); store.log({ t: 1, type: 'x' }); });
+  sched.on('t.b', (j, c) => { again.push(c.s); });
+  store.jobTown = [far.rx, far.rz]; store.schedule({ at: 1, kind: 't.a', target: 'x', data: {} }); store.jobTown = null;
+  store.schedule({ at: 3, kind: 't.b', target: 'y', data: {} });
+  sched.runDue(5, homeCtx);
+  check(seen[0] === far, 'job ran in its town'); check(again[0] === far, 'what it set going stays there'); check(again[1] === home, 'one from home runs at home');
+  check(store.jobTown === null, 'nothing left set'); check(store.events.at(-1).town?.[0] === far.rx, 'what happened there is marked as there');
+  console.log(`  ${towns} towns, ${withBridge} with bridges (${decks} spans)`);
 };
 
 const want = process.argv.slice(2);

@@ -113,6 +113,7 @@ export function variantFor(lib, kind, len, dep, h) {
   return best;
 }
 
+const VIEWS = new Map();      // model part → copies of its geometry no town's using just now
 export class PropView {
   constructor(lib, radius = 26) {
     this.lib = lib; this.R = radius; this.group = new THREE.Group(); this.group.name = 'props';
@@ -139,7 +140,7 @@ export class PropView {
     for (const [name, list] of this.place) {
       const v = this.lib.variants.get(name);
       for (const pr of v.prims) {
-        const im = new THREE.InstancedMesh(share(pr.geometry), pr.material, list.length);
+        const im = new THREE.InstancedMesh(VIEWS.get(pr)?.pop() || share(pr.geometry), pr.material, list.length); im.prim = pr;
         im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
         if (pr.tinted) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 3), 3);
         this.group.add(im); this.meshes.push({ im, list, tinted: pr.tinted });
@@ -164,5 +165,7 @@ export class PropView {
       if (tinted && im.instanceColor) im.instanceColor.needsUpdate = true;
     }
   }
+  // This town's gone: its copies of the models go back for the next town to use. (Disposing one would free the buffers every other copy shares.)
+  release() { for (const { im } of this.meshes || []) { (VIEWS.get(im.prim) || VIEWS.set(im.prim, []).get(im.prim)).push(im.geometry); im.dispose(); } this.meshes = null; }
   get drawn() { return this.meshes ? this.meshes.reduce((n, m) => n + m.im.count, 0) : 0; }
 }

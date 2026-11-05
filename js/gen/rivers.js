@@ -4,6 +4,7 @@
 // stands on the land (roads, fields, a walker's feet) gets them for free. Nothing is stored.
 import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
+import { REGION as TOWN_REGION } from '../core/units.js';
 import { smoothstep, lerp } from '../core/noise.js';
 import { rawHeight, moisture } from './terrain.js';
 import { settlementNear, getSettlement } from './settlement.js';
@@ -35,15 +36,24 @@ function trace(planet, x, z, heading, rng, path = null, maxLen = MAXLEN, maxCut 
 }
 function generate(planet, ri, rj) {
   const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; S.regions.set(key, true);
+  for (const [T, w0] of cellRivers(planet, ri, rj)) addRiver(S, T, w0);
+}
+// A cell's rivers, worked out once and handed over from a background thread, so walking into new land doesn't stop the world while they're found.
+export function riverCellDone(planet, ri, rj) { return stateOf(planet).regions.has(ri + ',' + rj); }
+export function adoptRiverCell(planet, ri, rj, list) { const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; S.regions.set(key, true); for (const [T, w0] of list) addRiver(S, T, w0); }
+// What this cell's rivers are. Reads the land and the towns, never other rivers, so it comes out the same whatever order the cells are found in.
+export function cellRivers(planet, ri, rj) {
+  const out = [];
   const rng = new Rng(derive(planet.seed, 'rivers', [ri, rj])), n = rng.int(2, 5);
   for (let r = 0; r < n; r++) {
     // a source: the highest of a few spots, if it's wet enough for water to come off it
     let sx = 0, sz = 0, sh = -1e9; for (let k = 0; k < 5; k++) { const x = (ri + rng.next()) * REGION, z = (rj + rng.next()) * REGION, h = rawHeight(planet, x, z); if (h > sh) { sh = h; sx = x; sz = z; } }
     if (sh < planet.seaLevel + 45 || moisture(planet, sx, sz) < 0.28) continue;
     const T = trace(planet, sx, sz, rng.range(0, 6.28), rng); if (!T || T.pts.length < 25) continue;
-    addRiver(S, T);
+    out.push([T, 0]);
   }
-  townRiver(planet, S, ri, rj);
+  townRivers(planet, out, ri, rj);
+  return out;
 }
 function addRiver(S, T, w0 = 0) {
   const L = T.pts.length, R = { id: S.rivers.length, pts: T.pts, toSea: T.toSea, lake: !!T.lake, w: T.pts.map((_, i) => { const w = 2.6 + 13 * Math.min(1, (i + w0) / 110), e = L - 1 - i; return +(T.lake && e < 9 ? w + (e < 2 ? (e / 2) * 58 : 58 * Math.min(1, (9 - e) / 4)) : w).toFixed(2); }) };
@@ -53,25 +63,30 @@ function addRiver(S, T, w0 = 0) {
 }
 // Towns get built on rivers, and then roads have to cross them. The town you can actually visit gets a river from the higher ground nearby, that
 // comes down across one of its roads a few hundred metres out and on to the sea: if the land really will take it there.
-function townRiver(planet, S, ri, rj) {
-  const s = getSettlement(planet, 0, 0); if (!s || Math.floor(s.cx / REGION) !== ri || Math.floor(s.cz / REGION) !== rj) return;
+function townRivers(planet, out, ri, rj) {
+  const a0 = Math.floor(ri * REGION / TOWN_REGION), a1 = Math.floor((ri + 1) * REGION / TOWN_REGION), b0 = Math.floor(rj * REGION / TOWN_REGION), b1 = Math.floor((rj + 1) * REGION / TOWN_REGION);
+  for (let a = a0; a <= a1; a++) for (let b = b0; b <= b1; b++) { const s = getSettlement(planet, a, b); if (s && Math.floor(s.cx / REGION) === ri && Math.floor(s.cz / REGION) === rj && (!planet.onlyHomeRiver || (!a && !b))) townRiver(planet, out, s); }     // (onlyHomeRiver: tests that look at hundreds of home towns and nothing else)
+}
+function townRiver(planet, out, s) {
   const routes = routeLines(planet, s); if (!routes.length) return;
-  const rng = new Rng(derive(planet.seed, 'town-river', [0, 0])), far = (x, z) => { const q = settlementNear(planet, x, z); return !(q && Math.hypot(...q.toLocal(x, z)) < q.R + 320); };
-  for (let t = 0; t < 40; t++) {
+  const rng = new Rng(derive(planet.seed, 'town-river', [s.rx, s.rz])), far = (x, z) => { const q = settlementNear(planet, x, z); return !(q && Math.hypot(...q.toLocal(x, z)) < q.R + 320); };
+  // Any town but the first has fewer goes at it, and its river is no longer than the ones that rise on their own: this runs for every town on the way, and a river that could reach further than the next cell would turn up only once you'd found where it rises.
+  const home = !s.rx && !s.rz, tries = home ? 40 : 14, runLen = home ? LONGEST : MAXLEN, lows = new Map(), lowOf = (r, i) => { const k = r.id * 100000 + i; let h = lows.get(k); if (h === undefined) lows.set(k, h = rawHeight(planet, r.pts[i][0], r.pts[i][1])); return h; };
+  for (let t = 0; t < tries; t++) {
     const r = routes[t % routes.length], spots = []; for (let i = r.lead + 2; i < r.pts.length - 2; i++) { const d = Math.hypot(r.pts[i][0] - s.cx, r.pts[i][1] - s.cz) - s.R; if (d > 430 && d < 900) spots.push(i); } if (!spots.length) continue;
-    spots.sort((p, q) => rawHeight(planet, r.pts[p][0], r.pts[p][1]) - rawHeight(planet, r.pts[q][0], r.pts[q][1]));     // where the road's lowest: water finds the same places
+    spots.sort((p, q) => lowOf(r, p) - lowOf(r, q));     // where the road's lowest: water finds the same places
     const i = spots[Math.min(spots.length - 1, Math.floor(t / 2) * 3)], [cx, cz] = r.pts[i], tx = r.pts[i + 1][0] - r.pts[i - 1][0], tz = r.pts[i + 1][1] - r.pts[i - 1][1], tl = Math.hypot(tx, tz) || 1, nx = tz / tl, nz = -tx / tl;
     // Walk up from the crossing, straight off the road at first and then up the easiest rise (a valley, not a cliff), and the river comes back down that same way, so nothing on its way down is uphill.
     const side = (t % 4 < 2) === (rawHeight(planet, cx + nx * 300, cz + nz * 300) > rawHeight(planet, cx - nx * 300, cz - nz * 300)) ? 1 : -1, up = []; let ux = cx, uz = cz, ua = Math.atan2(nx * side, nz * side), uh = rawHeight(planet, cx, cz);
     for (let n = 0; n * STEP < 1200; n++) { let bq = null, bh = -1e9, bs = -1e9; const fan = n < 8 ? [0] : [-2, -1, 0, 1, 2]; for (const k of fan) { const q = ua + k * 0.42, qx = ux + Math.sin(q) * STEP, qz = uz + Math.cos(q) * STEP, h = rawHeight(planet, qx, qz), score = -Math.abs(h - uh - 2.5); if (far(qx, qz) && score > bs) { bs = score; bh = h; bq = q; } } if (bq === null) break; ua = bq; ux += Math.sin(ua) * STEP; uz += Math.cos(ua) * STEP; uh = Math.max(uh, bh); up.push([ux, uz]); }
     if (up.length < 7) continue;
     const src = up.pop(), path = [...up.reverse(), [cx, cz], [cx - nx * side * STEP, cz - nz * side * STEP], [cx - nx * side * STEP * 2, cz - nz * side * STEP * 2]];
-    const need = path.length + 10, T = trace(planet, src[0], src[1], 0, rng, path, LONGEST, 42, need); if (!T || T.pts.length < 15) continue;
+    const need = path.length + 10, T = trace(planet, src[0], src[1], 0, rng, path, runLen, 42, need); if (!T || T.pts.length < 15) continue;
     for (let n = T.pts.length - 2; n >= 0; n--) T.pts[n].y = +Math.min(T.pts[n].y, T.pts[n + 1].y + 5).toFixed(2);     // no chutes: where the land drops away the water has cut back into it, like water does
     // A crossing, not a causeway: short spans over the road, and not down a gorge.
     let spans = 0, longest = 0, high = 0; for (const e of routes) { let run = 0; for (let g = e.lead + 1; g <= e.pts.length; g++) { let wet = false, wy = 0; if (g < e.pts.length) { const [gx, gz] = e.pts[g]; for (let n = 0; n + 1 < T.pts.length && !wet; n++) { const A = T.pts[n], C = T.pts[n + 1], ex = C.x - A.x, ez = C.z - A.z, f = Math.max(0, Math.min(1, ((gx - A.x) * ex + (gz - A.z) * ez) / (ex * ex + ez * ez || 1))); if (Math.hypot(A.x + ex * f - gx, A.z + ez * f - gz) < 16) { wet = true; wy = A.y; } } if (wet) high = Math.max(high, e.h[g] - wy); } if (wet) run++; else { if (run) { spans++; longest = Math.max(longest, run); } run = 0; } } }
     if (spans > 2 || !spans || longest > 22 || high > 20) continue;
-    addRiver(S, T, 28); return;
+    out.push([T, 28]); return;
   }
 }
 // Every region a river near here could have started in has been worked out, once

@@ -26,7 +26,11 @@ export class Scheduler {
     let j;
     while ((j = this.store.popDue(t))) {
       const h = this.handlers.get(j.kind);
-      if (h) h(j, ctx); else console.warn('no handler for job', j.kind);
+      if (!h) console.warn('no handler for job', j.kind);
+      else {   // something set going in another town runs there: its people, its law, and anything it sets going in turn
+        const was = this.store.jobTown; this.store.jobTown = j.town || null;
+        try { h(j, j.town && this.ctxFor ? this.ctxFor(j.town, ctx) : ctx); } finally { this.store.jobTown = was; }
+      }
       ran.push(j);
     }
     return ran;

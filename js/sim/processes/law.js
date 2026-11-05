@@ -160,7 +160,7 @@ function applyCharge(ctx, inc, t) {
 
 export function issueWarrant(ctx, t, reason, officer = null) {
   const pl = ctx.store.player;
-  pl.warrant = { t, reason, officer };
+  pl.warrant = { t, reason, officer, authority: ctx.polity.securityName };
   ctx.store.log({ t, type: 'warrant', who: pl.id, whoName: pl.name, reason, authority: ctx.polity.securityName });
   ctx.store.schedule({ at: t + (1 + 5 * roll(ctx, pl.id, t, 'serve')) * HOUR, kind: 'law.serve', target: 'player/warrant', data: {} });
   ctx.store.touchPlayer();

@@ -52,7 +52,7 @@ export class WorldStore {
 
   // ---- events
   log(ev) {
-    const e = { id: this.meta.nextEvent++, ...ev };
+    const e = { id: this.meta.nextEvent++, ...(this.jobTown ? { town: this.jobTown } : {}), ...ev };
     this.events.push(e); this.dirty.events.push(e); this.dirty.meta = true;
     return e;
   }
@@ -60,7 +60,7 @@ export class WorldStore {
 
   // ---- timed jobs (dormant-tier simulation)
   schedule(job) {
-    const j = { id: this.meta.nextJob++, ...job };
+    const j = { id: this.meta.nextJob++, ...(this.jobTown ? { town: this.jobTown } : {}), ...job };
     let i = this.jobs.length;
     while (i > 0 && (this.jobs[i - 1].at > j.at || (this.jobs[i - 1].at === j.at && this.jobs[i - 1].id > j.id))) i--;
     this.jobs.splice(i, 0, j);

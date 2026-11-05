@@ -9,6 +9,10 @@
 // identity — refreshLife() rewrites its fields in place, so everything holding `pop`
 // (residents, law, work, the UI) sees the change.
 import { getPopulation } from '../gen/population.js';
+import { getSettlement } from '../gen/settlement.js';
+import { getPolity } from '../gen/polity.js';
+import { buildingPlan } from '../gen/building.js';
+import { doorstep } from '../gen/place.js';
 import { hash01, hashStr } from '../core/hash.js';
 import { EPOCH } from '../sim/clock.js';
 
@@ -20,6 +24,13 @@ export function livePopulation(planet, s, store, t) {
   let pop = m.get(s.key);
   if (!pop) { pop = { ...getPopulation(planet, s) }; pop.base = getPopulation(planet, s); pop.made = new Map(); m.set(s.key, pop); refreshLife(pop, store, t); }
   return pop;
+}
+
+// The same context, in another town: its people and its law. (A job running there; you, visiting.)
+export function townContext(ctx, [rx, rz]) {
+  const { planet, store } = ctx, s = getSettlement(planet, rx, rz); if (!s || s === ctx.s) return ctx;
+  const pop = livePopulation(planet, s, store, store.meta.gameTime);
+  return { ...ctx, s, pop, polity: getPolity(planet, s), doorstepOf: bKey => { const b = pop.buildingByKey.get(bKey); return doorstep(s, b, buildingPlan(planet, s, b)).pos; } };
 }
 
 export const lifeKey = s => `life/${s.key}`;

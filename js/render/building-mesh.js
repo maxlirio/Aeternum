@@ -22,6 +22,12 @@ const WHITE = [1, 1, 1];
 // Faces of an exterior wall that point outside.
 const OUTER = { front: 'nz', back: 'pz', left: 'nx', right: 'px' };
 
+// What a building's outside is made of, and its colour. (The first thing its generator draws, so a distant block matches the real one.)
+export function facadeOf(b, M) {
+  const rng = new Rng(seedFromString(b.key)), corr = b.type === 'workshop' || b.type === 'hangar';
+  return { mat: corr ? M.corrugated : M.panels, col: rng.pick(PALETTE[b.type]) };
+}
+
 export function buildBuilding(mb, plan, b, frame) {
   // a designed building (gen/housegen.js) wears its design's materials; what stands outside its walls (roof, porch, footing) comes from render/housegen.js
   const skin = b.skin, M = skin ? { ...materials(), trim: skin.trim, darkTrim: skin.trim, ...(skin.floor ? { tiles: skin.floor } : {}) } : materials();

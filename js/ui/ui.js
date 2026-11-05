@@ -2,7 +2,7 @@
 // "while you were away" report. Plain DOM, no framework.
 import { ACTIVITIES } from '../sim/processes/character.js';
 import { formatDuration, formatHour, solarHour, dayNumber } from '../sim/clock.js';
-import { address } from '../gen/settlement.js';
+import { address, townOfKey } from '../gen/settlement.js';
 import { SKILLS, titleOf, roleFor, wageOf, assess } from '../gen/careers.js';
 import { LIFE_EVENTS } from '../sim/processes/life.js';
 import { ITEMS } from '../gen/items.js';
@@ -254,7 +254,7 @@ UI.prototype.work = function ({ player, pop, planet, s, polity, t, listing, boar
     const pj = player.job, sh = player.shift;
     const hours = h => `${formatHour(h[0])}–${formatHour(h[1])}`;
     const DAYS = d => d.map(x => 'day ' + (x + 1)).join(' & ');
-    const mine = pj ? `<h3>Your job</h3><p><b>${esc(titleOf(pj))}</b> at ${esc(pj.employer)}, ${esc(address(s, pop.buildingByKey.get(pj.b)))}<br>
+    const mine = pj ? `<h3>Your job</h3><p><b>${esc(titleOf(pj))}</b> at ${esc(pj.employer)}, ${esc((q => address(q, q.buildings.find(x => x.key === pj.b)))(townOfKey(planet, pj.b)))}<br>
         <small>${hours(pj.hours)} · off ${DAYS(pj.offDays)} of each week · ${pj.wage} cr/h · ${pj.shifts} shifts, ${pj.earned} cr earned${pj.missed ? ` · <b class="late">${pj.missed} missed in a row</b>` : ''}</small><br>
         <small>${sh ? (t >= sh.t0 ? 'On shift now, until ' + formatHour(solarHour(planet, sh.t1)) : `Next shift day ${dayNumber(planet, sh.t0)} ${formatHour(solarHour(planet, sh.t0))}`) : ''}</small></p>
         <button data-a="resign" class="ghost">Resign</button>` : '<p>You have no job.</p>';

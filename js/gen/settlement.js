@@ -47,6 +47,9 @@ export function getSettlement(planet, rx, rz) {
   return s;
 }
 
+// The town a building, person, vehicle or ship belongs to: every key carries its settlement's address.
+export function townOfKey(planet, key) { const m = /settlement:(-?\d+),(-?\d+)/.exec(key || ''); return m ? getSettlement(planet, +m[1], +m[2]) : null; }
+
 export function regionOf(x, z) { return [Math.floor(x / REGION), Math.floor(z / REGION)]; }
 
 // The settlement whose graded land could affect (x, z). Sites keep a margin from the

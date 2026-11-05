@@ -4,6 +4,7 @@
 // building-local coordinates. No three.js here.
 import { surfaceHeight } from '../gen/surface.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
+import { settlementNear } from '../gen/settlement.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
 import { rocksNear } from '../gen/rocks.js';
@@ -45,41 +46,59 @@ export class CollisionWorld {
     this.city = getCity(planet);
     this.cols = new Map();       // building n (or structure key) -> collider set
     this.grid = new Map();
+    this.owner = new WeakMap();  // building -> the town whose frame it's in (not there: this.s)
+    this.towns = new Map();      // other town -> its own grid, made when first needed
+    this.loose = [];             // another town's ship, which can be anywhere: [{ b, x, z, r }]
     for (const b of s.buildings) this.index(b, true);
   }
-  index(b, add) {
+  townOf(b) { return this.owner.get(b) || this.s; }
+  gridAt(x, z) {                 // the other town whose ground this is, if any
+    const q = settlementNear(this.planet, x, z); if (!q || q === this.s) return null;
+    let T = this.towns.get(q);
+    if (!T) { this.towns.set(q, T = { s: q, grid: new Map() }); for (const b of q.buildings) { this.owner.set(b, q); this.index(b, true, T.grid); } }
+    return T;
+  }
+  index(b, add, grid = this.grid) {
     const [x0, z0, x1, z1] = b.rect;
     for (let gx = Math.floor((x0 - 1) / GRID); gx <= Math.floor((x1 + 1) / GRID); gx++)
       for (let gz = Math.floor((z0 - 1) / GRID); gz <= Math.floor((z1 + 1) / GRID); gz++) {
-        const k = gx + ',' + gz, cell = this.grid.get(k) || this.grid.set(k, []).get(k);
+        const k = gx + ',' + gz, cell = grid.get(k) || grid.set(k, []).get(k);
         if (add) cell.push(b); else { const i = cell.indexOf(b); if (i >= 0) cell.splice(i, 1); }
       }
   }
   // Something building-like that isn't part of the town plan — a landed ship. It brings
   // its own frame (O, ex, ez, rect in settlement space), floor height (base), plan and
   // door rule (doorPassable(id)).
-  addStructure(b) { this.index(b, true); }
-  removeStructure(b) { this.index(b, false); }
-  baseOf(b) { return b.base ?? this.base; }
+  addStructure(b, town = null) {
+    if (!town || town === this.s) return this.index(b, true);
+    this.owner.set(b, town); const [x, z] = town.toWorld((b.rect[0] + b.rect[2]) / 2, (b.rect[1] + b.rect[3]) / 2);
+    this.loose.push({ b, x, z, r: Math.hypot(b.rect[2] - b.rect[0], b.rect[3] - b.rect[1]) / 2 + 4 });
+  }
+  removeStructure(b) { const i = this.loose.findIndex(q => q.b === b); if (i >= 0) this.loose.splice(i, 1); else this.index(b, false); }
+  baseOf(b) { return b.base ?? (this.owner.has(b) ? this.owner.get(b).h + PLINTH : this.base); }
   passable(b, id) { return b.doorPassable ? b.doorPassable(id) : this.doorPassable(b, id); }
 
   near(x, z) {
     const [u, v] = this.s.toLocal(x, z);
-    return this.grid.get(Math.floor(u / GRID) + ',' + Math.floor(v / GRID)) || [];
+    let out = this.grid.get(Math.floor(u / GRID) + ',' + Math.floor(v / GRID)) || [];
+    const T = this.gridAt(x, z);
+    if (T) { const [p, q] = T.s.toLocal(x, z), c = T.grid.get(Math.floor(p / GRID) + ',' + Math.floor(q / GRID)); if (c?.length) out = out.length ? out.concat(c) : c; }
+    for (const L of this.loose) if (Math.abs(L.x - x) < L.r && Math.abs(L.z - z) < L.r) out = out.concat(L.b);
+    return out;
   }
   toB(b, x, z) {
-    const [u, v] = this.s.toLocal(x, z), du = u - b.O[0], dv = v - b.O[1];
+    const [u, v] = this.townOf(b).toLocal(x, z), du = u - b.O[0], dv = v - b.O[1];
     return [du * b.ex[0] + dv * b.ex[1], du * b.ez[0] + dv * b.ez[1]];
   }
   fromBVec(b, lx, lz) {   // building-local vector → world vector
     const u = lx * b.ex[0] + lz * b.ez[0], v = lx * b.ex[1] + lz * b.ez[1];
-    return [u * this.s.cos - v * this.s.sin, u * this.s.sin + v * this.s.cos];
+    const s = this.townOf(b); return [u * s.cos - v * s.sin, u * s.sin + v * s.cos];
   }
 
   colliders(b) {
-    let c = this.cols.get(b.plan ? b.key : b.n);
+    let c = this.cols.get(b.key);
     if (c) return c;
-    const plan = b.plan || buildingPlan(this.planet, this.s, b);
+    const plan = b.plan || buildingPlan(this.planet, this.townOf(b), b);
     const walls = [];
     for (const wl of plan.walls) {
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;
@@ -98,7 +117,7 @@ export class CollisionWorld {
     if (b.footing) for (const q of [[0, 0, b.w, 0.2], [0, b.d - 0.2, b.w, b.d], [0, 0, 0.2, b.d], [b.w - 0.2, 0, b.w, b.d]]) walls.push([...q, -4, 0, -1]);   // (what it stands on, where the ground falls away)
     const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]).concat(plan.solids || []);
     c = { b, plan, walls, props };
-    this.cols.set(b.plan ? b.key : b.n, c);
+    this.cols.set(b.key, c);
     return c;
   }
 
