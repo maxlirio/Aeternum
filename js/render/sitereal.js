@@ -15,8 +15,8 @@ import { doorState } from '../world/doors.js';
 const NEAR = 42, FAR = 58, MAX = 8, FLOORS = { house: 'plank', hab: 'plank', workshop: 'concrete', store: 'plank', office: 'floortile' };
 const IS = /^gb_(?!step)/;
 export class SiteInteriors {
-  constructor(planet, s, world, view, lib, store) {
-    Object.assign(this, { planet, s, world, view, lib, store });
+  constructor(planet, s, world, view, lib, store, kitOf) {
+    Object.assign(this, { planet, s, world, view, lib, store, kitOf });
     this.group = new THREE.Group(); this.group.name = 'site-interiors';
     this.live = new Map(); this.now = 0;
   }
@@ -44,6 +44,11 @@ export class SiteInteriors {
     if (!roll) { leaf.setMatrixAt(0, new THREE.Matrix4()); leaf.setColorAt(0, col.setRGB(...kitTint('bright', it.k, it.x, it.z))); leaf.frustumCulled = false; }
     const hx = roll ? dr.x : dr.x - dr.width / 2, hinge = new THREE.Group(); hinge.position.set(c * hx + sn * 0.09, 0, -sn * hx + c * 0.09); hinge.rotation.y = it.rot; hinge.add(leaf); g.add(hinge);
     leaf.castShadow = true;
+    // what it's fitted out with: kit models on the floor, built only when you're close to it
+    for (const q of rec.plan.decor || []) for (const part of this.kitOf(q.k) || this.kitOf('common_' + q.k) || []) {
+      const im = new THREE.InstancedMesh(part.geometry, part.material, 1), P = new THREE.Vector3(c * q.x + sn * q.z, 0, -sn * q.x + c * q.z), M = new THREE.Matrix4().makeRotationY(it.rot + q.rot).setPosition(P); im.setMatrixAt(0, M); im.userData.shared = true;
+      if (part.tinted) im.setColorAt(0, col.setRGB(...kitTint(part.tinted, q.k, q.x, q.z))); im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; g.add(im);
+    }
     this.group.add(g);
     return { rec, g, pv, parts, hinge, leaf, roll, a: 0, it };
   }

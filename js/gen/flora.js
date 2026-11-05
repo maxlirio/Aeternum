@@ -3,7 +3,7 @@
 // slope, height above the sea and below the treeline) and stays off towns and roads.
 // A plant is logical data — species, position, size, and for trees and boulders a solid
 // radius the collision world blocks — so the models (tools/assets/build.py) can change freely.
-import { sitesNear } from './outposts.js';
+import { sitesNear, tracksNear, onTrack } from './outposts.js';
 import { hashInts, hashStr } from '../core/hash.js';
 import { surfaceAt } from './surface.js';
 import { moisture } from './terrain.js';
@@ -51,7 +51,7 @@ const cache = new Map();
 export function floraTile(planet, ti, tj) {
   const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj;
   if (cache.has(ck)) return cache.get(ck);
-  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE);
+  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b;
     const r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
@@ -59,7 +59,7 @@ export function floraTile(planet, ti, tj) {
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.h < planet.seaLevel + 2) continue;
     if (clear.some(([cx, cz, r]) => (x - cx) ** 2 + (z - cz) ** 2 < r * r)) continue;
-    if (onSite(planet, x, z)) continue;       // nothing grows through a farm or a mine
+    if (onSite(planet, x, z) || tracks.some(T => onTrack(T, x, z))) continue;       // nothing grows through a farm or a mine, or on the track to it
     const e = 1.5, hx = surfaceAt(planet, x + e, z).h - s.h, hz = surfaceAt(planet, x, z + e).h - s.h;
     const ny = e / Math.hypot(hx, e, hz);                                         // 1 = flat
     const moist = moisture(planet, x, z), above = s.h - planet.seaLevel;

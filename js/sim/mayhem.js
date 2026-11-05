@@ -142,22 +142,22 @@ export class Mayhem {
   // ---- the law, in the city: officers come for you when you're hot enough. They're just people:
   // they run, they shoot if you've been shooting, and they can be fought or outrun.
   stepOfficers(dt, t, ctrl, hooks) {
-    const heat = this.heat(t), c = this.city, inCity = Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) < c.R + 200;
-    const want = !inCity ? 0 : heat < 1.5 ? 0 : heat < 3 ? 2 : heat < 6 ? 4 : 6;
+    const heat = this.heat(t), c = this.city, inCity = Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) < c.R + 200, local = !inCity && heat >= 1 ? hooks.watchHere?.() : null;   // out in the country it's the village's own watch: fewer, and they don't shoot first
+    const want = local ? (heat < 3 ? 1 : 2) : !inCity ? 0 : heat < 1.5 ? 0 : heat < 3 ? 2 : heat < 6 ? 4 : 6;
     if (this.officers.length < want && (this.nextCop ?? 0) < t) {
       this.nextCop = t + 6;
       for (let k = 0; k < 12; k++) {        // from somewhere out of sight, 60–90 m off
-        const a = (t * 7.3 + k * 2.4), r = 60 + (k * 11) % 30, x = ctrl.pos[0] + Math.sin(a) * r, z = ctrl.pos[2] + Math.cos(a) * r, y = this.world.groundAt(x, z, c.h + 0.4).h;
-        if (y > c.h + 0.5 || this.world.solidAt(x, y + 1, z, 0.3)) continue;
-        this.officers.push({ id: `cop:${Math.floor(t)}:${k}`, pos: [x, y, z], facing: 0, hp: 100, shot: 1.5 }); hooks.onCop?.(this.officers.length); break;
+        const a = (t * 7.3 + k * 2.4), r = local ? 30 + (k * 11) % 25 : 60 + (k * 11) % 30, x = ctrl.pos[0] + Math.sin(a) * r, z = ctrl.pos[2] + Math.cos(a) * r, y = this.world.groundAt(x, z, local ? ctrl.pos[1] + 2 : c.h + 0.4).h;
+        if ((!local && y > c.h + 0.5) || this.world.solidAt(x, y + 1, z, 0.3)) continue;
+        this.officers.push({ id: `cop:${Math.floor(t)}:${k}`, pos: [x, y, z], facing: 0, hp: 100, shot: 1.5 }); hooks.onCop?.(this.officers.length, local); break;
       }
     }
     for (const o of this.officers) {
       const dx = ctrl.pos[0] - o.pos[0], dz = ctrl.pos[2] - o.pos[2], d = Math.hypot(dx, dz); o.facing = Math.atan2(dx, dz); o.moving = false;
       const armed = hooks.armed?.();
-      if (armed && d < 35) { o.shot -= dt; if (o.shot <= 0) { o.shot = 0.9 + Math.random() * 0.7; hooks.shoot?.(o, d); } }
+      if (armed && d < 35 && (!local || heat > 3)) { o.shot -= dt; if (o.shot <= 0) { o.shot = 0.9 + Math.random() * 0.7; hooks.shoot?.(o, d); } }
       if (d > (armed ? 14 : 1.2)) { const sp = 5.8 * dt, nx = o.pos[0] + dx / d * sp, nz = o.pos[2] + dz / d * sp, [rx, rz] = this.world.resolve(nx, nz, o.pos[1]); o.pos = [rx, this.world.groundAt(rx, rz, o.pos[1] + 0.5).h, rz]; o.moving = true; }
-      else if (!armed && !this.rider && ctrl.grounded) { hooks.caught?.(o); break; }
+      else if (!armed && !this.rider && ctrl.grounded) { hooks.caught?.(o, local); break; }
     }
     if (want === 0 && this.officers.length) this.officers = this.officers.filter(o => Math.hypot(o.pos[0] - ctrl.pos[0], o.pos[2] - ctrl.pos[2]) < 40 && heat > 0.5);
   }

@@ -10,4 +10,7 @@ class H(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
     def log_message(self, *a): pass
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8517
-http.server.ThreadingHTTPServer(('127.0.0.1', port), H).serve_forever()
+class S(http.server.ThreadingHTTPServer):
+    request_queue_size = 256     # (the default 5 can drop a connection in the burst of module requests, and a page missing one module just sits there)
+    daemon_threads = True
+S(('127.0.0.1', port), H).serve_forever()

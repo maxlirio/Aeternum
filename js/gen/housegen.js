@@ -8,6 +8,7 @@ import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
 import { cultureOf } from './culture.js';
 import { buildingPlan, refurnished } from './building.js';
+import { fitOut } from './fitout.js';
 
 // [walls by weight, roofs by weight, roof shapes by weight, pitch range, storey range, floors, trim]
 const TASTE = {
@@ -26,7 +27,7 @@ export const FORMS = {
   hut: { n: 3, type: 'house', w: [5, 7], d: [4.6, 5.8], floors: [1], access: 'residents' },
   longhouse: { n: 3, type: 'workshop', w: [16, 25], d: [7, 9], floors: [1], storey: [3, 3.6], access: 'hours', hours: [7, 19], rooms: ['stalls', 'storage'], roomArea: 70 },
   shop: { n: 4, type: 'store', w: [7.5, 11.5], d: [7.5, 10.5], floors: [1, 1, 2], storey: [3.1, 3.6], access: 'hours', hours: [8, 19], extra: { shopfront: true, awning: true, fascia: true } },
-  inn: { n: 3, type: 'hab', w: [11, 15], d: [8.6, 11], floors: [2, 3], storey: [2.9, 3.2], access: OPEN, rooms: ['taproom', 'kitchen'], extra: { hanging: true } },
+  inn: { n: 3, type: 'hab', w: [11, 15], d: [8.6, 11], floors: [2, 3], storey: [2.9, 3.2], access: OPEN, rooms: ['taproom', 'kitchen'], roomArea: 80, extra: { hanging: true } },
   tenement: { n: 3, type: 'hab', w: [12, 17], d: [8.6, 11], floors: [3, 4], storey: [2.7, 3], access: OPEN, extra: { balconies: true }, noThatch: true },
   hall: { n: 3, type: 'office', w: [13, 19], d: [9, 13], floors: [1], storey: [4.2, 5.4], access: 'hours', hours: DAY, rooms: ['assembly', 'storage'], roomArea: 150, extra: { portico: true, fascia: true }, noThatch: true },
   school: { n: 3, type: 'office', w: [14, 21], d: [8.2, 10.5], floors: [1, 2], storey: [3.2, 3.6], access: 'hours', hours: DAY, rooms: ['classroom', 'classroom', 'office'], roomArea: 38, extra: { bell: true, tallWindows: true }, noThatch: true },
@@ -94,14 +95,16 @@ export function itemPlan(planet, D, it) {
   if (it.plan_) return it.plan_;
   const pl = refurnished(designPlan(planet, D), derive(planet.seed, 'furnish', [Math.round(it.x * 4), Math.round(it.z * 4)]));
   pl.roofSlopes = designPlan(planet, D).roofSlopes;
-  Object.defineProperty(it, 'plan_', { value: pl, enumerable: false });
-  return pl;
+  const fit = { plan: pl }; fitOut(fit, D.fam, new Rng(derive(planet.seed, 'fitout', [Math.round(it.x * 4), Math.round(it.z * 4)])));
+  const done = fit.plan; done.decor = fit.decor || [];
+  Object.defineProperty(it, 'plan_', { value: done, enumerable: false });
+  return done;
 }
 // someone who works there: where they stand, what they're at, and when. Behind the counter if there is one.
 const WORKS = { shop: 'keeping shop', inn: 'behind the bar', clinic: 'seeing patients', school: 'teaching', smithy: 'at the forge', garage: 'under a car', temple: 'tending the temple', hall: 'minding the hall', stable: 'seeing to the animals', markethall: 'minding a stall', sawmill: 'at the saw', barn: 'in the barn' };
 export function keeperOf(planet, D, it) {
   const what = WORKS[D.fam]; if (!what) return null;
-  const pl = itemPlan(planet, D, it), dr = pl.doors[pl.entrance], R = pl.rooms.find(r => r.i === dr.rooms[0]) || pl.rooms[0], solid = pl.props.filter(p => p.k === 0 && !p.soft), free = (x, z) => x > R.rect[0] + 0.4 && x < R.rect[2] - 0.4 && z > R.rect[1] + 0.4 && z < R.rect[3] - 0.4 && !solid.some(p => x > p.x0 - 0.35 && x < p.x1 + 0.35 && z > p.z0 - 0.35 && z < p.z1 + 0.35);
+  const pl = itemPlan(planet, D, it), dr = pl.doors[pl.entrance], R = pl.rooms.find(r => r.i === dr.rooms[0]) || pl.rooms[0], solid = pl.props.filter(p => p.k === 0 && !p.soft).concat((pl.solids || []).map(q => ({ x0: q[0], z0: q[1], x1: q[2], z1: q[3], kind: 'fit', k: 0 }))), free = (x, z) => x > R.rect[0] + 0.4 && x < R.rect[2] - 0.4 && z > R.rect[1] + 0.4 && z < R.rect[3] - 0.4 && !solid.some(p => x > p.x0 - 0.35 && x < p.x1 + 0.35 && z > p.z0 - 0.35 && z < p.z1 + 0.35);
   const bench = solid.find(p => /counter|bench/.test(p.kind) && p.room === R.i), tries = [];
   if (bench) { const cx = (bench.x0 + bench.x1) / 2, cz = (bench.z0 + bench.z1) / 2; tries.push([cx, bench.z1 + 0.55], [cx, bench.z0 - 0.55], [bench.x0 - 0.55, cz], [bench.x1 + 0.55, cz]); }
   for (let f = 0.8; f > 0.1; f -= 0.14) for (const g of [0.5, 0.3, 0.7]) tries.push([R.rect[0] + (R.rect[2] - R.rect[0]) * g, R.rect[1] + (R.rect[3] - R.rect[1]) * f]);

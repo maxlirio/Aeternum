@@ -29,7 +29,7 @@ class Parts {
 const onWall = (P, m, n, x, y, z, u, h, v) => P.box(m, x, y, z, n === 'z' ? u : v, h, n === 'z' ? v : u);
 function windowOn(P, D, x, z, n, y, out, w, h) {
   const ax = n === 'z' ? 0 : out * 0.03, az = n === 'z' ? out * 0.03 : 0, fr = D.trim;
-  onWall(P, 'visor', n, x, y, z, w, h, 0.05);
+  onWall(P, Math.abs(Math.sin(x * 12.9 + z * 37.7 + y * 5.1)) < 0.5 ? 'winlit' : 'visor', n, x, y, z, w, h, 0.05);   // (some rooms have someone in them after dark)
   for (const dy of [0, h]) onWall(P, fr, n, x + ax, y + dy - 0.03, z + az, w + 0.1, 0.06, 0.06);
   for (const s of [-1, 1]) { const dx = n === 'z' ? s * w / 2 : 0, dz = n === 'z' ? 0 : s * w / 2; onWall(P, fr, n, x + ax + dx, y, z + az + dz, 0.06, h, 0.06); }
   for (let i = 1; i <= D.mullions; i++) { const f = i / (D.mullions + 1) - 0.5, dx = n === 'z' ? f * w : 0, dz = n === 'z' ? 0 : f * w; onWall(P, fr, n, x + ax + dx, y, z + az + dz, 0.035, h, 0.05); }
@@ -114,12 +114,15 @@ export function houseGeometry(D, plan) {
 export function shellOf(D, plan) { const P = new Parts(); outside(P, D, plan); return partsOut(P); }
 // one step of the flight up to a door: a stone block, its top at y = 0, sunk into the ground below
 export function stepGeometry() { const P = new Parts(); P.box('limestone', 0, -2.2, 0, 1, 2.2, 0.34); return partsOut(P); }
+// a lit window from outside: dark glass by day, warm after dark (setWindowGlow, once a frame)
+const winlit = new THREE.MeshStandardMaterial({ color: 0x151b22, roughness: 0.12, metalness: 0.7, emissive: 0xffc98a, emissiveIntensity: 0 });
+export const setWindowGlow = n => { winlit.emissiveIntensity = n * 1.5; };
 // the parts for a design as the kit views want them, built once. `surface` (lib.wornSurface) turns a name into its weathered material.
 const made = new WeakMap();
 export function buildingParts(planet, k, surface) {
   let m = made.get(planet); if (!m) made.set(planet, m = new Map());
   if (m.has(k)) return m.get(k);
   const geo = k === 'gb_step' ? stepGeometry() : (() => { const D = designById(planet, k); return D ? houseGeometry(D, designPlan(planet, D)) : null; })(); if (!geo) return null;
-  const parts = geo.map(p => ({ geometry: p.geometry, material: surface(p.surface, p.tinted), matrix: new THREE.Matrix4(), tinted: p.tinted, cast: true }));
+  const parts = geo.map(p => ({ geometry: p.geometry, material: p.surface === 'winlit' ? winlit : surface(p.surface, p.tinted), matrix: new THREE.Matrix4(), tinted: p.tinted, cast: p.surface !== 'winlit' }));
   m.set(k, parts); return parts;
 }

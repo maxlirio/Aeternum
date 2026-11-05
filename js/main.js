@@ -61,8 +61,9 @@ import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
 import { HoldsView } from './render/holds.js';
 import { OutpostView } from './render/outposts.js';
-import { buildingParts } from './render/housegen.js';
+import { buildingParts, setWindowGlow } from './render/housegen.js';
 import { SiteInteriors } from './render/sitereal.js';
+import { sitesNear } from './gen/outposts.js';
 import { localTones } from './gen/culture.js';
 import { Goods } from './render/goods.js';
 import { Mayhem } from './sim/mayhem.js';
@@ -849,10 +850,18 @@ async function start(fresh) {
     if (c) { c.pos = [ctrl.pos[0] + Math.sin(ctrl.facing) * 0.75, ctrl.pos[1] + 0.25, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.75]; }
     mayhem.stepOfficers(dt, t, ctrl, {
       armed: () => (player.weapon && inventoryOf(player).some(x => x.id === player.weapon)) || t - lastShotAt < 30,
-      onCop: n => { if (n === 1) ui.toast(`<b>${esc(cityView.city.name)} Security</b> is coming for you.`, 'bad', 7000); },
+      watchHere: () => { let w = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 200, S => { if (!w && S.items.some(i => /^gb_(cottage|tenement|inn)_/.test(i.k)) && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < S.clear + 60) w = S; }); return w; },
+      onCop: (n, local) => { if (n === 1) ui.toast(local ? `<b>The watch from ${esc(local.label)}</b> is coming for you.` : `<b>${esc(cityView.city.name)} Security</b> is coming for you.`, 'bad', 7000); },
       shoot: (o, d) => { const hit = Math.random() < Math.max(0.12, Math.min(0.8, 1 - d / 40)) * (ctrl.speed > 3 ? 0.6 : 1); showShot([o.pos[0], o.pos[1] + 1.4, o.pos[2]], [ctrl.pos[0] + (hit ? 0 : (Math.random() - 0.5) * 3), ctrl.pos[1] + 1.2, ctrl.pos[2] + (hit ? 0 : (Math.random() - 0.5) * 3)]); if (hit) { hurtPlayer(14 + Math.random() * 8, 'a Security officer'); if (player.hp <= 36 && mayhem.officers.length) cityArrest(); } },
-      caught: () => cityArrest(),
+      caught: (o, local) => local ? watchArrest(local) : cityArrest(),
     });
+  }
+  // Caught by a village's watch: no cells out here. They take your weapons and what you owe, and let you know you're not welcome.
+  function watchArrest(S) {
+    const t = clock.now(), h = mayhem.heat(t), fine = Math.round(40 + h * 60); mayhem.officers = []; player.heat = null; player.credits = (player.credits ?? 0) - fine;
+    player.inventory = inventoryOf(player).filter(x => ITEMS[x.id].cat !== 'weapon'); player.weapon = null; store.touchPlayer();
+    store.log({ t, type: 'watch_arrest', fine, by: player.id, byName: player.name, site: S.label });
+    ui.toast(`<b>The watch</b> has you. They take your weapons and <b>${fine} cr</b> for the damage, and tell you to clear out of ${esc(S.label)}.`, 'bad', 11000);
   }
   // Caught by the city's law: a night in their cells, the fines out of your account, your weapons gone.
   function cityArrest() {
@@ -1297,7 +1306,7 @@ async function start(fresh) {
     if (!paused) stepMayhem(dt);
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     cityRooms.update(ctrl.pos);
-    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now());
+    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, s, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
     flora.update(ctrl.pos[0], ctrl.pos[2]);
     outposts.update(ctrl.pos[0], ctrl.pos[2]);
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
@@ -1376,7 +1385,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
-  window.ORBIS = { sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { avatar, sites: () => siteRooms, ladders, store, planet, s, ctrl, cam, clock, world, town, doorView, scene, renderer, ready: false, save, pop, residents, crowd, getAgents: () => agents, ctx, polity, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, propView, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

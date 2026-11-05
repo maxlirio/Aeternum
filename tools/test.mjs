@@ -1229,6 +1229,8 @@ suites.countryside = async () => {
   check(!unknown, `every family model placed exists (${unknown} unknown)`);
   check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
   check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
+  { let sites = 0, joined = 0, wet = 0, tr = 0; const OT = await import('../js/gen/outposts.js'), { surfaceAt } = await import('../js/gen/surface.js'); for (const p of planets.slice(0, 4)) for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) for (const S of sitesInTile(p, i, j)) if (/^(village|township)$/.test(S.kind)) { sites++; if (S.tracks.length) { joined++; const T = S.tracks[0], e = T.pts[T.pts.length - 1]; if (surfaceAt(p, e[0], e[1]).road < 0.3) wet++; tr++; const m = T.pts[T.pts.length >> 1]; if (!OT.workedGround(OT.workedNear(p, m[0], m[1], 20), m[0], m[1])) wet++; } }
+    console.log(`    ${joined} of ${sites} villages and townships have a track to a road`); check(joined > 0, 'villages near a road have a track to it'); check(!wet, `each ends on the road and shows as worn ground (${wet} don't)`); }
   const { houseDesigns, houseFoot } = await import('../js/gen/housegen.js'), looks = new Set(planets.flatMap(p => houseDesigns(p).map(d => JSON.stringify({ ...d, id: 0 }))));
   check(looks.size === planets.length * 6, `every planet designs its own houses (${looks.size} different designs on ${planets.length} planets)`);
   check(new Set(planets.map(p => houseDesigns(p).map(d => d.wall + d.roof).sort().join())).size >= 4, 'and builds them of different things');

@@ -186,7 +186,16 @@ export function sitesInTile(planet, ti, tj) {
         place(K.core, x, z, rot0);
         for (const [k, n, R] of K.ring) for (let q = 0; q < n; q++) { const a = rot0 + (q + rng.next() * 0.5) * 6.283 / n, r2 = R * rng.range(0.8, 1.15); place(k, x + Math.cos(a) * r2, z + Math.sin(a) * r2, k === 'fencepanel' ? a + 1.57 : rng.range(0, 6.28)); }
       }
-      if (items.length) out.push({ kind: pick, label: K.label, x, y: S.h, z, items, lanes, fields, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
+      // a place people live has a way in: a track from the end of its lane to the nearest road, wandering a little
+      const tracks = [];
+      if (items.length && /^(village|township|hamlet|depot|lumber)$/.test(pick)) {
+        const ends = lanes.length ? [[lanes[0][0], lanes[0][1]], [lanes[0][2], lanes[0][3]]] : [[x, z]]; let to = null;
+        for (let r = 80; r <= 1300 && !to; r += 70) for (let k = 0; k < 14 && !to; k++) { const a = k * 0.449, X = x + Math.cos(a) * r, Z = z + Math.sin(a) * r; if (surfaceAt(planet, X, Z).road > 0.5) to = [X, Z]; }
+        if (to) { const from = ends.slice().sort((p, q) => Math.hypot(p[0] - to[0], p[1] - to[1]) - Math.hypot(q[0] - to[0], q[1] - to[1]))[0], L = Math.hypot(to[0] - from[0], to[1] - from[1]), n = Math.max(2, Math.round(L / 9)), nx = -(to[1] - from[1]) / L, nz = (to[0] - from[0]) / L, p1 = rng.range(0, 6.28), p2 = rng.range(0, 6.28), pts = []; let ok = true;
+          for (let i = 0; i <= n; i++) { const f = i / n, off = Math.sin(f * Math.PI) * (Math.sin(f * 7 + p1) * 14 + Math.sin(f * 17 + p2) * 5), px = from[0] + (to[0] - from[0]) * f + nx * off, pz = from[1] + (to[1] - from[1]) * f + nz * off, Q = surfaceAt(planet, px, pz); if (Q.h < planet.seaLevel + 0.4 || Q.town > 0.05) { ok = false; break; } pts.push([+px.toFixed(1), +pz.toFixed(1)]); }
+          if (ok) tracks.push({ pts, w: lanes[0]?.[4] ? Math.min(2.8, lanes[0][4]) : 2.4 }); }
+      }
+      if (items.length) out.push({ tracks, kind: pick, label: K.label, x, y: S.h, z, items, lanes, fields, clear: K.clear || 62, id: `site:${ti},${tj}`, wear: cul.wear });
     }
   }
   cache.set(ck, out);
@@ -197,10 +206,27 @@ export function sitesNear(planet, x, z, R, fn) {
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const s of sitesInTile(planet, i, j)) fn(s);
 }
 // the sites working the land near a spot, then: is this ground tilled or walked bare? (a field, a lane). Grass doesn't grow on it.
-export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R + 140, S => { if ((S.fields.length || S.lanes.length || S.items.some(i => i.box && i.k.startsWith('gb_'))) && Math.hypot(S.x - x, S.z - z) < S.clear + R) out.push(S); }); return out; }
-// → 1 a field, 2 a lane, 3 under a floor, or false
+export function workedNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R + 1500, S => { if ((S.fields.length || S.lanes.length || S.items.some(i => i.box && i.k.startsWith('gb_'))) && Math.hypot(S.x - x, S.z - z) < S.clear + R || S.tracks?.some(T => nearTrack(T, x, z, R))) out.push(S); }); return out; }
+// a track, indexed once: which of its stretches pass each 32 m square
+function trackIndex(T) {
+  if (T.idx) return T.idx;
+  const m = new Map(), C = 32, reach = T.w + 2; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+  T.pts.forEach((p, i) => { x0 = Math.min(x0, p[0]); z0 = Math.min(z0, p[1]); x1 = Math.max(x1, p[0]); z1 = Math.max(z1, p[1]); const q = T.pts[i + 1]; if (!q) return;
+    for (let a = Math.floor((Math.min(p[0], q[0]) - reach) / C); a <= Math.floor((Math.max(p[0], q[0]) + reach) / C); a++) for (let b = Math.floor((Math.min(p[1], q[1]) - reach) / C); b <= Math.floor((Math.max(p[1], q[1]) + reach) / C); b++) { const k = a * 100003 + b; (m.get(k) || m.set(k, []).get(k)).push(i); } });
+  Object.defineProperty(T, 'idx', { value: { m, C, box: [x0, z0, x1, z1] }, enumerable: false });
+  return T.idx;
+}
+export function tracksNear(planet, x, z, R) { const out = []; sitesNear(planet, x, z, R + 1500, S => { for (const T of S.tracks || []) if (nearTrack(T, x, z, R)) out.push(T); }); return out; }
+const nearTrack = (T, x, z, R) => { const { box: b } = trackIndex(T); return x > b[0] - R && x < b[2] + R && z > b[1] - R && z < b[3] + R; };
+export function onTrack(T, x, z) {
+  const I = trackIndex(T), segs = I.m.get(Math.floor(x / I.C) * 100003 + Math.floor(z / I.C)); if (!segs) return false;
+  for (const i of segs) { const [ax, az] = T.pts[i], [bx, bz] = T.pts[i + 1], ex = bx - ax, ez = bz - az, f = Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / (ex * ex + ez * ez || 1))); if (Math.hypot(ax + ex * f - x, az + ez * f - z) < T.w * 0.7) return true; }
+  return false;
+}
+// → 1 a field, 2 a lane or track, 3 under a floor, or false
 export function workedGround(sites, x, z) {
   for (const S of sites) {
+    if (S.tracks) for (const T of S.tracks) if (onTrack(T, x, z)) return 2;
     for (const it of S.items) if (it.box && it.k.startsWith('gb_') && Math.abs(x - it.x) < 32 && Math.abs(z - it.z) < 32) { const c = Math.cos(it.rot), s = Math.sin(it.rot), dx = x - it.x, dz = z - it.z; if (Math.abs(dx * c - dz * s) < it.box[0] + 0.2 && Math.abs(dx * s + dz * c) < it.box[1] + 0.2) return 3; }
     for (const f of S.fields) { const c = Math.cos(f.rot), s = Math.sin(f.rot), dx = x - f.x, dz = z - f.z; if (Math.abs(dx * c - dz * s) < f.box[0] && Math.abs(dx * s + dz * c) < f.box[1]) return 1; }
     for (const [x0, z0, x1, z1, w] of S.lanes) { const L = Math.hypot(x1 - x0, z1 - z0), u = ((x - x0) * (x1 - x0) + (z - z0) * (z1 - z0)) / L; if (u < 0 || u > L) continue; const wob = Math.sin(u * 0.09) * 1.1 + Math.sin(u * 0.031 + 2) * 1.6, o = ((x - x0) * (z1 - z0) - (z - z0) * (x1 - x0)) / L; if (Math.abs(o + wob) < w * 0.7) return 2; }

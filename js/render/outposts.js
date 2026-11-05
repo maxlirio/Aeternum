@@ -40,6 +40,11 @@ export class OutpostView {
           for (const q of [-1, -0.45, 0.45, 1]) { const px = cx - uz * W * q, pz = cz + ux * W * q; pos.push(px, surfaceAt(this.planet, px, pz).h + 0.05, pz); uv.push(px, pz); col.push(1, 1, 1, Math.abs(q) === 1 ? 0 : 0.92); } }
         for (let i = 0; i < n; i++) for (let j = 0; j < 3; j++) { const a = b + i * 4 + j, c = a + 4; idx.push(a, a + 1, c, a + 1, c + 1, c); }
       } });
+    // the tracks that bring them in from the road (near stretches only: from further off it's the land's own colour)
+    sitesNear(this.planet, x, z, NEAR + 1500, s => { for (const T of s.tracks || []) { const near = T.pts.map(p => Math.hypot(p[0] - x, p[1] - z) < NEAR + 300); let run = -1;
+      for (let i = 0; i <= T.pts.length; i++) { const on = near[i]; if (on && run < 0) run = i; if ((!on || i === T.pts.length) && run >= 0) { const P = T.pts.slice(Math.max(0, run - 1), i + 1); run = -1; if (P.length < 2) continue; const b = pos.length / 3;
+        P.forEach((p, q) => { const a = P[Math.max(0, q - 1)], c = P[Math.min(P.length - 1, q + 1)], L = Math.hypot(c[0] - a[0], c[1] - a[1]) || 1, nx = -(c[1] - a[1]) / L, nz = (c[0] - a[0]) / L; for (const f of [-1, -0.45, 0.45, 1]) { const px = p[0] + nx * T.w * f, pz = p[1] + nz * T.w * f; pos.push(px, surfaceAt(this.planet, px, pz).h + 0.05, pz); uv.push(px, pz); col.push(1, 1, 1, Math.abs(f) === 1 ? 0 : 0.92); } });
+        for (let q = 0; q < P.length - 1; q++) for (let j = 0; j < 3; j++) { const a = b + q * 4 + j, c = a + 4; idx.push(a, a + 1, c, a + 1, c + 1, c); } } } } });
     this.sowFields(x, z);
     if (!idx.length) return;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4)); g.setIndex(idx); g.computeVertexNormals();
