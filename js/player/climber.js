@@ -154,7 +154,7 @@ export class Climber {
     this.candidates(ideal, 0.8, 0.8, h => {
       if (h === L.hold || (L.hold && h.a === L.hold.a && h.y === L.hold.y && h.face === L.hold.face)) return;
       if (hand && h.kind === 'ground') return;
-      if (other.hold && other.hold.face === h.face && other.hold.a === h.a && other.hold.y === h.y) return;
+      if (other.hold && other.hold.face === h.face && other.hold.a === h.a && other.hold.y === h.y && (hand || h.kind !== 'pipe')) return;      // (both feet can share a bracket)
       const d = sub(h.p, cur), prog = (d[0] * R[0] + d[2] * R[2]) * right + d[1] * up;
       if (L.hold && prog < 0.12 * ml && (right || up)) return;      // it has to get you somewhere
       // left stays left; hands above feet by a body's span; not spreadeagled
