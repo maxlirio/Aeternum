@@ -28,6 +28,10 @@ const KINDS = {
   camp: { label: 'a camp', fit: () => 0.16, core: 'campfire', ring: [['tent', 3, 6], ['tarp', 1, 8], ['backpack', 2, 4], ['gascan', 1, 6], ['washingline', 1, 7]] },
   // people living together, and what they build in common: laid out by plan() below
   village: { label: 'a village', clear: 92, fit: l => l.flat * l.low * (0.5 + 0.5 * l.wet) * 1.5, plan: village },
+  township: { label: 'a township', clear: 135, fit: l => l.flat * l.low * 0.34, plan: township },
+  lumber: { label: 'a sawmill', clear: 40, fit: l => l.wet * l.flat * 0.32, core: 'sawmill', ring: [['cottage', 1, 24], ['shed', 1, 19], ['cart', 2, 15], ['poweredge', 1, 14]] },
+  refuge: { label: 'a mountain refuge', fit: l => l.high * l.steep * 0.28 + 0.02, core: 'shelterhut', ring: [['cairn', 2, 7], ['noticeboard', 1, 4]] },
+  depot: { label: 'a freight depot', clear: 60, fit: l => l.flat * l.road * 0.5 + l.flat * 0.03, core: 'warehouse', ring: [['warehouse', 1, 32], ['container', 4, 22], ['poweredge', 2, 26], ['busstop', 1, 26], ['garage', 1, 36]] },
   hamlet: { label: 'a hamlet', clear: 44, fit: l => l.flat * (0.3 + 0.7 * l.wet) * 0.9, plan: hamlet },
   fishing: { label: 'a fishing landing', clear: 40, fit: l => l.shore * 1.6, plan: fishing },
   graveyard: { label: 'a burial ground', fit: l => l.flat * 0.18, core: 'graves', ring: [['gate', 1, 9], ['shrine', 1, 15], ['lamp', 2, 11], ['bench', 2, 12]] },
@@ -35,7 +39,7 @@ const KINDS = {
   monument: { label: 'a monument', fit: l => l.high * 0.16, core: 'monument', ring: [['bench', 3, 9], ['lamp', 4, 8]] },
   power: { label: 'a power station', clear: 90, fit: l => l.flat * l.wet * 0.14, core: 'longhouse', ring: [['coolingtower', 2, 58], ['substation', 1, 30], ['pylon', 3, 82], ['spheretank', 1, 34]] },
   refinery: { label: 'a refinery', clear: 70, fit: l => l.flat * (1 - l.wet) * 0.2, core: 'column', ring: [['column', 3, 14], ['spheretank', 3, 34], ['longhouse', 1, 28], ['gastanks', 2, 20], ['tank', 2, 44]] },
-  fuel: { label: 'a fuel stop', fit: l => l.flat * 0.3 * l.road, core: 'fuelcanopy', ring: [['fuelpump', 2, 3.5], ['workcamp', 1, 14], ['roadsign', 1, 18], ['skip_bin', 1, 11]] },
+  fuel: { label: 'a fuel stop', fit: l => l.flat * 0.3 * l.road, core: 'fuelcanopy', ring: [['fuelpump', 2, 3.5], ['garage', 1, 20], ['busstop', 1, 16], ['roadsign', 1, 18], ['skip_bin', 1, 11]] },
 };
 // a front (-z in the kit) that looks toward (fx, fz); a long axis (+z) that runs along it
 const facing = (fx, fz) => Math.atan2(-fx, -fz), along = (dx, dz) => Math.atan2(dx, dz);
@@ -44,23 +48,48 @@ function village(put, x, z, a, rng) {
   const ux = Math.cos(a), uz = Math.sin(a), n = rng.int(4, 6), gap = 13.5, L = (n + 0.6) * gap, lanes = [[x - ux * L, z - uz * L, x + ux * L, z + uz * L, 3.4]];
   const at = (s, o) => [x + ux * s - uz * o, z + uz * s + ux * o];
   { const [px, pz] = at(0, -10); put(rng.next() < 0.5 ? 'fountain' : 'villagewell', px, pz, rng.range(0, 6.28)); }
-  const big = rng.next() < 0.5 ? 'shrine' : 'monument'; { const [px, pz] = at(rng.next() < 0.5 ? 15 : -15, -20); put(big, px, pz, 0); }
-  { const [px, pz] = at(0, 16); put('pavilion', px, pz, rng.range(0, 6.28)); }
+  const lookIn = o => facing(uz * o, -ux * o);                     // a front that looks at the lane, from offset o
+  { const o = -27, big = rng.next() < 0.45 ? 'temple' : rng.next() < 0.5 ? 'shrine' : 'monument', [px, pz] = at(rng.next() < 0.5 ? 15 : -15, o); put(big, px, pz, big === 'temple' ? lookIn(o) : 0); }
+  { const o = 19, [px, pz] = at(0, o); put('hall', px, pz, lookIn(o)); }
+  { const [px, pz] = at(rng.next() < 0.5 ? 17 : -17, 11); put('pavilion', px, pz, rng.range(0, 6.28)); }
+  { const [px, pz] = at(5, -6.2); put('noticeboard', px, pz, lookIn(-6.2)); }
+  for (let u = -L + 14; u < L; u += 26) { const [px, pz] = at(u, 5.4); put('poweredge', px, pz, a); }
+  { const [px, pz] = at(L - 12, -6.5); put('busstop', px, pz, lookIn(-6.5)); }
   { const [px, pz] = at(-9, -6.5); put('marketcross', px, pz, facing(uz, -ux)); }
   for (const s of [9, 13.5]) { const [px, pz] = at(s, -6.5); put('bandstall', px, pz, facing(-uz, ux)); }     // what they grew, sold by the lane
   for (const [s, o] of [[L * 0.3, 54], [-L * 0.3, -56], [L * 0.75, -58]]) { const [px, pz] = at(s, o); put('cropfield', px, pz, a + rng.range(-0.1, 0.1)); }
   for (const s of [-L, L]) { const [px, pz] = at(s + (s < 0 ? 5 : -5), 0); put('gate', px, pz, along(ux, uz)); }
+  const civics = rng.shuffle(['inn', 'smithy', 'garage', 'clinic', 'school', 'shop']);
   for (const side of [-1, 1]) for (let i = -n; i <= n; i++) {
     if (Math.abs(i) < 2) continue;                                            // the green
     const s = i * gap + rng.range(-1.5, 1.5), o = side * rng.range(10.5, 13), [px, pz] = at(s, o), [lx, lz] = [-(-uz * o), -(ux * o)];
-    const q = rng.next(), k = q < 0.12 ? 'shop' : q < 0.22 ? 'longhouse' : q < 0.36 ? 'hut' : 'cottage';
-    put(k, px, pz, facing(lx, lz));
+    const q = rng.next(), civic = civics.length && rng.next() < 0.3 ? civics.shift() : null, k = civic || (q < 0.12 ? 'shop' : q < 0.22 ? 'longhouse' : q < 0.36 ? 'hut' : 'cottage');
+    if (civic) { const [cx, cz] = at(s, side * rng.range(13, 15)); put(k, cx, cz, facing(lx, lz)); } else put(k, px, pz, facing(lx, lz));
     if (rng.next() < 0.6) { const [bx, bz] = at(s + rng.range(-3, 3), side * rng.range(21, 25)); put(rng.next() < 0.75 ? 'shed' : 'cart', bx, bz, facing(lx, lz) + rng.range(-0.2, 0.2)); }
     if (rng.next() < 0.4) { const [bx, bz] = at(s + rng.range(-5, 5), side * rng.range(31, 38)); put(rng.next() < 0.7 ? 'cottage' : 'hut', bx, bz, facing(lx, lz)); }   // a back row, off the lane
     if (i % 2 === 0) { const [bx, bz] = at(s + gap * 0.5, side * 4); put('lamp', bx, bz, facing(lx, lz)); }
     if (rng.next() < 0.12) { const [bx, bz] = at(s + gap * 0.5, side * 7); put(rng.next() < 0.5 ? 'bench' : 'cart', bx, bz, facing(lx, lz)); }
   }
   for (const [k, s, o] of [['watertower', L * 0.55, 30], ['graves', -L * 0.6, 36], ['swings', 26, -24], ['picnic', -9, 11], ['bench', 6, -9], ['bench', -6, -9], ['haybale', L * 0.7, -30], ['animalpen', -L * 0.3, -36], ['stable', L * 0.4, -34], ['pumphouse', L * 0.75, 30], ['trough', L * 0.2, -28]]) { const [px, pz] = at(s, o); put(k, px, pz, rng.range(0, 6.28)); }
+  return lanes;
+}
+// a small town that grew by itself: two streets crossing at a covered market, tenements close to the middle, houses further out, sheds and works at the edge
+function township(put, x, z, a, rng) {
+  const ux = Math.cos(a), uz = Math.sin(a), vx = -uz, vz = ux, L = 118, L2 = 92, lanes = [[x - ux * L, z - uz * L, x + ux * L, z + uz * L, 4.2], [x - vx * L2, z - vz * L2, x + vx * L2, z + vz * L2, 3.8]];
+  const at = (s, o) => [x + ux * s + vx * o, z + uz * s + vz * o];
+  const onMain = (s, o, k) => { const [px, pz] = at(s, o); put(k, px, pz, facing(-vx * o, -vz * o)); }, onCross = (s, o, k) => { const [px, pz] = at(s, o); put(k, px, pz, facing(-ux * s, -uz * s)); };
+  { const [px, pz] = at(17, 19); put('markethall', px, pz, a); }
+  onMain(-22, 22, 'hall'); onMain(20, -32, 'temple');
+  { const [px, pz] = at(-13, -13); put('fountain', px, pz, 0); }
+  { const [px, pz] = at(-8, -7); put('marketcross', px, pz, 0); }
+  { const [px, pz] = at(10, -7); put('noticeboard', px, pz, facing(-vx * -7, -vz * -7)); }
+  const inner = rng.shuffle(['tenement', 'tenement', 'tenement', 'inn', 'clinic', 'shop', 'shop', 'garage', 'tenement', 'school', 'shop']);
+  const mid = rng.shuffle(['cottage', 'cottage', 'cottage', 'shop', 'hut', 'longhouse', 'smithy', 'cottage', 'stable', 'cottage', 'shop']);
+  for (const side of [-1, 1]) for (let s = 40; s < L - 8; s += 15.5) for (const e of [-1, 1]) { const q = s < 76 ? inner : mid, k = q.length ? q.pop() : 'cottage'; onMain(e * s, side * rng.range(14.5, 16.5), k); if (s > 60 && rng.next() < 0.55) onMain(e * s + rng.range(-3, 3), side * rng.range(29, 34), rng.next() < 0.7 ? 'cottage' : 'shed'); }
+  for (const side of [-1, 1]) for (let o = 38; o < L2 - 7; o += 15) for (const e of [-1, 1]) { onCross(side * rng.range(14, 16), e * o, o < 60 && inner.length ? inner.pop() : mid.length ? mid.pop() : 'cottage'); }
+  for (let u = -L + 8; u < L; u += 24) { const [px, pz] = at(u, 7.2); put('lamp', px, pz, a); const [qx, qz] = at(u + 12, -7.2); put('poweredge', qx, qz, a); }
+  for (const [k, s, o] of [['warehouse', L * 0.72, -50], ['warehouse', -L * 0.8, 50], ['watertower', L * 0.5, 54], ['graves', -L * 0.55, -56], ['swings', -44, 42], ['busstop', L - 16, -8], ['busstop', -L + 16, 8], ['gate', L - 3, 0], ['gate', -L + 3, 0], ['substation', -L * 0.3, 64]]) { const [px, pz] = at(s, o); put(k, px, pz, k === 'gate' ? along(ux, uz) : o ? facing(-vx * o, -vz * o) : a); }
+  for (const [s, o] of [[L * 0.3, 78], [-L * 0.2, -84], [L * 0.8, 74], [-L * 0.75, -78]]) { const [px, pz] = at(s, o); put('cropfield', px, pz, a + rng.range(-0.08, 0.08)); }
   return lanes;
 }
 function hamlet(put, x, z, a, rng) {

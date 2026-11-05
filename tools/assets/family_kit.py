@@ -598,7 +598,224 @@ def fam_stockfence(p, r, W):
             for y in (0.3, 0.55, 0.8, 1.05, 1.3): rod_x(p, -L / 2, L / 2, y, 0.03, 0.004, 'metal', 3)
     return None
 
-FAMILIES = 'cottage hut shed longhouse shop stable shrine monument fountain villagewell marketcross watertower windpump pumphouse dam footbridge jetty boat graves pavilion picnic swings gate cart lamp bench crop scarecrow beehives trough bandstall stockfence coolingtower column spheretank'.split()
+# ------------------------------------------------------------------ what a settled place builds in common
+def bay_front(p, w, d, y, W, n, door_at=None, wh=1.2, ww=1.0):
+    """A row of windows along the front at height y, leaving room at door_at."""
+    for i in range(n):
+        x = -w / 2 + (i + 0.5) * w / n
+        if door_at is None or abs(x - door_at) > 1.2: win(p, x, -d / 2, 'z', y, ww, wh, W, -1)
+
+def sign(p, x, y, z, w, h=0.5):
+    bx(p, x, y, z, w, h, 0.07, 'tint', 0.008)
+
+def fam_hall(p, r, W):
+    """The meeting hall: tall, plain, a broad door up steps. Every place has somewhere to argue."""
+    w, d, h = r.uniform(12, 17), r.uniform(9, 12), r.uniform(5.2, 6.5)
+    walls(p, w, h, d, W); top = roof(p, w, d, h, r, W, 0.4, 0.3)
+    n = int(w / 2.6)
+    for i in range(n):
+        x = -w / 2 + (i + 0.5) * w / n
+        if abs(x) > 1.8: win(p, x, -d / 2, 'z', 1.5, 1.05, 2.8, W, -1)
+        win(p, x, d / 2, 'z', 1.5, 1.05, 2.8, W, 1)
+    for s_ in (-1, 1): [win(p, s_ * w / 2, -d / 2 + (i + 0.5) * d / 3, 'x', 1.5, 1.05, 2.8, W, s_) for i in range(3)]
+    door(p, 0, -d / 2, 'z', 2.1, 2.9, W)
+    for q in range(3): bx(p, 0, q * 0.12, -d / 2 - 1.0 - (2 - q) * 0.3, 4.6 - q * 0.5, 0.12, 0.3 + q * 0.05, W['base'], 0.008)
+    for s_ in (-1, 1): lathe(p, s_ * 1.9, -d / 2 - 1.1, [(0.26, 0.3), (0.18, 0.5), (0.15, h - 0.5), (0.26, h - 0.25), (0.28, h)], W['post'] if W['post'] != 'plank' else 'wood', 10)
+    bx(p, 0, h - 0.25, -d / 2 - 0.95, 4.6, 0.3, 1.9, W['trim'] if W['trim'] != 'paint' else 'stone', 0.012); sign(p, 0, 3.55, -d / 2 - 0.08, 3.6, 0.55)
+    return (w / 2, d / 2, h)
+
+def fam_school(p, r, W):
+    """Long, low, big windows to the south, and a yard with a fence."""
+    w, d, h = r.uniform(15, 22), r.uniform(7, 9), r.uniform(3.3, 3.7)
+    walls(p, w, h, d, W); roof(p, w, d, h, r, W, 0.5, 0.3)
+    n = int(w / 2.0)
+    for i in range(n):
+        x = -w / 2 + (i + 0.5) * w / n
+        if i not in (n // 2, n // 2 - 1) and i % 4 != 3: Fb(p, x, 1.0, -d / 2, 1.5, 1.8, 0.05, 'visor'); Fb(p, x, 0.95, -d / 2 - 0.05, 1.7, 0.08, 0.14, W['trim']); Fb(p, x, 2.8, -d / 2 - 0.03, 1.7, 0.08, 0.07, W['frame']); Fb(p, x - 0.8, 1.0, -d / 2 - 0.03, 0.08, 1.8, 0.07, W['frame']); Fb(p, x, 1.0, -d / 2 - 0.03, 0.05, 1.8, 0.06, W['frame'])
+    door(p, -0.5, -d / 2, 'z', 1.0, 2.1, W); door(p, 0.7, -d / 2, 'z', 1.0, 2.1, W)
+    prism(p, [(-d / 2, 2.9), (-d / 2 - 1.6, 2.75), (-d / 2 - 1.6, 2.68), (-d / 2, 2.82)], -2.2, 2.2, 'metal', 'x')
+    cy(p, w * 0.42, -d / 2 - 3, 0, 7.5, 0.04, 'metal', 6); bx(p, w * 0.42 + 0.46, 6.6, -d / 2 - 3, 0.9, 0.55, 0.01, 'tint', 0)        # the flag
+    for i in range(int(w / 3) + 1): cy(p, -w / 2 + i * 3, -d / 2 - 7, 0, 1.2, 0.03, 'metal', 5)
+    rod_x(p, -w / 2, w / 2, 1.15, -d / 2 - 7, 0.018, 'metal', 5); rod_x(p, -w / 2, w / 2, 0.55, -d / 2 - 7, 0.018, 'metal', 5)
+    for q in (-1, 1): cy(p, q * w * 0.3, -d / 2 - 4, 0, 3.0, 0.04, 'metal', 6)
+    rod_x(p, -w * 0.3 - 0.05, -w * 0.3 + 0.5, 3.0, -d / 2 - 4, 0.02, 'metal', 5)
+    return (w / 2, d / 2, h)
+
+def fam_clinic(p, r, W):
+    """Clean, a covered door an ambulance can reach, a light over it that's on all night."""
+    w, d, h = r.uniform(9, 14), r.uniform(7, 9), r.uniform(3.2, 3.6)
+    walls(p, w, h, d, dict(W, wall='render' if W['wall'] in ('rock', 'plank') else W['wall'])); roof(p, w, d, h, r, dict(W, kind='flat' if W['kind'] == 'vault' else W['kind']))
+    bay_front(p, w, d, 1.0, W, int(w / 2.2), 0, 1.25, 1.1); door(p, 0, -d / 2, 'z', 1.9, 2.15, W)
+    for s_ in (-1, 1): cy(p, s_ * 1.8, -d / 2 - 2.6, 0, 2.9, 0.07, 'metal', 8); win(p, s_ * w / 2, 0, 'x', 1.0, 0.9, 1.1, W, s_)
+    bx(p, 0, 2.9, -d / 2 - 1.4, 4.2, 0.14, 2.9, 'metal', 0.01); ball(p, 0, 2.82, -d / 2 - 1.3, 0.1, 'lampwarm')
+    bx(p, 0, 3.05, -d / 2 - 0.05, 1.0, 0.8, 0.07, 'ceramic', 0.006); bx(p, 0, 3.37, -d / 2 - 0.09, 0.62, 0.17, 0.01, 'navgreen', 0); bx(p, 0, 3.145, -d / 2 - 0.09, 0.17, 0.62, 0.01, 'navgreen', 0)
+    return (w / 2, d / 2, h)
+
+def fam_inn(p, r, W):
+    """Two floors, a sign out on a bracket, a bench by the door, and a lit window."""
+    w, d = r.uniform(10, 14), r.uniform(7, 9); h = r.uniform(5.6, 6.4); walls(p, w, h, d, W); top = roof(p, w, d, h, r, W)
+    n = int(w / 2.3); dx = 0
+    for i in range(n):
+        x = -w / 2 + (i + 0.5) * w / n
+        if abs(x - dx) > 1.1: win(p, x, -d / 2, 'z', 1.0, 1.05, 1.15, W, -1)
+        win(p, x, -d / 2, 'z', 3.8, 0.9, 1.15, W, -1); win(p, x, d / 2, 'z', 3.8, 0.9, 1.15, W, 1)
+    bx(p, 0, h * 0.5 - 0.02, -d / 2 - 0.03, w, 0.1, 0.07, W['trim'])
+    door(p, dx, -d / 2, 'z', 1.15, 2.15, W)
+    rod_z(p, -d / 2 - 1.0, -d / 2, w * 0.3, 3.2, 0.025, 'metal', 5); [cy(p, w * 0.3, -d / 2 - 0.25 - q * 0.5, 2.7, 3.2, 0.006, 'metal', 4) for q in (0, 1)]; Fb(p, w * 0.3, 2.1, -d / 2 - 0.5, 0.05, 0.62, 0.8, 'tint', 'z', 0.004)
+    for s_ in (-1, 1): bx(p, s_ * 2.0, 0, -d / 2 - 0.4, 1.5, 0.42, 0.4, 'wood', 0.005)
+    bx(p, -w * 0.42, 0, -d / 2 - 0.5, 0.5, 0.75, 0.5, 'wood', 0.005)
+    if W['kind'] != 'flat': chimney(p, w * 0.3, d * 0.1, top, W); chimney(p, -w * 0.3, -d * 0.1, top, W)
+    return (w / 2, d / 2, h)
+
+def fam_warehouse(p, r, W):
+    w, d, h = r.uniform(18, 28), r.uniform(11, 15), r.uniform(5.5, 7)
+    wW = dict(W, wall='corrugated' if W['wall'] in ('plank', 'render') else W['wall'], kind='gable' if W['kind'] == 'hip' else W['kind'], pitch=(0.18, 0.28) if W['kind'] == 'hip' else W['pitch'], roof='corrugated' if W['roof'] in ('thatch', 'rooftile', 'slate') else W['roof'])
+    walls(p, w, h, d, wW); roof(p, w, d, h, r, wW, 0.4, 0.3)
+    n = int(w / 7)
+    for i in range(n):
+        x = -w / 2 + (i + 0.5) * w / n; Fb(p, x, 0.3, -d / 2 - 0.03, 3.6, 3.9, 0.05, 'paint', 'z', 0.004)
+        for q in range(9): Fb(p, x, 0.45 + q * 0.42, -d / 2 - 0.06, 3.5, 0.03, 0.02, 'metal')
+        for s_ in (-1, 1): Fb(p, x + s_ * 1.9, 0.3, -d / 2 - 0.05, 0.14, 4.1, 0.1, 'hazard')
+        Fb(p, x, 4.4, -d / 2 - 0.05, 3.9, 0.14, 0.1, 'metal'); bx(p, x, 0.3, -d / 2 - 1.3, 3.6, 0.03, 2.5, 'concrete', 0)
+    for i in range(int(w / 5)): Fb(p, -w / 2 + (i + 0.5) * 5, h - 1.1, d / 2, 2.8, 0.55, 0.05, 'visor')
+    bx(p, 0, 0, -d / 2 - 0.05, w, 0.3, 0.1, 'concrete', 0)
+    return (w / 2, d / 2, h)
+
+def fam_garage(p, r, W):
+    """A vehicle bay with a pit of oil stains and a yard of what's waiting to be fixed."""
+    w, d, h = r.uniform(9, 13), r.uniform(7, 9), r.uniform(4, 4.6); wW = dict(W, kind='flat' if W['kind'] in ('hip', 'vault') else W['kind']); walls(p, w, h, d, wW); roof(p, w, d, h, r, wW, 0.3, 0.2)
+    for s_ in (-1, 1):
+        x = s_ * w * 0.22; Fb(p, x, 0.3, -d / 2, 3.2, 3.2, 0.05, 'visor'); Fb(p, x, 0.3, -d / 2 - 0.03, 3.2, 1.9, 0.05, 'paint', 'z', 0.003); [Fb(p, x, 0.5 + q * 0.3, -d / 2 - 0.06, 3.1, 0.025, 0.02, 'metal') for q in range(6)]
+        for e in (-1, 1): Fb(p, x + e * 1.65, 0.3, -d / 2 - 0.04, 0.12, 3.3, 0.1, W['frame'])
+    sign(p, 0, 3.6, -d / 2 - 0.05, w * 0.7, 0.6); win(p, w / 2, 0, 'x', 1.4, 1.2, 1.0, W, 1)
+    bx(p, 0, 0.3, -d / 2 - 2.5, w, 0.02, 4.8, 'concrete', 0)
+    for q in range(3): add_cyl(p, -w * 0.45 + q * 0.1, -d / 2 - 0.75, 0.3 + q * 0.2, 0.5 + q * 0.2, 0.34, 'rubber', seg=14)
+    add_cyl(p, w * 0.45, -d / 2 - 0.7, 0.3, 1.2, 0.29, 'tint', seg=12)
+    return (w / 2, d / 2, h)
+
+def fam_temple(p, r, W):
+    """The tallest roof in a place that isn't a tower: long nave, a raised crown or spire, a door at one end."""
+    w, d, h = r.uniform(8, 11), r.uniform(15, 22), r.uniform(5, 7); wm = W['wall'] if W['wall'] in ('rock', 'brick', 'concrete', 'render', 'hull') else 'render'; wW = dict(W, wall=wm)
+    bx(p, 0, -3.2, 0, w + 0.3, 3.55, d + 0.3, W['base'], 0.02); bx(p, 0, 0.3, 0, w, h - 0.3, d, wm, 0.012)
+    pitch = 0.9 if W['kind'] != 'vault' else 0.45; rise = w / 2 * pitch                     # ridge along the nave (z)
+    prism(p, [(-w / 2, h), (w / 2, h), (0, h + rise)], -d / 2, d / 2, wm, 'z')
+    rf = W['roof'] if W['kind'] != 'flat' else 'metal'
+    for s_ in (-1, 1): prism(p, [(0, h + rise + 0.1), (s_ * (w / 2 + 0.4), h - 0.28), (s_ * (w / 2 + 0.4), h - 0.42), (0, h + rise - 0.05)], -d / 2 - 0.3, d / 2 + 0.3, rf, 'z')
+    n = int(d / 3.2)
+    for i in range(n):
+        z = -d / 2 + (i + 0.5) * d / n
+        for s_ in (-1, 1): Fb(p, s_ * w / 2, 1.6, z, 1.1, 3.0, 0.05, 'visor', 'x'); Fb(p, s_ * (w / 2 + 0.03), 1.55, z, 1.3, 0.1, 0.1, W['trim'] if W['trim'] != 'paint' else 'stone', 'x'); Fb(p, s_ * (w / 2 + 0.03), 4.6, z, 1.3, 0.1, 0.1, W['trim'] if W['trim'] != 'paint' else 'stone', 'x'); Fb(p, s_ * (w / 2 + 0.1), 0.3, z + d / n / 2, 0.8, h * 0.72, 0.35, wm, 'x', 0.01)
+    door(p, 0, -d / 2, 'z', 1.7, 3.2, W); lathe(p, 0, -d / 2 - 0.03, [(1.3, h + 0.4), (1.3, h + 0.5)], 'stone' if W['name'] != 'prefab' else 'metal', 18)
+    Fb(p, 0, h - 0.5, -d / 2 - 0.02, 1.5, 1.5, 0.03, 'tint' if W['name'] != 'concrete' else 'visor')
+    k = [q['name'] for q in WAYS_F].index(W['name']) % 3; top = h + rise; zc = -d * 0.28
+    if k == 0: bx(p, 0, top - 2.5, zc, 3.4, 5.0, 3.4, wm, 0.02); lathe(p, 0, zc, [(2.6, top + 2.5), (0.1, top + 12), (0, top + 12.5)], rf, 4)
+    elif k == 1: lathe(p, 0, zc, [(2.7, top - 1.5), (2.7, top + 1.5)], wm, 16); lathe(p, 0, zc, [(2.9, top + 1.5)] + [(2.9 * math.cos(q * 0.262), top + 1.5 + 2.9 * math.sin(q * 0.262)) for q in range(1, 7)], 'tint' if W['name'] != 'prefab' else 'metal', 18); cy(p, 0, zc, top + 4.3, top + 6.2, 0.05, 'metal', 6)
+    else: bx(p, 0, top - 2.5, zc, 2.2, 8, 2.2, wm, 0.02); [Fb(p, 0, top + 3.8, zc + q * 1.1, 1.0, 1.4, 0.03, 'visor') for q in (-1, 1)]; bx(p, 0, top + 5.5, zc, 2.7, 0.2, 2.7, W['trim'] if W['trim'] != 'paint' else 'stone', 0.01); lathe(p, 0, zc, [(1.4, top + 5.7), (0, top + 7)], rf, 4)
+    return (w / 2, d / 2, h)
+
+def fam_tenement(p, r, W):
+    """Where a settlement goes up instead of out: four or five floors of the same window."""
+    F = r.randrange(3, 6); fh = 3.0; w, d, h = r.uniform(13, 20), r.uniform(8, 11), F * fh; wW = dict(W, kind='flat' if W['kind'] in ('hip', 'vault') else W['kind']); walls(p, w, h, d, wW); roof(p, w, d, h, r, wW)
+    n = int(w / 2.5)
+    for k in range(F):
+        y = 0.95 + k * fh
+        for i in range(n):
+            x = -w / 2 + (i + 0.5) * w / n
+            if not (k == 0 and abs(x) < 1.4): win(p, x, -d / 2, 'z', y, 1.0, 1.35, W, -1)
+            win(p, x, d / 2, 'z', y, 1.0, 1.35, W, 1)
+            if k and (i + k) % 5 == 0: bx(p, x, y - 0.25, -d / 2 - 0.45, 1.6, 0.08, 0.9, 'concrete', 0.005); [bx(p, x + q * 0.8, y - 0.17, -d / 2 - 0.45, 0.04, 0.95, 0.9, 'metal', 0) for q in (-1, 1)]; bx(p, x, y + 0.75, -d / 2 - 0.88, 1.6, 0.04, 0.04, 'metal', 0)
+        if k: bx(p, 0, k * fh - 0.07, -d / 2 - 0.02, w, 0.14, 0.06, W['trim'])
+    door(p, 0, -d / 2, 'z', 1.4, 2.2, W)
+    return (w / 2, d / 2, h)
+
+def fam_markethall(p, r, W):
+    """A roof on legs, open at the sides: a town's covered market."""
+    w, d, h = r.uniform(16, 26), r.uniform(9, 13), r.uniform(4.2, 5.2); m = W['post'] if W['post'] != 'plank' else 'wood'; nx = int(w / 4.2)
+    bx(p, 0, -1.0, 0, w + 0.8, 1.15, d + 0.8, W['base'], 0.02)
+    for i in range(nx + 1):
+        x = -w / 2 + i * w / nx
+        for s_ in (-1, 1): lathe(p, x, s_ * d / 2, [(0.28, 0.15), (0.2, 0.4), (0.15, h - 0.3), (0.3, h)], m, 8) if m in ('wood', 'metal', 'concrete') else bx(p, x, 0.15, s_ * d / 2, 0.55, h - 0.15, 0.55, m, 0.012)
+        beam(p, x, h, -d / 2, x, h, d / 2, 0.08, 'wood' if m == 'wood' else 'metal', 6)
+    rW = dict(W, kind='gable' if W['kind'] == 'flat' else W['kind'], pitch=(0.3, 0.42) if W['kind'] == 'flat' else W['pitch'], roof='metal' if W['roof'] == 'concrete' else W['roof'])
+    if rW['kind'] == 'hip': roof(p, w, d, h, r, rW, 0.7)
+    else:
+        pitch = r.uniform(*rW['pitch']); rise = d / 2 * pitch; t = 0.32 if rW['roof'] == 'thatch' else 0.11
+        for s_ in (-1, 1): slab(p, (0, h + rise), (s_ * (d / 2 + 0.7), h - 0.7 * pitch), -w / 2 - 0.5, w / 2 + 0.5, t, rW['roof'])
+    for i in range(nx):
+        x = -w / 2 + (i + 0.5) * w / nx
+        for s_ in (-1, 1):
+            bx(p, x, 0.15, s_ * d * 0.28, 2.4, 0.8, 0.9, 'wood', 0.008)
+            for q in range(3): add_blob(p, x + (q - 1) * 0.7, 1.02, s_ * d * 0.28, 0.17, r.choice(('tint', 'leaf', 'soil', 'cardboard')), r, 1, 0.8)
+    return None
+
+def fam_smithy(p, r, W):
+    """A forge: a small hot room with a wide-open side, a big chimney, a stack of stock."""
+    w, d, h = r.uniform(6, 8.5), r.uniform(5, 6.5), r.uniform(3, 3.5); fW = dict(W, kind='gable' if W['kind'] in ('flat', 'vault') else W['kind'], pitch=W['pitch'] if W['kind'] not in ('flat', 'vault') else (0.3, 0.4)); walls(p, w, h, d, fW); top = roof(p, w, d, h, r, fW, 1.2, 0.2)
+    Fb(p, 0, 0.3, -d / 2 - 0.01, w * 0.68, 2.3, 0.04, 'visor'); [cy(p, q * w * 0.36, -d / 2 - 1.2, 0, h - 0.2, 0.09, 'wood' if W['post'] in ('plank', 'render') else 'metal', 8) for q in (-1, 1)]
+    bx(p, w / 2 + 0.28, 0, d * 0.2, 1.0, top + 1.5, 1.0, 'brick' if W['wall'] != 'rock' else 'rock', 0.02); bx(p, w / 2 + 0.28, top + 1.5, d * 0.2, 1.15, 0.14, 1.15, 'stone', 0.01)
+    bx(p, -w * 0.25, 0, -d / 2 - 1.1, 0.34, 0.5, 0.34, 'wood', 0.006); bx(p, -w * 0.25, 0.5, -d / 2 - 1.1, 0.62, 0.22, 0.22, 'metal', 0.01)
+    for q in range(5): rod_x(p, w * 0.08, w * 0.08 + 1.8, 0.15 + (q % 2) * 0.1, -d / 2 - 1.1 - q * 0.12, 0.035, 'metal', 6)
+    add_cyl(p, -w * 0.42, -d / 2 - 0.7, 0, 0.7, 0.3, 'wood', seg=12); lathe(p, -w * 0.42, -d / 2 - 0.7, [(0.27, 0.71), (0, 0.71)], 'visor', 12)
+    return (w / 2, d / 2, h)
+
+def fam_sawmill(p, r, W):
+    """An open shed with a blade, logs waiting, boards stacked to dry."""
+    w, d, h = r.uniform(12, 16), r.uniform(6, 8), r.uniform(3.6, 4.2); m = 'wood' if W['post'] != 'metal' else 'metal'
+    for sx in (-1, 0, 1):
+        for sz in (-1, 1): bx(p, sx * w / 2, 0, sz * d / 2, 0.22, h, 0.22, m, 0.006)
+    rfm = W['roof'] if W['roof'] != 'concrete' else 'corrugated'
+    for s_ in (-1, 1): slab(p, (0, h + d * 0.18), (s_ * (d / 2 + 0.5), h - 0.08), -w / 2 - 0.3, w / 2 + 0.3, 0.1, rfm)
+    bx(p, 0, 0, 0, w * 0.8, 0.85, 1.0, 'wood', 0.01)
+    add_cyl(p, 0, 0.85, -0.03, 0.03, 0.55, 'metal', seg=22, axis='z'); bx(p, 0, 0.85, 0.75, 0.7, 0.6, 0.5, 'tint', 0.012)
+    for q in range(9):
+        rr = r.uniform(0.17, 0.27); add_cyl(p, 0.27 + (q // 3) * 0.44, d * 0.9 + (q % 3 - 1) * 0.55 + (q // 3) * 0.22, -3.2, 2.2, rr, 'bark', seg=10, axis='x')
+    for q in range(6):
+        for k in range(3): bx(p, -w * 0.28 + k * 0.42, 0.1 + q * 0.09, -d * 0.95, 0.36, 0.05, 3.4, 'plank', 0)
+    return (w / 2, d / 2, 2.2)
+
+# ------------------------------------------------------------------ small things along a road
+def fam_busstop(p, r, W):
+    L = r.uniform(3, 4.6); m = W['post'] if W['post'] in ('metal',) else 'wood' if W['post'] == 'plank' else 'metal'
+    for s_ in (-1, 1):
+        for z in (-0.5, 0.5): cy(p, s_ * L / 2, z, 0, 2.5, 0.04, m, 6)
+    rm = W['roof'] if W['roof'] in ('corrugated', 'hull', 'thatch', 'rooftile', 'slate') else 'metal'
+    prism(p, [(-0.9, 2.42), (0.75, 2.62), (0.75, 2.7), (-0.9, 2.5)], -L / 2 - 0.15, L / 2 + 0.15, rm, 'x')
+    Fb(p, 0, 0.55, 0.5, L, 1.7, 0.03, 'glass' if W['name'] in ('prefab', 'concrete', 'tin') else 'plank'); bx(p, 0, 0.44, 0.22, L * 0.7, 0.05, 0.36, 'wood', 0.004)
+    for s_ in (-1, 1): bx(p, s_ * L * 0.28, 0, 0.22, 0.05, 0.44, 0.3, 'metal')
+    cy(p, L / 2 + 0.6, -0.3, 0, 2.6, 0.03, 'metal', 6); bx(p, L / 2 + 0.6, 2.2, -0.33, 0.4, 0.4, 0.02, 'tint', 0)
+    return None
+
+def fam_noticeboard(p, r, W):
+    w = r.uniform(1.4, 2.4); m = 'wood' if W['deck'] == 'wood' else 'metal'
+    for s_ in (-1, 1): cy(p, s_ * w / 2, 0, 0, 2.1, 0.05, m, 6)
+    bx(p, 0, 0.9, 0, w, 1.05, 0.04, 'cardboard' if m == 'wood' else 'paint', 0.004); prism(p, [(-0.28, 2.0), (0.28, 2.0), (0, 2.22)], -w / 2 - 0.1, w / 2 + 0.1, W['roof'] if W['roof'] in ('slate', 'rooftile', 'corrugated', 'thatch') else 'metal', 'x')
+    for i in range(r.randrange(4, 9)): bx(p, r.uniform(-w * 0.42, w * 0.42), r.uniform(1.0, 1.72), -0.023, r.uniform(0.15, 0.28), r.uniform(0.18, 0.3), 0.003, r.choice(('ceramic', 'tint', 'cardboard')), 0)
+    return None
+
+def fam_poweredge(p, r, W):
+    """The pole that brings power to the last house, transformer and all."""
+    h = r.uniform(7.5, 9.5); cy(p, 0, 0, -0.5, h, 0.11, 'wood' if W['post'] in ('plank', 'render', 'brick') else 'concrete' if W['post'] == 'concrete' else 'metal', 8, r2=0.08)
+    for y in (h - 0.2, h - 0.9): bx(p, 0, y, 0, 1.6, 0.09, 0.09, 'wood' if W['post'] == 'plank' else 'metal', 0); [cy(p, s_ * 0.7, 0, y + 0.09, y + 0.26, 0.04, 'ceramic', 7) for s_ in (-1, 1)]
+    add_cyl(p, 0, -0.3, h - 2.8, h - 1.7, 0.26, 'paint', seg=12); [cy(p, q * 0.13, -0.3, h - 1.7, h - 1.45, 0.025, 'ceramic', 6) for q in (-1, 1)]; bx(p, 0, 2.2, -0.14, 0.32, 0.45, 0.08, 'metal', 0.004)
+    return None
+
+def fam_culvert(p, r, W):
+    """Where a track crosses a ditch."""
+    L = r.uniform(3, 5); m = 'concrete' if W['wall'] not in ('rock', 'brick') else W['wall']
+    for s_ in (-1, 1): bx(p, 0, -0.6, s_ * L / 2, 3.4, 1.15, 0.3, m, 0.012)
+    for x in (-0.65, 0.65): add_cyl(p, x, -0.1, -L / 2 - 0.02, L / 2 + 0.02, 0.42, 'visor', seg=16, axis='z')
+    bx(p, 0, 0.55, 0, 3.4, 0.05, L, 'soil', 0.01)
+    return None
+
+def fam_shelterhut(p, r, W):
+    """A refuge on a high road: four walls, a stove pipe, a door that isn't locked."""
+    w, d, h = r.uniform(3.5, 5), r.uniform(3, 4), r.uniform(2.3, 2.6); walls(p, w, h, d, W); top = roof(p, w, d, h, r, W, 0.3, 0.2)
+    door(p, 0, -d / 2, 'z', 0.85, 1.85, W); win(p, w / 2, 0, 'x', 1.1, 0.5, 0.5, W, 1); cy(p, -w * 0.28, d * 0.15, h, top + 0.6, 0.07, 'metal', 8); cy(p, -w * 0.28, d * 0.15, top + 0.6, top + 0.72, 0.13, 'metal', 8, r2=0.02)
+    for q in range(3):
+        for k in range(3 - q): add_cyl(p, 0.15 + q * 0.26, -d / 2 - 0.5 + k * 0.28 + q * 0.14, w * 0.2, w * 0.2 + 1.3, 0.12, 'bark', seg=8, axis='x')
+    return (w / 2, d / 2, h)
+
+FAMILIES = 'cottage hut shed longhouse shop stable hall school clinic inn warehouse garage temple tenement markethall smithy sawmill shelterhut shrine monument fountain villagewell marketcross noticeboard busstop poweredge culvert watertower windpump pumphouse dam footbridge jetty boat graves pavilion picnic swings gate cart lamp bench crop scarecrow beehives trough bandstall stockfence coolingtower column spheretank'.split()
 
 def build_family():
     import json

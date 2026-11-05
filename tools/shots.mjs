@@ -179,7 +179,7 @@ for (const [K, [sp, list]] of Object.entries(KIT)) {
   SHOTS['kit' + K] = 'hour=13.5';
 }
 // one family (tools/assets/family_kit.py), each way of building side by side, on plain ground in real light
-const FAMS = { cottage: 12, hut: 9, shed: 7, longhouse: 22, shop: 13, shrine: 11, monument: 10, fountain: 9, villagewell: 4, watertower: 10, windpump: 6, footbridge: 18, jetty: 7, boat: 13, graves: 14, pavilion: 12, picnic: 4, swings: 11, gate: 10, cart: 5, lamp: 2.5, bench: 3, coolingtower: 42, column: 16, spheretank: 20, stable: 15, marketcross: 4, pumphouse: 11, dam: 34, crop: 2.2, scarecrow: 2.4, beehives: 6, trough: 4.5, bandstall: 5, stockfence: 8 };
+const FAMS = { cottage: 12, hut: 9, shed: 7, longhouse: 22, shop: 13, shrine: 11, monument: 10, fountain: 9, villagewell: 4, watertower: 10, windpump: 6, footbridge: 18, jetty: 7, boat: 13, graves: 14, pavilion: 12, picnic: 4, swings: 11, gate: 10, cart: 5, lamp: 2.5, bench: 3, coolingtower: 42, column: 16, spheretank: 20, stable: 15, marketcross: 4, pumphouse: 11, dam: 34, crop: 2.2, hall: 21, school: 27, clinic: 17, inn: 17, warehouse: 33, garage: 16, temple: 19, tenement: 24, markethall: 30, smithy: 13, sawmill: 22, shelterhut: 8, noticeboard: 3.4, busstop: 7, poweredge: 4, culvert: 7, scarecrow: 2.4, beehives: 6, trough: 4.5, bandstall: 5, stockfence: 8 };
 for (const [F, sp] of Object.entries(FAMS)) {
   SCRIPTS['fam_' + F] = `const O = ORBIS, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), G = await import('./js/gen/city.js'), THREE = await import('three'), CV = await import('./js/render/city.js');
     const u0 = G.lineAt(c, 0, 0), v0 = G.lineAt(c, 1, 0), sp = ${sp}, [px, pz] = c.toWorld(u0, v0 - 2), hold = () => { O.ctrl.pos = [px, c.h + 0.1, pz]; O.ctrl.vel = [0, 0, 0]; }; hold();
@@ -188,18 +188,18 @@ for (const [F, sp] of Object.entries(FAMS)) {
     const [fx, fz] = c.toWorld(u0, v0 + 40), yaw = Math.atan2(fx - px, fz - pz);
     for (let n = 0; n < 7; n++) { const k = 'fam_${F}_' + n, parts = O.cityView.kit(k) || [], col = n < 4 ? n - 1.5 : n - 5, row = n < 4 ? 0 : 1;
       for (const p of parts) { const m = new THREE.InstancedMesh(p.geometry, p.material, 1), M = new THREE.Matrix4().setPosition(u0 + col * sp * 1.15, c.h + 0.02, v0 + sp * 0.6 + row * sp * 1.5); m.setMatrixAt(0, M); if (p.tinted) m.setColorAt(0, new THREE.Color(...CV.kitTint(p.tinted, k, n * 7.1, n * 3.3))); m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; g.add(m); } }
-    O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${/watertower|windpump|column/.test(F) ? 0.12 : 0.3}; O.cam.dist = sp * ${/watertower|windpump|column/.test(F) ? 4 : /coolingtower|spheretank/.test(F) ? 3.4 : 2.5}; const keep = () => { hold(); requestAnimationFrame(keep); }; keep(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
+    O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${/watertower|windpump|column|temple|poweredge/.test(F) ? 0.12 : 0.3}; O.cam.dist = sp * ${/watertower|windpump|column|temple|poweredge/.test(F) ? 4 : /coolingtower|spheretank/.test(F) ? 3.4 : 2.5}; const keep = () => { hold(); requestAnimationFrame(keep); }; keep(); document.querySelector('.toasts')?.remove(); await wait(2500);`;
   SHOTS['fam_' + F] = 'hour=13.5';
 }
 // the nearest of a kind of site on this planet, seen from above and at the door. SITE= picks it
-for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14]]) {
+for (const [name, kind, dist, pitch] of [['village', 'village', 95, 0.42], ['villagest', 'village', 15, 0.16], ['hamlet', 'hamlet', 55, 0.4], ['fishing', 'fishing', 55, 0.3], ['powerst', 'power', 240, 0.25], ['refinery', 'refinery', 90, 0.3], ['graveyard', 'graveyard', 35, 0.35], ['farm', 'farm', 95, 0.4], ['fieldst', 'farm', 11, 0.14], ['folk', 'village', 26, 0.3], ['township', 'township', 165, 0.42], ['townst', 'township', 16, 0.18], ['lumber', 'lumber', 40, 0.3]]) {
   SCRIPTS['site_' + name] = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), P = await import('./js/gen/outposts.js'), T = await import('./js/gen/surface.js');
     let best = null, bd = 1e12, bn = 0; const [x0, z0] = O.ctrl.pos; for (let i = -40; i <= 40; i++) for (let j = -40; j <= 40; j++) for (const S of P.sitesInTile(O.planet, i, j)) if (S.kind === '${kind}') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz), n = S.items.filter(q => q.box).length; if (n * 400 - d > bn * 400 - bd) { best = S; bd = d; bn = n; } }
     if (!best) throw new Error(JSON.stringify({ none: '${kind}' }));
-    const FF = ${name === 'fieldst' ? 'best.fields[0]' : 'null'}, street = ${name === 'villagest' ? 'true' : 'false'}, L = best.lanes[0], a = L ? Math.atan2(L[3] - L[1], L[2] - L[0]) : 0, sx = FF ? FF.x + Math.sin(FF.rot) * (FF.box[1] + 2) : street ? L[0] * 0.3 + L[2] * 0.7 : best.x, sz = FF ? FF.z + Math.cos(FF.rot) * (FF.box[1] + 2) : street ? L[1] * 0.3 + L[3] * 0.7 : best.z;
+    const FF = ${name === 'fieldst' ? 'best.fields[0]' : 'null'}, street = ${name === 'villagest' || name === 'townst' ? 'true' : 'false'}, L = best.lanes[0], a = L ? Math.atan2(L[3] - L[1], L[2] - L[0]) : 0, sx = FF ? FF.x + Math.sin(FF.rot) * (FF.box[1] + 2) : street ? L[0] * 0.3 + L[2] * 0.7 : best.x, sz = FF ? FF.z + Math.cos(FF.rot) * (FF.box[1] + 2) : street ? L[1] * 0.3 + L[3] * 0.7 : best.z;
     const y = T.surfaceAt(O.planet, sx, sz).h + 1.2; O.ctrl.pos = [sx, y, sz]; O.ctrl.vel = [0, 0, 0]; for (let i = 0; i < 25; i++) { O.ctrl.pos = [sx, y, sz]; await wait(300); }
     O.ctrl.facing = FF ? Math.atan2(FF.x - sx, FF.z - sz) : street ? Math.atan2(L[0] - L[2], L[1] - L[3]) : 0.9; O.cam.yaw = O.ctrl.facing; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; document.querySelector('.toasts')?.remove(); await wait(2500);`;
-  SHOTS['site_' + name] = 'hour=15';
+  SHOTS['site_' + name] = name === 'folk' ? 'hour=10.5' : 'hour=15';
 }
  SCRIPTS.flycityn = SCRIPTS.flycity; SHOTS.flycityn = 'hour=20.8';
 SCRIPTS.cars = `const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); const V = O.getVehicles(); let best = null, bn = 0;

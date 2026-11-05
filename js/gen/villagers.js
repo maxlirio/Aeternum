@@ -8,8 +8,8 @@ import { personName } from './names.js';
 import { sitesNear } from './outposts.js';
 import { surfaceAt } from './surface.js';
 
-const SPEED = 1.25, HOME = /^fam_(cottage|hut|longhouse)_/, SHOP = /^fam_(shop|bandstall)_/;
-const GATHER = [[/^fam_(fountain|villagewell)_/, 'at the well', 2.2], [/^fam_bench_/, 'taking the air', 1], [/^fam_pavilion_/, 'under the pavilion', 3], [/^fam_(shrine|monument)_/, 'paying their respects', 4.5], [/^fam_marketcross_/, 'reading the notices', 1.6]];
+const SPEED = 1.25, HOME = /^fam_(cottage|hut|longhouse|tenement|inn)_/, SHOP = /^fam_(shop|bandstall|markethall|garage|smithy|sawmill)_/;
+const GATHER = [[/^fam_(fountain|villagewell)_/, 'at the well', 2.2], [/^fam_bench_/, 'taking the air', 1], [/^fam_pavilion_/, 'under the pavilion', 3], [/^fam_(shrine|monument)_/, 'paying their respects', 4.5], [/^fam_(marketcross|noticeboard)_/, 'reading the notices', 1.6], [/^fam_hall_/, 'at the hall', 2.5], [/^fam_temple_/, 'at the temple', 2.5], [/^fam_inn_/, 'outside the inn', 2], [/^fam_clinic_/, 'waiting at the clinic', 2], [/^fam_school_/, 'at the school', 3]];
 const JOBS = { field: ['farmer', 'hand on the land', 'grower'], shop: ['shopkeeper', 'stallholder'], jetty: ['fisher', 'boat hand'], yard: ['carter', 'smith', 'mender', 'beekeeper', 'mason'] };
 
 // a turned footprint, grown a little: is (x, z) in it? and does a straight walk cross it?
@@ -35,13 +35,13 @@ export function villageOf(planet, S) {
   const front = i => { const f = i.box ? i.box[1] + 1.1 : 1.4; return [i.x - Math.sin(i.rot) * f, i.z - Math.cos(i.rot) * f]; };
   for (const i of S.items) {
     for (const [re, what, r] of GATHER) if (re.test(i.k)) { const a = rng.range(0, 6.28), rr = (i.box ? Math.max(i.box[0], i.box[1]) : 0) + r * 0.5 + 0.7; spots.gather.push({ at: [i.x + Math.cos(a) * rr, i.z + Math.sin(a) * rr], what, look: [i.x, i.z] }); }
-    if (SHOP.test(i.k)) spots.shop.push({ at: front(i), what: 'minding the stall', look: [i.x, i.z] });
+    if (SHOP.test(i.k)) spots.shop.push({ at: front(i), what: /markethall|bandstall/.test(i.k) ? 'minding the stall' : 'at work', look: [i.x, i.z] });
     if (/^fam_(jetty|boat)_/.test(i.k)) spots.jetty.push({ at: null, what: 'seeing to the boats', look: [i.x, i.z] });
   }
   for (const f of S.fields) for (let n = 0; n < 3; n++) { const u = rng.range(-f.box[0], f.box[0]) * 0.8, v = rng.range(-f.box[1], f.box[1]) * 0.8, c = Math.cos(f.rot), s = Math.sin(f.rot); spots.field.push({ at: [f.x + u * c + v * s, f.z - u * s + v * c], what: 'working the rows', look: [f.x, f.z] }); }
   const people = [];
   S.items.filter(i => HOME.test(i.k)).forEach((h, hi) => {
-    const size = /longhouse/.test(h.k) ? rng.int(3, 6) : rng.int(1, 4), door = front(h);
+    const size = /tenement/.test(h.k) ? rng.int(6, 14) : /longhouse|inn/.test(h.k) ? rng.int(3, 6) : rng.int(1, 4), door = front(h);
     for (let n = 0; n < size; n++) {
       const age = n === 0 ? rng.int(26, 70) : rng.chance(0.45) ? rng.int(6, 17) : rng.int(19, 80);
       const trade = age < 16 ? null : spots.shop.length && rng.chance(0.14) ? 'shop' : spots.field.length && rng.chance(0.6) ? 'field' : 'yard';

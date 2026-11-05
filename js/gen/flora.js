@@ -91,7 +91,7 @@ export function floraTile(planet, ti, tj) {
 }
 
 // Plants within radius R of (x, z): calls fn(plant) for each.
-const onSite = (planet, x, z) => { let on = false; sitesNear(planet, x, z, 100, S => { if (Math.hypot(S.x - x, S.z - z) < S.clear) on = true; }); return on; };
+const onSite = (planet, x, z) => { let on = false; sitesNear(planet, x, z, 140, S => { if (Math.hypot(S.x - x, S.z - z) < S.clear) on = true; }); return on; };
 export function floraNear(planet, x, z, R, fn) {
   const t0 = Math.floor((x - R) / TILE), t1 = Math.floor((x + R) / TILE), u0 = Math.floor((z - R) / TILE), u1 = Math.floor((z + R) / TILE);
   for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const p of floraTile(planet, ti, tj)) if ((p.x - x) ** 2 + (p.z - z) ** 2 <= R * R) fn(p);

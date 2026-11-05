@@ -1225,7 +1225,7 @@ suites.countryside = async () => {
     }
   }
   console.log('   ', JSON.stringify(kinds), items, 'items;', 'cultures', [...ways].join(' '));
-  for (const k of ['village', 'hamlet', 'fishing', 'farm', 'graveyard']) check(kinds[k] > 0, `some land has ${k}s (${kinds[k] || 0})`);
+  for (const k of ['village', 'hamlet', 'fishing', 'farm', 'graveyard', 'township', 'lumber', 'refuge']) check(kinds[k] > 0, `some land has ${k}s (${kinds[k] || 0})`);
   check(!unknown, `every family model placed exists (${unknown} unknown)`);
   check(!overlap, `no two buildings stand in one another (${overlap})`); check(!lanesHit, `no building sits on a lane (${lanesHit})`);
   check(sample && sample.items.filter(q => q.box).length >= 8, `a village is a village: ${sample?.items.filter(q => q.box).length} buildings, ${sample?.lanes.length} lane`);
