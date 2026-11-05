@@ -1370,6 +1370,13 @@ suites.crashes = async () => {
   // dead in the air: it falls
   { const { flyT } = { flyT: Object.keys(TYPES)[0] }, y0 = surfaceHeight(p, wx, wz) + 40, r = new Ride(W, p, { type: 'sedan', fly: true, pos: [wx, y0, wz], facing: f + 3.14, colour: 0, id: 't' }); r.pos[1] = y0; r.dead = true; let hit = null; for (let t = 0; t < 6 && !hit; t += 1 / 60) { r.step(1 / 60, { fwd: 0, right: 0 }); if (r.crash) hit = r.crash; } check(hit && hit.dv > 15, `a dead sky car drops and hits (${hit?.dv.toFixed(1)} m/s)`); }
 };
+suites.ride = async () => {
+  const { outRoutes } = await import('../js/gen/highways.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Ride } = await import('../js/player/ride.js');
+  const p = makePlanet(seedFromString('test-universe-3'), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false), r = outRoutes(p, s)[0]; W.flora = false;
+  for (const off of [0, 60]) for (const type of ['sedan', 'hauler']) { const i0 = r.lead + 5, a = r.pts[i0], b = r.pts[i0 + 1], R = new Ride(W, p, { type, pos: [a[0] + off, r.h[i0], a[1] + off], facing: Math.atan2(b[0] - a[0], b[1] - a[1]), colour: 0, id: 't' }); let py = R.pos[1], pd = 0, worst = 0, rev = 0, n = 0, pp = R.pitch, ppd = 0, at = i0;
+    for (let t = 0; t < 10; t += 1 / 60) { if (!off) { while (at + 1 < r.pts.length && Math.hypot(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]) < 12) at++; R.facing = Math.atan2(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]); } for (let k = 0; k < 2; k++) R.step(1 / 120, { fwd: 1, right: 0 }); R.crash = null; R.stun = 0; const d = R.pos[1] - py, dd = Math.abs(d - pd), pd2 = R.pitch - pp; if (t > 2) { worst = Math.max(worst, dd); n++; if (pd2 * ppd < 0 && Math.abs(pd2) > 2e-4 && Math.abs(ppd) > 2e-4) rev++; } py = R.pos[1]; pd = d; pp = R.pitch; ppd = pd2; }
+    check(worst < 0.25, `${type} ${off ? 'cross-country' : 'on the road'}: no jolts in the body's height (worst ${(worst * 100).toFixed(1)} cm per frame)`); check(rev / 8 < 6, `${type} ${off ? 'cross-country' : 'on the road'}: the nose isn't shivering (${(rev / 8).toFixed(1)} reversals a second)`); }
+};
 suites.bridges = async () => {
   const { outRoutes } = await import('../js/gen/highways.js'), { surfaceHeight, deckAt } = await import('../js/gen/surface.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Ride } = await import('../js/player/ride.js'), { Controller } = await import('../js/player/controller.js');
   let towns = 0, withB = 0, n = 0, low = 0, under = 0, tried = 0, crossed = 0, steep = 0, deckMiss = 0, ghost = 0;

@@ -678,6 +678,7 @@ async function start(fresh) {
     for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), !mayhem?.rider, v.moving === false ? 0 : (v.speed || 0));
     world.carBoxes = out;
   }
+  let rideCamY = null;
   let lastTraffic = [], waterTick = 0, shadowTick = 0, rezT = 0, rezN = 0, resolution = Math.min(devicePixelRatio, 2);
   // Things you can hit that aren't walls: parked vehicles, the road's and the city's traffic
   function rideBumps(t) {
@@ -1477,7 +1478,11 @@ async function start(fresh) {
       const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyEuler(e), ahead = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.45, a.z - L.D / 2 + 12).applyEuler(e);
       const p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z), p1 = toRender(flight.pos[0] + ahead.x, flight.pos[1] + ahead.y, flight.pos[2] + ahead.z);
       camera.position.set(...p0); camera.lookAt(...p1);
-    } else if (!shot) cam.update(dt, ctrl.pos, toRender);
+    } else if (!shot) {
+      // driving, the camera rides on its own softer springs: you see the car move over a bump, not the whole world
+      if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
+      else { rideCamY = null; cam.update(dt, ctrl.pos, toRender); }
+    }
     war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
     if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, ctx);
@@ -1577,7 +1582,7 @@ async function start(fresh) {
     waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
     if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
-    renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0;     // (the sun's slow and the map's sharp: every other frame doesn't show)
+    renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3;     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
     // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
     rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);

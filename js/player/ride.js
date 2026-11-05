@@ -5,6 +5,7 @@
 import { typeOf } from '../gen/vehicles.js';
 
 const BOOST = 1.4, REVERSE = 5, ACCEL = 7.5, BRAKE = 16, COAST = 0.35;
+const SPRING = 100, DAMP = 15, SAG = 9.81 / SPRING;       // about 1.6 Hz, well damped: a car's ride
 const TURN = 1.9, CLIMB = 0.75;           // steer rate (rad/s at low speed); steepest rise it will take
 
 
@@ -12,7 +13,7 @@ export class Ride {
   constructor(world, planet, v) {
     this.world = world; this.planet = planet; this.v = v; this.T = typeOf(v);
     this.pos = v.pos.slice(); this.facing = v.facing;
-    this.speed = 0; this.vy = 0; this.pitch = 0; this.roll = 0; this.yawRate = 0;
+    this.speed = 0; this.vy = 0; this.air = false; this.pitch = 0; this.roll = 0; this.yawRate = 0;
     this.pos[1] = v.fly ? Math.max(this.pos[1], this.ground(this.pos[0], this.pos[2], this.pos[1] + 1)) : this.ground(this.pos[0], this.pos[2], this.pos[1] + 1);
     this.impact = 0;                       // last collision speed (m/s), for the caller to react to
     this.slide = [0, 0]; this.stun = 0; this.pitchV = 0; this.rollV = 0; this.crash = null; this.dead = false;     // what's left of a crash: sliding, spinning, not answering the wheel
@@ -91,15 +92,21 @@ export class Ride {
       this.pos = [x, ny, z]; this.tumble(dt, -this.vy * 0.03, Math.max(-0.5, Math.min(0.5, -this.yawRate * Math.abs(this.speed) * 0.035)), 4, ny <= ground + 0.05);
       return;
     }
-    // hover: spring up to the surface below; fall freely off crests
-    const g = Math.max(this.ground(x, z, y + 1.2), this.ground(x + nfx * half * 0.8, z + nfz * half * 0.8, y + 1.2) - 0.25, this.ground(x - nfx * half * 0.8, z - nfz * half * 0.8, y + 1.2) - 0.25);
-    let ny = y;
-    if (ny < g) { ny = g + (ny - g) * Math.exp(-dt * 18); this.vy = Math.max(this.vy, 0); ny = Math.max(ny, g - 0.05); }
-    else { this.vy -= 9.81 * dt; ny += this.vy * dt; if (ny <= g) { ny = g; const sink = -this.vy; this.vy = sink > 5 ? sink * 0.18 : 0; if (sink > 8) { this.impact = Math.max(this.impact, sink); const c = this.crash; if (!c || sink > c.dv) this.crash = { dv: sink, at: [0, 0, 0], ground: true, nx: 0, nz: 0 }; this.stun = Math.max(this.stun, Math.min(2.6, sink * 0.07)); } } }
+    // Suspension: the body rides a spring over the ground averaged under its length, so a bump is a bump and not a shudder. Off a crest the spring runs out and it falls.
+    const reach = Math.max(half * 0.8, 1.1), gC = this.ground(x, z, y + 1.2), gA = this.ground(x + nfx * reach, z + nfz * reach, y + 1.2), gR = this.ground(x - nfx * reach, z - nfz * reach, y + 1.2);
+    const g = (gC * 2 + gA + gR) / 4, hard = gC - 0.3, rest = g + SAG;           // (hard: where it bottoms out; the nose tilts for what's ahead, it doesn't lift the car)
+    const wasAir = this.air, press = rest - y; this.air = press < -0.02;
+    // the damper works against the ground's own rise and fall, as a real one does: that's what lets it follow a hillside at speed. Bottoming out stiffens progressively.
+    const step = g - (this.gPrev ?? g), dg = Math.abs(step) > 0.12 ? 0 : Math.max(-7, Math.min(7, step / dt)); this.gPrev = g;      // (a kerb is a step, not a slope)
+    this.gv = (this.gv ?? 0) + (dg - (this.gv ?? 0)) * Math.min(1, dt * 14);
+    this.vy += (-9.81 + (press > 0 ? SPRING * press + 500 * press * press - DAMP * (this.vy - this.gv) : 0)) * dt;
+    let ny = y + this.vy * dt;
+    if (wasAir && !this.air || ny < hard) { const sink = -this.vy; if (sink > 8) { this.impact = Math.max(this.impact, sink); const c = this.crash; if (!c || sink > c.dv) this.crash = { dv: sink, at: [0, 0, 0], ground: true, nx: 0, nz: 0 }; this.stun = Math.max(this.stun, Math.min(2.6, sink * 0.07)); } }
+    if (ny < hard) { ny = Math.min(hard, y + Math.max(this.vy, 18) * dt); this.vy = Math.max(this.vy, 0); }     // (over a sharp ridge it rises fast, but it rises: it doesn't teleport)
     this.pos = [x, ny, z];
     // how it sits (render only): nose follows the ground, leans into turns
-    const tp = Math.atan2(gF - gB, this.T.L), tr = -this.yawRate * Math.abs(this.speed) * 0.035;
-    this.tumble(dt, tp, Math.max(-0.5, Math.min(0.5, tr)), 6, ny <= g + 0.2);
+    const tp = Math.atan2(gA - gR, reach * 2), tr = -this.yawRate * Math.abs(this.speed) * 0.035; this.lieP = (this.lieP ?? tp) + (tp - (this.lieP ?? tp)) * Math.min(1, dt * 9);      // (the ground's lie, felt through the springs)
+    this.tumble(dt, this.lieP, Math.max(-0.5, Math.min(0.5, tr)), 6, ny <= g + 0.2);
   }
   // How it sits: springs to the ground's lie, unless a crash has set it turning over. It may end on its side or its roof.
   tumble(dt, wantP, wantR, stiff, onGround) {

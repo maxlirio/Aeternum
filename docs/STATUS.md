@@ -185,3 +185,5 @@ Every headless browser goes through `tools/guard.mjs` and `tools/guard.sh`: a se
 Limit: only the home settlement is built as visible geometry. Other towns exist as data (graded ground, rivers avoid them, residents can reference them), so they have no bridges.
 
 Surfaces: canvas on tents, tarps and stalls; carpet on rugs and office floors; cobbled lanes where a planet's culture builds in stone (masonry, garden).
+
+Driving: vehicles ride a sprung, damped suspension (about 1.6 Hz, damper relative to the ground) and the chase camera has its own softer follow; shadows update every frame while you drive, fly or run. `test.mjs ride`.

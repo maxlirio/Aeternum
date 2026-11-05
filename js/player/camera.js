@@ -24,7 +24,7 @@ export class FollowCamera {
       const f = d / this.dist;
       if (this.world.solidAt(tx + rx * f + dx * d, ty + dy * d, tz + rz * f + dz * d, 0.2)) { free = Math.max(0.4, d - 0.25); break; }
     }
-    this.cur = free < this.cur ? free : this.cur + (free - this.cur) * Math.min(1, dt * 3);
+    this.cur = free < this.cur - 1.2 ? free : free < this.cur ? this.cur + (free - this.cur) * Math.min(1, dt * 16) : this.cur + (free - this.cur) * Math.min(1, dt * 3);     // (a wall's a snap in; grazing a bump is not)
     const f = this.cur / this.dist;
     const p = toRender(tx + rx * f + dx * this.cur, ty + dy * this.cur, tz + rz * f + dz * this.cur);
     this.camera.position.set(p[0], p[1], p[2]);
