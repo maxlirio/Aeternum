@@ -1481,6 +1481,43 @@ suites.villagers = async () => {
 };
 
 
+suites.globe = async () => {
+  // A real ball: go off any edge and you arrive where that edge really leads; distance and land carry on across it; once round is the circumference.
+  const G_ = await import('../js/gen/globe.js'); const { globeOf, canon, toSphere, fromSphere, faceAt, surfaceDistance, geoAt, seamAt } = G_;
+  const p = realPlanet(uni(1), HOMEWORLD), G = globeOf(p), { L, R } = G;
+  check(R >= 4e6 && R <= 8e6, `a planet's size: radius ${R / 1000} km`); check(Math.abs(L * 4 - 2 * Math.PI * R) < 1, 'four faces are the circumference');
+  // every point on the cross, there and back
+  let rt = 0, n = 0; for (let k = 0; k < 4000; k++) { const x = (k * 0.6180339887 % 1) * 4 * L - L / 2, z = (k * 0.7548776662 % 1) * L - L / 2, q = fromSphere(G, toSphere(G, x, z)); n++; rt = Math.max(rt, Math.hypot(q[0] - x, q[1] - z)); }
+  check(rt < 1, `sphere and map agree (${rt.toFixed(3)} m)`);
+  // the whole sphere is covered once: random directions land on the cross and come back
+  for (let k = 0; k < 2000; k++) { const a = k * 2.399963, y = 1 - 2 * (k + 0.5) / 2000, r = Math.sqrt(1 - y * y), v = [Math.cos(a) * r, y, Math.sin(a) * r], [x, z] = fromSphere(G, v), b = toSphere(G, x, z); if (Math.hypot(v[0] - b[0], v[1] - b[1], v[2] - b[2]) > 1e-6 || !faceAt(G, x, z)) { check(false, 'a direction with no place on the map'); break; } }
+  // across every edge of every face: a metre over the edge is a metre away on the sphere
+  let worst = 0, crossed = 0, cuts = 0;
+  for (const F of G.faces) for (let side = 0; side < 4; side++) for (const f of [-0.4, -0.1, 0.2, 0.45]) {
+    const [sx, sz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][side], tx = sz, tz = sx, ax = F.x + sx * (L / 2 - 50) + tx * f * L, az = F.z + sz * (L / 2 - 50) + tz * f * L, bx = F.x + sx * (L / 2 + 50) + tx * f * L, bz = F.z + sz * (L / 2 + 50) + tz * f * L;
+    const d = surfaceDistance(G, ax, az, bx, bz); worst = Math.max(worst, Math.abs(d - 100)); crossed++; if (canon(G, bx, bz)[2]) cuts++;
+    // and heading on across it, you keep going the same way: the two steps either side of the edge line up on the sphere
+    const P = toSphere(G, ax, az).slice(), Q = toSphere(G, bx, bz).slice(), S = toSphere(G, F.x + sx * (L / 2 + 150) + tx * f * L, F.z + sz * (L / 2 + 150) + tz * f * L).slice(), u = [Q[0] - P[0], Q[1] - P[1], Q[2] - P[2]], v = [S[0] - Q[0], S[1] - Q[1], S[2] - Q[2]], c = (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (Math.hypot(...u) * Math.hypot(...v)); check(c > 0.86, `straight on across an edge of face ${F.i} side ${side}: ${c.toFixed(3)}`);
+  }
+  check(worst < 60, `distance across edges is right to ${worst.toFixed(1)} m in 100 m`); check(cuts > 0, 'there are cuts');
+  // going round the equator comes back to where you started
+  { let x = 0, z = 0; const step = L / 40; for (let k = 0; k < 160; k++) { x += step; const c = canon(G, x, z); x = c[0]; z = c[1]; } check(Math.hypot(x, z) < 1, `all the way round and back: ${Math.hypot(x, z).toFixed(2)} m out`); const o = toSphere(G, 0, 0); let far = 0; for (let k = 0; k <= 80; k++) far = Math.max(far, surfaceDistance(G, 0, 0, k * step, 0)); check(Math.abs(far - Math.PI * R) < 2000, `the far side is half a circumference away: ${(far / 1000).toFixed(0)} km`); }
+  // the land carries on across a cut, with no cliff
+  let cliff = 0; for (const F of G.faces) for (let side = 0; side < 4; side++) { const S = F.sides[side]; if (S.same) continue; const [sx, sz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][side]; for (const f of [-0.3, 0.1, 0.35]) { const ax = F.x + sx * (L / 2 - 0.02) + sz * f * L, az = F.z + sz * (L / 2 - 0.02) + sx * f * L, bx = F.x + sx * (L / 2 + 0.02) + sz * f * L, bz = F.z + sz * (L / 2 + 0.02) + sx * f * L; cliff = Math.max(cliff, Math.abs(rawHeight(p, ax, az) - rawHeight(p, bx, bz))); } }
+  check(cliff < 1, `no step at a cut: ${cliff.toFixed(2)} m in 4 cm`);
+  // home is what it was, and the time and the sun depend on where you are
+  const g0 = geoAt(p, 0, 0); check(Math.abs(g0.lat - p.latitude) < 1e-6 && Math.abs(g0.lon) < 1e-6 && Math.abs(g0.turn) < 1e-6, `home is where it was ${JSON.stringify(g0)}`);
+  const pole = G_.axisOf(p), [pxx, pzz] = fromSphere(G, pole), gp = geoAt(p, pxx, pzz); check(Math.abs(gp.lat - Math.PI / 2) < 0.02, `the pole is at 90°: ${gp.lat.toFixed(3)}`);
+  const hx = L / 2 * 0.5, geE = geoAt(p, hx * 2, 0), geW = geoAt(p, -hx * 2 * 0 - hx, 0); check(geE.lon !== 0 && Math.sign(geE.lon) !== Math.sign(geW.lon), `east and west of home differ: ${geE.lon.toFixed(2)}, ${geW.lon.toFixed(2)}`);
+  // no town astride a seam; a planet has real oceans and real land
+  let wet = 0, N2 = 0; for (let k = 0; k < 900; k++) { const a = k * 2.399963, y = 1 - 2 * (k + 0.5) / 900, r = Math.sqrt(1 - y * y), [x, z] = fromSphere(G, [Math.cos(a) * r, y, Math.sin(a) * r]); N2++; if (rawHeight(p, x, z) < 0) wet++; }
+  check(wet > N2 * 0.25 && wet < N2 * 0.85, `seas cover ${Math.round(wet / N2 * 100)}% of it`);
+  const rr = Math.floor(L * 0.5 / 3072); let seamTowns = 0, seen = 0; for (let k = -6; k <= 6; k++) for (let j = -6; j <= 6; j++) { const s = getSettlement(p, rr + 200 + k * 0 + k, j); void s; }
+  { for (let a = Math.floor(-L * 1.5 / 3072) - 2; a < Math.floor(-L * 1.5 / 3072) + 2; a++) for (let b = -3; b <= 3; b++) { const s = getSettlement(p, a, Math.floor(-L / 2 / 3072) + b); if (s) seamTowns++; } }
+  check(seamTowns === 0, 'nothing built off the map');
+  console.log(`  radius ${R / 1000} km, circumference ${Math.round(2 * Math.PI * R / 1000)} km, seas ${Math.round(wet / N2 * 100)}%, ${crossed} edge crossings`);
+};
+
 suites.mantle = async () => {
   // Going over a ledge: the foot goes on it, the hips don't pass through it, and no limb has to stretch to stay where it is.
   const { Climber, BODY } = await import('../js/player/climber.js'); const { CollisionWorld } = await import('../js/player/collision.js'); const C = await import('../js/gen/city.js');

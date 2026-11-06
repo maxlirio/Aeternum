@@ -10,9 +10,9 @@ import { derive } from '../core/hash.js';
 export function sunDirection(planet, t) {
   const H = (solarHour(planet, t) - 12) / 24 * Math.PI * 2;
   const decl = planet.axialTilt * Math.sin(t / planet.yearLength * Math.PI * 2);
-  const lat = planet.latitude;
+  const lat = planet.latHere ?? planet.latitude;
   const el = Math.asin(Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(H));
-  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat));
+  const az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)) + (planet.turnHere || 0);
   return { el, az, dir: new THREE.Vector3(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)).normalize() };
 }
 
@@ -22,6 +22,8 @@ export class SkySystem {
     this.sky = new Sky(); this.sky.scale.setScalar(45000); this.sky.renderOrder = -1;
     const u = this.sky.material.uniforms, A = planet.atmosphere;
     u.turbidity.value = A.turbidity; u.rayleigh.value = A.rayleigh; u.mieCoefficient.value = A.mie; u.mieDirectionalG.value = 0.8;
+    this.sky.material.uniforms.uFade = { value: 1 };
+    this.sky.material.fragmentShader = 'uniform float uFade;\n' + this.sky.material.fragmentShader.replace('#include <tonemapping_fragment>', 'gl_FragColor.rgb *= uFade;\n#include <tonemapping_fragment>');
     scene.add(this.sky);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 3);
@@ -45,6 +47,7 @@ export class SkySystem {
     const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(p, 3)); sg.setAttribute('color', new THREE.BufferAttribute(c, 3));
     this.starMat = new THREE.PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: true, transparent: true, depthWrite: false, fog: false });
     this.stars = new THREE.Points(sg, this.starMat); this.stars.renderOrder = -1;
+    { const below = new THREE.Points(sg, this.starMat); below.scale.y = -1; below.renderOrder = -1; below.rotation.y = 1.7; this.stars.add(below); }     // (from the ground the land's in the way of these)
     scene.add(this.stars);
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -57,7 +60,7 @@ export class SkySystem {
     this.state = {};
   }
 
-  update(t, focus, cameraPos, w = null) {        // w: weather (gen/weather.js) — overcast dims the sun and thickens the air
+  update(t, focus, cameraPos, w = null, alt = 0) {        // w: weather (gen/weather.js) — overcast dims the sun and thickens the air
     const { el, dir } = sunDirection(this.planet, t);
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(dir);
@@ -76,14 +79,16 @@ export class SkySystem {
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
     this.ambient.intensity = 0.05 + 0.55 * (1 - day) + 0.35 * day * THREE.MathUtils.smoothstep(cover, 0.4, 0.95);
-    this.starMat.opacity = 1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0);
+    const space = THREE.MathUtils.smoothstep(alt, 18000, 70000);
+    this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), space);
+    this.sky.material.uniforms.uFade.value = 1 - space;
     this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
     // fog: horizon colour by day, deep blue by night
     const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
     fogDay.lerp(new THREE.Color(0.58, 0.6, 0.63), THREE.MathUtils.smoothstep(cover, 0.5, 1.0) * 0.8);   // grey under overcast
     const fog = new THREE.Color(0.012, 0.016, 0.03).lerp(fogDay, day);
     this.scene.fog.color.copy(fog);
-    this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0));
+    this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0)) * Math.exp(-Math.max(0, alt) / 7000);
     this.renderer.toneMappingExposure = 0.7 - 0.1 * day;
     // regenerate the environment map when the sun has moved noticeably
     if (!this.lastEnvDir || this.lastEnvDir.angleTo(dir) > 0.02) {

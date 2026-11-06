@@ -11,7 +11,7 @@ export class GameClock {
 
 // Local solar hour [0, 24) on the M1 surface patch (planet "hours" are dayLength/24).
 export function solarHour(planet, t) {
-  const f = t / planet.dayLength + 0.3;         // epoch starts mid-morning
+  const f = t / planet.dayLength + 0.3 + (planet.hourShift || 0);         // epoch starts mid-morning; hourShift: how far round the planet you are from home
   return (f - Math.floor(f)) * 24;
 }
 export const EPOCH = 3.2e9;                     // universe clock when the first life begins

@@ -36,6 +36,7 @@ function cityBoxes(c, B) {
 }
 
 export const STEP = 0.5;
+const SPACE = 20000;    // above this, nothing on the ground is worth asking about: you go by too fast
 const GRID = 16;
 
 export class CollisionWorld {
@@ -132,6 +133,7 @@ export class CollisionWorld {
 
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
+    if (yFeet > SPACE) return { h: this.planet.seaLevel, where: null };
     let best = surfaceHeight(this.planet, x, z), where = null;
     { const d = deckAt(this.planet, x, z); if (d !== null && d <= yFeet + STEP && d > best) { best = d; where = { bridge: true }; } }
     // the roof of a standing car; the deck of a watchtower
@@ -172,6 +174,7 @@ export class CollisionWorld {
 
   // Lowest ceiling above the head at (x, z), or Infinity.
   ceilingAt(x, z, yFeet) {
+    if (yFeet > SPACE) return Infinity;
     let c = Infinity;
     this.cityNear(x, z, 0, (box, u, v) => { if (box[4] >= yFeet + 0.3 && inBox(box, u, v)) c = Math.min(c, box[4]); });
     for (const b of this.near(x, z)) {
@@ -190,6 +193,7 @@ export class CollisionWorld {
 
   // Push a vertical capsule (radius r, height h) out of walls and furniture.
   resolve(x, z, yFeet, r = 0.32, h = 1.75) {
+    if (yFeet > SPACE) return [x, z];
     const C = this.city;
     { const held = railHold(this.planet, x, z, yFeet, r); if (held) { x = held[0]; z = held[1]; } }
     for (let iter = 0; iter < 3; iter++) {
@@ -294,6 +298,7 @@ export class CollisionWorld {
 
   // Is the point inside solid geometry (camera collision)?
   solidAt(x, y, z, pad = 0.15) {
+    if (y > SPACE) return false;
     if (y < surfaceHeight(this.planet, x, z) + 0.15) return true;
     let hit = false;
     this.cityNear(x, z, pad, (box, u, v) => { if (!hit && y > box[4] - pad && y < box[5] + pad && inBox(box, u, v, pad)) hit = true; });
@@ -317,6 +322,7 @@ export class CollisionWorld {
 
   // Which building/floor/room is this point in (for HUD, lights, interaction)?
   locate(x, y, z) {
+    if (y > SPACE) return null;
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;

@@ -2,6 +2,7 @@
 // "Raw" means before settlements grade the land (see gen/surface.js).
 import { clamp, smoothstep } from '../core/noise.js';
 import { shapeLand, setLandBase } from './land.js';
+import { globeOf, canon, seamAt, continentDrop, cornerDrop, HOME_LAND } from './globe.js';
 
 // The bare continental shape: sea, ranges and rolling hills, before the kinds of land work on it.
 export function baseHeight(planet, x, z) {
@@ -25,8 +26,21 @@ export function baseHeight(planet, x, z) {
 }
 setLandBase(baseHeight);
 
-export const rawHeight = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));
+const plain = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));
+// The land at (x, z) on the planet. Near home the pattern simply runs on; further out, oceans lie over it, and along a seam
+// of the unfolded globe (gen/globe.js) the two sides are blended so a walk across doesn't meet a cliff.
+export function rawHeight(planet, x, z) {
+  if (x < HOME_LAND && x > -HOME_LAND && z < HOME_LAND && z > -HOME_LAND) return plain(planet, x, z);
+  const G = globeOf(planet), [a, b] = canon(G, x, z), S = seamAt(G, a, b);
+  let h = plain(planet, a, b); if (S) h += (plain(planet, S.x, S.z) - h) * S.w;
+  h -= continentDrop(planet, G, a, b);
+  const c = cornerDrop(G, a, b); if (c) h += (-140 - h) * c;
+  return h;
+}
 
+const wet = (planet, x, z) => clamp(0.5 + 0.5 * planet.noise.moist.fbm(x / 5000, z / 5000, 4) + planet.climate.moistBias, 0, 1);
 export function moisture(planet, x, z) {
-  return clamp(0.5 + 0.5 * planet.noise.moist.fbm(x / 5000, z / 5000, 4) + planet.climate.moistBias, 0, 1);
+  if (x < HOME_LAND && x > -HOME_LAND && z < HOME_LAND && z > -HOME_LAND) return wet(planet, x, z);
+  const G = globeOf(planet), [a, b] = canon(G, x, z), S = seamAt(G, a, b), m = wet(planet, a, b);
+  return S ? m + (wet(planet, S.x, S.z) - m) * S.w : m;
 }

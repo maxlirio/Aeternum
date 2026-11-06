@@ -10,6 +10,7 @@ import { rawHeight, moisture } from './terrain.js';
 import { settlementNear, getSettlement } from './settlement.js';
 import { routeLines } from './highways.js';
 import { getCity, cityWeight } from './city.js';
+import { globeOf, wellInside } from './globe.js';
 
 const LONGEST = 30000;
 export const REGION = 12000, STEP = 60, MAXLEN = 11500, BANK = 24, WIDE = 90, CELL = 240;
@@ -18,7 +19,7 @@ function stateOf(planet) { let S = memo.get(planet); if (!S) memo.set(planet, S 
 
 function trace(planet, x, z, heading, rng, path = null, maxLen = MAXLEN, maxCut = 26, lake = 0) {
   const ending = () => lake && pts.length >= lake ? { pts, toSea: false, lake: true } : null;     // (a river with no way to the sea fills the low ground it stops in)
-  const sea = planet.seaLevel, c = getCity(planet), pts = [], blocked = (px, pz) => { const s = settlementNear(planet, px, pz); return !!(s && Math.hypot(...s.toLocal(px, pz)) < s.R + 320) || cityWeight(c, px, pz) > 0; }; let bed = rawHeight(planet, x, z) - 1, a = heading, wander = rng.range(0, 6.28);
+  const sea = planet.seaLevel, c = getCity(planet), pts = [], blocked = (px, pz) => { if (Math.abs(px) > 400000 || Math.abs(pz) > 400000) { if (!wellInside(globeOf(planet), px, pz)) return true; } const s = settlementNear(planet, px, pz); return !!(s && Math.hypot(...s.toLocal(px, pz)) < s.R + 320) || cityWeight(c, px, pz) > 0; }; let bed = rawHeight(planet, x, z) - 1, a = heading, wander = rng.range(0, 6.28);
   for (let n = 0; n * STEP < maxLen; n++) {
     const raw = rawHeight(planet, x, z);
     if (raw < sea - 0.5) { pts.push({ x, z, y: sea - 0.05 }); return { pts, toSea: true }; }

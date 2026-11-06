@@ -7,7 +7,9 @@ import { moisture } from './terrain.js';
 import { smoothstep } from '../core/noise.js';
 import { workedNear, workedGround } from './outposts.js';
 import { groundAt, S } from './land.js';
+import { geoAt } from './globe.js';
 
+const WRAP = 2 ** 17;
 export function chunkData(planet, lod, i, j) {
   const size = CHUNK * 2 ** lod, step = size / CHUNK_RES, n = CHUNK_RES + 1, x0 = i * size, z0 = j * size;
   const m = n + 2;                                    // one-sample border for normals
@@ -20,7 +22,7 @@ export function chunkData(planet, lod, i, j) {
   const vcount = n * n + skirt;
   const pos = new Float32Array(vcount * 3), nrm = new Float32Array(vcount * 3), col = new Float32Array(vcount * 3), uv = new Float32Array(vcount * 2), ground = new Uint8Array(vcount * 16), W = new Float32Array(16), GC = [0, 0, 0];
   const lay = (k, t) => { if (t <= 0) return; if (t > 1) t = 1; for (let q = 0; q < 16; q++) W[q] *= 1 - t; W[k] += t; };
-  const C = planet.climate, sea = planet.seaLevel, worked = lod <= 3 ? workedNear(planet, x0 + size / 2, z0 + size / 2, size * 0.75) : [];   // (ground people have worn away shows in the land's own colour, from any distance)
+  const far0 = Math.abs(x0) > 300000 || Math.abs(z0) > 300000, cold = far0 ? smoothstep(0.85, 1.3, Math.abs(geoAt(planet, x0, z0).lat)) : 0, C = cold ? { ...planet.climate, treeline: planet.climate.treeline * (1 - cold) - 200 * cold } : planet.climate, sea = planet.seaLevel, worked = lod <= 3 ? workedNear(planet, x0 + size / 2, z0 + size / 2, size * 0.75) : [];   // (ground people have worn away shows in the land's own colour, from any distance)
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const k = (b + 1) * m + (a + 1), v = b * n + a;
     const h = H[k];
@@ -28,7 +30,7 @@ export function chunkData(planet, lod, i, j) {
     const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
     pos[v * 3] = a * step; pos[v * 3 + 1] = h; pos[v * 3 + 2] = b * step;
     nrm[v * 3] = nx; nrm[v * 3 + 1] = ny; nrm[v * 3 + 2] = nz;
-    uv[v * 2] = x0 + a * step; uv[v * 2 + 1] = z0 + b * step;
+    uv[v * 2] = x0 - WRAP * Math.floor(x0 / WRAP) + a * step; uv[v * 2 + 1] = z0 - WRAP * Math.floor(z0 / WRAP) + b * step;     // (a graphics card's numbers run out of room a long way from home)
     // the kind of land says what's on the ground (gen/land.js); the sea, height, and people lay their own over it
     const wx = x0 + a * step, wz = z0 + b * step;
     const moist = moisture(planet, wx, wz);

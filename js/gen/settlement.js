@@ -9,6 +9,7 @@ import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { hash01, derive } from '../core/hash.js';
 import { REGION } from '../core/units.js';
+import { globeOf, wellInside } from './globe.js';
 import { rawHeight } from './terrain.js';
 import { getCity } from './city.js';
 import { placeName, personName, companyName, streetWord, streetSuffix } from './names.js';
@@ -32,7 +33,10 @@ function zoneWeights(z) {
 
 // Does region cell (rx, rz) contain a settlement? Region (0,0) always does (spawn).
 function regionHasSettlement(planet, rx, rz) {
-  return (rx === 0 && rz === 0) || hash01(planet.seed, [rx, rz, 77]) < 0.35;
+  if (rx === 0 && rz === 0) return true;
+  if (hash01(planet.seed, [rx, rz, 77]) >= 0.35) return false;
+  const G = globeOf(planet), x = rx * REGION, z = rz * REGION;     // not astride a seam of the unfolded globe
+  return wellInside(G, x, z) && wellInside(G, x + REGION, z) && wellInside(G, x, z + REGION) && wellInside(G, x + REGION, z + REGION);
 }
 
 const caches = new WeakMap();    // by planet, so a planet's towns go when it does

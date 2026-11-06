@@ -14,6 +14,9 @@ import { livePopulation, refreshLife, townContext } from './world/town.js';
 import { RiverFeed } from './world/riverfeed.js';
 import { TownStreamer } from './render/towns.js';
 import { RoadView } from './render/roads.js';
+import { GlobeView } from './render/globe.js';
+import { curveTheGround } from './render/curve.js';
+import { globeOf, canon, geoAt, surfaceDistance } from './gen/globe.js';
 import { registerLifeJobs, scheduleLife, LIFE_EVENTS } from './sim/processes/life.js';
 import { Residents } from './sim/residents.js';
 import { CrowdView } from './render/crowd.js';
@@ -189,7 +192,8 @@ async function start(fresh) {
   addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
   const root = new THREE.Group(); scene.add(root);   // world content; offset = floating origin
   const origin = [0, 0, 0];
-  const toRender = (x, y, z) => [x - origin[0], y, z - origin[2]];
+  const toRender = (x, y, z) => [x - origin[0], y - origin[1], z - origin[2]];
+  curveTheGround(globeOf(planet).R);
   await loadSurfaces(renderer.capabilities.getMaxAnisotropy()); await loadGround();
   materials();
   ui.loading('Weathering the surface…', 0.05);
@@ -226,7 +230,8 @@ async function start(fresh) {
   let doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   let doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
-  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet), roadView = new RoadView(planet, root);
+  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet), roadView = new RoadView(planet, root), globeView = new GlobeView(planet, scene);
+  let inSpace = false, geoAtX = 0, geoAtZ = 0;
   const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
   const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
   const sea = makeSea(planet); scene.add(sea);
@@ -1087,7 +1092,7 @@ async function start(fresh) {
       // a shot along the line of sight (camera centre), with a little spread; walls stop it
       const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
       dir.x += (Math.random() - 0.5) * W.spread * 2; dir.y += (Math.random() - 0.5) * W.spread * 2; dir.normalize();
-      const wo = [o.x + origin[0], o.y, o.z + origin[2]];
+      const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]];
       let wall = W.reach;
       for (let d = 1.5; d < W.reach; d += 0.4) if (world.solidAt(wo[0] + dir.x * d, wo[1] + dir.y * d, wo[2] + dir.z * d, 0.02)) { wall = d; break; }
       let best = wall;
@@ -1249,6 +1254,14 @@ async function start(fresh) {
 
   // ---- screenshot / test hooks (?cam=...)
   const shot = params.get('cam');
+  // Over one of the unfolded globe's cuts: you're on the next face now, whose map runs another way round. Where you are and how you're heading stay what they were.
+  const crossCut = (x, z, [c, s_]) => {
+    const spin = (a, b) => [c * a - s_ * b, s_ * a + c * b], delta = Math.atan2(s_, c);     // (a turn of the map, as a change in a heading measured the other way)
+    if (flight) { flight.pos[0] = x; flight.pos[2] = z; const v = spin(flight.vel[0], flight.vel[2]); flight.vel[0] = v[0]; flight.vel[2] = v[1]; const q = [0, Math.sin(-delta / 2), 0, Math.cos(-delta / 2)], a = flight.q; flight.q = [q[3] * a[0] + q[1] * a[2], q[3] * a[1] + q[1] * a[3], q[3] * a[2] - q[1] * a[0], q[3] * a[3] - q[1] * a[1]]; flight.syncEuler(); ctrl.pos = [x, flight.pos[1] + 2.4, z]; }
+    else if (ride) { ride.pos[0] = x; ride.pos[2] = z; ride.facing -= delta; ctrl.pos = [x, ctrl.pos[1], z]; }
+    else { ctrl.pos = [x, ctrl.pos[1], z]; const v = spin(ctrl.vel[0], ctrl.vel[2]); ctrl.vel = [v[0], ctrl.vel[1], v[1]]; ctrl.facing -= delta; }
+    cam.yaw -= delta;
+  };
   // ---- the other towns: built as you come to them, and when you walk into one, it's the one that's here
   const enterTown = T => {
     T.pop ??= livePopulation(planet, T.s, store, clock.now()); T.polity ??= getPolity(planet, T.s); T.ctx ??= T === homeTown ? homeCtx : townContext(homeCtx, [T.s.rx, T.s.rz]);
@@ -1265,6 +1278,8 @@ async function start(fresh) {
   let currentTown = homeTown;
   sched.add(TIER.NEAR, { update: () => {
     const [x, , z] = ride ? ride.pos : ctrl.pos;
+    { const moved = Math.hypot(x - geoAtX, z - geoAtZ); if (moved > 20000) { geoAtX = x; geoAtZ = z; const g = geoAt(planet, x, z); planet.hourShift = g.lon / (Math.PI * 2); planet.latHere = g.lat; planet.turnHere = g.turn; } }     // (it's the time of day it is where you are)
+    if (inSpace) return;
     riverFeed.update(x, z); towns.update(x, z, currentTown); roadView.update(x, z);
     const q = settlementNear(planet, x, z);
     if (!q || q === s || pursuit || player.custody || Math.hypot(q.cx - x, q.cz - z) > q.R + 500) return;
@@ -1314,7 +1329,7 @@ async function start(fresh) {
         if (flight && myCraft && firing) war.fireGuns(myCraft, dt);
         // chase camera: behind and a little above, following the heading and part of the pitch
         if (flight) { cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
-          cam.pitch += (0.18 - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3); }
+          cam.pitch += (0.18 + (0.4 * THREE.MathUtils.smoothstep(flight.pos[1], 30000, 900000) + 0.85 * THREE.MathUtils.smoothstep(flight.pos[1], 500000, 12000000)) - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3); }     // (from orbit you want to be looking at the planet)
       } else if (ride) {
         world.carBoxes = null;
         rideBumps(t);
@@ -1379,10 +1394,13 @@ async function start(fresh) {
         }
       } else forceHold = 0;
     }
-    // floating origin
+    // floating origin (high up, the height too: a graphics card can't hold a ship's shape 30,000 km from its zero)
+    { const want = ctrl.pos[1] > 25000 ? Math.round(ctrl.pos[1]) : 0; if (want !== origin[1]) { origin[1] = want; root.position.y = -want; } }
+    { const G = globeOf(planet), me = flight ? flight.pos : ride ? ride.pos : ctrl.pos, [cx, cz, turn] = canon(G, me[0], me[2]);
+      if (turn) crossCut(cx, cz, turn); }
     if (Math.abs(ctrl.pos[0] - origin[0]) > 3000 || Math.abs(ctrl.pos[2] - origin[2]) > 3000) {
       origin[0] = Math.round(ctrl.pos[0]); origin[2] = Math.round(ctrl.pos[2]);
-      root.position.set(-origin[0], 0, -origin[2]);
+      root.position.set(-origin[0], -origin[1], -origin[2]);
     }
     const rp = toRender(...ctrl.pos);
     avatar.object.position.set(rp[0], rp[1] - (ctrl.grounded && !ctrl.where && ctrl.feel ? ctrl.feel.sink : 0), rp[2]);
@@ -1523,8 +1541,8 @@ async function start(fresh) {
     war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
     if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, homeCtx);
-    terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
-    cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
+    if (!inSpace) terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
+    if (!inSpace) cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     homeTown.town.group.visible = Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 7000;   // (the town is a speck from the city)
     { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
     showCityLights();
@@ -1535,18 +1553,21 @@ async function start(fresh) {
     // walking onto a guarded place: nobody asked you in
     if (!paused && mayhem && !flight) { let g = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 100, S => { if (S.guarded && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < 58) g = S; }); if (g && clock.now() > (trespassAt ?? 0)) { const first = trespassAt === null; trespassAt = clock.now() + 25; const seen = mayhem.crime(clock.now(), 'trespassing', 0.9, ctrl.pos); if (first || seen) ui.toast(`You're inside <b>${esc(g.label)}</b> with no business being here${seen ? ', and they\'ve seen you' : ''}.`, 'bad', 6000); } }
     if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
-    cityRooms.update(ctrl.pos);
-    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, homeS, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
-    flora.update(ctrl.pos[0], ctrl.pos[2]);
-    rocks.update(ctrl.pos[0], ctrl.pos[2]);
+    if (!inSpace) cityRooms.update(ctrl.pos);
+    if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, homeS, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } if (!inSpace) siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
+    if (!inSpace) flora.update(ctrl.pos[0], ctrl.pos[2]);
+    if (!inSpace) rocks.update(ctrl.pos[0], ctrl.pos[2]);
     if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
     if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
-    fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]);
-    outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt);
+    if (!inSpace) { fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]); }
+    if (!inSpace) { outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt); }
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind, cam.yaw + (cam.cur != null && cam.cur < 1 ? 0 : 0)); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
-    const camW = [camera.position.x + origin[0], camera.position.y, camera.position.z + origin[2]];
+    const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
-    const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx);
+    const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - planet.seaLevel);
+    { const alt = ctrl.pos[1] - planet.seaLevel; inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 30000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+      globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
+      const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
     sea.update(dt, camera, origin, wx.wind); terrainTime.value += dt; terrainWind.value.set(wx.wind[0], wx.wind[1]);
     prints.update(dt, ctrl, wx.wind);
@@ -1569,7 +1590,7 @@ async function start(fresh) {
       const rpn = !ride && !flight && !ua ? nearRamp() : null;
       if (flight) {
         const why = flight.onGround ? flight.landingProblem() : null, f = flight;
-        ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${Math.round(f.altitude())}</b> m · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${myCraft ? ` · hull <b class="${myCraft.hp / myCraft.maxHp < 0.35 ? 'late' : ''}">${Math.max(0, Math.round(myCraft.hp / myCraft.maxHp * 100))}%</b>${myCraft.guns ? ` · msl ${myCraft.missiles} · flares ${myCraft.flares}` : ''}` : ''}${war.missiles.some(m => m.target === myCraft) ? ' · <b class="late">MISSILE</b>' : ''}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
+        ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${f.altitude() > 20000 ? `${Math.round(f.altitude() / 1000).toLocaleString()}</b> km` : `${Math.round(f.altitude())}</b> m`} · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${myCraft ? ` · hull <b class="${myCraft.hp / myCraft.maxHp < 0.35 ? 'late' : ''}">${Math.max(0, Math.round(myCraft.hp / myCraft.maxHp * 100))}%</b>${myCraft.guns ? ` · msl ${myCraft.missiles} · flares ${myCraft.flares}` : ''}` : ''}${war.missiles.some(m => m.target === myCraft) ? ' · <b class="late">MISSILE</b>' : ''}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
           <small>${f.onGround && why ? `can't land: ${why}` : ''}</small>`);
       }
       else if (rampHold > 0) {}
@@ -1608,7 +1629,7 @@ async function start(fresh) {
     }
     ui.quiet = !flight && (t - lastShotAt < 12 || performance.now() / 1000 - lastAttack < 8 || !!mayhem?.officers.length || !!(pursuit && pursuit.state !== 'return') || !!mayhem?.carry);
     const cp = cityPlace(cityView.city, ctrl.pos[0], ctrl.pos[2]);
-    ui.updateHud({ planet, s, player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos, cityAt: cp && { label: cp.label, city: cityView.city.name } });
+    ui.updateHud({ planet, s: (d => d > s.R + 3000 ? { ...s, name: `${Math.round(d / 1000).toLocaleString()} km from ${s.name}` } : s)(surfaceDistance(globeOf(planet), s.cx, s.cz, ctrl.pos[0], ctrl.pos[2])), player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos, cityAt: cp && { label: cp.label, city: cityView.city.name } });
     frames++;
     if (now - fpsT > 1000) {
       fps = frames; frames = 0; fpsT = now;
@@ -1625,7 +1646,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
