@@ -13,7 +13,7 @@ export function chunkData(planet, lod, i, j) {
   const m = n + 2;                                    // one-sample border for normals
   const H = new Float64Array(m * m), TOWN = new Float32Array(m * m), ROAD = new Float32Array(m * m), WET = new Float32Array(m * m);
   for (let b = 0; b < m; b++) for (let a = 0; a < m; a++) {
-    const s = surfaceAt(planet, x0 + (a - 1) * step, z0 + (b - 1) * step);
+    const s = surfaceAt(planet, x0 + (a - 1) * step, z0 + (b - 1) * step, lod >= 5);
     H[b * m + a] = s.h; TOWN[b * m + a] = s.town; ROAD[b * m + a] = s.road; WET[b * m + a] = s.wet || 0;
   }
   const skirt = 4 * CHUNK_RES;

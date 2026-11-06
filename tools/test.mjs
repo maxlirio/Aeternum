@@ -1481,6 +1481,61 @@ suites.villagers = async () => {
 };
 
 
+suites.mantle = async () => {
+  // Going over a ledge: the foot goes on it, the hips don't pass through it, and no limb has to stretch to stay where it is.
+  const { Climber, BODY } = await import('../js/player/climber.js'); const { CollisionWorld } = await import('../js/player/collision.js'); const C = await import('../js/gen/city.js');
+  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  let b; for (let a = 0; a < 3600 && !b; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district === 'housing') b = B.buildings.find(q => q.top > 30 && q.top < 50 && q.tiers.length === 1 && C.STYLES[q.style][5]); }
+  const t = b.tiers[0], vm = (t.r[1] + t.r[3]) / 2, [x, z] = c.toWorld(t.r[0] - 0.6, vm), [tx, tz] = c.toWorld(t.r[0] + 2, vm), l = Math.hypot(tx - x, tz - z), fx = (tx - x) / l, fz = (tz - z) / l, yaw = Math.atan2(fx, fz), cl = Climber.grab(W, x, base, z, fx, fz);
+  if (!check(cl, 'grabbed the wall')) return;
+  const inp = { fwd: 1, right: 0, yaw }; let n = 0; while (cl.state !== 'top' && !cl.done && n++ < 60 * 400) cl.step(1 / 60, inp);
+  if (!check(cl.state === 'top', 'reached the top: ' + cl.state)) return;
+  const q = cl.topOut, N = [q.n[0], 0, q.n[1]], out = P => (P[0] - q.edge[0]) * N[0] + (P[2] - q.edge[2]) * N[2];
+  let planted = null, prevP = cl.pelvis.slice(), maxStep = 0, through = 0, footThrough = 0, stretched = 0, armStretch = 0, leadOnLedge = 0, frames = 0;
+  while (!cl.done && frames < 400) { cl.step(1 / 60, inp); frames++;
+    const P = cl.pose(), f = q.t / q.dur, hipOut = out(P.pelvis), hipUp = P.pelvis[1] - q.y;
+    maxStep = Math.max(maxStep, Math.hypot(P.pelvis[0] - prevP[0], P.pelvis[1] - prevP[1], P.pelvis[2] - prevP[2])); prevP = P.pelvis;
+    if (hipOut < 0.12 && hipUp < 0.2) through++;        // hips inside the edge before they're above it
+    for (const k of ['lf', 'rf']) { const F = P.limbs[k].p; if (out(F) < 0.02 && F[1] < q.plant[1] - 0.04 && f < 0.97 && F[1] < q.y + BODY.ankle - 0.04) footThrough++;
+      const reach = Math.hypot(F[0] - P.pelvis[0], F[1] - P.pelvis[1], F[2] - P.pelvis[2]); if (reach > BODY.thigh + BODY.shin + 0.08) stretched++; }
+    if (f > 0.5 && f < 0.8) { const F = P.limbs[q.lead].p; if (Math.hypot(F[0] - q.plant[0], F[1] - q.plant[1], F[2] - q.plant[2]) < 0.01) leadOnLedge++; }
+    for (const k of ['lh', 'rh']) { const H = P.limbs[k].p, sh = [P.pelvis[0] + P.up[0] * BODY.shoulderUp, P.pelvis[1] + P.up[1] * BODY.shoulderUp, P.pelvis[2] + P.up[2] * BODY.shoulderUp], rr = Math.hypot(H[0] - sh[0], H[1] - sh[1], H[2] - sh[2]); if (rr > BODY.upperArm + BODY.foreArm + BODY.palm + BODY.shoulderOut + 0.08) armStretch++; }
+  }
+  check(cl.done?.kind === 'walk', 'and stood up on it');
+  check(through === 0, `hips went through the edge on ${through} frames`);
+  check(footThrough === 0, `a foot went through the edge on ${footThrough} frames`);
+  check(stretched === 0, `a leg stretched past its length on ${stretched} frames`);
+  check(armStretch === 0, `an arm stretched past its length on ${armStretch} frames`);
+  check(leadOnLedge > frames * 0.25, `the leading foot stays planted on the ledge while the body goes over it (${leadOnLedge} of ${frames} frames)`);
+  check(maxStep < 0.05, `no jump in the hips: ${maxStep.toFixed(3)} m in a frame`);
+  console.log(`  ${frames} frames; foot planted for ${leadOnLedge}; fastest hips ${(maxStep * 60).toFixed(1)} m/s`);
+};
+
+suites.network = async () => {
+  // The road map: the same whichever way you come to it, nothing steeper than a road may be, and the towns are joined up.
+  const { linksOfTown, joinsOf, linksAt } = await import('../js/gen/network.js');
+  const { outRoutes, MAX_GRADE, nearRoute } = await import('../js/gen/highways.js');
+  let towns = 0, links = 0, alone = 0, stubs = 0, joined = 0;
+  for (const u of [1, 2, 3]) {
+    const p = realPlanet(uni(u), HOMEWORLD), q = realPlanet(uni(u), HOMEWORLD), list = [];
+    for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const s = getSettlement(p, a, b); if (s) list.push(s); }
+    const seen = new Map();
+    for (const s of list) { towns++; const L = linksOfTown(p, s); if (!L.length) alone++; for (const r of L) { seen.set(r.id, r); check(r.ends.includes(s.key), 'a road touches its town'); } }
+    for (const r of seen.values()) { links++;
+      for (let i = 1; i < r.h.length; i++) if (!r.bridges.some(B => i >= B.i0 - 1 && i <= B.i1 + 1) && Math.abs(r.h[i] - r.h[i - 1]) > MAX_GRADE * 4 * 1.6 && i > 8 && i < r.h.length - 8) { check(false, `too steep on ${r.id} at ${i}: ${Math.abs(r.h[i] - r.h[i - 1]) / 4}`); break; }
+      check(Math.hypot(r.pts[0][0] - r.from.pts.at(-1)[0], r.pts[0][1] - r.from.pts.at(-1)[1]) < 0.01 || Math.hypot(r.pts[0][0] - r.to.pts.at(-1)[0], r.pts[0][1] - r.to.pts.at(-1)[1]) < 0.01, 'it starts where a road out of town ends');
+      const [x, z] = r.pts[r.pts.length >> 1]; check(linksAt(p, x, z).includes(r), 'and the ground knows it is there');
+      check(Math.abs(surfaceHeight(p, x, z) - nearRoute(r, x, z).h) < 0.6 || r.bridges.length, `the ground is graded to it ${surfaceHeight(p, x, z)} ${nearRoute(r, x, z).h}`);
+    }
+    for (const s of list) for (const r of outRoutes(p, s)) { stubs++; if (r.joined) joined++; }
+    // found from the far side, in the other order: the same road
+    const rev = list.slice().reverse(); for (const s of rev) linksOfTown(q, getSettlement(q, s.rx, s.rz));
+    for (const r of seen.values()) { const twin = linksOfTown(q, getSettlement(q, ...r.ends[0].match(/settlement:(-?\d+),(-?\d+)/).slice(1).map(Number))).find(x => x.id === r.id); check(twin && digest(twin.pts) === digest(r.pts) && digest(twin.h) === digest(r.h), 'same road either way ' + r.id); }
+  }
+  check(links >= towns * 0.8, `${links} roads for ${towns} towns`); check(alone <= towns * 0.1, `towns with no road: ${alone} of ${towns}`); check(joined >= stubs * 0.8, `road ends joined: ${joined} of ${stubs}`);
+  console.log(`  ${towns} towns, ${links} roads, ${alone} alone; ${joined} of ${stubs} road ends joined`);
+};
+
 suites.towns = async () => {
   // Every town is solid and has its roads and bridges, drawn or not; what's done there runs with that town's people.
   const { CollisionWorld } = await import('../js/player/collision.js');

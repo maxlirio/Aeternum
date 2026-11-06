@@ -492,7 +492,7 @@ try {
     P.hp = 100; P.custody = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
     // stand in the road, in the path of the nearest car in town
     // step out right in front of a moving car: too close for it to stop
-    let v = null; for (let i = 0; i < 80 && !v; i++) { v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && Math.hypot(q.pos[0] - O.s.cx, q.pos[2] - O.s.cz) < 400); if (!v) { O.clock.advance(30); await wait(100); } }
+    let v = null; for (let i = 0; i < 80 && !v; i++) { v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && !q.id.includes('|') && Math.hypot(q.pos[0] - O.s.cx, q.pos[2] - O.s.cz) < 400); if (!v) { O.clock.advance(30); await wait(100); } }
     if (!v) return { none: true };
     const fut = T.trafficNear(O.planet, O.s, O.clock.now() + 0.3, O.s.cx, O.s.cz, 1e5).find(q => q.id === v.id); O.ctrl.pos = fut.pos.slice(); O.ctrl.vel = [0, 0, 0];
     const p0 = O.ctrl.pos.slice(); let hurt = false; for (let i = 0; i < 60 && !hurt; i++) { await wait(50); hurt = P.hp < 100; }

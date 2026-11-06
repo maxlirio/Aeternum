@@ -11,7 +11,8 @@ import { REGION } from '../core/units.js';
 import { smoothstep, lerp } from '../core/noise.js';
 
 export const MAX_GRADE = 0.09;          // road profile never steeper than 9%
-const CELL = 32, STEP = 4, EDGE = 60;   // search grid (coarse enough that hairpins have room to turn), resample spacing, keep-off from region edge
+export const ROUTE_STEP = 4;
+const CELL = 32, STEP = ROUTE_STEP, EDGE = 60;   // search grid (coarse enough that hairpins have room to turn), resample spacing, keep-off from region edge
 
 const caches = new WeakMap();   // planet -> routes by town
 // Just where the roads run. Knows nothing of rivers, so rivers can be laid out across them.
@@ -27,7 +28,7 @@ export function outRoutes(planet, s) {
   return rs;
 }
 // Over a river the road goes on a bridge: a span from bank to bank, high enough to clear the water, easing up to it either side.
-function addBridges(planet, r) {
+export function addBridges(planet, r) {
   const { pts, h: prof, lead: leadN } = r, dh = MAX_GRADE * STEP, bridges = r.bridges = []; let start = -1;
   const inRiver = i => { const q = riverAt(planet, pts[i][0], pts[i][1]); return q && q.d < q.hw + 7 ? q : null; };
   for (let i = leadN + 1; i <= pts.length; i++) { const q = i < pts.length ? inRiver(i) : null; if (q && start < 0) start = i; if (!q && start >= 0) { bridges.push({ i0: Math.max(leadN + 1, start - 1), i1: Math.min(pts.length - 1, i), y: -1e9 }); start = -1; } }
@@ -125,8 +126,11 @@ function route(planet, s, o, idx, earlier) {
     for (let i = leadN + 1; i < prof.length; i++) if (!pin.has(i)) prof[i] = Math.max(prof[i - 1] - dh, Math.min(prof[i - 1] + dh, prof[i]));
     for (let i = prof.length - 2; i > leadN; i--) if (!pin.has(i)) prof[i] = Math.max(prof[i + 1] - dh, Math.min(prof[i + 1] + dh, prof[i]));
   } }
-  // spatial index of segments, for "nearest road point" from the ground function
-  const B = 32, grid = new Map();
+  return indexRoute({ id: idx, w: o.w, pts, h: prof, lead: leadN, length: (pts.length - 1) * STEP, bridges: [] });
+}
+// A spatial index of a road's segments, for "nearest road point" from the ground function.
+export function indexRoute(r) {
+  const { pts } = r, B = 32, grid = new Map();
   for (let i = 0; i < pts.length - 1; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
     for (let gx = Math.floor((Math.min(ax, bx) - 24) / B); gx <= Math.floor((Math.max(ax, bx) + 24) / B); gx++)
@@ -134,7 +138,7 @@ function route(planet, s, o, idx, earlier) {
         const key = gx * 100003 + gz; (grid.get(key) || grid.set(key, []).get(key)).push(i);
       }
   }
-  return { id: idx, w: o.w, pts, h: prof, lead: leadN, grid, B, length: (pts.length - 1) * STEP, bridges: [] };
+  r.grid = grid; r.B = B; return r;
 }
 
 // Nearest point of a route to (x, z) within reach: { d, h, i, f } or null.
@@ -180,3 +184,5 @@ function resample(pts, step) {
   }
   return out;
 }
+
+export { simplify as simplifyPath, chaikin as chaikinPath, resample as resamplePath };

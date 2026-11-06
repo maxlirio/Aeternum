@@ -13,6 +13,7 @@ import { occupation } from './gen/population.js';
 import { livePopulation, refreshLife, townContext } from './world/town.js';
 import { RiverFeed } from './world/riverfeed.js';
 import { TownStreamer } from './render/towns.js';
+import { RoadView } from './render/roads.js';
 import { registerLifeJobs, scheduleLife, LIFE_EVENTS } from './sim/processes/life.js';
 import { Residents } from './sim/residents.js';
 import { CrowdView } from './render/crowd.js';
@@ -225,7 +226,7 @@ async function start(fresh) {
   let doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   let doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
-  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet);
+  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet), roadView = new RoadView(planet, root);
   const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
   const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
   const sea = makeSea(planet); scene.add(sea);
@@ -1264,7 +1265,7 @@ async function start(fresh) {
   let currentTown = homeTown;
   sched.add(TIER.NEAR, { update: () => {
     const [x, , z] = ride ? ride.pos : ctrl.pos;
-    riverFeed.update(x, z); towns.update(x, z, currentTown);
+    riverFeed.update(x, z); towns.update(x, z, currentTown); roadView.update(x, z);
     const q = settlementNear(planet, x, z);
     if (!q || q === s || pursuit || player.custody || Math.hypot(q.cx - x, q.cz - z) > q.R + 500) return;
     const T = q === homeS ? homeTown : towns.full.get(q.key);
@@ -1272,6 +1273,9 @@ async function start(fresh) {
   } });
   { const [x, , z] = ctrl.pos, q = settlementNear(planet, x, z);     // a game saved in another town starts there
     if (q && q !== homeS && Math.hypot(q.cx - x, q.cz - z) < q.R + 500) { ui.loading(`Building ${q.name}…`, 0.97); enterTown(await towns.ensure(q)); } }
+  // ?fly (or ?fly=<model>): straight into the air at the helm of one of the town's ships, for the fun of it
+  if (params.has('fly')) { const want = params.get('fly'), sh = ships.find(x => want && x.model === want) || ships.find(x => !x.patrol && !x.field && !x.flying) || ships[0];
+    if (sh) { store.patchDelta(shipKey(sh.id), { owner: 'you:' + player.id, ownerName: 'you', forSale: false }); ships = allShips(clock.now()); takeOff(shipById(sh.id)); flight.pos[1] = world.groundAt(flight.pos[0], flight.pos[2], 1e4).h + 1000; const sp = 90; flight.vel = [Math.sin(flight.facing) * sp, 0, Math.cos(flight.facing) * sp]; flight.throttle = 0.6; } }
   if (shot) applyShot(shot, { s, planet, ctrl, cam, town, doorView, store, sched, clock, world, pop });
 
   // ---- loop
@@ -1621,7 +1625,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

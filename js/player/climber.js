@@ -346,22 +346,50 @@ export class Climber {
     const n = lh.hold.n, y = lh.hold.y, c = lerp3(lh.hold.p, rh.hold.p, 0.5), W = this.world;
     const stand = [c[0] - n[0] * 0.75, y, c[2] - n[1] * 0.75], g = W.groundAt(stand[0], stand[2], y + 0.2).h;
     if (Math.abs(g - y) > 0.8 || W.ceilingAt(stand[0], stand[2], g) < g + 1.9 || W.solidAt(stand[0], g + 1.2, stand[2], 0.25)) { this.blocked = 'nothing to stand on up there'; return false; }
-    this.topOut = { t: 0, dur: 1.5, from: this.pelvis.slice(), stand: [stand[0], g, stand[2]], edge: c, n, feet: { lf: this.limb.lf.p, rf: this.limb.rf.p } };
+    const lead = this.limb.rf.p[1] >= this.limb.lf.p[1] ? 'rf' : 'lf', trail = lead === 'rf' ? 'lf' : 'rf', R = this.right(), s = lead === 'lf' ? -1 : 1;
+    // where the leading foot lands: just in from the edge, on whatever's there (a parapet's top, or the roof)
+    const plantXZ = [c[0] - n[0] * 0.2 + R[0] * s * 0.13, c[2] - n[1] * 0.2 + R[2] * s * 0.13], plantY = Math.max(W.groundAt(plantXZ[0], plantXZ[1], y + 0.2).h, y - 0.1);
+    this.topOut = { t: 0, dur: 2.3, from: this.pelvis.slice(), stand: [stand[0], g, stand[2]], edge: c, y, n, lead, trail, plant: [plantXZ[0], plantY + BODY.ankle, plantXZ[1]], feet: { lf: this.limb.lf.p.slice(), rf: this.limb.rf.p.slice() }, hands: { lh: this.limb.lh.p.slice(), rh: this.limb.rh.p.slice() } };
     this.state = 'top'; return true;
   }
+  // A mantle, the way a person does it: arms press the hips up to the edge; the leading foot comes
+  // out, up and over and lands on the ledge; weight goes onto it, the leg drives the body up and over,
+  // the hands let go as the shoulders pass above them; the other leg follows clear of the edge. The
+  // hips stay outside the edge until they're above it, so nothing passes through anything.
   stepTop(dt) {
     const q = this.topOut; q.t += dt; this.effort = 1;
-    const f = Math.min(1, q.t / q.dur), n = [q.n[0], 0, q.n[1]], R = this.right();
-    const hipOver = [q.edge[0] + n[0] * 0.05, q.edge[1] + 0.62, q.edge[2] + n[2] * 0.05], end = add(q.stand, [0, BODY.hipHeight, 0]);
-    // press up until the hips clear the edge, then knee over, then stand
-    const a = ease(clamp(f / 0.5, 0, 1)), b = ease(clamp((f - 0.45) / 0.55, 0, 1));
-    this.pelvis = lerp3(lerp3(q.from, hipOver, a), end, b);
-    for (const k of ['lf', 'rf']) { const s = k === 'lf' ? -1 : 1, g = ease(clamp((f - (k === 'rf' ? 0.35 : 0.55)) / 0.3, 0, 1)), L = this.limb[k]; L.hold = null;
-      const onTop = add(add(q.stand, R, s * 0.11), [0, BODY.ankle, 0]), base = this.footTrail(q, k); L.p = add(lerp3(base, onTop, g), [0, 1, 0], Math.sin(g * Math.PI) * 0.35); }
-    if (f > 0.72) for (const k of ['lh', 'rh']) { const g = ease((f - 0.72) / 0.28), L = this.limb[k]; L.hold = null; L.p = lerp3(L.to, this.restEnd(k, this.pelvis), g); }
+    const f = Math.min(1, q.t / q.dur), n = [q.n[0], 0, q.n[1]], R = this.right(), E = q.edge;
+    const at = (out, up, side = 0) => [E[0] + n[0] * out + R[0] * side, q.y + up, E[2] + n[2] * out + R[2] * side];
+    const start0 = sub(q.from, E), o0 = start0[0] * n[0] + start0[2] * n[2], y0 = q.from[1] - q.y, endUp = q.stand[1] - q.y + BODY.hipHeight;
+    // the hips: [f, out from the edge, up from it]
+    const K = [[0, o0, y0], [0.3, 0.3, -0.45], [0.5, 0.26, -0.08], [0.62, 0.14, 0.24], [0.76, -0.16, 0.55], [1, -0.75, endUp]];
+    let k = 0; while (k < K.length - 2 && f > K[k + 1][0]) k++;
+    const A = K[k], B = K[k + 1], u = (f - A[0]) / (B[0] - A[0]), P0 = K[Math.max(0, k - 1)], P3 = K[Math.min(K.length - 1, k + 2)], dF = B[0] - A[0];
+    const herm = c => { const m0 = k === 0 ? 0 : (B[c] - P0[c]) / (B[0] - P0[0]) * dF, m1 = k + 2 >= K.length ? 0 : (P3[c] - A[c]) / (P3[0] - A[0]) * dF, u2 = u * u, u3 = u2 * u; return (2 * u3 - 3 * u2 + 1) * A[c] + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * B[c] + (u3 - u2) * m1; };
+    const side0 = dot(sub(q.from, E), R);
+    this.pelvis = at(herm(1), herm(2), side0 * (1 - f));
+    // the torso goes over with the weight: well forward as the leg drives, upright again to stand
+    q.lean = 1.1 * Math.sin(Math.PI * clamp((f - 0.12) / 0.8, 0, 1)) ** 1.3;
+    const bez = (a, c, b, v) => { const w = 1 - v; return [w * w * a[0] + 2 * w * v * c[0] + v * v * b[0], w * w * a[1] + 2 * w * v * c[1] + v * v * b[1], w * w * a[2] + 2 * w * v * c[2] + v * v * b[2]]; };
+    const sideOf = k => k === 'lf' ? -1 : 1, onTop = k => add(add(q.stand, R, sideOf(k) * 0.11), [0, BODY.ankle, 0]);
+    // the leading foot: off the wall, out round the edge, down on the ledge; there until the body is over it, then a step to where it stands
+    { const L = this.limb[q.lead]; L.hold = null;
+      const v = ease(clamp((f - 0.22) / 0.28, 0, 1)), over = bez(q.feet[q.lead], at(0.42, 0.34, sideOf(q.lead) * 0.13), q.plant, v), w = ease(clamp((f - 0.8) / 0.18, 0, 1));
+      L.p = add(lerp3(over, onTop(q.lead), w), [0, 1, 0], Math.sin(w * Math.PI) * 0.1); }
+    // the trailing foot pushes off late, hangs below the hip for a moment, then swings up and over clear of the edge
+    { const L = this.limb[q.trail]; L.hold = null;
+      const hang = add(this.pelvis, [0, -0.72, 0]), wallFoot = q.feet[q.trail], d = len(sub(wallFoot, this.pelvis)), v = ease(clamp((f - 0.3) / 0.18, 0, 1)), low = d < 0.8 ? lerp3(wallFoot, hang, v * 0.5) : lerp3(wallFoot, hang, Math.max(v, clamp((d - 0.8) / 0.08, 0, 1)));
+      if (!q.swing && f >= 0.56) q.swing = low.slice();
+      if (q.swing) { const sw = ease(clamp((f - 0.56) / 0.36, 0, 1)); L.p = bez(q.swing, at(0.28, 0.5, sideOf(q.trail) * 0.14), onTop(q.trail), sw); } else L.p = low; }
+    // the hands stay pressed on the edge, then come away one after the other as the shoulders rise above them
+    for (const [k, t0] of [[q.lead === 'rf' ? 'lh' : 'rh', 0.5], [q.lead === 'rf' ? 'rh' : 'lh', 0.56]]) { const g = ease(clamp((f - t0) / 0.3, 0, 1)), L = this.limb[k]; if (g > 0) L.hold = null; L.p = lerp3(q.hands[k], this.restEnd(k, this.pelvis), g); }
+    // nothing reaches further than it can: a limb that would comes in as far as it has to
+    const fw = [-n[0], 0, -n[2]], L0 = Math.hypot(q.lean, 1), sh = add(this.pelvis, [fw[0] * q.lean / L0, 1 / L0, fw[2] * q.lean / L0], BODY.shoulderUp);
+    const within = (p, c, most) => { const d = sub(p, c), l = len(d); return l > most ? add(c, d, most / l) : p; };
+    for (const k of ['lf', 'rf']) this.limb[k].p = within(this.limb[k].p, this.pelvis, (BODY.thigh + BODY.shin) * 0.98);
+    for (const k of ['lh', 'rh']) this.limb[k].p = within(this.limb[k].p, add(sh, R, (k === 'lh' ? -1 : 1) * BODY.shoulderOut), (BODY.upperArm + BODY.foreArm + BODY.palm) * 0.98);
     if (f >= 1) this.done = { kind: 'walk', pos: q.stand, facing: Math.atan2(-q.n[0], -q.n[1]) };
   }
-  footTrail(q, k) { return q.feet[k]; }
 
   // ---- the output: IK targets for any skeleton. World space, y up.
   // { pelvis, right, up (spine), forward (into the wall), chest, lookAt, limbs: { lh|rh|lf|rf: { p, n?, grip (0–1), moving } } }
@@ -369,7 +397,7 @@ export class Climber {
     const R = this.right(), f = [-this.normal[0], 0, -this.normal[2]], { lh, rh, lf, rf } = this.limb;
     const hc = lerp3(lh.p, rh.p, 0.5);
     // the spine leans in toward the hands; shoulders tilt with them
-    const toHands = sub(hc, this.pelvis), lean = clamp(dot(toHands, f) / Math.max(0.3, toHands[1]), -0.5, 0.5);
+    const toHands = sub(hc, this.pelvis), lean = this.state === 'top' ? this.topOut.lean ?? 0 : clamp(dot(toHands, f) / Math.max(0.3, toHands[1]), -0.5, 0.5);
     let up = [f[0] * lean, 1, f[2] * lean]; const ul = len(up); up = [up[0] / ul, up[1] / ul, up[2] / ul];
     const limbs = {};
     for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null }; if (limbs[k].grip < 0) limbs[k].grip = 0; }

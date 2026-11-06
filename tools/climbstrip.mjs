@@ -9,7 +9,7 @@ const [name = 'strip', qs = ''] = process.argv.slice(2), CDP = 9477, profile = j
 mkdirSync('out/lab', { recursive: true });
 if (qs.includes('rig=real') && !existsSync('out/lab/adventurer_body.glb')) copyFileSync(process.env.HOME + '/Developer/ADVENTURER/web/assets/adventurer_body.glb', 'out/lab/adventurer_body.glb');
 const im = readFileSync('index.html', 'utf8').match(/<script type="importmap">([\s\S]*?)<\/script>/)[1];
-writeFileSync('out/lab/lab.html', readFileSync('tools/climblab.html', 'utf8').replace('IMPORTMAP', im).replaceAll("'../js/", "'../../js/").replaceAll("'../out/lab/", "'./"));
+writeFileSync('out/lab/lab.html', readFileSync('tools/climblab.html', 'utf8').replace('IMPORTMAP', im.replaceAll('./vendor', '../../vendor')).replaceAll("'../js/", "'../../js/").replaceAll("'../out/lab/", "'./"));
 preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`, '--window-size=1700,700', '--use-angle=metal', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--enable-unsafe-swiftshader', '--no-first-run', 'about:blank'], { stdio: 'ignore', detached: true });
 guardBrowser(chrome, profile, { maxSeconds: 900 });

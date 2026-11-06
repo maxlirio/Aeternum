@@ -4,6 +4,7 @@
 // thousands, while frustum culling still works by cell.
 import { share } from './share.js';
 import { outRoutes } from '../gen/highways.js';
+import { linksOfTown } from '../gen/network.js';
 import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
@@ -64,6 +65,7 @@ export function buildStreets(planet, s) {
     }
   }
   // roads out of town: a ribbon along each routed centreline, draped over the graded ground
+  linksOfTown(planet, s);     // (settles which of them run on to another town)
   for (const r of outRoutes(planet, s)) {
     const hw = r.w / 2, P = r.pts;
     const edge = i => {
@@ -72,7 +74,7 @@ export function buildStreets(planet, s) {
       return [-1, 1].map(side => { const x = P[i][0] + nx * side * hw, z = P[i][1] + nz * side * hw, [u, v] = s.toLocal(x, z); return [u, r.bridges.some(B => i >= B.i0 - 1 && i <= B.i1 + 1) ? r.h[i] + 0.03 : surfaceHeight(planet, x, z) + 0.12, v]; });     // (over a bridge it's on the deck, not down in the gorge)
     };
     let prev = edge(0), along = 0;
-    for (let i = 1; i < P.length - 6; i++) {
+    for (let i = 1; i < P.length - (r.joined ? 0 : 6); i++) {
       const cur = edge(i), next = along + 4;
       const quad = [prev[0], prev[1], cur[1], cur[0]];
       // wind each quad upward whichever way the road turns

@@ -20,7 +20,7 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8a97a3); s
 const f = cl.face, wallG = new THREE.Group(); scene.add(wallG);
 const pt = (a, y, o = 0) => { const P = [f.o[0] + f.t[0] * a + f.n[0] * o, y, f.o[1] + f.t[1] * a + f.n[1] * o]; return new THREE.Vector3(...toR(...P)); };
 const heading = Math.atan2(f.t[0], f.t[1]);
-{ const m = new THREE.Mesh(new THREE.BoxGeometry(60, 60, 1), new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.95 })), c0 = pt(cl.limb.lh.hold.a, base + 20, -0.5); m.position.copy(c0); m.rotation.y = heading + Math.PI / 2; wallG.add(m);
+{ const m = new THREE.Mesh(new THREE.BoxGeometry(60, 60, 1), new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.95 })), c0 = pt(cl.limb.lh.hold.a, base + 20, -0.5); m.position.copy(c0); m.rotation.y = heading + Math.PI / 2; wallG.add(m); window.__wall = m;
   const bar = new THREE.MeshStandardMaterial({ color: 0x565a5e, roughness: 0.7 });
   for (const r of f.rows) { if (r.y > base + 30) continue; const g = new THREE.Mesh(new THREE.BoxGeometry(60, 0.05, 0.12), bar); g.position.copy(pt(cl.limb.lh.hold.a, r.y - 0.025, 0.06)); g.rotation.y = heading + Math.PI / 2; wallG.add(g); } }
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x555a5e })); scene.add(ground);
@@ -41,12 +41,13 @@ captureRest(rig);
 const mark = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff2288, depthTest: false }), 4); mark.renderOrder = 9; scene.add(mark);
 // run: to get off the ground, then sample a stretch of climbing
 const input = SCEN === 'corner' ? null : { fwd: 1, right: 0, yaw }, dt = 1 / 60; let T = 0, worst = 0;
-const ups = { fwd: 1, right: 0, yaw }; while (cl.pelvis[1] < base + (SCEN === 'top' ? b.top - 3.2 : 3.2) && T < 300) { cl.step(dt, ups); T += dt; }
+const ups = { fwd: 1, right: 0, yaw }; while (cl.state !== 'top' && (SCEN === 'top' || cl.pelvis[1] < base + 3.2) && T < 300) { cl.step(dt, ups); T += dt; }
+if (SCEN === 'top') { const m = window.__wall; m.geometry = new THREE.BoxGeometry(60, 60, 8); m.position.copy(pt(cl.limb.lh.hold.a, cl.topOut.y - 30, -4)); for (const c of [...wallG.children]) if (c !== m) wallG.remove(c); }
 const R0 = cl.right(), dr = (f.t[0] * R0[0] + f.t[1] * R0[2]) > 0 ? -1 : 1, inp = SCEN === 'corner' ? { fwd: 0, right: dr, yaw } : SCEN === 'side' ? { fwd: 0, right: 1, yaw } : SCEN === 'leap' ? { fwd: 1, right: 0, yaw } : ups;
-const stepEach = (+(q.get('span') || 2.4)) / NX;
+const stepEach = (+(q.get('span') || 2.4)) / NX; if (SCEN === 'top') window.__wall.material.color.set(0x8c8678);
 const cam = new THREE.PerspectiveCamera(46, TW / TH, 0.05, 200), V = new THREE.Vector3();
 const report = [];
-for (let i = 0; i < NX; i++) {
+const lean3 = []; for (let i = 0; i < NX; i++) {
   if (SCEN === 'leap' && i === 1) cl.step(dt, { ...inp, jump: true });
   for (let k = 0; k < stepEach / dt && !cl.done; k++) cl.step(dt, SCEN === 'leap' ? { fwd: 0, right: 0, yaw } : inp);
   const P = cl.pose(), miss = applyClimbPose(rig, P, toR); worst = Math.max(worst, miss); rig.root.updateMatrixWorld(true);
@@ -57,7 +58,7 @@ for (let i = 0; i < NX; i++) {
     if (row === 0) cam.position.copy(c1).addScaledVector(n, 2.9).addScaledVector(side, 0.9).add(V.set(0, 0.5, 0)); else cam.position.copy(c1).addScaledVector(side, 3.2).addScaledVector(n, 1.0).add(V.set(0, 0.35, 0));
     cam.lookAt(c1.x, c1.y + 0.45, c1.z); renderer.render(scene, cam);
   }
-  report.push({ state: P.state, moving: cl.moving || '-', miss: +miss.toFixed(3) });
+  report.push({ state: P.state, moving: (cl.topOut?.t / cl.topOut?.dur || 0).toFixed(2) + ':' + miss.toFixed(2), miss: +miss.toFixed(3) });
 }
 window.LAB = { done: true, worst, report, y: cl.pelvis[1] - base, climberDone: cl.done?.kind };
 </script>

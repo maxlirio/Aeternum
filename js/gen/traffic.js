@@ -3,6 +3,7 @@
 // Nobody in it is a resident; it doesn't stop for you, and being hit by it hurts (struckBy).
 import { hashInts, hashStr } from '../core/hash.js';
 import { outRoutes } from './highways.js';
+import { knownLinks } from './network.js';
 import { VEHICLE_COLOURS, TYPES } from './vehicles.js';
 const MIX = Object.values(TYPES).map(T => [T.id, T.w * (T.kind === 'truck' || T.kind === 'van' ? 1.6 : 1)]);
 const pickBy = x => { const tot = MIX.reduce((a, m) => a + m[1], 0); let q = x * tot; for (const [id, w] of MIX) { q -= w; if (q < 0) return id; } return MIX[0][0]; };
@@ -83,6 +84,38 @@ export function trafficNear(planet, s, t, x, z, R = 500, delayOf = null) {
     }
     if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
     res.push({ id: car.id, type: car.type, pos: [px, py + 0.05, pz], facing: Math.atan2(fx, fz), colour: car.colour, speed, parked: speed === 0, trip: tr });
+  }
+  return linkCars(planet, t, x, z, R, delayOf, res);
+}
+// The road between two towns has its own drivers, on the whole way from one town's edge to the other's, on the right. A pure function of time like the rest.
+const LINK_GAP = 900, LINK_PACE = 21;
+function wholeRoad(r) {
+  if (r.way) return r.way;
+  const a = r.from, b = r.to;
+  const line = []; const put = (x, y, z) => { const L = line.at(-1); if (!L || Math.hypot(L[0] - x, L[2] - z) > 0.5) line.push([x, y, z]); };
+  // from the town along its road out (it starts in town), then this road, then in along theirs: whichever end of this road is whose
+  const fromFirst = Math.hypot(a.pts.at(-1)[0] - r.pts[0][0], a.pts.at(-1)[1] - r.pts[0][1]) < 1;
+  const [A, B] = fromFirst ? [a, b] : [b, a];
+  for (let i = A.lead; i < A.pts.length; i++) put(A.pts[i][0], A.h[i], A.pts[i][1]);
+  for (let i = 0; i < r.pts.length; i++) put(r.pts[i][0], r.h[i], r.pts[i][1]);
+  for (let i = B.pts.length - 1; i >= B.lead; i--) put(B.pts[i][0], B.h[i], B.pts[i][1]);
+  return (r.way = line);
+}
+function linkCars(planet, t, x, z, R, delayOf, res) {
+  for (const r of knownLinks(planet)) {
+    if (x < r.x0 - R - 1000 || x > r.x1 + R + 1000 || z < r.z0 - R - 1000 || z > r.z1 + R + 1000) continue;
+    const W = wholeRoad(r), L = (W.length - 1) * 4, n = Math.max(2, Math.floor(L / LINK_GAP)), sd = hashStr(9, r.id);
+    for (let k = 0; k < n; k++) {
+      const h = j => hashInts(sd, [k, j]) / 4294967296, dir = k % 2 ? 1 : -1, id = `tr:${r.id}:${dir}:${k}`, T = t - (delayOf ? delayOf(id) : 0), pace = LINK_PACE * (0.85 + 0.3 * h(1));
+      const trip = (T * pace / L + h(2));
+      const u = ((trip % 1) + 1) % 1; let f = u * (W.length - 1); if (dir < 0) f = W.length - 1 - f;
+      const i = Math.min(W.length - 2, Math.floor(f)), g = f - i, A = W[i], B = W[i + 1];
+      let px = A[0] + (B[0] - A[0]) * g, pz = A[2] + (B[2] - A[2]) * g, ux = (B[0] - A[0]) * dir, uz = (B[2] - A[2]) * dir; const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
+      px += uz * LAT; pz -= ux * LAT;       // on the right
+      if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
+      const lap = Math.floor(trip);
+      res.push({ id, type: pickBy(hashInts(sd, [k, 7, lap]) / 4294967296), pos: [px, A[1] + (B[1] - A[1]) * g + 0.05, pz], facing: Math.atan2(ux, uz), colour: hashInts(sd, [k, 8, lap]) % VEHICLE_COLOURS, speed: pace, parked: false });
+    }
   }
   return res;
 }

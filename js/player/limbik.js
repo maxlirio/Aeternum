@@ -83,7 +83,8 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, -0.25);
     miss = Math.max(miss, solveLimb(ua, la, ha, hp, elbowPole));
     const fp = v3(toRender(...Fo.p)), hip = th.getWorldPosition(new THREE.Vector3());
-    const kneePole = hip.clone().addScaledVector(sd, 0.35).addScaledVector(F, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), 0.1);
+    const kneeUp = Math.max(0, fp.y - hip.y + 0.5);     // (a foot up near hip height: the knee comes up and out, it doesn't go through what's in front)
+    const kneePole = hip.clone().addScaledVector(sd, 0.35).addScaledVector(F, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), 0.1 + kneeUp * 1.6);
     miss = Math.max(miss, solveLimb(th, ca, fo, fp, kneePole));
     // the hand lies on its hold: fingers over the ledge toward the wall, palm down, thumb in; in the
     // air it opens and leads toward where it's going. The foot's toes point at the wall.
