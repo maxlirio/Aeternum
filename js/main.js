@@ -54,7 +54,7 @@ import { SPEEDER, typeOf } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
-import { SHIP_PRICE, PRICES, tripOf } from './gen/ships.js';
+import { SHIP_PRICE, PRICES, tripOf, LAYOUTS } from './gen/ships.js';
 import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight } from './player/flight.js';
 import { AirWar, raidAt, raidIndex } from './sim/aircombat.js';
@@ -841,7 +841,8 @@ async function start(fresh) {
   }
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
-  const allShips = t => [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)), shipTown = sh => townOfKey(planet, sh.id) || homeS;
+  let flyAs = null;      // (?fly=<model>: whichever ship you take is that model)
+  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)); if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
   let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
   cam.onMouse = (dx, dy) => { if (!flight) return false; stick[0] = Math.max(-1, Math.min(1, stick[0] + dx * 0.006)); stick[1] = Math.max(-1, Math.min(1, stick[1] + dy * 0.006)); return true; };   // mouse forward = nose down
@@ -1290,7 +1291,7 @@ async function start(fresh) {
     if (q && q !== homeS && Math.hypot(q.cx - x, q.cz - z) < q.R + 500) { ui.loading(`Building ${q.name}…`, 0.97); enterTown(await towns.ensure(q)); } }
   // ?fly (or ?fly=<model>): straight into the air at the helm of one of the town's ships, for the fun of it
   if (params.has('fly')) { const want = params.get('fly'), sh = ships.find(x => want && x.model === want) || ships.find(x => !x.patrol && !x.field && !x.flying) || ships[0];
-    if (sh) { store.patchDelta(shipKey(sh.id), { owner: 'you:' + player.id, ownerName: 'you', forSale: false }); ships = allShips(clock.now()); takeOff(shipById(sh.id)); flight.pos[1] = world.groundAt(flight.pos[0], flight.pos[2], 1e4).h + 1000; const sp = 90; flight.vel = [Math.sin(flight.facing) * sp, 0, Math.cos(flight.facing) * sp]; flight.throttle = 0.6; } }
+    if (sh) { store.patchDelta(shipKey(sh.id), { owner: 'you:' + player.id, ownerName: 'you', forSale: false }); ships = allShips(clock.now()); { if (want && LAYOUTS[want]) { flyAs = { id: sh.id, model: want, paint: params.has('paint') ? +params.get('paint') : null }; ships = allShips(clock.now()); } takeOff(shipById(sh.id)); } flight.pos[1] = world.groundAt(flight.pos[0], flight.pos[2], 1e4).h + 1000; const sp = 90; flight.vel = [Math.sin(flight.facing) * sp, 0, Math.cos(flight.facing) * sp]; flight.throttle = 0.6; } }
   if (shot) applyShot(shot, { s, planet, ctrl, cam, town, doorView, store, sched, clock, world, pop });
 
   // ---- loop

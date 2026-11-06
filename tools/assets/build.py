@@ -1485,6 +1485,8 @@ def hull_loft(p, secs, mat, centre):
     for k in range(n): bm.faces.new([rings[-1][k], c, rings[-1][(k + 1) % n]])
     cv = mathutils.Vector(P(*centre))
     for f in bm.faces:
+        f.normal_update()     # (a new face's normal isn't computed yet: without this the flip below does nothing)
+        f.normal_update()
         if (f.calc_center_median() - cv).dot(f.normal) < 0: f.normal_flip()
     merge(p, bm, mat)
 
@@ -1522,6 +1524,7 @@ def freighter(p, L_, D_, H_, r, model='freighter'):
     for r0, r1 in zip(rows, rows[1:]):
         for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
     for f in bm.faces:
+        f.normal_update()     # (a new face's normal isn't computed yet: without this the flip below does nothing)
         if (f.calc_center_median() - mathutils.Vector(P(xc, 4.3, 18.0))).dot(f.normal) < 0: f.normal_flip()
     merge(p, bm, 'visor')
     add_loft(p, [(26.6, top_y(xc, 27) - 0.1, 0.15, xc, 2.4, 2.6), (27.8, top_y(xc, 28) + 0.1, 0.35, xc, 2.9, 2.6), (29.6, top_y(xc, 29.6), 0.3, xc, 2.8, 2.6), (30.3, top_y(xc, 30.3) - 0.15, 0.1, xc, 2.2, 2.4)], 'visor', 32, axis='z')
@@ -1603,6 +1606,7 @@ def styled_ship(p, L_, D_, H_, r, model):
     for r0, r1 in zip(rows, rows[1:]):
         for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
     for f in bm.faces:
+        f.normal_update()     # (a new face's normal isn't computed yet: without this the flip below does nothing)
         if (f.calc_center_median() - mathutils.Vector(P(xc, cy, (hz0 + hz1) / 2))).dot(f.normal) < 0: f.normal_flip()
     merge(p, bm, 'visor')
     # belly

@@ -4,7 +4,8 @@
 import { share } from './share.js';
 import * as THREE from 'three';
 import { shipPlan, LAYOUTS } from '../gen/ships.js';
-import { PAINTS_VEHICLE } from './props.js';
+// Liveries: deep paints, because a ship in full sun is bright already. Oxblood, signal orange, navy, ivory, gunmetal, forest, teal.
+const LIVERY = [[0.3, 0.045, 0.04], [0.62, 0.22, 0.035], [0.035, 0.09, 0.22], [0.5, 0.48, 0.42], [0.055, 0.06, 0.07], [0.05, 0.16, 0.09], [0.03, 0.2, 0.22]];
 
 const MAX = 10;
 export class ShipView {
@@ -43,7 +44,7 @@ export class ShipView {
       const { W, D } = M.L;
       this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);
       this._m.compose(new THREE.Vector3(...s.c), this._q.setFromEuler(this._e), new THREE.Vector3(1, 1, 1)).multiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, -D / 2));
-      const col = PAINTS_VEHICLE[s.colour % PAINTS_VEHICLE.length];
+      const col = LIVERY[s.colour % LIVERY.length];
       this._c.setRGB(col[0], col[1], col[2]);
       for (const { im, tinted } of M.hull) { im.setMatrixAt(i, this._m); if (tinted) im.setColorAt(i, this._c); }
       let a = this.anim.get(s.id) ?? (s.rampDown ? 1 : 0);

@@ -55,6 +55,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
       m = new THREE.MeshStandardMaterial({ map: tex(base + '_c.webp', true, tile), normalMap: tex(base + '_n.webp', false, tile),
         roughnessMap: orm, metalnessMap: orm, aoMap: orm, roughness: 1, metalness: 1, aoMapIntensity: 0.8 });
       if (base === 'leaf') m.side = THREE.DoubleSide;
+      if (name === 'tint-hull') { m.metalnessMap = null; m.metalness = 0.18; }     // a ship is painted, not polished: the paint is the colour you see
     }
     m.name = name; mats.set(name, m); return m;
   };

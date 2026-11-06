@@ -40,7 +40,7 @@ export class Mayhem {
       const q = this.carNow(R.car, t), T = box(R.car), top = q.y + T.H, dx = ctrl.pos[0] - R.x, dz = ctrl.pos[2] - R.z;      // (dx, dz: your own steps, from where the car last put you)
       const off = [R.ox + dx, R.oz + dz], a0 = R.yaw, a1 = Math.atan2(q.fx, q.fz), da = a1 - a0, cs = Math.cos(da), sn = Math.sin(da);
       const ox = off[0] * cs + off[1] * sn, oz = -off[0] * sn + off[1] * cs, along = ox * q.fx + oz * q.fz, side = ox * q.fz - oz * q.fx;
-      if (ctrl.vel[1] > 0.5 || Math.abs(along) > T.L / 2 + 0.25 || Math.abs(side) > T.W / 2 + 0.25) {     // jumped, or stepped off: you keep its speed
+      if (ctrl.vel[1] > 0.5 || Math.abs(along) > T.L / 2 + 0.7 || Math.abs(side) > T.W / 2 + 0.7) {     // jumped, or stepped off: you keep its speed
         ctrl.vel[0] += q.vx * 0.9; ctrl.vel[2] += q.vz * 0.9; ctrl.vel[1] += q.vy * 0.9; ctrl.grounded = false; this.rider = null;
       } else {
         ctrl.pos = [q.x + ox, top, q.z + oz]; ctrl.vel[1] = 0; ctrl.grounded = true; ctrl.landed = 0; ctrl.where = { car: R.car }; ctrl.facing += da;

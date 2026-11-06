@@ -507,7 +507,7 @@ try {
     for (let i = 0; i < 300 && !(O.getMayhem() && O.cityTraffic.ready >= O.cityTraffic.n); i++) { O.ctrl.pos = [bx, c.h + 0.3, bz]; await wait(200); }
     const M = O.getMayhem(), F = O.cityTraffic.fleet, t0 = O.clock.now(), q = {};
     const sky = F.cars.find(k => { if (k.kind !== 'sky') return false; FL.vehicleAt(F, k, t0 + 2, q); return q.moving && q.y > c.h + 30 && q.trip.t0 + q.trip.dur > t0 + 60; });
-    const TT = V.TYPES[sky.type]; let a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 0.8, a.z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.grounded = false;
+    const TT = V.TYPES[sky.type]; let a = FL.vehicleAt(F, sky, O.clock.now(), {}); for (let i = 0; i < 150 && !O.cityTraffic.nearby.some(v => v.car === sky); i++) { a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 4, a.z]; O.ctrl.vel = [0, 0, 0]; await wait(30); } a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 0.8, a.z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.grounded = false;
     for (let i = 0; i < 60 && !M.rider; i++) { a = FL.vehicleAt(F, sky, O.clock.now() + 0.03, {}); if (O.ctrl.pos[1] < a.y + TT.H + 1.5) { O.ctrl.pos[0] = a.x; O.ctrl.pos[2] = a.z; } await wait(30); }
     out.rode = !!M.rider; const y1 = O.ctrl.pos[1] - c.h; await wait(800); a = FL.vehicleAt(F, sky, O.clock.now(), {}); out.gap = Math.round(Math.hypot(O.ctrl.pos[0] - a.x, O.ctrl.pos[2] - a.z) * 10) / 10; out.onIt = !!M.rider; out.alt = Math.round(y1);
     key('KeyE'); await wait(500); const R = O.getRide2(); out.took = !!R; out.fly = !!R?.v.fly; out.hot = +M.heat(O.clock.now()).toFixed(1); out.driverOut = M.bodies.length > 0;

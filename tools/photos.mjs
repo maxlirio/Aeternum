@@ -71,6 +71,18 @@ try {
     await hold(5000, () => ev(`(() => { const O = ORBIS, s = O.homeS; O.ctrl.mode = 'walk'; O.ctrl.pos = [s.cx, O.world.groundAt(s.cx, s.cz, 1e4).h + 0.02, s.cz]; O.ctrl.vel = [0, 0, 0]; O.cam.pitch = 0.08; O.cam.dist = 5.5; return 1; })()`));
     await shot('11-home-town-street');
   }
+  if (want('ships')) {
+    let paintN = 0;
+    for (const m of (process.env.SHIPS || 'racer0,gunship0,dropship0,hauler0,miner0,ferry0,explorer0,runabout0').split(',')) {
+      await load('hour=15&fly=' + m + '&paint=' + (paintN++ % 7));
+      const got = await ev(`ORBIS.getFlight()?.sh?.model || ORBIS.getFlight()?.ship?.model || '?'`).catch(() => '?'); console.log('   flying', got);
+      await hold(3000, () => place(0, 600, 0, { ship: true, pitch: 0.2, dist: 26, agl: true }));
+      // the camera trails the ship in flight: for a picture, swing it round. Same target, other side.
+      await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R), d = new O.camera.position.constructor(); window.__orbit = [0, 0, 0]; R.render = (sc, ca) => { if (ca === O.camera && window.__orbit) { ca.getWorldDirection(d); const dist = O.cam.dist, c = ca.position.clone().addScaledVector(d, dist), yaw = O.getFlight().facing + window.__orbit[0], el = window.__orbit[1], L = window.__orbit[2]; ca.position.set(c.x + Math.sin(yaw) * Math.cos(el) * L, c.y + Math.sin(el) * L, c.z + Math.cos(yaw) * Math.cos(el) * L); ca.lookAt(c); ca.updateMatrixWorld(); } r0(sc, ca); if (ca === O.camera) { } }; return 1; })()`);
+      const L = await ev(`Math.max(13, ORBIS.getFlight().L.D * 1.2)`), views = [['front', 0.75, 0.16], ['side', 1.6, 0.05], ['aft', 2.5, 0.28], ['top', 0.4, 0.95]];
+      for (const [n, ya, el] of views) { await ev(`(window.__orbit = [${ya}, ${el}, ${L}], 1)`); await hold(1200, () => place(0, 600, 0, { ship: true, pitch: 0.2, dist: 26, agl: true })); await shot('ship-' + m + '-' + n); if (process.env.ONEVIEW && n === 'front') break; }
+    }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
