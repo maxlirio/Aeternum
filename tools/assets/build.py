@@ -18,12 +18,13 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital'))
 DO_CITY = 'city' in argv
 DO_ITEMS = 'items' in argv
 DO_COMMON = 'common' in argv
 DO_FAMILY = 'family' in argv
+DO_CAPITAL = 'capital' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -2264,6 +2265,9 @@ def build_props():
 
 SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
 if DO_TEX: build_textures()
+if DO_CAPITAL:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capital_kit.py')).read())
+    build_capital()
 if DO_PROPS: build_props()
 if DO_CITY or DO_ITEMS or DO_COMMON or DO_FAMILY:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'city_kit.py')).read())

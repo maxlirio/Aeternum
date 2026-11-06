@@ -83,6 +83,25 @@ try {
       for (const [n, ya, el] of views) { await ev(`(window.__orbit = [${ya}, ${el}, ${L}], 1)`); await hold(1200, () => place(0, 600, 0, { ship: true, pitch: 0.2, dist: 26, agl: true })); await shot('ship-' + m + '-' + n); if (process.env.ONEVIEW && n === 'front') break; }
     }
   }
+  if (want('fleet')) {
+    await load('hour=' + (process.env.HOUR || 15) + '&fly');
+    for (let i = 0; i < 60 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
+    const look = (C, off, ship = false) => ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = ${JSON.stringify(off)}, x = C.x + a * c + d * s, z = C.z - a * s + d * c, y = C.y + b, yaw = Math.atan2(C.x - x, C.z - z), pt = Math.atan2(C.y - y, Math.hypot(C.x - x, C.z - z)); f.pos[0] = x; f.pos[1] = y; f.pos[2] = z; f.vel = [0, 0, 0]; f.throttle = 0; f.q = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]; f.syncEuler(); O.cam.dist = 1; O.cam.pitch = -pt; O.cam.yaw = yaw; O.shipView.group.visible = ${ship}; return 1; })()`);
+    for (const [C, views] of [['bastion', { bow: [420, 90, 800], beam: [950, 60, -60], aft: [-340, 170, -880], top: [260, 760, 200] }], ['meridian', { bow: [640, 200, 1200], beam: [1400, 120, 0], aft: [-500, 200, -1300] }], ['longshore', { bow: [420, 160, 1250], beam: [1300, 200, -60], aft: [-420, 180, -1380] }]])
+      for (const [n, off] of Object.entries(views)) { await hold(2500, () => look(C, off)); await shot('fleet-' + C + '-' + n); }
+  }
+  if (want('decks')) {
+    await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (const C of ['bastion', 'meridian', 'longshore']) {
+      // land on the deck like anyone would: lined up outside, then set down inside. Report what the game says.
+      const R = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, wait = ms => new Promise(r => setTimeout(r, ms)), x = at.c[0] - fx * D * 0.22, z = at.c[2] - fz * D * 0.22; f.pos[0] = x; f.pos[1] = at.c[1] + 4.4; f.pos[2] = z; f.vel = [0, 0, 0]; f.throttle = 0; f.onGround = false; const y = at.facing; f.q = [0, Math.sin(y / 2), 0, Math.cos(y / 2)]; f.syncEuler(); O.cam.dist = 26; O.cam.pitch = 0.1; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' })); for (let i = 0; i < 180 && !f.onGround; i++) await wait(100); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' })); await wait(800); const out = { onGround: f.onGround, y: +(f.pos[1] - at.c[1]).toFixed(2), impact: f.impact, problem: f.landingProblem?.(), inDeck: O.world.locate(f.pos[0], f.pos[1] + 2, f.pos[2])?.room?.label || O.world.locate(f.pos[0], f.pos[1] + 2, f.pos[2])?.room?.purpose };
+        // walk it: stand on the deck beyond the ship, through the hatch, down to the far end
+        const stand = (d, h = 1) => [at.c[0] + fx * d, at.c[1] + h + 0.05, at.c[2] + fz * d]; const fl0 = O.setFlightForTest; O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.shipView.group.visible = true; O.ctrl.pos = stand(-D / 2 + 40); O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = y; O.cam.yaw = y; O.cam.pitch = 0.12; O.cam.dist = 4.5; O.syncAvatar?.(); await wait(600); out.floor = +(O.ctrl.pos[1] - at.c[1]).toFixed(2); out.room0 = O.world.locate(...O.ctrl.pos)?.room?.label; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); let rooms = new Set(); for (let i = 0; i < 60; i++) { O.cam.yaw = y; await wait(100); const l = O.world.locate(...O.ctrl.pos)?.room?.label; if (l) rooms.add(l); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); out.rooms = [...rooms]; out.walked = +Math.hypot(O.ctrl.pos[0] - stand(-D / 2 + 40)[0], O.ctrl.pos[2] - stand(-D / 2 + 40)[2]).toFixed(1); out.yEnd = +(O.ctrl.pos[1] - at.c[1]).toFixed(2); O.setFlightForTest(f); O.ctrl.mode = 'pilot'; return out; })()`);
+      console.log('   ', C, JSON.stringify(R)); await sleep(2500); await shot('deck-' + C + '-hangar');
+      await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), f = O.getFlight(); f.pos[0] = at.c[0] - fx * 400; f.pos[2] = at.c[2] - fz * 400; f.vel = [0, 0, 0]; f.pos[1] = at.c[1]; const y = at.facing; f.q = [0, Math.sin(y / 2), 0, Math.cos(y / 2)]; f.syncEuler(); O.cam.dist = 26; O.cam.pitch = 0.05; return 1; })()`); await sleep(1500); await shot('deck-' + C + '-approach');
+    }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);

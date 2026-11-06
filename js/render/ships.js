@@ -20,6 +20,7 @@ export class ShipView {
     });
     this.models = {};
     for (const model of Object.keys(LAYOUTS)) {
+      if (model.endsWith('_decks')) continue;      // (the fleet's insides come with the fleet's own model: render/capital.js)
       const L = shipPlan(model).layout, hull = find(model), ramp = find(model + '_ramp');
       const box = (w, h, d, x, y, z) => [{ geometry: new THREE.BoxGeometry(w, h, d).translate(x, y, z), material: new THREE.MeshStandardMaterial({ color: 0xaaaaaa }), tinted: true }];
       const [hx0, hz0, hx1, hz1] = L.hull;

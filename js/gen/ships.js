@@ -10,13 +10,14 @@ import PATROL from '../../assets/ships/patrol.json' with { type: 'json' };
 import YACHT from '../../assets/ships/yacht.json' with { type: 'json' };
 import CATALOG from '../../assets/ships/catalog.json' with { type: 'json' };
 import FIGHTERS from '../../assets/ships/fighters.json' with { type: 'json' };
+import CAPITAL from '../../assets/ships/capital.json' with { type: 'json' };
 import { surfaceAt } from './surface.js';
 import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { derive, hashStr, hashInts } from '../core/hash.js';
 import { dayIndex, dayStart } from './schedule.js';
 
-export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG, ...FIGHTERS };
+export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG, ...FIGHTERS, ...CAPITAL };
 export const FIGHTER_MODELS = Object.keys(FIGHTERS);
 // armed hulls: fighters carry their own; gunships, dropships and the patrol ship are armed too
 for (const [k, L] of Object.entries(LAYOUTS)) if (!L.weapons) L.weapons = L.cls === 'gunship' ? { guns: 2, missiles: 4 } : L.cls === 'dropship' ? { guns: 1, missiles: 0 } : k === 'patrol' ? { guns: 2, missiles: 2 } : { guns: 0, missiles: 0 };

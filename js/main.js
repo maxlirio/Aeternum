@@ -39,6 +39,8 @@ import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
+import { CapitalView } from './render/capital.js';
+import { fleetOf, fleetContact } from './gen/capital.js';
 import { TerrainStreamer, terrainTime, terrainWind, terrainFar } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
@@ -207,6 +209,7 @@ async function start(fresh) {
   let propView = propLib ? new PropView(propLib) : null;
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
+  const capitalView = new CapitalView(scene, propLib); setTimeout(() => capitalView.load(), 2500);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
   const grass = new GrassField(planet); root.add(grass.group);
   let town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
@@ -842,7 +845,8 @@ async function start(fresh) {
   // ---- ships (gen/ships.js, world/ships.js, player/flight.js). A landed ship is a
   // structure in the collision world, like a building; a flying one is a Flight.
   let flyAs = null;      // (?fly=<model>: whichever ship you take is that model)
-  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)); if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
+  const fleet = fleetOf(planet, homeS);
+  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.map(C => C.ship)); if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
   let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
   cam.onMouse = (dx, dy) => { if (!flight) return false; stick[0] = Math.max(-1, Math.min(1, stick[0] + dx * 0.006)); stick[1] = Math.max(-1, Math.min(1, stick[1] + dy * 0.006)); return true; };   // mouse forward = nose down
@@ -857,7 +861,7 @@ async function start(fresh) {
       const sig = JSON.stringify([sh.at, sh.O]);
       if (have && (!want || have.sig !== sig)) { world.removeStructure(have); placed.delete(sh.id); }
       if (want && !placed.has(sh.id)) {
-        const b = structureOf(shipTown(sh), sh, id => id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)), planet);
+        const b = structureOf(shipTown(sh), sh, id => sh.fleet || id !== 0 || (rampDown(shipById(sh.id) || sh, planet, clock.now(), player) && shipView.rampOpen(sh.id)), planet);
         b.sig = sig; world.addStructure(b, shipTown(sh)); placed.set(sh.id, b);
       }
     }
@@ -1425,8 +1429,10 @@ async function start(fresh) {
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
+    capitalView.update(fleet, toRender);
+    if (flight) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
-    shipView.update(ships.map(sh => {
+    shipView.update(ships.filter(sh => !sh.fleet).map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
       if (sh.flying) return null;
       if (sh.at?.c && Math.hypot(sh.at.c[0] - ctrl.pos[0], sh.at.c[2] - ctrl.pos[2]) > 2200 && !onRun(sh)) return null;     // parked, and too far to see
@@ -1566,7 +1572,7 @@ async function start(fresh) {
     const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - planet.seaLevel);
-    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(8500, 15500, alt > 2500 ? alt : 0); inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 30000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(13000, 15700, alt > 2500 ? alt : 0); inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 30000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
       globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
       const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
@@ -1647,7 +1653,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, capitalView, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

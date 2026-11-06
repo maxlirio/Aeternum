@@ -88,7 +88,7 @@ export class SkySystem {
     const space = THREE.MathUtils.smoothstep(alt, 18000, 70000);
     this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), THREE.MathUtils.smoothstep(alt, 32000, 80000));
     this.sky.material.uniforms.uFade.value = 1 - space;
-    u.uHigh.value = THREE.MathUtils.smoothstep(alt, 2500, 9000); u.uDip.value = Math.sqrt(Math.max(0, 2 * alt / 6.5e6)); u.uLit.value = day * (1 - 0.8 * THREE.MathUtils.smoothstep(alt, 9000, 50000));
+    u.uHigh.value = THREE.MathUtils.smoothstep(alt, 900, 6000); u.uDip.value = Math.sqrt(Math.max(0, 2 * alt / 6.5e6)); u.uLit.value = day * (1 - 0.8 * THREE.MathUtils.smoothstep(alt, 9000, 50000));
     this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
     // fog: horizon colour by day, deep blue by night
     const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
