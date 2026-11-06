@@ -21,7 +21,7 @@ try {
   const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: 'PUT' })).json();
   const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = new Map(), errs = [];
-  ws.onmessage = m => { const x = JSON.parse(m.data); if (x.id) pend.get(x.id)?.(x); if (x.method === 'Runtime.exceptionThrown') errs.push(x.params.exceptionDetails.exception?.description); };
+  ws.onmessage = m => { const x = JSON.parse(m.data); if (x.id) pend.get(x.id)?.(x); if (x.method === 'Runtime.exceptionThrown') errs.push(x.params.exceptionDetails.exception?.description); if (x.method === 'Runtime.consoleAPICalled' && x.params.type === 'error') errs.push(x.params.args.map(a => a.value || a.description).join(' ').slice(0, 900)); };
   const send = (method, params = {}) => new Promise((r, rej) => { const i = ++id, to = setTimeout(() => { pend.delete(i); rej(new Error('STUCK ' + method + ' ' + String(params.expression || '').slice(0, 100))); }, 120000); pend.set(i, x => { clearTimeout(to); r(x); }); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async e => { const r = await send('Runtime.evaluate', { expression: e, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(e.slice(0, 200) + ' → ' + JSON.stringify(r.result.exceptionDetails).slice(0, 300)); return r.result.result.value; };
   const load = async q => { await send('Runtime.enable'); await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&auto=new&seed=${SEED}&${q}` }); let t = ''; for (let i = 0; i < 240; i++) { await sleep(500); t = await ev('document.title').catch(() => ''); if (t === 'READY' || t.startsWith('ERROR')) break; } if (t !== 'READY') throw new Error('no load: ' + t + ' ' + errs[0]);
@@ -33,7 +33,7 @@ try {
   await load('hour=10&fly');
   const roads = await ev(`__Rs.map(r => ({ km: r.length / 1000, bridges: r.bridges.length, n: r.pts.length }))`); console.log('   roads from home', JSON.stringify(roads));
   // keeps the world moving slowly while a picture settles
-  const hold = async (ms, fn) => { const end = Date.now() + ms; while (Date.now() < end) { await fn(); await sleep(350); } };
+  const hold = async (ms, fn) => { const end = Date.now() + ms; let i = 0; while (Date.now() < end || (i++ < 400 && await ev('ORBIS.terrain.pending > 0').catch(() => false))) { await fn(); await sleep(350); } };
 
   if (want('planet')) {
     const up = async (n, y, opts, ms = 3500) => { await hold(ms, () => place(0, y, 0, opts)); await shot(n); };
@@ -70,6 +70,27 @@ try {
     const br = await ev(`(() => { for (const W of __Rs) if (W.bridges.length) { const B = W.bridges[0], i = B.from ?? B.i0 ?? null; return { keys: Object.keys(B), i, W: __Rs.indexOf(W) }; } return null; })()`); console.log('   bridge', JSON.stringify(br));
     await hold(5000, () => ev(`(() => { const O = ORBIS, s = O.homeS; O.ctrl.mode = 'walk'; O.ctrl.pos = [s.cx, O.world.groundAt(s.cx, s.cz, 1e4).h + 0.02, s.cz]; O.ctrl.vel = [0, 0, 0]; O.cam.pitch = 0.08; O.cam.dist = 5.5; return 1; })()`));
     await shot('11-home-town-street');
+  }
+  if (want('land')) {
+    await load('hour=16');
+    const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
+    // the steepest ground within reach of the road, looked at from below it
+    const st = await ev(`(async () => { const S = await import('./js/gen/surface.js'), W = __Rs[0], a = W.pts[Math.floor(W.pts.length * 0.4)]; let best = null; for (let i = -24; i <= 24; i++) for (let j = -24; j <= 24; j++) { const x = a[0] + i * 40, z = a[1] + j * 40, h = S.surfaceAt(ORBIS.planet, x, z).h, gx = S.surfaceAt(ORBIS.planet, x + 8, z).h - h, gz = S.surfaceAt(ORBIS.planet, x, z + 8).h - h, sl = Math.hypot(gx, gz) / 8; if (!S.surfaceAt(ORBIS.planet, x, z).road && !S.surfaceAt(ORBIS.planet, x, z).roadW && sl < 1.4 && (!best || sl > best.sl)) best = { x, z, sl, gx, gz, h }; } return best; })()`);
+    console.log('   steepest', JSON.stringify(st));
+    const down = Math.hypot(st.gx, st.gz) || 1, ux = st.gx / down, uz = st.gz / down, yaw = Math.atan2(ux, uz);
+    await hold(7000, () => walk(st.x - ux * 90, st.z - uz * 90, yaw, { pitch: -0.1 })); await shot('13-rock-face-90m');
+    await hold(4000, () => walk(st.x - ux * 22, st.z - uz * 22, yaw, { pitch: -0.05 })); await shot('14-rock-face-22m');
+    await hold(4000, () => walk(st.x - ux * 3, st.z - uz * 3, yaw, { pitch: 0.05, dist: 3 })); await shot('15-rock-at-arms-length');
+  }
+  if (want('probe')) {
+    await load('hour=16');
+    const a = await ev(`(async () => { const S = await import('./js/gen/surface.js'), T = await import('./js/gen/terrain.js'), W = __Rs[0], a = W.pts[Math.floor(W.pts.length * 0.4)]; let n = 0, tear = 0, worst = 0, at = null; for (let i = -300; i <= 300; i++) for (let j = -300; j <= 300; j += 1) { const x = a[0] + i * 3, z = a[1] + j * 3, h = S.surfaceAt(ORBIS.planet, x, z).h, g = Math.abs(S.surfaceAt(ORBIS.planet, x + 1, z).h - h); n++; if (g > 2.5) tear++; if (g > worst) { worst = g; at = [x, z, h]; } } return { n, tear, worst, at }; })()`);
+    console.log('   ground jumps over 1 m:', JSON.stringify(a));
+    const [x, z] = a.at;
+    const walk = (yaw) => ev(`(() => { const O = ORBIS, x = ${x} - Math.sin(${yaw}) * 26, z = ${z} - Math.cos(${yaw}) * 26, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = 0.2; O.cam.dist = 7; return h; })()`);
+    await hold(6000, () => walk(0.7)); await shot('p1-worst-jump');
+    await ev(`(() => { ORBIS.renderer.shadowMap.enabled = false; ORBIS.scene.traverse(o => { if (o.isDirectionalLight) o.castShadow = false; if (o.material) o.material.needsUpdate = true; }); return 1; })()`);
+    await hold(3000, () => walk(0.7)); await shot('p2-no-shadows');
   }
   console.log(errs.length ? '   ERRORS ' + errs.slice(0, 3).join(' | ').slice(0, 600) : '   no errors');
   ws.close();

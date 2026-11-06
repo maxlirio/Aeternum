@@ -9,7 +9,24 @@ import { texture } from './textures.js';
 import { groundTextures } from './materials.js';
 import { prevailing } from '../gen/land.js';
 
-const VIEW = 16000, SPLIT = 1.7;
+const VIEW = 16000, SPLIT = 2.2;
+// One seamless sheet of natural noise (r: soft, g: sharp crests, b: soft and unrelated), read at many sizes and angles so nothing lines up.
+let noiseTex = null, noiseSlopes = null;
+const NOISE_SLOPE = 40;
+function terrainNoise() {
+  if (noiseTex) return noiseTex;
+  const N = 512, data = new Uint8Array(N * N * 4), lat = (cells, seed) => { const g = new Float32Array(cells * cells); let h = seed >>> 0; for (let i = 0; i < g.length; i++) { h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x6b43a9b5 | 0; g[i] = ((h ^ (h >>> 13)) >>> 0) / 4294967296; } return g; };
+  const octave = (cells, seed) => { const g = lat(cells, seed), out = new Float32Array(N * N); for (let y = 0; y < N; y++) { const v = y / N * cells, j = Math.floor(v), fy = v - j, sy = fy * fy * fy * (fy * (fy * 6 - 15) + 10); for (let x = 0; x < N; x++) { const u = x / N * cells, i = Math.floor(u), fx = u - i, sx = fx * fx * fx * (fx * (fx * 6 - 15) + 10), a = g[j % cells * cells + i % cells], b = g[j % cells * cells + (i + 1) % cells], c = g[(j + 1) % cells * cells + i % cells], d = g[(j + 1) % cells * cells + (i + 1) % cells]; out[y * N + x] = a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy; } } return out; };
+  const stack = (seed, ridged) => { const out = new Float32Array(N * N); let amp = 1, tot = 0; for (let o = 0; o < 6; o++) { const q = octave(8 << o, seed + o * 7919); for (let k = 0; k < out.length; k++) out[k] += amp * (ridged ? 1 - Math.abs(2 * q[k] - 1) : q[k]); tot += amp; amp *= 0.55; } let lo = 1e9, hi = -1e9; for (let k = 0; k < out.length; k++) { if (out[k] < lo) lo = out[k]; if (out[k] > hi) hi = out[k]; } for (let k = 0; k < out.length; k++) out[k] = (out[k] - lo) / (hi - lo); return out; };
+  const R = stack(11, false), G = stack(211, true), Bl = stack(417, false);
+  for (let k = 0; k < N * N; k++) { data[k * 4] = R[k] * 255; data[k * 4 + 1] = G[k] * 255; data[k * 4 + 2] = Bl[k] * 255; data[k * 4 + 3] = 255; }
+  const sheet = d => { const T = new THREE.DataTexture(d, N, N); T.wrapS = T.wrapT = THREE.RepeatWrapping; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearMipmapLinearFilter; T.generateMipmaps = true; T.anisotropy = 8; T.needsUpdate = true; return T; };
+  // the slopes of the crested noise, per sheet width: lighting reads these directly, so the land's small shape doesn't depend on the mesh's triangles
+  const slopes = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const k = y * N + x, dx = (G[y * N + (x + 1) % N] - G[y * N + (x + N - 1) % N]) * N / 2, dy = (G[(y + 1) % N * N + x] - G[(y + N - 1) % N * N + x]) * N / 2; slopes[k * 4] = Math.max(0, Math.min(255, 127.5 + dx / NOISE_SLOPE * 127.5)); slopes[k * 4 + 1] = Math.max(0, Math.min(255, 127.5 + dy / NOISE_SLOPE * 127.5)); slopes[k * 4 + 3] = 255; }
+  noiseSlopes = sheet(slopes);
+  return noiseTex = sheet(data);
+}
 
 export const terrainWind = { value: new THREE.Vector2(0, 0) };   // today's wind (main.js)
 // the ground's dents around the player (render/prints.js): a height map, c its centre, s its width in metres
@@ -26,14 +43,21 @@ function terrainMaterial(planet) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.normalScale.set(0.8, 0.8);
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkOn: terrainMarks.on, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uFar: terrainFar, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
+    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkOn: terrainMarks.on, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uFar: terrainFar, tNoise: { value: terrainNoise() }, tSlopes: { value: noiseSlopes }, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
       attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
-      varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
+      uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
+      varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;
+      // a tile without its repeat: which of eight shifted copies you see drifts across the ground, so no two stretches of it line up
+      vec3 anyTile(float layer, vec2 uv, vec2 dx, vec2 dy) {
+        float l = texture2D(tNoise, uv * 0.019).b * 16.0, ia = floor(l), f = l - ia;
+        vec2 oa = sin(vec2(3.0, 7.0) * ia), ob = sin(vec2(3.0, 7.0) * (ia + 1.0));
+        vec3 a = textureGrad(tG, vec3(uv + oa, layer), dx, dy).rgb, b = textureGrad(tG, vec3(uv + ob, layer), dx, dy).rgb;
+        return mix(a, b, smoothstep(0.25, 0.75, f - 0.15 * (a.g + a.r - b.g - b.r)));
+      }`)
       .replace('#include <normal_fragment_maps>', '')
       .replace('#include <normalmap_pars_fragment>', 'uniform vec2 normalScale;')
       .replace('#include <map_fragment>', `
@@ -56,8 +80,11 @@ function terrainMaterial(planet) {
       vec3 bw = pow(abs(wn), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
       vec3 detail = vec3(0.0), nAcc = vec3(0.0);
       float near = clamp(1.0 - vViewPosition.z / 300.0, 0.0, 1.0);
+      // A photo of a metre of rock says nothing about a mountain: it's gone by here, and what the land itself is made of takes over (below).
+      float fade = 1.0 - smoothstep(70.0, 520.0, vViewPosition.z);
       for (int i = 0; i < 16; i++) {
         float w = W[i]; if (w < 0.012) continue;
+        if (fade <= 0.0) { detail += w; continue; }
         float t = uTile[i], fi = float(i);
         if (i < 11) {     // laid from above, a coarser pass breaking up the tiling
           float t2 = t * 9.7;
@@ -65,35 +92,46 @@ function terrainMaterial(planet) {
           if (i == 3) {   // sand: ripples lie square across the prevailing wind
             mat2 Rw = mat2(uPrev.y, uPrev.x, -uPrev.x, uPrev.y); p = Rw * top; px = Rw * dTx; py = Rw * dTy;
           }
-          vec3 a = textureGrad(tG, vec3(p / t, fi), px / t, py / t).rgb, b = textureGrad(tG, vec3(p / t2 + 0.37, fi), px / t2, py / t2).rgb;
+          vec3 a = anyTile(fi, p / t, px / t, py / t), b = textureGrad(tG, vec3(p / t2 + 0.37, fi), px / t2, py / t2).rgb;
           vec3 lay = (a * 0.6 + b * 0.4) / uMean[i], layN = near > 0.0 ? textureGrad(tGN, vec3(p / t, fi), px / t, py / t).xyz : vec3(0.5, 0.5, 1.0);
           if (i == 3) {   // a slip face has just avalanched: smooth, no ripples on it
             float slip = 1.0 - smoothstep(0.85, 0.93, wn.y); lay = mix(lay, vec3(1.0), slip); layN = mix(layN, vec3(0.5, 0.5, 1.0), slip);
           }
           detail += w * lay;
           if (near > 0.0) nAcc += w * layN;
-        } else {          // rock, from three sides at two scales
-          float t2 = t * 3.6;
-          vec3 c = vec3(0.0);
-          float kf = clamp(1.0 - vViewPosition.z / 220.0, 0.12, 1.0), kc = 2.0 - kf;
-          if (bw.x > 0.02) c += bw.x * (kf * textureGrad(tG, vec3(sd / t, fi), dSx / t, dSy / t).rgb + kc * textureGrad(tG, vec3(sd / t2 + 0.3, fi), dSx / t2, dSy / t2).rgb);
-          if (bw.y > 0.02) c += bw.y * (kf * textureGrad(tG, vec3(top / t, fi), dTx / t, dTy / t).rgb + kc * textureGrad(tG, vec3(top / t2 + 0.3, fi), dTx / t2, dTy / t2).rgb);
-          if (bw.z > 0.02) c += bw.z * (kf * textureGrad(tG, vec3(fr / t, fi), dFx / t, dFy / t).rgb + kc * textureGrad(tG, vec3(fr / t2 + 0.3, fi), dFx / t2, dFy / t2).rgb);
-          // (further off, lean on the coarse pass: the fine one starts to show its tile)
-          detail += w * c * 0.5 / uMean[i];
-          if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * textureGrad(tGN, q, qx / t, qy / t).xyz; }
+        } else {          // rock: only its grain comes from the tile, read small; the fractures are drawn below
+          vec3 c = vec3(0.0); t *= 0.2;
+          if (bw.x > 0.02) c += bw.x * anyTile(fi, sd / t, dSx / t, dSy / t);
+          if (bw.y > 0.02) c += bw.y * anyTile(fi, top / t, dTx / t, dTy / t);
+          if (bw.z > 0.02) c += bw.z * anyTile(fi, fr / t, dFx / t, dFy / t);
+          detail += w * mix(vec3(1.0), c / uMean[i], 1.0 - smoothstep(10.0, 110.0, vViewPosition.z));
+          if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * mix(vec3(0.5, 0.5, 1.0), textureGrad(tGN, q, qx * 2.2 / t, qy * 2.2 / t).xyz, 0.4); }   // (kept weak and soft: at a low sun a strong one sparkles)
         }
       }
-      float fade = clamp(1.0 - vViewPosition.z / 1500.0, 0.0, 1.0);
       detail *= 1.0 - 0.4 * clamp(-markD, 0.0, 1.0);        // (little sky reaches the bottom of a hollow)
       diffuseColor.rgb *= 0.55 * mix(vec3(1.0), clamp(detail, 0.0, 3.0), 0.85 * fade);   // real ground is dark: grass and soil reflect 10–25%
-      // sandstone shows its beds from a long way off: pale and red bands that wander a little with the land
-      if (W[12] > 0.01) {
-        float tilt = vWP.x * 0.018 + vWP.z * 0.011, y = vWP.y + 2.5 * sin(tilt) + 5.0 * sin(vWP.x * 0.0031 - vWP.z * 0.0043);
-        float thick = sin(y * 0.083 + 1.7 * sin(y * 0.021)), thin = sin(y * 0.47 + 2.3 * sin(y * 0.11)), fine = sin(y * 1.9 + 3.1 * sin(y * 0.37));
-        float b = 0.5 + 0.34 * smoothstep(-0.35, 0.35, thick) - 0.17 + 0.2 * thin * smoothstep(-0.8, 0.8, thick) + 0.07 * fine;   // thick beds, thin ones among them
-        vec3 bed = mix(vec3(0.62, 0.52, 0.5), vec3(1.42, 1.34, 1.2), clamp(b, 0.0, 1.0));
-        diffuseColor.rgb *= mix(vec3(1.0), bed, W[12]);
+      // What the land is made of, at every size a tile can't reach. Sheared through height so a cliff doesn't smear; turned at each size so nothing lines up.
+      vec2 sh = top + vWP.y * vec2(0.62, -0.41);
+      mat2 R1 = mat2(0.8, 0.6, -0.6, 0.8), R2 = mat2(0.28, 0.96, -0.96, 0.28);
+      float m0 = texture2D(tNoise, R1 * sh / 9700.0).r, m1 = texture2D(tNoise, R2 * sh / 2300.0).b, m2 = texture2D(tNoise, sh / 610.0).r, m3 = texture2D(tNoise, R1 * sh / 157.0).g, m4 = texture2D(tNoise, R2 * sh / 41.0).r;
+      float macro = m0 * 0.3 + m1 * 0.27 + m2 * 0.2 + m3 * 0.14 + m4 * 0.09;
+      float rocky = clamp(rockW + 0.0, 0.0, 1.0), soft = 1.0 - rocky;
+      // weathered patches, iron stains, lichen: a slow drift of warm and cool
+      vec3 tint = mix(vec3(0.66, 0.69, 0.76), vec3(1.34, 1.2, 1.02), smoothstep(0.34, 0.66, macro));
+      diffuseColor.rgb *= mix(vec3(1.0), tint, 0.32 * soft + 0.85 * rocky);
+      if (rocky > 0.01) {
+        // down a rock face, water stains; through it, beds of harder and softer rock that wander with the land. Never ruled lines.
+        float streak = bw.x * texture2D(tNoise, vec2(vWP.z / 95.0, vWP.y / 900.0)).g + bw.z * texture2D(tNoise, vec2(vWP.x / 95.0, vWP.y / 900.0)).g + bw.y * 0.5;
+        float wander = 90.0 * (m1 - 0.5) + 30.0 * (m2 - 0.5);
+        float yb = vWP.y + wander + 0.03 * vWP.x - 0.018 * vWP.z;
+        float bedA = texture2D(tNoise, vec2(0.13, yb / 760.0)).r, bedB = texture2D(tNoise, vec2(0.61, yb / 190.0)).b, bed = smoothstep(0.3, 0.7, bedA * 0.65 + bedB * 0.35);
+        float showBeds = W[11] * 0.34 + W[12] * 1.0 + W[13] * 0.28 + W[14] * 0.14 + W[15] * 0.5;
+        diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.68, 0.62, 0.6), vec3(1.24, 1.2, 1.12), bed), showBeds * (0.55 + 0.45 * m2));
+        diffuseColor.rgb *= mix(1.0, 0.62 + 0.76 * streak, rocky * (1.0 - bw.y));
+        // fractures at two sizes: thin wandering lines, not a net of cells
+        float fr1 = bw.x * texture2D(tNoise, vec2(vWP.z, vWP.y) / 37.0).g + bw.z * texture2D(tNoise, vec2(vWP.x, vWP.y) / 37.0).g + bw.y * texture2D(tNoise, top / 37.0).g;
+        float fr2 = bw.x * texture2D(tNoise, R1 * vec2(vWP.z, vWP.y) / 11.0).g + bw.z * texture2D(tNoise, R1 * vec2(vWP.x, vWP.y) / 11.0).g + bw.y * texture2D(tNoise, R1 * top / 11.0).g;
+        diffuseColor.rgb *= 1.0 - rocky * (0.3 * smoothstep(0.74, 0.92, fr1) + 0.22 * smoothstep(0.76, 0.94, fr2));
       }
       // a forest from a distance is its canopy, not its floor
       if (W[2] > 0.01) diffuseColor.rgb = mix(diffuseColor.rgb, uCanopy * (0.75 + 0.5 * detail.g * 0.5), W[2] * smoothstep(70.0, 230.0, vViewPosition.z));
@@ -123,6 +161,16 @@ function terrainMaterial(planet) {
         vec3 wm = normalize(wn + vec3(markN.x, 0.0, markN.z));     // the dent's own walls, lit by the same sun
         vec3 Tn = normalize(cross(vec3(0.0, 0.0, 1.0), wm) + vec3(1e-4, 0.0, 0.0)), Bn = normalize(cross(wm, Tn));
         normal = normalize(normalMatrix * (Tn * mapN.x + Bn * mapN.y + wm * max(mapN.z, 0.05)));
+      }
+      // The small shape of the land, in the light: buttresses, cracks, ledges. Real heights in metres, seen from three sides as the rock is; each size fades as it goes under a pixel.
+      {
+        float crag = clamp(rockW + (1.0 - wn.y) * 1.1 * (1.0 - W[3]), 0.0, 1.0), lawn = 0.14 * (1.0 - W[3] - W[4] * 0.7), hs = crag + (1.0 - crag) * lawn;
+        #define BUMP(P) (0.9 * (texture2D(tSlopes, R2 * (P) / 23.0).rg - 0.5) / 23.0 * R2 + 4.0 * (texture2D(tSlopes, (P) / 97.0).rg - 0.5) / 97.0 + 15.0 * (texture2D(tSlopes, R1 * (P) / 380.0).rg - 0.5) / 380.0 * R1 + 44.0 * (texture2D(tSlopes, R2 * (P) / 1500.0).rg - 0.5) / 1500.0 * R2)
+        vec3 dn = vec3(0.0);
+        if (bw.y > 0.04) { vec2 g = BUMP(top); dn += bw.y * vec3(g.x, 0.0, g.y); }
+        if (bw.x > 0.04) { vec2 g = BUMP(vec2(vWP.z, vWP.y)); dn += bw.x * vec3(0.0, g.y, g.x); }
+        if (bw.z > 0.04) { vec2 g = BUMP(vec2(vWP.x, vWP.y)); dn += bw.z * vec3(g.x, g.y, 0.0); }
+        normal = normalize(normal - normalMatrix * dn * hs * 2.0 * 40.0);
       }`);
   };
   return m;

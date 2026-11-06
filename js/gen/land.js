@@ -46,6 +46,11 @@ export function groundFeel(planet, x, z) {
   return o;
 }
 export const KINDS = Object.keys(LANDS);
+// How much running water has cut this kind of land. Sand and salt don't hold a gully; a lava flow is young; everything else has been rained on for a long time.
+const RILL = { meadow: 1, forest: 1, rockfield: 0.7, badlands: 0.9, dunes: 0, saltpan: 0, marsh: 0, lava: 0.55, moor: 0.85, karst: 0.6 };
+const ROUGH = { meadow: 0.8, forest: 1, rockfield: 1.5, badlands: 0.9, dunes: 0.08, saltpan: 0.02, marsh: 0.3, lava: 2, moor: 0.8, karst: 0.9 };
+export function landRough(planet, x, z) { let r = 0; for (const { c, w } of landAt(planet, x, z)) r += w * ROUGH[c.kind]; return r; }
+export function landRill(planet, x, z) { let r = 0; for (const { c, w } of landAt(planet, x, z)) r += w * RILL[c.kind]; return r; }
 const BY_CLIMATE = {    // how common each kind is, before the planet's seed has its say
   temperate: { meadow: 3, forest: 4, rockfield: 1, badlands: 1, dunes: 0.5, saltpan: 0.4, marsh: 1.4, lava: 0.5, moor: 1.2, karst: 1 },
   steppe:    { meadow: 2, forest: 2, rockfield: 1.3, badlands: 3, dunes: 2.5, saltpan: 1.2, marsh: 0.4, lava: 0.7, moor: 0.7, karst: 0.7 },
@@ -123,17 +128,17 @@ function around(seed, x, z, size, fn) {
 
 const SHAPES = {
   meadow: (P, x, z, h) => h,
-  forest: (P, x, z, h) => h + 2.5 * P.noise.detail.fbm(x / 130, z / 130, 2),
+  forest: (P, x, z, h) => h,
   // rounded rock heaps standing out of a stony plain
   rockfield: (P, x, z, h, c) => {
     let top = 0;
     around(c.id ^ 0x70f, x, z, 110, (cx, cz, r) => { if (r(3) > 0.5) return; const R = 16 + 26 * r(4), d = Math.hypot(cx - x, cz - z); if (d < R) { const u = 1 - d / R; top = Math.max(top, (5 + 15 * r(5)) * u * u * (3 - 2 * u)); } });
-    return h + top + 5 * P.noise.mount.ridged(x / 150, z / 150, 3) + 1.1 * P.noise.detail.fbm(x / 13, z / 13, 2);
+    return h + top + 5 * P.noise.mount.soft(x / 300, z / 300, 1);
   },
   // the land stepped into shelves and mesas, cut by short cliffs
   badlands: (P, x, z, h, c) => {
     const n = 0.5 + 0.7 * P.noise.hill.fbm(x / 520 + 17, z / 520 - 4, 3), cap = 0.62 + 0.3 * (0.5 + 0.5 * P.noise.warp.fbm(x / 1500, z / 1500, 2)), L = Math.min(Math.max(0, n), cap) * 118, st = 21, k = Math.floor(L / st), f = L / st - k;      // (flat tops: the hard bed on top holds, the softer ones below wear back)
-    return lerp(h, c.h0, 0.85) + (k + smoothstep(0.8, 0.98, f) + 0.08 * f) * st - 14 + 1.6 * P.noise.mount.ridged(x / 46, z / 46, 3);
+    return lerp(h, c.h0, 0.85) + (k + smoothstep(0.8, 0.98, f) + 0.08 * f) * st - 14 ;
   },
   // Dunes as wind builds them. Every crest lies across the one prevailing wind; the windward side is long and
   // gentle and rises to a sharp crest; the lee is a straight slip face at sand's angle of repose (about 32°).
@@ -143,22 +148,22 @@ const SHAPES = {
     const W = 150, bow = 42 * Math.abs(Math.sin(across / 190 + 1.4 * P.noise.warp.fbm(along / 900, across / 900, 2))), u = along + bow + 50 * P.noise.warp.fbm(x / 420, z / 420, 2);
     const sand = 0.5 + 0.5 * P.noise.hill.fbm(across / 300 + 9, along / 900, 2), A = 5 + 13 * sand, cell = Math.floor(u / W), f = u / W - cell;
     const lee = Math.min(0.27, (A / 0.62) / W), wind = 1 - lee, rise = f < wind ? (f / wind) ** 1.35 : (1 - f) / lee, toe = rise < 0.08 ? rise * rise / 0.16 + 0.04 : rise;
-    return lerp(h, c.h0, 0.86) + A * toe + 0.45 * P.noise.hill.fbm(x / 70, z / 70, 2);
+    return lerp(h, c.h0, 0.86) + A * toe ;
   },
   // dead level, low in its own basin
-  saltpan: (P, x, z, h, c) => lerp(h, c.h0 - 3, 0.985) + 0.05 * P.noise.detail.fbm(x / 20, z / 20, 2),
-  marsh: (P, x, z, h, c) => lerp(h, c.h0 - 2, 0.96) + 0.5 * P.noise.detail.fbm(x / 22, z / 22, 2),
+  saltpan: (P, x, z, h, c) => lerp(h, c.h0 - 3, 0.985),
+  marsh: (P, x, z, h, c) => lerp(h, c.h0 - 2, 0.96),
   // blocky flows and cinder cones with craters
   lava: (P, x, z, h, c) => {
     let cone = 0;
     around(c.id ^ 0x1a7a, x, z, 800, (cx, cz, r) => { if (r(3) > 0.55) return; const R = 170 + 200 * r(4), d = Math.hypot(cx - x, cz - z) / R; if (d < 1) { const H = 45 + 85 * r(5); cone = Math.max(cone, d > 0.2 ? H * (1 - d) ** 1.25 : H * 0.8 ** 1.25 - H * 0.22 * (1 - d / 0.2)); } });
-    return lerp(h, c.h0, 0.5) + cone + 6 * P.noise.mount.ridged(x / 75, z / 75, 3) + 1.6 * P.noise.detail.ridged(x / 12, z / 12, 2);
+    return lerp(h, c.h0, 0.5) + cone + 6 * P.noise.mount.soft(x / 180, z / 180, 1);
   },
-  moor: (P, x, z, h) => h + 1.8 * P.noise.detail.fbm(x / 30, z / 30, 3),
+  moor: (P, x, z, h) => h,
   // steep-sided limestone towers out of green flats
   karst: (P, x, z, h, c) => {
     let top = 0;
-    around(c.id ^ 0x4a51, x, z, 210, (cx, cz, r) => { if (r(3) > 0.62) return; const R = 34 + 56 * r(4), wob = 1 + 0.22 * P.noise.detail.fbm(x / 28 + r(6) * 40, z / 28, 2), d = Math.hypot(cx - x, cz - z) * wob; if (d < R) { const u = smoothstep(R, R * 0.5, d); top = Math.max(top, (28 + 62 * r(5)) * u * (0.92 + 0.08 * P.noise.detail.ridged(x / 18, z / 18, 2))); } });
+    around(c.id ^ 0x4a51, x, z, 210, (cx, cz, r) => { if (r(3) > 0.62) return; const R = 34 + 56 * r(4), wob = 1 + 0.22 * P.noise.detail.fbm(x / 28 + r(6) * 40, z / 28, 2), d = Math.hypot(cx - x, cz - z) * wob; if (d < R) { const u = smoothstep(R, R * 0.5, d); top = Math.max(top, (28 + 62 * r(5)) * u * (0.92 + 0.08 * P.noise.detail.soft(x / 18, z / 18, 2))); } });
     return lerp(h, c.h0, 0.8) + top;
   },
 };

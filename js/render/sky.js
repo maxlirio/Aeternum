@@ -84,7 +84,7 @@ export class SkySystem {
     const fx = Math.round(focus.x / snap) * snap, fz = Math.round(focus.z / snap) * snap;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
-    this.ambient.intensity = 0.05 + 0.55 * (1 - day) + 0.35 * day * THREE.MathUtils.smoothstep(cover, 0.4, 0.95);
+    this.ambient.intensity = 0.05 + 0.55 * (1 - day) + day * (0.2 + 0.25 * THREE.MathUtils.smoothstep(cover, 0.4, 0.95));   // (the open sky lights whatever the sun doesn't reach: shade is never black by day)
     const space = THREE.MathUtils.smoothstep(alt, 18000, 70000);
     this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), THREE.MathUtils.smoothstep(alt, 32000, 80000));
     this.sky.material.uniforms.uFade.value = 1 - space;

@@ -1706,6 +1706,7 @@ def dress_generated(p, look, xc, cy, hh, hw, hz0, hz1, noseLen, top_y, r):
 SHIPCAT = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'catalog.json')))
 FIGHTERS = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'fighters.json')))
 SHIPCAT.update(FIGHTERS)
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ship_kit.py')).read())
 
 def jet(p, L_, D_, H_, r, model):
     """A fighter: a slim fuselage with a bubble canopy over the cockpit (exactly where the
@@ -2231,7 +2232,7 @@ def variants():
         ('patrol', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'patrol'), 7, 13, 3.9), ('patrol_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'patrol'), 7, 13, 3.9),
         ('yacht', lambda p, L, D, H, r: styled_ship(p, L, D, H, r, 'yacht'), 9, 27, 5.0), ('yacht_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'yacht'), 9, 27, 5.0),
         *[x for k, d in FIGHTERS.items() for x in ((k, (lambda kk: lambda p, L, D, H, r: jet(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: ladder(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
-        *[x for k, d in SHIPCAT.items() if k not in FIGHTERS for x in ((k, (lambda kk: lambda p, L, D, H, r: styled_ship(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
+        *[x for k, d in SHIPCAT.items() if k not in FIGHTERS for x in ((k, (lambda kk: lambda p, L, D, H, r: designed_ship(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']), (k + '_ramp', (lambda kk: lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, kk))(k), d['W'], d['D'], d['H']))],
         ('freighter', freighter, 16, 34, 8.4), ('freighter_ramp', lambda p, L, D, H, r: shuttle_ramp(p, L, D, H, r, 'freighter'), 16, 34, 8.4),
     ]
     return [(f'{k}_{L:g}x{D:g}x{H:g}', fn, L, D, H, k) for k, fn, L, D, H in V]

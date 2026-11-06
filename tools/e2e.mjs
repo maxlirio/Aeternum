@@ -538,7 +538,7 @@ try {
   const cw = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, out = {}, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/surface.js'), OP = await import('./js/gen/outposts.js'), key = (k, on) => dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code: k })), tap = k => { key(k, true); key(k, false); };
     P.hp = 100; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0; if (O.getRide2?.()) tap('KeyE');
-    let S0 = null, bd = 1e12; for (let i = -22; i <= 22; i++) for (let j = -22; j <= 22; j++) for (const S of OP.sitesInTile(O.planet, i, j)) if (S.kind === 'village') { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { bd = d; S0 = S; } }
+    let S0 = null, bd = 1e12; for (let i = -22; i <= 22; i++) for (let j = -22; j <= 22; j++) for (const S of OP.sitesInTile(O.planet, i, j)) if (S.kind === 'village' && S.items.some(q => /^gb_cottage_/.test(q.k))) { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { bd = d; S0 = S; } }
     if (!S0) return { none: 1 };
     const it = S0.items.find(q => /^gb_cottage_/.test(q.k)), c = Math.cos(it.rot), s = Math.sin(it.rot), at = (u, v) => [it.x + u * c + v * s, it.z - u * s + v * c], f = it.box[1], lead = (it.stoop ? it.stoop.n * it.stoop.run : 0) + 1.5;
     const [x0, z0] = at(0, -f - 9), y0 = T.surfaceAt(O.planet, x0, z0).h + 0.3; O.ctrl.pos = [x0, y0, z0]; O.ctrl.vel = [0, 0, 0];

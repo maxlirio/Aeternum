@@ -2,7 +2,7 @@
 // with a natural falloff, and out-of-town roads cut/filled to a grade-limited profile).
 // Everything that needs "the ground" — terrain meshes, collision, building pads —
 // uses this one function, so they can never disagree.
-import { rawHeight } from './terrain.js';
+import { rawHeight, weathering } from './terrain.js';
 import { settlementNear } from './settlement.js';
 import { outRoutes, nearRoute } from './highways.js';
 import { linksAt } from './network.js';
@@ -19,8 +19,9 @@ export function plateauWeight(s, u, v) {
 }
 
 // The ground with everything but the graded sites. (What chooses those sites has to read this: it can't read itself.)
-export function bareSurfaceAt(planet, x, z, far = false) {
-  const raw0 = rawHeight(planet, x, z), K = carve(planet, x, z, raw0), raw = K.h, wet = K.wet;
+// step: how far apart the caller's samples are, so a coarse tile doesn't sample gullies it can't hold (it would alias into teeth).
+export function bareSurfaceAt(planet, x, z, far = false, step = 0) {
+  const raw0 = rawHeight(planet, x, z), cut = weathering(planet, x, z, raw0, step), K = carve(planet, x, z, raw0), wet = K.wet, near = K.river ? smoothstep(K.river.hw + 8, K.river.hw + 130, K.river.d) : 1, raw = K.h + cut * near;
   const c = getCity(planet), cw = cityWeight(c, x, z);
   if (cw > 0) return { h: lerp(raw, c.h, cw), town: cw, road: 0, city: cw };     // the megacity stands on one graded level
   const s = settlementNear(planet, x, z), links = far ? NO_LINKS : linksAt(planet, x, z);     // (a distant tile's samples are further apart than a road is wide)
@@ -33,7 +34,7 @@ export function bareSurfaceAt(planet, x, z, far = false) {
   for (const r of s ? (links.length ? outRoutes(planet, s).concat(links) : outRoutes(planet, s)) : links) {
     const q = nearRoute(r, x, z); if (!q || q.d > r.w / 2 + 16) continue;
     const hw = r.w / 2, endFade = r.link || r.joined ? 1 : 1 - smoothstep(r.pts.length - 12, r.pts.length - 2, q.i + q.f);   // the cut eases out at the far end
-    let w = (1 - smoothstep(hw + 1, hw + 16, q.d)) * endFade; if (w <= 0) continue;
+    let w = (1 - smoothstep(hw + 3, hw + 18, q.d)) * endFade; if (w <= 0) continue;
     // on a bridge the ground stays where the river left it: the road's up on the deck
     if (r.bridges?.length) { const qi = q.i + q.f; let gap = 0; for (const B of r.bridges) if (qi > B.i0 - 1 && qi < B.i1 + 1) { gap = Math.max(gap, Math.min(1, Math.min(qi - (B.i0 - 1), (B.i1 + 1) - qi))); } if (gap > 0) { w *= 1 - gap; deck = 1; if (gap > 0.6) continue; } }
     const near = 1 / (1e-3 + Math.max(0, q.d - hw) ** 4);
@@ -46,8 +47,8 @@ export function bareSurfaceAt(planet, x, z, far = false) {
 
 // Returns { h, town } — town ∈ [0,1] is how much the ground is graded/compacted. An airfield or a
 // factory yard is levelled, easing back into the land around it; a road keeps its own grade through it.
-export function surfaceAt(planet, x, z, far = false) {
-  const b = bareSurfaceAt(planet, x, z, far), pad = padAt(planet, x, z);
+export function surfaceAt(planet, x, z, far = false, step = 0) {
+  const b = bareSurfaceAt(planet, x, z, far, step), pad = padAt(planet, x, z);
   if (pad) b.h = lerp(b.h, pad.h, pad.w * (1 - (b.roadW || 0)));
   return b;
 }

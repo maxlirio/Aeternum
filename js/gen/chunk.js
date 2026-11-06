@@ -12,10 +12,10 @@ import { geoAt } from './globe.js';
 const WRAP = 2 ** 17;
 export function chunkData(planet, lod, i, j) {
   const size = CHUNK * 2 ** lod, step = size / CHUNK_RES, n = CHUNK_RES + 1, x0 = i * size, z0 = j * size;
-  const m = n + 2;                                    // one-sample border for normals
+  const B = 3, m = n + 2 * B;                         // a border: normals need one sample past the edge, how hollow the ground lies needs three
   const H = new Float64Array(m * m), TOWN = new Float32Array(m * m), ROAD = new Float32Array(m * m), WET = new Float32Array(m * m);
   for (let b = 0; b < m; b++) for (let a = 0; a < m; a++) {
-    const s = surfaceAt(planet, x0 + (a - 1) * step, z0 + (b - 1) * step, lod >= 5);
+    const s = surfaceAt(planet, x0 + (a - B) * step, z0 + (b - B) * step, lod >= 5, step);
     H[b * m + a] = s.h; TOWN[b * m + a] = s.town; ROAD[b * m + a] = s.road; WET[b * m + a] = s.wet || 0;
   }
   const skirt = 4 * CHUNK_RES;
@@ -24,7 +24,7 @@ export function chunkData(planet, lod, i, j) {
   const lay = (k, t) => { if (t <= 0) return; if (t > 1) t = 1; for (let q = 0; q < 16; q++) W[q] *= 1 - t; W[k] += t; };
   const far0 = Math.abs(x0) > 300000 || Math.abs(z0) > 300000, cold = far0 ? smoothstep(0.85, 1.3, Math.abs(geoAt(planet, x0, z0).lat)) : 0, C = cold ? { ...planet.climate, treeline: planet.climate.treeline * (1 - cold) - 200 * cold } : planet.climate, sea = planet.seaLevel, worked = lod <= 3 ? workedNear(planet, x0 + size / 2, z0 + size / 2, size * 0.75) : [];   // (ground people have worn away shows in the land's own colour, from any distance)
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
-    const k = (b + 1) * m + (a + 1), v = b * n + a;
+    const k = (b + B) * m + (a + B), v = b * n + a;
     const h = H[k];
     let nx = H[k - 1] - H[k + 1], nz = H[k - m] - H[k + m], ny = 2 * step;
     const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
@@ -34,8 +34,13 @@ export function chunkData(planet, lod, i, j) {
     // the kind of land says what's on the ground (gen/land.js); the sea, height, and people lay their own over it
     const wx = x0 + a * step, wz = z0 + b * step;
     const moist = moisture(planet, wx, wz);
-    groundAt(planet, wx, wz, ny, moist, W, GC);
+    // (what shows on a slope goes by the lie of the land over a few samples, not one facet: a single sample's slope paints stairsteps)
+    const wnx = H[k - 2] - H[k + 2], wnz = H[k - 2 * m] - H[k + 2 * m], nyWide = 4 * step / Math.sqrt(wnx * wnx + wnz * wnz + 16 * step * step);
+    const rocky = groundAt(planet, wx, wz, Math.min(ny, nyWide) * 0.35 + nyWide * 0.65, moist, W, GC);
     let c = GC;
+    // How hollow the ground lies. Gully floors see little sky and hold what falls into them; crests are bare and catch the light. This is most of what makes land read as land.
+    const hollowN = ((H[k - 1] + H[k + 1] + H[k - m] + H[k + m]) / 4 - h) / step, hollowW = ((H[k - 3] + H[k + 3] + H[k - 3 * m] + H[k + 3 * m]) / 4 - h) / (3 * step);
+    const hollow = Math.max(-1, Math.min(1, hollowN * 1.3 + hollowW * 5));
     const shore = 1 - smoothstep(sea + 1.5, sea + 6, h);
     c = mix3(c, C.sand, shore); lay(S.sand, shore);
     // rock shows high up too, banded by strata
@@ -47,6 +52,11 @@ export function chunkData(planet, lod, i, j) {
     c = mix3(c, [0.40, 0.37, 0.32], TOWN[k] * 0.85); lay(S.dirt, TOWN[k] * 0.85);
     c = mix3(c, [0.42, 0.33, 0.25], WET[k]); lay(S.dirt, WET[k]);             // river mud
     c = mix3(c, [0.30, 0.29, 0.27], ROAD[k]); lay(S.gravel, ROAD[k]);
+    { const wild = (1 - TOWN[k]) * (1 - ROAD[k]) * (1 - WET[k]) * smoothstep(sea + 1, sea + 8, h);
+      if (wild > 0) {
+        const scree = wild * rocky * smoothstep(0.02, 0.22, hollowW) * smoothstep(0.98, 0.65, nyWide) * (1 - snow) * 0.75; if (scree > 0) lay(S.gravel, scree);    // what's come down the gully lies in it
+        const sh = 1 + wild * (hollow > 0 ? -0.36 * hollow : -0.22 * hollow); c = [c[0] * sh, c[1] * sh, c[2] * sh];
+      } }
     if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) { c = [0.65, 0.39, 0.27]; lay(S.dirt, 1); } else if (w === 1) { c = [0.2, 0.13, 0.09]; lay(S.dirt, 1); } }
     for (let q = 0; q < 16; q++) ground[v * 16 + q] = W[q] * 255 + 0.5;
     col[v * 3] = c[0]; col[v * 3 + 1] = c[1]; col[v * 3 + 2] = c[2];

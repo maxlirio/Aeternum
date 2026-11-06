@@ -37,6 +37,12 @@ export class Simplex2 {
     for (let o = 0; o < oct; o++) { s += a * this.n(x * f + o * 17.31, y * f - o * 9.73); norm += a; a *= gain; f *= lac; }
     return s / norm;
   }
+  // Rounded knolls and hollows: ridged without the crease, for small-scale roughness. (A crease in simplex noise is a straight line: at small scale it shows as triangular facets.)
+  soft(x, y, oct, lac = 2.03, gain = 0.5) {
+    let a = 0.5, f = 1, s = 0, norm = 0;
+    for (let o = 0; o < oct; o++) { const n = this.n(x * f + o * 31.7, y * f + o * 11.1); s += a * (1 - Math.sqrt(n * n + 0.09)); norm += a; a *= gain; f *= lac; }
+    return s / norm + 0.3;
+  }
   // Ridged multifractal in [0,1]: sharp crests, used for mountain chains.
   ridged(x, y, oct, lac = 2.03, gain = 0.5) {
     let a = 0.5, f = 1, s = 0, norm = 0, w = 1;
