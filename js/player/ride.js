@@ -99,7 +99,10 @@ export class Ride {
     // the damper works against the ground's own rise and fall, as a real one does: that's what lets it follow a hillside at speed. Bottoming out stiffens progressively.
     const step = g - (this.gPrev ?? g), dg = Math.abs(step) > 0.12 ? 0 : Math.max(-7, Math.min(7, step / dt)); this.gPrev = g;      // (a kerb is a step, not a slope)
     this.gv = (this.gv ?? 0) + (dg - (this.gv ?? 0)) * Math.min(1, dt * 14);
-    this.vy += (-9.81 + (press > 0 ? SPRING * press + 500 * press * press - DAMP * (this.vy - this.gv) : 0)) * dt;
+    const pr = Math.min(press, 0.7);      // (a spring has only so much travel: past that it's bottomed out and the chassis takes it, it doesn't fire you into the sky)
+    this.vy += (-9.81 + (press > 0 ? SPRING * pr + 500 * pr * pr - DAMP * (this.vy - this.gv) : 0)) * dt; if (this.vy > 22) this.vy = 22;
+    // a bank too steep to drive up stops you: the wheels can't climb it and the nose digs in
+    { const rise = gA - gC, dir = Math.sign(this.speed) || 1; if (dir * rise > reach * 1.25) { const k = Math.exp(-dt * 5 * Math.min(3, dir * rise / reach - 0.25)); this.speed *= k; } }
     let ny = y + this.vy * dt;
     if (wasAir && !this.air || ny < hard) { const sink = -this.vy; if (sink > 8) { this.impact = Math.max(this.impact, sink); const c = this.crash; if (!c || sink > c.dv) this.crash = { dv: sink, at: [0, 0, 0], ground: true, nx: 0, nz: 0 }; this.stun = Math.max(this.stun, Math.min(2.6, sink * 0.07)); } }
     if (ny < hard) { ny = Math.min(hard, y + Math.max(this.vy, 18) * dt); this.vy = Math.max(this.vy, 0); }     // (over a sharp ridge it rises fast, but it rises: it doesn't teleport)

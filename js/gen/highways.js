@@ -121,6 +121,8 @@ function route(planet, s, o, idx, earlier) {
   // and one that comes up beside it too far above or below to ever meet it stops short: nobody builds that
   for (let i = leadN + 1, cut = false; i < pts.length && !cut; i++) for (const e of earlier) { const q = nearRoute(e, pts[i][0], pts[i][1]); if (q && q.d < e.w / 2 + 18 && Math.abs(q.h - s.h) > dh * (i - leadN)) { const end = Math.max(leadN + 2, i - 28); pts.length = end; prof.length = end; cut = true; break; } }
   const pin = new Map(); for (const e of earlier) for (let i = leadN + 1; i < pts.length; i++) { const q = nearRoute(e, pts[i][0], pts[i][1]); if (q && q.d < e.w / 2 + 18 && Math.abs(q.h - s.h) <= dh * (i - leadN)) pin.set(i, q.h); }
+  // (a meeting the road can't reach from the one before at its grade: it would have to climb a wall. It stops short, as above.)
+  { let ai = leadN, ah = s.h; for (const i of [...pin.keys()].sort((a, b) => a - b)) { const v = pin.get(i); if (Math.abs(v - ah) > dh * (i - ai)) { const end = Math.max(leadN + 2, ai + 1, i - 28); pts.length = end; prof.length = end; for (const k of [...pin.keys()]) if (k >= end) pin.delete(k); break; } ai = i; ah = v; } }
   if (pin.size) { for (let pass = 0; pass < 6; pass++) {
     for (const [i, v] of pin) prof[i] = v;
     for (let i = leadN + 1; i < prof.length; i++) if (!pin.has(i)) prof[i] = Math.max(prof[i - 1] - dh, Math.min(prof[i - 1] + dh, prof[i]));

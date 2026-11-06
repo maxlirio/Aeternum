@@ -5,6 +5,7 @@
 // Pure; reads only (planet, x, z). Height, ground paint, plants and animals all read this one thing.
 import { hashInts, hashStr } from '../core/hash.js';
 import { smoothstep, lerp } from '../core/noise.js';
+import { globeOf, toSphere, axisOf } from './globe.js';
 
 export const CELL = 1500, BLEND = 300;
 export const SOFT = ['grass', 'dirt', 'litter', 'sand', 'cracked', 'moss', 'peat', 'ash', 'heath', 'gravel', 'snow'];   // what lies on flat ground
@@ -71,7 +72,8 @@ function planetLand(planet) {
   const seed = hashStr(planet.universeSeed[0] ^ 0x1a2d, planet.address?.key || 'p'), h = k => hashInts(seed, [k]) / 4294967296, base = BY_CLIMATE[planet.climate.id] || BY_CLIMATE.temperate;
   const pick = (a, k) => a[Math.floor(h(k) * a.length) % a.length];
   const weights = KINDS.map((k, i) => (base[k] || 1) * (0.25 + 1.5 * h(i + 1)) * (k !== 'meadow' && k !== 'forest' && h(i + 20) < 0.14 ? 0 : 1)), total = weights.reduce((a, b) => a + b, 0);
-  L = { seed, weights, total, cells: new Map(), tones: { sandstone: pick(TONES.sandstone, 40), sand: pick(TONES.sand, 41), heath: pick(TONES.heath, 42), moss: pick(TONES.moss, 43), litter: pick(TONES.litter, 44) } };
+  // this world's own climate: how hot and wet it runs overall, within what people can live in
+  L = { seed, weights, total, warm: 0.42 + 0.3 * h(50), damp: 0.36 + 0.3 * h(51) + planet.climate.moistBias * 0.5, cells: new Map(), tones: { sandstone: pick(TONES.sandstone, 40), sand: pick(TONES.sand, 41), heath: pick(TONES.heath, 42), moss: pick(TONES.moss, 43), litter: pick(TONES.litter, 44) } };
   memo.set(planet, L);
   return L;
 }
@@ -79,12 +81,42 @@ export const landTones = planet => planetLand(planet).tones;
 // The way the wind has blown here for ten thousand years (not today's weather): every dune on the planet lies to it.
 export const prevailing = planet => (planetLand(planet).seed % 6283) / 1000;
 
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+// The climate at a place, from what actually sets one. Heat: the sun's height at this latitude, and the cold of altitude. Rain: the bands every
+// spinning planet's air sorts itself into (wet at the equator, dry around 30°, wet again near 60°, dry at the poles), wandering with the weather's big swirls.
+export function climateAt(planet, L, x, z, h = 0) {
+  const G = globeOf(planet), A = axisOf(planet), n = toSphere(G, x, z), sn = n[0] * A[0] + n[1] * A[1] + n[2] * A[2], N = planet.noise;
+  const c2 = 1 - 2 * sn * sn, c6 = c2 * (4 * c2 * c2 - 3), cosLat = Math.sqrt(Math.max(0, 1 - sn * sn));   // (cos 2φ and cos 6φ, without the transcendental functions)
+  const heat = clamp01(L.warm + 0.72 * (cosLat - 0.72) + 0.12 * N.warp.fbm(x / 61000 + 7.7, z / 61000 - 3.1, 2) - Math.max(0, h) / 2600);
+  const rain = clamp01(L.damp + 0.21 * c6 + 0.42 * N.moist.fbm(x / 34000 + 21.3, z / 34000 - 8.8, 3) + 0.2 * N.warp.fbm(x / 9000 - 31.1, z / 9000 + 12.7, 2));
+  return { heat, rain };
+}
+const peak = (v, a, b, c, d) => smoothstep(a, b, v) * (1 - smoothstep(c, d, v));
+// What grows and what lies on the surface follows climate and the rock beneath: whole provinces of one kind of country, mixing at their edges.
+function kindOf(planet, L, c, x, z, h0, r) {
+  const N = planet.noise, { heat, rain } = c, volc = N.mount.fbm(x / 23000 + 41.7, z / 23000 - 17.3, 2), lime = N.hill.fbm(x / 15000 - 13.9, z / 15000 + 29.1, 2), basin = N.hill.fbm(x / 4100 + 3.3, z / 4100 + 61.7, 2), low = 1 - smoothstep(60, 240, h0), up = smoothstep(280, 620, h0);
+  const fit = {
+    meadow: peak(rain, 0.24, 0.42, 0.62, 0.8) * peak(heat, 0.16, 0.3, 0.86, 1.01) + 0.03,
+    forest: smoothstep(0.46, 0.66, rain) * peak(heat, 0.14, 0.28, 2, 3) * (1 - 0.6 * up),
+    rockfield: 0.22 * up + 0.5 * (1 - smoothstep(0.14, 0.36, heat)) + 0.1,
+    badlands: peak(rain, 0.1, 0.2, 0.36, 0.5) * smoothstep(0.3, 0.5, heat) * 1.15,
+    dunes: (1 - smoothstep(0.1, 0.27, rain)) * smoothstep(0.42, 0.6, heat) * smoothstep(-0.1, 0.25, -basin) * (1 - smoothstep(120, 300, h0)) * 1.25,
+    saltpan: (1 - smoothstep(0.1, 0.3, rain)) * smoothstep(0.34, 0.56, basin) * low * 1.7,
+    marsh: smoothstep(0.62, 0.8, rain) * low * smoothstep(0.05, 0.35, basin) * 1.6,
+    lava: smoothstep(0.42, 0.62, volc) * 1.7,
+    moor: peak(rain, 0.38, 0.54, 2, 3) * (1 - smoothstep(0.32, 0.52, heat)) * 1.2,
+    karst: smoothstep(0.34, 0.56, lime) * smoothstep(0.34, 0.5, rain) * 1.4,
+  };
+  let best = 'meadow', top = -1;
+  for (let n = 0; n < KINDS.length; n++) { const k = KINDS[n], q = (L.weights[n] > 0 ? fit[k] : 0) * (0.72 + 0.56 * r(10 + n)); if (q > top) { top = q; best = k; } }
+  return best;
+}
+
 function cellOf(planet, L, i, j, base) {
   const k = i * 65536 + j; let c = L.cells.get(k); if (c) return c;
   const r = n => hashInts(L.seed, [i, j, n]) / 4294967296;
-  const x = (i + 0.1 + 0.8 * r(1)) * CELL, z = (j + 0.1 + 0.8 * r(2)) * CELL;
-  let q = r(3) * L.total, kind = 'meadow'; for (let n = 0; n < KINDS.length; n++) { q -= L.weights[n]; if (q < 0) { kind = KINDS[n]; break; } }
-  c = { i, j, x, z, kind, T: LANDS[kind], id: hashInts(L.seed, [i, j, 77]), h0: base ? Math.max(9, base(planet, x, z)) : 30 };
+  const x = (i + 0.1 + 0.8 * r(1)) * CELL, z = (j + 0.1 + 0.8 * r(2)) * CELL, h0 = base ? Math.max(9, base(planet, x, z)) : 30, cl = climateAt(planet, L, x, z, h0), kind = kindOf(planet, L, cl, x, z, h0, r);
+  c = { i, j, x, z, kind, T: LANDS[kind], id: hashInts(L.seed, [i, j, 77]), h0, heat: cl.heat, rain: cl.rain };
   if (L.cells.size > 4000) L.cells.delete(L.cells.keys().next().value);
   L.cells.set(k, c);
   return c;
@@ -181,10 +213,10 @@ export function shapeLand(planet, x, z, h) {
 // ny: 1 = flat. Worked or graded ground, shores and snow are the caller's to lay over this.
 export function groundAt(planet, x, z, ny, moist, w, col, C = planet.climate) {
   w.fill(0);
-  const tones = landTones(planet), N = planet.noise, patch = 0.5 + 0.5 * N.detail.fbm(x / 21, z / 21, 3), gm = smoothstep(0.25, 0.75, moist), T = { grass: [C.dry[0] + (C.grass[0] - C.dry[0]) * gm, C.dry[1] + (C.grass[1] - C.dry[1]) * gm, C.dry[2] + (C.grass[2] - C.dry[2]) * gm], dirt: C.dry, litter: tones.litter, sand: tones.sand, cracked: [0.86, 0.82, 0.74], moss: tones.moss, peat: [0.2, 0.17, 0.06], ash: [0.2, 0.19, 0.18], heath: tones.heath, gravel: [0.3, 0.29, 0.27], snow: [C.snow, C.snow, C.snow * 1.02] };
+  const tones = landTones(planet), N = planet.noise,patch = 0.5 + 0.5 * N.detail.fbm(x / 21, z / 21, 3), lands = landAt(planet, x, z); let rain = 0, heat = 0; for (const { c, w: lw } of lands) { rain += lw * c.rain; heat += lw * c.heat; }
+  const gm = smoothstep(0.22, 0.72, moist * 0.35 + rain * 0.65), T = { grass: [(C.dry[0] + (C.grass[0] - C.dry[0]) * gm) * (0.82 + 0.36 * heat), (C.dry[1] + (C.grass[1] - C.dry[1]) * gm) * (0.92 + 0.14 * heat), (C.dry[2] + (C.grass[2] - C.dry[2]) * gm) * (1.22 - 0.42 * heat)], dirt: C.dry, litter: tones.litter, sand: tones.sand, cracked: [0.86, 0.82, 0.74], moss: tones.moss, peat: [0.2, 0.17, 0.06], ash: [0.2, 0.19, 0.18], heath: tones.heath, gravel: [0.3, 0.29, 0.27], snow: [C.snow, C.snow, C.snow * 1.02] };
   const R = { plain: C.rock, sandstone: tones.sandstone, basalt: [0.13, 0.12, 0.12], granite: [0.29, 0.28, 0.27], pale: [0.6, 0.57, 0.5] };
   let rockTot = 0, r0 = 0, g0 = 0, b0 = 0, s0 = 0, g1 = 0, b1 = 0;
-  const lands = landAt(planet, x, z);
   for (const { c, w: lw } of lands) {
     const K = c.T, rocky = Math.max(smoothstep(K.steep, K.steep - 0.2, ny), smoothstep(1 - K.bare, 1 - K.bare * 0.6, patch) * (K.bare > 0 ? 1 : 0));
     rockTot += lw * rocky;

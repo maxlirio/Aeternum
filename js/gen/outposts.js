@@ -280,9 +280,9 @@ export function sitesInTile(planet, ti, tj) {
         let y = Q.h, gb = k.startsWith('gb_');
         if (gb) {                                                   // you can go in: the floor clears all the ground under it, so none comes up through it, and steps make up the drop
           const c = Math.cos(rot), s = Math.sin(rot); let lo = Infinity, hi = -Infinity;
-          for (let a = -1; a <= 1; a += 0.5) for (let b = -1; b <= 1; b += 0.5) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), Gq = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c), g = Gq.h; if (Gq.wet > 0.05) return; if (g < lo) lo = g; if (g > hi) hi = g; }
+          for (let a = -1; a <= 1; a += 0.25) for (let b = -1; b <= 1; b += 0.25) { const u = a * (foot[0] + 0.4), v = b * (foot[1] + 0.4), Gq = surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c), g = Gq.h; if (Gq.wet > 0.05) return; if (g < lo) lo = g; if (g > hi) hi = g; }
           if (hi - lo > (foot[0] > 9 ? 4.2 : 3.1) || lo < planet.seaLevel + 0.3) return;
-          y = hi + 0.12;
+          y = hi + 0.55;      // (a little proud of the highest point sampled: rough ground rises between samples, and it mustn't come through the floor)
         } else if (foot) {                                                 // level on its footing; too steep to build on, and they don't
           const c = Math.cos(rot), s = Math.sin(rot), hs = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => { const u = a * foot[0], v = b * foot[1]; return surfaceAt(planet, px + u * c + v * s, pz - u * s + v * c).h; });
           const lo = Math.min(...hs), hi = Math.max(...hs); if (hi - lo > Math.max(3, foot[0] * 0.45) || lo < planet.seaLevel + 0.3) return;

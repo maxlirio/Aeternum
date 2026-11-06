@@ -37,7 +37,7 @@ export function bareSurfaceAt(planet, x, z, far = false, step = 0) {
     let w = (1 - smoothstep(hw + 3, hw + 18, q.d)) * endFade; if (w <= 0) continue;
     // on a bridge the ground stays where the river left it: the road's up on the deck
     if (r.bridges?.length) { const qi = q.i + q.f; let gap = 0; for (const B of r.bridges) if (qi > B.i0 - 1 && qi < B.i1 + 1) { gap = Math.max(gap, Math.min(1, Math.min(qi - (B.i0 - 1), (B.i1 + 1) - qi))); } if (gap > 0) { w *= 1 - gap; deck = 1; if (gap > 0.6) continue; } }
-    const near = 1 / (1e-3 + Math.max(0, q.d - hw) ** 4);
+    const near = 1 / (1e-3 + q.d ** 4);      // (each road rules its own centreline: two passing at different heights mustn't average into a ramp)
     sumW += near; sumH += near * q.h; top = Math.max(top, w);
     road = Math.max(road, (1 - smoothstep(hw, hw + 1.5, q.d)) * (endFade > 0.5 ? 1 : 0));
   }

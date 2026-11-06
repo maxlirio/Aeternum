@@ -91,8 +91,8 @@ export class AirWar {
     } else want = norm([f.fwd[0], 0.05, f.fwd[2]]);
     // the ground is the first enemy: pull up when low or diving at it
     // the ground is the first enemy: look ahead along the flight path; pull up hard if it's coming
-    const floor = 220, look = [2, 4, 7].map(k => { const q = add(f.pos, f.vel, k); return q[1] - Math.max(this.world.groundAt(q[0], q[2], q[1]).h, this.planet.seaLevel); });
-    const danger = alt < floor || alt + vs * 7 < floor * 0.7 || Math.min(...look) < 120;
+    const floor = 220, look = [1, 2, 4, 7, 10].map(k => { const q = add(f.pos, f.vel, k); return q[1] - Math.max(this.world.groundAt(q[0], q[2], q[1]).h, this.planet.seaLevel); });
+    const danger = alt < floor || alt + vs * 7 < floor * 0.7 || Math.min(...look) < 170;
     if (danger) want = norm([f.fwd[0] * 0.4, 1.5, f.fwd[2] * 0.4]);
     // towers: something solid along the flight path → turn for whichever side is clear, and climb
     const solidAhead = k => { const q = add(f.pos, f.vel, k); return this.world.solidAt(q[0], q[1], q[2], 8); };

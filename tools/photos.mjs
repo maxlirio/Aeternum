@@ -33,7 +33,7 @@ try {
   await load('hour=10&fly');
   const roads = await ev(`__Rs.map(r => ({ km: r.length / 1000, bridges: r.bridges.length, n: r.pts.length }))`); console.log('   roads from home', JSON.stringify(roads));
   // keeps the world moving slowly while a picture settles
-  const hold = async (ms, fn) => { const end = Date.now() + ms; let i = 0; while (Date.now() < end || (i++ < 400 && await ev('ORBIS.terrain.pending > 0').catch(() => false))) { await fn(); await sleep(350); } };
+  const hold = async (ms, fn) => { const end = Date.now() + ms; let i = 0; while (Date.now() < end || (i++ < 400 && await ev('ORBIS.terrain.pending > 0 && ORBIS.ctrl.pos[1] < 40000').catch(() => false))) { await fn(); await sleep(350); } };
 
   if (want('planet')) {
     const up = async (n, y, opts, ms = 3500) => { await hold(ms, () => place(0, y, 0, opts)); await shot(n); };
