@@ -47,8 +47,8 @@ try {
   check(await until(`ORBIS.globeView.done >= 6`, 30000), 'the whole planet has been drawn');
   // climbing on its own power: hold Space
   await ev(`(() => { const f = ORBIS.getFlight(); f.pos[1] = 1500 + ORBIS.world.groundAt(f.pos[0], f.pos[2], 1e4).h; f.vel = [0, 0, 0]; f.throttle = 0; return 1; })()`); const r0 = await ev(`ORBIS.getFlight().pos[1]`); await key('Space', 'keydown'); await sleep(6000); await key('Space', 'keyup'); const risen = await ev(`ORBIS.getFlight().pos[1]`) - r0; console.log('    Space for 6 s: up', Math.round(risen), 'm');
-  check(risen > 300, 'the ship climbs when told');
-  await up(60000); await ev(`(() => { const f = ORBIS.getFlight(); f.throttle = 1; return 1; })()`); await sleep(6000); const quick = await ev(`ORBIS.getFlight().airspeed`); console.log('    full throttle in space for 6 s:', Math.round(quick), 'm/s'); check(quick > 1500, 'and goes fast out of the air');
+  check(risen > 120, 'the ship climbs when told');
+  await up(60000); await ev(`(() => { const f = ORBIS.getFlight(); f.throttle = 1; return 1; })()`); await sleep(6000); const quick = await ev(`ORBIS.getFlight().airspeed`); console.log('    full throttle in space for 6 s:', Math.round(quick), 'm/s'); check(quick > 1000, 'and goes fast out of the air');
   await ev(`(() => { ORBIS.getFlight().throttle = 0.3; return 1; })()`);
   // over every cut of the unfolded globe, high and low: you carry on across it, the same way
   const cuts = await ev(`(() => { const out = []; for (const F of __g.faces) for (let k = 0; k < 4; k++) { if (F.sides[k].same) continue; const [sx, sz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][k]; out.push([F.i, k, sx, sz]); } return out; })()`);

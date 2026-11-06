@@ -102,7 +102,7 @@ export class Flight {
     let h;
     if (this.assist) {
       const agl = this.pos[1] - Math.max(this.world.groundAt(this.pos[0], this.pos[2], this.pos[1]).h, this.planet.seaLevel);
-      const want = inp.up ? 10 + Math.min(2500, Math.max(0, agl) * 0.25) : inp.down && agl > 2000 ? -Math.min(2500, agl * 0.25) : inp.down ? -Math.min(8, 0.6 + agl * 0.35) : 0, uy = Math.max(0.2, U[1]);   // a hover descent flares near the ground
+      const want = inp.up ? 10 + Math.min(20000, Math.max(0, agl) * 0.25) : inp.down && agl > 2000 ? -Math.min(20000, agl * 0.25) : inp.down ? -Math.min(8, 0.6 + agl * 0.35) : 0, uy = Math.max(0.2, U[1]);   // a hover descent flares near the ground
       const need = m * (G + 2.2 * (want - this.vel[1])) - (force[1] + m * G);
       h = this.onGround && !inp.up ? 0 : clamp(need / (this.hoverMax * (1 + vac * 60 + sstep(200, 1500, y0) * 2.5) * uy), 0, 1);
     } else h = inp.up ? 1 : 0;
