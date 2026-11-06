@@ -21,6 +21,8 @@ self.onmessage = ({ data: { universe, address, sizes } }) => {
         continue;
       }
       const m = moisture(planet, x, z); groundAt(planet, x, z, 0.95, m, W, col);
+      // from up here a forest is its canopy, not its floor; a meadow its grass
+      { const can = W[2] + W[5] * 0.7; if (can > 0) for (let q = 0; q < 3; q++) col[q] += ((C.grass[q] * 0.62) - col[q]) * Math.min(1, can); }
       // lit from one side, so ranges stand out from orbit
       const hx = H[j * n + Math.min(n - 1, i + 1)] - H[j * n + Math.max(0, i - 1)], hz = H[Math.min(n - 1, j + 1) * n + i] - H[Math.max(0, j - 1) * n + i], shade = Math.max(0.55, Math.min(1.35, 1 + (hx + hz) / step * 9));
       const high = smoothstep(C.treeline, C.treeline + 500, h), snow = Math.max(cold, high * 0.8);
