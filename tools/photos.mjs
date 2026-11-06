@@ -102,6 +102,22 @@ try {
       await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), f = O.getFlight(); f.pos[0] = at.c[0] - fx * 400; f.pos[2] = at.c[2] - fz * 400; f.vel = [0, 0, 0]; f.pos[1] = at.c[1]; const y = at.facing; f.q = [0, Math.sin(y / 2), 0, Math.cos(y / 2)]; f.syncEuler(); O.cam.dist = 26; O.cam.pitch = 0.05; return 1; })()`); await sleep(1500); await shot('deck-' + C + '-approach');
     }
   }
+  if (want('inside')) {
+    await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (const C of (process.env.FLEET || 'bastion,meridian,longshore,halcyon').split(',')) {
+      const rooms = await ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), f = O.getFlight(); window.__f = f; f.pos[0] = at.c[0] - fx * 60; f.pos[1] = at.c[1] + 2; f.pos[2] = at.c[2] - fz * 60; f.vel = [0, 0, 0]; f.throttle = 0; O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.shipView.group.visible = false; return O.world.locate ? C.ship.layoutRooms || null : null; })()`);
+      const L = JSON.parse(await (await fetch('http://127.0.0.1:' + PORT + '/assets/ships/capital.json')).text())[C + '_decks'];
+      if (process.env.DBG) { await sleep(3000); console.log('   dbg', await ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), V = O.capitalView, g = C.decks; return JSON.stringify({ models: Object.keys(V.models), n: V.models['${C}_decks']?.length, decks: !!g, vis: g?.visible, kids: g?.children.length, pos: g?.position?.toArray(), cam: O.camera.position.toArray(), player: O.ctrl.pos, at: C.ship.at.c, slots: V.models['${C}_decks']?.map(m => m.slot + ':' + m.g.attributes.position.count) }); })()`)); }
+      for (const R of L.rooms) { const [x0, z0, x1, z1] = R.rect, mid = (z0 + z1) / 2, tag = R.label.replace(/[^a-z]+/g, '-'), big = R.purpose === 'hold';
+        for (const [n, zz, back] of big ? [['in', z0 + 8, 0], ['out', z1 - 4, 1]] : [['', z0 + 4.5, 0]]) {
+          const stand = () => ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), lx = Math.cos(at.facing), lz = -Math.sin(at.facing), d = ${zz} - C.deckD / 2, sx = ${big ? -6 : 0}, x = at.c[0] + fx * d + lx * sx, z = at.c[2] + fz * d + lz * sx; O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.ctrl.pos = [x, at.c[1] + 1.05, z]; O.ctrl.vel = [0, 0, 0]; const y = at.facing + ${back ? Math.PI : 0}; O.ctrl.facing = y; O.cam.yaw = y; O.cam.pitch = ${big ? 0.02 : 0.0}; O.cam.dist = 2.6; return 1; })()`);
+          await hold(1800, stand); if (process.env.DBG) console.log('   dbg2', await ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), g = C.decks; g?.updateWorldMatrix(true, true); return JSON.stringify({ decks: !!g, vis: g?.visible, grp: O.capitalView.group.visible, kids: g?.children.length, pos: g?.position?.toArray(), yaw: g?.rotation.y, cam: O.camera.position.toArray(), player: O.ctrl.pos, deckW: C.deckW, deckD: C.deckD, atc: C.ship.at.c, facing: C.ship.at.facing, mat: g?.children[0]?.material?.type, bs: (g?.children[2]?.geometry?.computeBoundingBox(), g?.children[2]?.geometry.boundingBox) }); })()`)); await shot('in-' + C + '-' + tag + (n ? '-' + n : ''));
+        }
+      }
+      await ev(`(() => { const O = ORBIS; O.setFlightForTest(window.__f); O.ctrl.mode = 'pilot'; return 1; })()`);
+    }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);

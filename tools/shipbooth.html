@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ship booth</title>
+<!-- One model from four sides, in plain daylight: ?glb=<file>&v=<kind>&paint=<0-6>. For looking at a model without flying it. -->
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<style>html, body { margin: 0; background: #8ea6c0; overflow: hidden; } canvas { display: block; }</style></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { loadPropLibrary } from '../js/render/props.js';
+const LIVERY = [[0.3, 0.045, 0.04], [0.62, 0.22, 0.035], [0.035, 0.09, 0.22], [0.5, 0.48, 0.42], [0.055, 0.06, 0.07], [0.05, 0.16, 0.09], [0.03, 0.2, 0.22]];
+const q = new URLSearchParams(location.search), kind = q.get('v'), paint = LIVERY[+(q.get('paint') || 0)];
+const R = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); R.setPixelRatio(1); R.setSize(innerWidth, innerHeight); R.autoClear = false;
+R.outputColorSpace = THREE.SRGBColorSpace; R.toneMapping = THREE.ACESFilmicToneMapping; R.toneMappingExposure = 0.85; R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap; document.body.append(R.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9db4cc); { const e = new THREE.Scene(); e.background = new THREE.Color(0x9db4cc); const fl = new THREE.Mesh(new THREE.CircleGeometry(50, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4a4a3c })); fl.position.y = -1; e.add(fl); scene.environment = new THREE.PMREMGenerator(R).fromScene(e, 0.02).texture; scene.environmentIntensity = 0.5; }
+const lib = await loadPropLibrary('../assets/', R.capabilities.getMaxAnisotropy(), { craft: q.get('glb') });
+const v = [...lib.variants.values()].find(x => x.kind === kind), [W, D, H] = v.dims, g = new THREE.Group();
+for (const p of v.prims) { const m = new THREE.Mesh(p.geometry, p.tinted ? p.material.clone() : p.material); if (p.tinted) m.material.color.setRGB(...paint); m.castShadow = m.receiveShadow = true; g.add(m); }
+const box = new THREE.Box3().setFromObject(g), c = box.getCenter(new THREE.Vector3()), S = box.getSize(new THREE.Vector3()), big = Math.max(S.x, S.y, S.z);
+g.position.sub(c); scene.add(g);
+const sun = new THREE.DirectionalLight(0xfff4e6, 3); sun.position.set(big * 0.7, big * 1.2, big * 0.5); sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096); Object.assign(sun.shadow.camera, { left: -big, right: big, top: big, bottom: -big, far: big * 5 }); sun.shadow.bias = -0.0004; scene.add(sun);
+const cam = new THREE.PerspectiveCamera(24, (innerWidth / 2) / (innerHeight / 2), 0.1, big * 12);
+// nose is +z in the model
+const views = [[0.65, 0.22, 1, 2.2], [-0.72, -0.14, -1, 2.2], [1, 0.05, 0, 2.2], [0.25, 1, -0.25, 2]], n = q.get('close');
+const W2 = innerWidth / 2, H2 = innerHeight / 2;
+const draw = () => views.forEach(([x, y, z, d], i) => { const L = big * d * +(q.get('zoom') || 1), l = Math.hypot(x, y, z); cam.position.set(x / l * L, y / l * L, z / l * L); cam.lookAt(0, 0, 0); cam.updateMatrixWorld(); R.setViewport((i % 2) * W2, (i < 2 ? 1 : 0) * H2, W2, H2); R.setScissor((i % 2) * W2, (i < 2 ? 1 : 0) * H2, W2, H2); R.setScissorTest(true); R.render(scene, cam); });
+draw(); await new Promise(r => setTimeout(r, 2500)); draw(); document.title = 'READY';
+</script></body></html>

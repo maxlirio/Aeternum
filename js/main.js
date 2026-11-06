@@ -1429,7 +1429,7 @@ async function start(fresh) {
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
-    capitalView.update(fleet, toRender);
+    capitalView.update(fleet, toRender, camera.position);
     if (flight) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
     shipView.update(ships.filter(sh => !sh.fleet).map(sh => {

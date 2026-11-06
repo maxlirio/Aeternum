@@ -1,14 +1,14 @@
 // Weathering for materials that would otherwise be one flat colour: dirt that gathers low down,
 // grime in soft patches, rust if it's metal, and a roughness that isn't uniform. World-space noise,
 // so no two instances of a model wear the same way, and no extra textures to load.
-export function weather(m, { dirt = 0.5, rust = 0, ground = true } = {}) {
+export function weather(m, { dirt = 0.5, rust = 0, ground = true, local = false } = {}) {     // (local: the wear stays on the thing as it moves: anything that flies or drives)
   m.onBeforeCompile = sh => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\n varying vec3 vWP; varying float vLY;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         #ifdef USE_INSTANCING
-          vWP = (modelMatrix * instanceMatrix * vec4(position, 1.0)).xyz; vLY = position.y;
+          vWP = ${local ? 'position' : '(modelMatrix * instanceMatrix * vec4(position, 1.0)).xyz'}; vLY = position.y;
         #else
-          vWP = (modelMatrix * vec4(position, 1.0)).xyz; vLY = position.y;
+          vWP = ${local ? 'position' : '(modelMatrix * vec4(position, 1.0)).xyz'}; vLY = position.y;
         #endif`);
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
         varying vec3 vWP; varying float vLY; float gRough;
@@ -24,6 +24,6 @@ export function weather(m, { dirt = 0.5, rust = 0, ground = true } = {}) {
           gRough = d * 0.35 + (fine - 0.5) * 0.14${rust ? ' + r * 0.4' : ''}; }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n roughnessFactor = clamp(roughnessFactor + gRough, 0.04, 1.0);`);
   };
-  m.customProgramCacheKey = () => `orbis-grime-${dirt}-${rust}-${ground}`;
+  m.customProgramCacheKey = () => `orbis-grime-${dirt}-${rust}-${ground}-${local}`;
   return m;
 }

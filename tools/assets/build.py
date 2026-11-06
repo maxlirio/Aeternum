@@ -1473,10 +1473,10 @@ def ship_interior(p, lay):
         place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
 
 
-def hull_loft(p, secs, mat, centre):
+def hull_loft(p, secs, mat, centre, n=48):
     """The outer hull through sections (z, cy, ry, cx, rx, e), open at the stern, capped at the nose,
     every face turned away from `centre` (prop frame)."""
-    bm = bmesh.new(); n = 48; rings = []
+    bm = bmesh.new(); rings = []
     for (z, cy, ry, cx, rx, e) in secs:
         rings.append([bm.verts.new(P(cx + rx * math.copysign(abs(math.cos(a)) ** (2 / e), math.cos(a)), cy + ry * math.copysign(abs(math.sin(a)) ** (2 / e), math.sin(a)), z))
                       for a in (2 * math.pi * k / n for k in range(n))])
@@ -1721,34 +1721,28 @@ def jet(p, L_, D_, H_, r, model):
     fy = deck + 0.55; fr = 1.05                                                # fuselage centreline height and radius
     wing_y = fy - 0.15
     if J['wing'] == 'flying':      # a flying wing: the whole thing is a blended lifting body
-        add_loft(p, [(0.3, fy, 0.25, xc, W * 0.18, 2.6), (D * 0.3, fy + 0.1, 0.55, xc, W * 0.48, 2.8), (D * 0.62, fy + 0.15, 0.7, xc, W * 0.32, 2.6), (D * 0.9, fy, 0.35, xc, W * 0.09, 2.2), (D, fy - 0.1, 0.04, xc, 0.08, 2)], 'tint', 40, axis='z')
+        fuse = [(0.3, fy, 0.25, xc, W * 0.18, 2.6), (D * 0.3, fy + 0.1, 0.55, xc, W * 0.48, 2.8), (D * 0.62, fy + 0.15, 0.7, xc, W * 0.32, 2.6), (D * 0.9, fy, 0.35, xc, W * 0.09, 2.2), (D, fy - 0.1, 0.04, xc, 0.08, 2)]
     else:
-        add_loft(p, [(0.0, fy, fr * 0.55, xc, fr * 0.7, 2.4), (D * 0.12, fy, fr * 0.85, xc, fr * 1.05, 2.6), (D * 0.5, fy, fr, xc, fr * 1.1, 2.8),
-                     (cz1, fy + 0.05, fr * 0.85, xc, fr * 0.85, 2.4), (D * 0.9, fy - 0.05, fr * 0.4, xc, fr * 0.35, 2.2), (D, fy - 0.1, 0.03, xc, 0.03, 2)], 'tint', 36, axis='z')
+        fuse = [(0.0, fy, fr * 0.55, xc, fr * 0.7, 2.4), (D * 0.12, fy, fr * 0.85, xc, fr * 1.05, 2.6), (D * 0.5, fy, fr, xc, fr * 1.1, 2.8),
+                (cz1, fy + 0.05, fr * 0.85, xc, fr * 0.85, 2.4), (D * 0.8, fy, fr * 0.56, xc, fr * 0.54, 2.3), (D * 0.9, fy - 0.05, fr * 0.3, xc, fr * 0.28, 2.1), (D, fy - 0.1, 0.015, xc, 0.015, 2)]
+    BJ = Body(fuse, 7); add_loft(p, BJ.secs, 'tint', 56, axis='z')
+    _plating(p, BJ, D * 0.1, D * 0.86, r, lambda z, ang: not (cz0 - 0.8 < z < cz1 + 1.2 and abs(ang - 90) < 60), 0.8)
     # the cockpit tub around the layout's cockpit, then the bubble canopy over it
-    add_loft(p, [(cz0 - 0.3, deck + 0.6, 1.0, xc, 0.95, 2.6), (cz1, deck + 0.6, 1.0, xc, 0.95, 2.6)], 'tint', 28, axis='z', cap=False)
-    add_loft(p, [(cz0 - 0.5, ceil - 0.25, 0.05, xc, 0.6, 2.2), (cz0 + 0.4, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 - 0.6, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 + 1.1, ceil - 0.6, 0.05, xc, 0.4, 2)], 'visor', 32, axis='z')
-    add_box(p, xc - 0.79, ceil - 0.25, cz0 + 0.9, xc + 0.79, ceil + 0.42, cz0 + 0.98, 'metal', 0.01)   # canopy bow
+    add_loft(p, [(cz0 - 0.3, deck + 0.6, 1.0, xc, 0.95, 2.6), (cz1, deck + 0.6, 1.0, xc, 0.95, 2.6)], 'tint', 40, axis='z', cap=False)
+    _sloft(p, [(cz0 - 0.5, ceil - 0.25, 0.05, xc, 0.6, 2.2), (cz0 + 0.4, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 - 0.6, ceil - 0.05, 0.42, xc, 0.78, 2.2), (cz1 + 1.1, ceil - 0.6, 0.05, xc, 0.4, 2)], 'visor', 40, per=7)
+    for zb in (cz0 + 0.9, cz1 - 0.9): add_loft(p, [(zb, ceil - 0.05, 0.47, xc, 0.83, 2.2), (zb + 0.07, ceil - 0.05, 0.47, xc, 0.83, 2.2)], 'tint', 40, axis='z', cap=False)     # canopy bows
     ne = J['engines']
     for k in range(ne):              # intakes beside the cockpit, engines and nozzles at the tail
         ex = xc + (0 if ne == 1 else (-0.75 if k == 0 else 0.75))
         if J['wing'] != 'flying':
             for s_ in ((-1, 1) if ne == 1 else ((-1,) if k == 0 else (1,))):
                 ix = xc + s_ * (fr + 0.25)
-                add_loft(p, [(cz0 - 2.4, fy - 0.15, 0.42, ix, 0.32, 3), (cz0 + 0.6, fy - 0.15, 0.45, ix, 0.35, 3)], 'tint', 20, axis='z')
-                add_box(p, ix - 0.28, fy - 0.5, cz0 + 0.55, ix + 0.28, fy + 0.22, cz0 + 0.62, 'rubber', 0.01)
-        add_cyl(p, ex, fy, -0.9, 0.1, 0.48 if ne == 2 else 0.62, 'metal', 24, axis='z', r2=0.42 if ne == 2 else 0.55)
-        add_cyl(p, ex, fy, -0.75, -0.65, 0.38 if ne == 2 else 0.5, 'glow', 24, axis='z')
-        for j in range(12):          # nozzle petals
-            a = j * math.pi / 6; rr = 0.5 if ne == 2 else 0.64
-            add_box(p, ex + math.cos(a) * rr - 0.05, fy + math.sin(a) * rr - 0.05, -1.05, ex + math.cos(a) * rr + 0.05, fy + math.sin(a) * rr + 0.05, -0.6, 'metal', 0.005)
-    def plank(pts, mat='tint', t=0.12):
-        bm = bmesh.new(); top = [bm.verts.new(P(x, y + t / 2, z)) for (x, y, z) in pts]; bot = [bm.verts.new(P(x, y - t / 2, z)) for (x, y, z) in pts]
-        bm.faces.new(top); bm.faces.new(bot[::-1])
-        for k in range(len(pts)): bm.faces.new([top[k], bot[k], bot[(k + 1) % len(pts)], top[(k + 1) % len(pts)]])
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
-    def finplate(pts, mat='tint'):
-        bm = bmesh.new(); bm.faces.new([bm.verts.new(P(*v)) for v in pts]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.1); merge(p, bm, mat)
+                _sloft(p, [(cz0 - 3.4, fy - 0.1, 0.05, ix - s_ * 0.25, 0.05, 2), (cz0 - 2.0, fy - 0.15, 0.42, ix, 0.32, 3), (cz0 + 0.6, fy - 0.15, 0.45, ix, 0.35, 3)], 'tint', 28, cap=False)
+                add_loft(p, [(cz0 + 0.3, fy - 0.15, 0.36, ix, 0.27, 3), (cz0 + 0.6, fy - 0.15, 0.4, ix, 0.3, 3)], 'rubber', 28, axis='z')         # the mouth of the intake, dark
+        rr = 0.5 if ne == 2 else 0.64
+        _shell(p, ex, fy, [(-0.1, rr * 0.92), (0.5, rr * 1.04), (1.3, rr * 1.0)], 'metal', n=36, per=4); _bell(p, ex, fy, -1.0, 0.0, rr * 0.92, 14)
+    def plank(pts, mat='tint', t=0.12): _blade(p, pts[0], pts[1], pts[2], pts[3], t, mat)
+    def finplate(pts, mat='tint'): _blade(p, pts[0], pts[1], pts[2], pts[3], 0.08, mat)
     half = W / 2
     for s_ in (-1, 1):
         root = xc + s_ * fr * 0.8; tip = xc + s_ * half
@@ -1758,7 +1752,7 @@ def jet(p, L_, D_, H_, r, model):
         elif J['wing'] == 'straight': pts = [(root, wing_y + 0.3, D * 0.55), (root, wing_y + 0.3, D * 0.4), (tip, wing_y + 0.3, D * 0.42), (tip, wing_y + 0.3, D * 0.54)]
         else: pts = None
         if pts:
-            plank(pts)
+            _wing(p, root, pts[0][1], pts[0][2], pts[1][2], tip, pts[3][1], pts[3][2], pts[2][2], 0.36, n=8)
             add_cyl(p, tip, pts[3][1], pts[3][2] - 0.2, pts[3][2] + 0.1, 0.06, 'navgreen' if s_ > 0 else 'navred', 8, axis='z')
         # missiles on pylons under the wings
         nm = lay['weapons']['missiles'] // 2
@@ -1786,8 +1780,7 @@ def jet(p, L_, D_, H_, r, model):
         gx = xc + (g - (lay['weapons']['guns'] - 1) / 2) * 0.5
         add_cyl(p, gx, fy - 0.35, D * 0.78, D * 0.9, 0.05, 'metal', 8, axis='z')
     # landing gear (tricycle), panel lines, hazard by the ladder
-    for (gx, gz) in ((xc, D * 0.78), (xc - 1.6, D * 0.32), (xc + 1.6, D * 0.32)):
-        add_cyl(p, gx, gz, 0.25, fy - 0.6, 0.07, 'metal', 10); add_cyl(p, 0.22, gz, gx - 0.12, gx + 0.12, 0.22, 'rubber', 14, axis='x')   # (x-axis cylinder: centre given as (y, z))
+    for (gx, gz) in ((xc, D * 0.78), (xc - 1.6, D * 0.32), (xc + 1.6, D * 0.32)): _gear(p, gx, gz, fy - 0.5, 0.075)
     add_box(p, xc - 0.38, deck - 0.15, cz0 - 0.08, xc + 0.38, deck, cz0, 'hazard', 0.005)
     ship_interior(p, lay) if False else None
     # the cockpit inside: a floor, the seat and the console from the layout
@@ -2173,7 +2166,7 @@ def vehicle_from(v):
             hb = (H - belly) / 2
             secs = [(0.0, belly + hb, hb * 0.96, zc, lw * 0.95, rr), (0.25, belly + hb, hb, zc, lw, rr), (S(1 - nose) - 0.4, belly + hb, hb, zc, lw, rr),
                     (S(1 - nose * 0.35), belly + hb * 0.75, hb * 0.72, zc, lw * 0.96, rr), (L, belly + bodyH * 0.35, 0.05, zc, lw * 0.6, 2)]
-        add_loft(p, secs, 'tint', 32)
+        add_loft(p, smooth_secs(secs, 6), 'tint', 44)
         if tall:
             add_loft(p, [(S(1 - nose) - 0.9, top + (H - top) * 0.45, (H - top) * 0.3, zc, lw * 0.99, rr), (S(1 - nose * 0.4), top + 0.05, 0.12, zc, lw * 0.92, rr)], 'visor', 28)
             if b.get('windows'): add_box(p, S(0.08), top + (H - top) * 0.35, -0.005, S(1 - nose) - 1.0, top + (H - top) * 0.75, W + 0.005, 'visor', 0.02)
@@ -2200,8 +2193,32 @@ def vehicle_from(v):
             add_box(p, L * (1 - nose * 0.25) - 0.04, belly + bodyH * 0.35, zz - 0.18, L * (1 - nose * 0.25) + 0.02, belly + bodyH * 0.48, zz + 0.18, 'navwhite', 0.01)
             add_box(p, 0.0, belly + bodyH * 0.5, zz - 0.2, 0.05, belly + bodyH * 0.62, zz + 0.2, 'navred', 0.01)
         add_box(p, S(0.12), belly + bodyH * 0.2, -0.008, S(0.9), belly + bodyH * 0.24, W + 0.008, 'metal', 0.003)
+        # lift pods: a housing, a ring, the fan's vanes over the glow, not a disc
         for x in (S(0.18), S(0.82)):
-            for zz in (lw * 0.5, W - lw * 0.5): add_cyl(p, x, zz, belly - 0.12, belly + 0.02, 0.26, 'metal', 16); add_cyl(p, x, zz, belly - 0.14, belly - 0.12, 0.19, 'glow', 16)
+            for zz in (lw * 0.5, W - lw * 0.5):
+                add_cyl(p, x, zz, belly - 0.04, belly + 0.05, 0.33, 'rubber', 24); add_cyl(p, x, zz, belly - 0.12, belly - 0.04, 0.27, 'metal', 24, r2=0.31); add_cyl(p, x, zz, belly - 0.135, belly - 0.12, 0.2, 'glow', 20)
+                for q in range(6):
+                    a_ = q * math.pi / 3; add_box(p, x + math.cos(a_) * 0.11 - 0.012, belly - 0.145, zz + math.sin(a_) * 0.11 - 0.012, x + math.cos(a_) * 0.11 + 0.012, belly - 0.12, zz + math.sin(a_) * 0.11 + 0.012, 'metal', 0)
+                add_cyl(p, x, zz, belly - 0.15, belly - 0.12, 0.05, 'metal', 10)
+        # a vehicle is made of panels: a sill, doors with their gaps and handles, a grille, a plate, an undertray, lights in housings
+        add_box(p, S(0.1), belly - 0.03, 0.14, S(0.9), belly + 0.03, W - 0.14, 'rubber', 0)
+        doors = [S(0.56), S(0.62) if tall else S(tail + (1 - tail - nose) * 0.46), S(0.3 if tall else tail + 0.02)]
+        for zz, s in ((0.0, -1), (W, 1)):
+            zo = zz + s * 0.006
+            for x in doors:
+                add_box(p, x - 0.008, belly + bodyH * 0.12, min(zz, zo), x + 0.008, top - 0.02, max(zz, zo), 'rubber', 0)
+            add_box(p, doors[2], top - 0.05, min(zz, zo), doors[0], top - 0.03, max(zz, zo), 'rubber', 0)
+            for x in doors[:2]:
+                add_box(p, x - 0.2, top - 0.2, min(zz, zo + s * 0.012), x - 0.05, top - 0.17, max(zz, zo + s * 0.012), 'metal', 0.002)
+            add_box(p, S(0.14), belly + 0.02, min(zz, zo), S(0.86), belly + 0.09, max(zz, zo), 'rubber', 0)
+            if not b.get('open'):
+                mx = S(1 - nose) - 0.08; mz = zz + s * 0.08
+                add_box(p, mx - 0.02, top - 0.02, min(zz, mz), mx + 0.02, top + 0.02, max(zz, mz), 'rubber', 0); add_box(p, mx - 0.03, top - 0.02, min(mz, mz + s * 0.11), mx + 0.03, top + 0.11, max(mz, mz + s * 0.11), 'tint', 0.008)
+        add_box(p, L * (1 - nose * 0.2) - 0.04, belly + bodyH * 0.14, zc - lw * 0.42, L * (1 - nose * 0.2) + 0.004, belly + bodyH * 0.3, zc + lw * 0.42, 'rubber', 0)
+        for q in range(4): add_box(p, L * (1 - nose * 0.2) - 0.02, belly + bodyH * (0.16 + q * 0.035), zc - lw * 0.4, L * (1 - nose * 0.2) + 0.012, belly + bodyH * (0.17 + q * 0.035), zc + lw * 0.4, 'metal', 0)
+        add_box(p, -0.012, belly + bodyH * 0.24, zc - 0.2, 0.01, belly + bodyH * 0.36, zc + 0.2, 'paint', 0.003)
+        for zz in (lw * 0.45, W - lw * 0.45):
+            add_box(p, L * (1 - nose * 0.25) - 0.05, belly + bodyH * 0.33, zz - 0.21, L * (1 - nose * 0.25) + 0.008, belly + bodyH * 0.5, zz + 0.21, 'metal', 0.006); add_box(p, -0.008, belly + bodyH * 0.48, zz - 0.23, 0.04, belly + bodyH * 0.64, zz + 0.23, 'rubber', 0)
     return build
 VEH = json.load(open(os.path.join(ROOT, 'assets', 'vehicles.json')))['types']
 
@@ -2256,7 +2273,7 @@ def build_props():
         group = [ob for ob in made if sel(ob)]
         if not group: continue
         out = os.path.join(ROOT, 'assets', fname)
-        if ONLY and os.path.exists(out): print('(partial build: not overwriting', fname, ')'); continue
+        if ONLY: out = os.path.join(ROOT, 'out', 'partial-' + fname)      # (a partial build is for looking at: tools/shipbooth.html)
         bpy.ops.object.select_all(action='DESELECT')
         for ob in group: ob.select_set(True)
         bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', use_selection=True, export_materials='EXPORT',

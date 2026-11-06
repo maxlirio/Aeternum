@@ -21,7 +21,7 @@ const ROOM = {
 // iw: how much of the ship's width is the cabin (the rest is wing and body); nl: how much of its length is nose
 const CLASSES = [
   { cls: 'runabout', name: 'Runabout', W: [8.2, 9], D: [12.5, 14], iw: 0.46, nl: 0.27, rooms: [['lounge'], ['galley'], ['crew']], fields: false, price: [5200, 7400], flight: [210, 26, 1.3] },
-  { cls: 'racer', name: 'Racer', W: [8.8, 9.6], D: [14.5, 16.5], iw: 0.36, nl: 0.36, rooms: [[]], fields: false, price: [14000, 22000], flight: [300, 34, 1.6] },
+  { cls: 'racer', name: 'Racer', W: [10.5, 11.5], D: [20, 22.5], iw: 0.3, nl: 0.52, rooms: [[]], fields: false, price: [14000, 22000], flight: [300, 34, 1.6] },
   { cls: 'dropship', name: 'Dropship', W: [11, 12], D: [17, 19], iw: 0.42, nl: 0.2, rooms: [['bay'], ['bay', 'armory']], fields: false, price: [18000, 26000], flight: [190, 20, 1.0] },
   { cls: 'gunship', name: 'Gunship', W: [11, 12], D: [18, 20.5], iw: 0.36, nl: 0.3, rooms: [['armory'], ['armory', 'crew']], fields: false, price: [30000, 38000], flight: [260, 28, 1.2] },
   { cls: 'explorer', name: 'Explorer', W: [9, 10], D: [24, 27], iw: 0.5, nl: 0.2, rooms: [['lab', 'galley', 'crew'], ['lab', 'crew']], fields: true, price: [36000, 52000], flight: [190, 18, 0.9] },
