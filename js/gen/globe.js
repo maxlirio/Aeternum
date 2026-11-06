@@ -117,9 +117,11 @@ export function frameAt(G, x, z) {
 
 // Oceans and continents: a slow pattern over the whole sphere, so it has no seams. Round home the land is what it always was.
 export function continentDrop(planet, G, x, z) {
-  const fromHome = Math.max(Math.abs(x), Math.abs(z));
+  const away = Math.hypot(x, z);
+  if (away < HOME_LAND) return 0;
+  const n = toSphere(G, x, z), f = 2.6, fromHome = away - 75000 * (1 + G.noise.n(n[0] * 11, n[1] * 11, n[2] * 11));   // (an irregular shore to home's land: from orbit it mustn't show as a shape)
   if (fromHome < HOME_LAND) return 0;
-  const n = toSphere(G, x, z), f = 2.6, m = G.noise.n(n[0] * f, n[1] * f, n[2] * f) + 0.45 * G.noise2.n(n[0] * f * 2.3, n[1] * f * 2.3, n[2] * f * 2.3) + 0.2 * G.noise.n(n[0] * f * 6, n[1] * f * 6, n[2] * f * 6);
+  const m = G.noise.n(n[0] * f, n[1] * f, n[2] * f) + 0.45 * G.noise2.n(n[0] * f * 2.3, n[1] * f * 2.3, n[2] * f * 2.3) + 0.2 * G.noise.n(n[0] * f * 6, n[1] * f * 6, n[2] * f * 6);
   // (out to sea it goes down; well inland it comes up, so a continent is land with lakes in it, not islands in a sea)
   return (smoothstep(0.02, 0.2, -m) * 900 - smoothstep(0.0, 0.24, m + 0.04) * 330) * smoothstep(HOME_LAND, HOME_LAND * 2, fromHome);
 }

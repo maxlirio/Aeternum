@@ -27,6 +27,8 @@ self.onmessage = ({ data: { universe, address, sizes } }) => {
       for (let q = 0; q < 3; q++) { const c = Math.pow(Math.max(0, col[q]), 0.72) * shade; data[k + q] = Math.min(255, (c * (1 - snow) + 0.93 * snow) * 255); }
       data[k + 3] = 0;
     } }
+    // A sample every few km lands on peak or valley at random, so the land comes out as gravel: soften it to what that much land averages to.
+    if (n > 128) for (let pass = 0; pass < 2; pass++) for (const st of [4, n * 4]) { const o = data.slice(); for (let k = 0; k < data.length; k += 4) { const a = k - st >= 0 ? k - st : k, b = k + st < data.length ? k + st : k; for (let q = 0; q < 3; q++) data[k + q] = (o[a + q] + 2 * o[k + q] + o[b + q]) / 4; } }
     self.postMessage({ face: F.i, n, data }, [data.buffer]);
   }
   self.postMessage({ done: true });

@@ -123,6 +123,7 @@ export function makeSea(planet) {
   const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
   sea.renderReflection = (renderer, scene, camera, hide = []) => {
     const h = planet.seaLevel;
+    if (!sea.visible) return;                                  // from high up there is no sea plane to mirror anything
     if (camera.position.y < h + 0.3) { u.uReflOn.value = 0; return; }
     // Every other frame is plenty for a reflection; with no water anywhere near, a distant glint can't show whether it's a second old.
     const every = sea.waterNear === false ? 45 : 2;

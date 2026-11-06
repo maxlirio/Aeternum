@@ -23,7 +23,13 @@ export class SkySystem {
     const u = this.sky.material.uniforms, A = planet.atmosphere;
     u.turbidity.value = A.turbidity; u.rayleigh.value = A.rayleigh; u.mieCoefficient.value = A.mie; u.mieDirectionalG.value = 0.8;
     this.sky.material.uniforms.uFade = { value: 1 };
-    this.sky.material.fragmentShader = 'uniform float uFade;\n' + this.sky.material.fragmentShader.replace('#include <tonemapping_fragment>', 'gl_FragColor.rgb *= uFade;\n#include <tonemapping_fragment>');
+    this.sky.material.uniforms.uHigh = { value: 0 }; this.sky.material.uniforms.uDip = { value: 0 }; this.sky.material.uniforms.uLit = { value: 1 };
+    // Seen from high up you look down past the horizon, where this sky model is at its brightest. Up there the air is a thin band: pale at the planet's edge, deep blue above it.
+    this.sky.material.fragmentShader = 'uniform float uFade, uHigh, uDip, uLit;\n' + this.sky.material.fragmentShader.replace('#include <tonemapping_fragment>', `
+      { vec3 vd = normalize(vWorldPosition - cameraPosition); float a = clamp((vd.y + uDip) / (uDip + 0.3), 0.0, 1.0);
+        vec3 thin = mix(vec3(0.62, 0.78, 1.05), mix(vec3(0.13, 0.27, 0.62), vec3(0.015, 0.035, 0.11), a), pow(a, 0.45)) * uLit;
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, thin, uHigh) * uFade; }
+      #include <tonemapping_fragment>`);
     scene.add(this.sky);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 3);
@@ -80,8 +86,9 @@ export class SkySystem {
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
     this.ambient.intensity = 0.05 + 0.55 * (1 - day) + 0.35 * day * THREE.MathUtils.smoothstep(cover, 0.4, 0.95);
     const space = THREE.MathUtils.smoothstep(alt, 18000, 70000);
-    this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), space);
+    this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), THREE.MathUtils.smoothstep(alt, 32000, 80000));
     this.sky.material.uniforms.uFade.value = 1 - space;
+    u.uHigh.value = THREE.MathUtils.smoothstep(alt, 2500, 9000); u.uDip.value = Math.sqrt(Math.max(0, 2 * alt / 6.5e6)); u.uLit.value = day * (1 - 0.8 * THREE.MathUtils.smoothstep(alt, 9000, 50000));
     this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
     // fog: horizon colour by day, deep blue by night
     const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);

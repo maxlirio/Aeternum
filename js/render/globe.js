@@ -20,9 +20,12 @@ float vn(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
 float fbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * vn(p); p = p * 2.03 + 11.0; a *= 0.5; } return s; }
 void main() {
 #include <logdepthbuf_fragment>
-  vec4 t = texture2D(map, vUv); vec3 N = normalize(vN), V = normalize(cameraPosition - vW);
+  // the picture is coarse from low orbit: wander across it so its pixels don't show as squares, and put the fine grain of the land back
+  vec3 q0 = normalize(vO); vec2 wob = vec2(fbm(q0 * 170.0), fbm(q0 * 170.0 + 31.0)) - 0.5;
+  vec4 t = texture2D(map, vUv + wob * 0.0045); vec3 N = normalize(vN), V = normalize(cameraPosition - vW);
   float lit = dot(N, sun), day = smoothstep(-0.08, 0.2, lit);
   vec3 col = t.rgb; col *= col;                                                 // (the picture is display colours)
+  if (t.a < 0.5) col *= 0.74 + 0.52 * fbm(q0 * 520.0);
   // clouds drift over it, in sheets and swirls
   vec3 q = normalize(vO); q += 0.25 * vec3(fbm(q * 4.0 + time * 0.01), fbm(q * 4.0 + 7.0), fbm(q * 4.0 - 5.0));
   float c = smoothstep(0.5, 0.72, fbm(q * 7.0 + vec3(time * 0.004, 0.0, 0.0)));
@@ -71,22 +74,23 @@ export class GlobeView {
     const air = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: AIR_F, uniforms: { sun: this.sun }, side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     air.frustumCulled = false; air.scale.setScalar(1 + 90000 / this.G.R); this.group.add(air);
     this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xfff6e0, fog: false, toneMapped: false })); this.sunDisc.frustumCulled = false; this.sunDisc.visible = false; scene.add(this.sunDisc);
-    this.scale = new THREE.Vector3(this.G.R, this.G.R, this.G.R); this.baking = false; this.done = 0;
+    this.scale = new THREE.Vector3(this.G.R, this.G.R, this.G.R); this.baking = false; this.bakingSharp = false; this.sharp = []; this.done = 0;
   }
-  bake() {
-    if (this.baking) return; this.baking = true;
+  // The coarse pictures straight away, on the way up; the sharp one (minutes of a whole core) only once you're high enough to see it.
+  bake(sizes = [96, 384], last = false) {
     try {
       const w = new Worker(new URL('../gen/globe-bake.js', import.meta.url), { type: 'module' });
-      w.onmessage = ({ data }) => { if (data.done) { w.terminate(); this.finished = true; return; } const T = new THREE.DataTexture(data.data, data.n, data.n); T.colorSpace = THREE.NoColorSpace; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearFilter; T.needsUpdate = true; this.mats[data.face].uniforms.map.value.dispose(); this.mats[data.face].uniforms.map.value = T; this.done++; };
+      w.onmessage = ({ data }) => { if (data.done) { w.terminate(); if (last) this.finished = true; return; } if (data.n <= (this.sharp[data.face] || 0)) return; this.sharp[data.face] = data.n; const T = new THREE.DataTexture(data.data, data.n, data.n); T.colorSpace = THREE.NoColorSpace; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearMipmapLinearFilter; T.generateMipmaps = true; T.anisotropy = 4; T.needsUpdate = true; this.mats[data.face].uniforms.map.value.dispose(); this.mats[data.face].uniforms.map.value = T; this.done++; };
       w.onerror = e => console.warn('globe picture', e.message);
-      w.postMessage({ universe: this.planet.universeSeed, address: this.planet.address.key, sizes: [96, 384] });
+      w.postMessage({ universe: this.planet.universeSeed, address: this.planet.address.key, sizes });
     } catch (e) { console.warn('no globe picture', e); }
   }
   // px, pz: where you are on the planet; rx, rz: that spot in scene coordinates; alt: how high.
   update(dt, px, pz, rx, rz, alt, sunDir, camera, oy = 0) {
     const show = alt > 2500;
-    this.group.visible = show; this.sunDisc.visible = alt > 30000;
-    if (alt > 400) this.bake();
+    this.group.visible = show; this.sunDisc.visible = alt > 12000;
+    if (alt > 400 && !this.baking) { this.baking = true; this.bake(); }
+    if (alt > 30000 && !this.bakingSharp) { this.bakingSharp = true; this.bake([1024], true); }
     if (!show) return;
     const F = frameAt(this.G, px, pz), { ex, up, ez } = F, M = new THREE.Matrix4().set(ex[0], ex[1], ex[2], 0, up[0], up[1], up[2], 0, ez[0], ez[1], ez[2], 0, 0, 0, 0, 1);
     this.group.quaternion.setFromRotationMatrix(M); this.group.scale.copy(this.scale); this.group.position.set(rx, this.planet.seaLevel - this.G.R - oy - Math.min(1, Math.max(0, 20000 - alt) / 17500) * 60, rz);

@@ -30,7 +30,7 @@ const plain = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z)
 // The land at (x, z) on the planet. Near home the pattern simply runs on; further out, oceans lie over it, and along a seam
 // of the unfolded globe (gen/globe.js) the two sides are blended so a walk across doesn't meet a cliff.
 export function rawHeight(planet, x, z) {
-  if (x < HOME_LAND && x > -HOME_LAND && z < HOME_LAND && z > -HOME_LAND) return plain(planet, x, z);
+  if (x * x + z * z < HOME_LAND * HOME_LAND) return plain(planet, x, z);
   const G = globeOf(planet), [a, b] = canon(G, x, z), S = seamAt(G, a, b);
   let h = plain(planet, a, b); if (S) h += (plain(planet, S.x, S.z) - h) * S.w;
   h -= continentDrop(planet, G, a, b);
