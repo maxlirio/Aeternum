@@ -121,6 +121,16 @@ def _island(p, r):
     for (fx, fz) in ((45, -102), (58, -216)):
         add_cyl(p, fx, fz, 86, 90, 1.4, 'paint', 16); _beam(p, (fx, 90, fz), (fx, 91, fz + 1.5), 2.2, 'paint')
 
+def _clear_decks(p, lay, cx, cy, cz, side):
+    """Nothing outside may stand in the rooms: structure that runs through where the decks go is taken out. (The hull's own skin stays unless it lies wholly inside; only the frame round it can show.)"""
+    W, D = lay['W'], lay['D']; a, b = sorted((cx, cx - side * D)); z0, z1 = cz - W / 2 + 0.2, cz + W / 2 - 0.2; y0, y1 = cy + lay['deck'], cy + lay['ceiling']; tint = SLOTS.index('tint'); gone = []
+    for f in p.bm.faces:
+        xs = [v.co.x for v in f.verts]; ys = [v.co.z for v in f.verts]; zs = [-v.co.y for v in f.verts]
+        if max(xs) < a or min(xs) > b or max(ys) < y0 or min(ys) > y1 or max(zs) < z0 or min(zs) > z1: continue
+        inside = min(xs) >= a and max(xs) <= b and min(ys) >= y0 and max(ys) <= y1 and min(zs) >= z0 and max(zs) <= z1
+        if f.material_index != tint or inside: gone.append(f)
+    bmesh.ops.delete(p.bm, geom=gone, context='FACES'); print('cleared', len(gone), 'faces from the decks')
+
 def bastion(p, lay, r):
     """A carrier: armoured slab, stepped citadel, command island, gun sponsons, engine block."""
     L = 860; zs, zb = -430, 430
@@ -423,6 +433,7 @@ def dress_meridian(p, r):
 def dress_longshore(p, r):
     # gantry cranes that ride the cargo racks
     for z in (-420, -120, 180, 460):
+        if abs(z - 650) < 70: z += 100 if z < 650 else -100      # (not through the hangar)
         for (a, b) in ((-74, -74), (74, -74)): _beam(p, (a, -60, z), (a, 74, z), 2.2, 'hazard')
         _beam(p, (-74, 74, z), (74, 74, z), 2.6, 'hazard'); _beam(p, (-74, 72, z - 4), (74, 72, z - 4), 1.2, 'metal'); _beam(p, (-74, 74, z), (-74, 72, z - 4), 1, 'metal'); _beam(p, (74, 74, z), (74, 72, z - 4), 1, 'metal')
         add_box(p, -8, 66, z - 3, 8, 72, z + 3, 'heatshield', 0); _beam(p, (0, 66, z), (0, 45, z), 0.4, 'metal')
@@ -620,7 +631,7 @@ def build_capital():
     for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
     decks = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'capital.json'))); hulls = []; rooms = []; docks = {}
     for name, fn in CAPITALS.items():
-        p = Part(); r = random.Random(name); lay = decks[name + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
+        p = Part(); r = random.Random(name); lay = decks[name + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
         p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
     json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)

@@ -59,7 +59,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
         roughnessMap: orm, metalnessMap: orm, aoMap: orm, roughness: 1, metalness: 1, aoMapIntensity: 0.8 });
       if (base === 'leaf') m.side = THREE.DoubleSide;
       if (name === 'tint-hull') { m.metalnessMap = null; m.metalness = 0.18; }     // a ship is painted, not polished: the paint is the colour you see
-      if (base === 'metal') m.envMapIntensity = 2.4;       // (bare metal is nothing but what it reflects)
+      if (base === 'metal') m.envMapIntensity = 1.5;       // (bare metal is nothing but what it reflects)
     }
     m.name = name; mats.set(name, m); return m;
   };

@@ -133,6 +133,28 @@ try {
     const seen = {}; let k = 0;
     for (const [x, z, yaw, type, d] of B.list) { if (seen[type] || x == null) continue; seen[type] = 1; const a = yaw + 0.55, D = d / 2 + 11, px = x - Math.sin(a) * D, pz = z - Math.cos(a) * D; await hold(5000, () => walk(px, pz, a, 0.02, 3)); await shot('town-' + type); if (++k >= 5) break; }
   }
+  if (want('village')) {
+    await load('hour=' + (process.env.HOUR || 16) + '&fly');
+    const walk = (x, z, yaw, pitch = 0.05, dist = 3) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.setFlightForTest?.(null); O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
+    // the nearest town that isn't home: walk there until it's built
+    await hold(6000, () => ev('1'));
+    const near = await ev(`(async () => { const { getSettlement } = await import('./js/gen/settlement.js'); const O = ORBIS, h = O.homeS; let best = null, bd = 1e12; for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const s = getSettlement(O.planet, h.rx + a, h.rz + b); if (!s || s === h) continue; const d = Math.hypot(s.cx - h.cx, s.cz - h.cz); if (d < bd) { bd = d; best = s; } } return best ? [best.cx, best.cz, best.key] : null; })()`);
+    console.log('   town at', JSON.stringify(near));
+    await hold(16000, () => walk(near[0], near[1], 0, 0.1, 6));
+    const got = await ev(`(() => { const O = ORBIS, T = O.towns.full.get(${JSON.stringify(near[2])}); if (!T) return null; const s = T.s, L = s.buildings || []; const cx = b => [s.cx + b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, s.cz + b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2]; return { ready: T.ready, n: L.length, list: L.slice(0, 80).map(b => [...cx(b), Math.atan2(b.ez[0], b.ez[1]), b.design?.shape || b.type, b.d]) }; })()`);
+    console.log('   village', got ? got.n : 'none', JSON.stringify(got?.list?.slice(0, 2)));
+    if (got) { const seen = {}; let k = 0; for (const [x, z, yaw, type, d] of got.list) { if (seen[type] || x == null) continue; seen[type] = 1; const a = yaw + 0.5, D = d / 2 + 9, px = x - Math.sin(a) * D, pz = z - Math.cos(a) * D; await hold(6000, () => walk(px, pz, a)); await shot('village-' + type); if (++k >= 4) break; } }
+  }
+  if (want('hamlet')) {
+    await load('hour=' + (process.env.HOUR || 11) + '&fly');
+    const walk = (x, z, yaw, pitch = 0.05, dist = 3) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.setFlightForTest?.(null); O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
+    const sites = await ev(`(async () => { const G = await import('./js/gen/outposts.js'), O = ORBIS, h = O.homeS, out = []; G.sitesNear(O.planet, h.cx, h.cz, 30000, S => { const b = S.buildings || S.houses || S.parts || []; out.push({ x: S.x, z: S.z, kind: S.kind || S.type, n: b.length, keys: Object.keys(S).slice(0, 12), d: Math.hypot(S.x - h.cx, S.z - h.cz) }); }); return out.sort((a, b) => b.n - a.n).slice(0, 6); })()`);
+    console.log('   sites', JSON.stringify(sites).slice(0, 700));
+    let k = 0; for (const S of sites.slice(0, 3)) { await hold(9000, () => walk(S.x + 22, S.z - 18, -0.9, 0.04, 4)); await shot('hamlet-' + (k++) + '-' + S.kind); }
+    const items = await ev(`(async () => { const G = await import('./js/gen/outposts.js'), O = ORBIS, h = O.homeS; let V = null; G.sitesNear(O.planet, h.cx, h.cz, 30000, S => { if (S.kind === 'village' && (!V || Math.abs(S.x - ${sites[0].x}) < 1)) V = V || S; }); return V.items.filter(i => String(i.kind || i.k || i.model || '').startsWith('gb_')).slice(0, 3).map(i => [i.x, i.z, i.rot || 0]); })()`);
+    console.log('   houses', JSON.stringify(items));
+    k = 0; for (const [x, z, rot] of items) { const a = rot + 3.6, px = x - Math.sin(a) * 12, pz = z - Math.cos(a) * 12; await hold(5000, () => walk(px, pz, a, 0.0, 2.5)); await shot('house-' + (k++)); }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
