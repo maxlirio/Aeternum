@@ -31,6 +31,8 @@ export class SkySystem {
         // Even from the ground this sky model is washed out overhead. Real skies deepen quickly going up from the haze at the horizon; the sun's glow is left alone.
         float up = clamp(vd.y, 0.0, 1.0), lum = dot(gl_FragColor.rgb, vec3(0.3, 0.59, 0.11)); vec3 sat = mix(vec3(lum), gl_FragColor.rgb, 1.0 + 0.55 * smoothstep(0.0, 0.3, up));
         vec3 deep = sat * mix(1.0, 0.56, smoothstep(0.03, 0.7, up));
+        // This model's glow towards the sun has no ceiling and floods half the sky. Only near the sun itself is it allowed to be that bright, and less so the higher you are (less air to scatter it).
+        { float glow = pow(max(dot(vd, vSunDirection), 0.0), 90.0), cap = mix(1.5, 0.62, uHigh) + 14.0 * glow, L = dot(deep, vec3(0.3, 0.59, 0.11)); if (L > cap) deep *= cap / L; }
         gl_FragColor.rgb = mix(deep, thin, uHigh) * uFade; }
       #include <tonemapping_fragment>`);
     scene.add(this.sky);

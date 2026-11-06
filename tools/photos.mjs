@@ -46,6 +46,11 @@ try {
     await up('05-high-orbit-3000km', 3e6, { pitch: 0.86, dist: 40, ship: true, camYaw: 0.4 }, 4000);
     await up('06-whole-planet-20000km', 2e7, { pitch: 1.37 }, 3000);
   }
+  if (want('sky12')) {
+    const P = () => place(0, 12000, 0, { pitch: 0.5, dist: 40, ship: false, camYaw: 0.5 });
+    await hold(7000, P); await shot('x12-a'); console.log('   ', await ev(`JSON.stringify({ tiles: ORBIS.terrain.tiles.size, pend: ORBIS.terrain.pending, globe: ORBIS.globeView.group.visible, cloud: ORBIS.scene.fog.density, tr: ORBIS.terrain.material.transparent })`));
+    await ev(`(() => { ORBIS.scene.traverse(o => { if (o.renderOrder === 2 && o.isMesh) o.material.visible = false; }); return 1; })()`); await hold(1500, P); await shot('x12-noclouds'); console.log('   mats', await ev(`JSON.stringify(ORBIS.globeView.mats.map(m => [m.uniforms.map.value.image.width, m.uniforms.thick?.value]).slice(0, 2))`)); await ev(`(() => { ORBIS.terrain.parent.visible = false; for (const t of ORBIS.terrain.tiles.values()) if (t.mesh) t.mesh.visible = false; return 1; })()`); await hold(1000, P); await shot('x12-noland');
+  }
   if (want('top')) { await hold(5000, () => place(0, 700, 0, { ship: true, pitch: 0.86, dist: 26, camYaw: 0.4, agl: true })); await shot('12-ship-from-above'); }
   if (want('farside')) {
     const far = await ev(`(() => { const G = __g, O = ORBIS; for (let k = 0; k < 3000; k++) { const a = k * 2.399963, y = 0.5 - k / 3000, r = Math.sqrt(1 - y * y), [x, z] = __G.fromSphere(G, [-Math.cos(a) * r, y, -Math.abs(Math.sin(a)) * r]); if (__G.wellInside(G, x, z, 90000) && __T.rawHeight(O.planet, x, z) > 40) return [x, z]; } return null; })()`);
@@ -88,7 +93,7 @@ try {
     for (let i = 0; i < 60 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
     const look = (C, off, ship = false) => ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = ${JSON.stringify(off)}, x = C.x + a * c + d * s, z = C.z - a * s + d * c, y = C.y + b, yaw = Math.atan2(C.x - x, C.z - z), pt = Math.atan2(C.y - y, Math.hypot(C.x - x, C.z - z)); f.pos[0] = x; f.pos[1] = y; f.pos[2] = z; f.vel = [0, 0, 0]; f.throttle = 0; f.q = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]; f.syncEuler(); O.cam.dist = 1; O.cam.pitch = -pt; O.cam.yaw = yaw; O.shipView.group.visible = ${ship}; return 1; })()`);
     for (const [C, views] of [['bastion', { bow: [420, 90, 800], beam: [950, 60, -60], aft: [-340, 170, -880], top: [260, 760, 200], close: [260, 70, -560], deck: [120, 150, -340] }], ['meridian', { bow: [640, 200, 1200], beam: [1400, 120, 0], aft: [-500, 200, -1300], close: [300, 60, 720], ring: [520, 140, 300] }], ['halcyon', { bow: [420, 90, 700], beam: [950, 60, -30], aft: [-420, 180, -700], top: [340, 620, 80] }], ['longshore', { bow: [420, 160, 1250], beam: [1300, 200, -60], aft: [-420, 180, -1380], close: [200, 90, 900], stern: [160, 60, -1050] }]])
-      for (const [n, off] of Object.entries(views)) { await hold(2500, () => look(C, off)); await shot('fleet-' + C + '-' + n); }
+      for (const [n, off] of Object.entries(views)) { if (process.env.VIEWS && !process.env.VIEWS.split(',').includes(C + '-' + n)) continue; await hold(2500, () => look(C, off)); await shot('fleet-' + C + '-' + n); }
   }
   if (want('decks')) {
     await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0');

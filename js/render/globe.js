@@ -14,6 +14,7 @@ void main() { vUv = uv; vO = position; vN = normalize(mat3(modelMatrix) * positi
 const FRAG = `
 #include <logdepthbuf_pars_fragment>
 uniform sampler2D map; uniform vec3 sun; uniform float time;
+uniform float thick;
 varying vec2 vUv; varying vec3 vN; varying vec3 vO; varying vec3 vW;
 float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float vn(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y), mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }
@@ -26,15 +27,18 @@ void main() {
   float lit = dot(N, sun), day = smoothstep(-0.08, 0.2, lit);
   vec3 col = t.rgb; col *= col;                                                 // (the picture is display colours)
   if (t.a < 0.5) col *= 0.74 + 0.52 * fbm(q0 * 520.0);
+  if (t.a > 0.5 && thick < 0.999) col = mix(col, vec3(0.018, 0.075, 0.13) * (0.8 + 0.5 * fbm(q0 * 2400.0)), 1.0 - thick);
+  // from low down the picture's pixels are 26 km wide and average to grey: give it back the country's own colour and its patchwork, ranges and plains
+  if (t.a < 0.5 && thick < 0.999) { float lo = 1.0 - thick, a1 = fbm(q0 * 1900.0 + 5.0), a2 = fbm(q0 * 6100.0 - 3.0), l = dot(col, vec3(0.3, 0.59, 0.11)); vec3 sat = mix(vec3(l), col, 1.0 + 0.9 * lo); sat *= 0.58 + 0.84 * a1 * (0.6 + 0.8 * a2); sat = mix(sat, sat * vec3(0.8, 1.02, 0.66), smoothstep(0.42, 0.62, a2) * 0.55); col = mix(col, sat, lo); }
   // clouds drift over it, in sheets and swirls
   vec3 q = normalize(vO); q += 0.25 * vec3(fbm(q * 4.0 + time * 0.01), fbm(q * 4.0 + 7.0), fbm(q * 4.0 - 5.0));
-  float c = smoothstep(0.5, 0.72, fbm(q * 7.0 + vec3(time * 0.004, 0.0, 0.0)));
+  float c = smoothstep(0.5, 0.72, fbm(q * 7.0 + vec3(time * 0.004, 0.0, 0.0))) * thick;     // (a whole weather system from orbit is one grey sheet from inside it)
   vec3 surf = col * (0.04 + 1.25 * max(lit, 0.0));
   if (t.a > 0.5) { vec3 Hh = normalize(sun + V); surf += vec3(1.0, 0.92, 0.78) * pow(max(dot(N, Hh), 0.0), 90.0) * 0.8 * step(0.0, lit); }
   surf = mix(surf, vec3(0.95) * (0.05 + 1.15 * max(lit, 0.0)), c * 0.86);
   // the air, thicker toward the edge of the disc
   float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-  surf += vec3(0.24, 0.44, 0.85) * rim * (0.05 + 0.9 * day);
+  surf += vec3(0.24, 0.44, 0.85) * rim * (0.05 + 0.9 * day) * thick; surf = mix(surf, vec3(0.6, 0.72, 0.9) * (0.05 + 0.95 * day), (1.0 - thick) * pow(rim, 1.4) * 0.8);     // (from low down: only haze towards the horizon, not a shell of blue)
   surf += vec3(0.015, 0.03, 0.07) * day;
   gl_FragColor = vec4(surf, 1.0);
 #include <tonemapping_fragment>
@@ -42,12 +46,12 @@ void main() {
 }`;
 const AIR_F = `
 #include <logdepthbuf_pars_fragment>
-uniform vec3 sun; varying vec3 vN; varying vec3 vW;
+uniform vec3 sun; uniform float thick; varying vec3 vN; varying vec3 vW;
 void main() {
 #include <logdepthbuf_fragment>
   vec3 N = normalize(vN), V = normalize(cameraPosition - vW); float d = max(dot(-N, V), 0.0), day = smoothstep(-0.25, 0.3, dot(N, sun));
   float edge = pow(smoothstep(0.0, 0.45, d), 2.0) * (1.0 - smoothstep(0.45, 1.0, d) * 0.8);
-  gl_FragColor = vec4(vec3(0.3, 0.55, 1.0) * edge * (0.05 + 1.3 * day), 1.0);
+  gl_FragColor = vec4(vec3(0.3, 0.55, 1.0) * edge * (0.05 + 1.3 * day) * thick, 1.0);
 #include <colorspace_fragment>
 }`;
 
@@ -63,15 +67,15 @@ function grid(F, n = 48) {   // unit sphere over one face, laid out as gen/globe
 
 export class GlobeView {
   constructor(planet, scene) {
-    this.planet = planet; this.G = globeOf(planet); this.sun = { value: new THREE.Vector3(0, 1, 0) }; this.time = { value: 0 };
+    this.planet = planet; this.G = globeOf(planet); this.sun = { value: new THREE.Vector3(0, 1, 0) }; this.time = { value: 0 }; this.thick = { value: 0 };
     this.group = new THREE.Group(); this.group.name = 'globe'; this.group.visible = false; this.group.renderOrder = -0.5; this.group.frustumCulled = false; scene.add(this.group);
     this.tex = []; this.mats = [];
     for (const F of this.G.faces) {
       const blank = new Uint8ClampedArray([24, 60, 96, 255]), T = new THREE.DataTexture(blank, 1, 1); T.colorSpace = THREE.NoColorSpace; T.magFilter = T.minFilter = THREE.LinearFilter; T.needsUpdate = true;
-      const M = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: { map: { value: T }, sun: this.sun, time: this.time }, side: THREE.FrontSide, toneMapped: true, fog: false });
+      const M = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, uniforms: { map: { value: T }, sun: this.sun, time: this.time, thick: this.thick }, side: THREE.FrontSide, toneMapped: true, fog: false });
       const m = new THREE.Mesh(grid(F), M); m.frustumCulled = false; this.group.add(m); this.tex.push(T); this.mats.push(M);
     }
-    const air = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: AIR_F, uniforms: { sun: this.sun }, side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    const air = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: AIR_F, uniforms: { sun: this.sun, thick: this.thick }, side: THREE.BackSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     air.frustumCulled = false; air.scale.setScalar(1 + 90000 / this.G.R); this.group.add(air);
     this.sunDisc = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xfff6e0, fog: false, toneMapped: false })); this.sunDisc.frustumCulled = false; this.sunDisc.visible = false; scene.add(this.sunDisc);
     this.scale = new THREE.Vector3(this.G.R, this.G.R, this.G.R); this.baking = false; this.bakingSharp = false; this.sharp = []; this.done = 0;
@@ -94,7 +98,7 @@ export class GlobeView {
     if (!show) return;
     const F = frameAt(this.G, px, pz), { ex, up, ez } = F, M = new THREE.Matrix4().set(ex[0], ex[1], ex[2], 0, up[0], up[1], up[2], 0, ez[0], ez[1], ez[2], 0, 0, 0, 0, 1);
     this.group.quaternion.setFromRotationMatrix(M); this.group.scale.copy(this.scale); this.group.position.set(rx, this.planet.seaLevel - this.G.R - oy - Math.min(1, Math.max(0, 20000 - alt) / 17500) * 60, rz);
-    this.sun.value.copy(sunDir); this.time.value += dt;
+    this.sun.value.copy(sunDir); this.time.value += dt; this.thick.value = THREE.MathUtils.smoothstep(alt, 14000, 60000);     // (this shell is the air seen from outside: down inside it, the sky is the sky)
     if (this.sunDisc.visible) { const D = Math.max(camera.far * 0.8, 1e6); this.sunDisc.position.copy(camera.position).addScaledVector(sunDir, D); this.sunDisc.scale.setScalar(D * 0.0052); }
   }
 }

@@ -295,7 +295,7 @@ export class TerrainStreamer {
     g.setAttribute('aS0', new THREE.InterleavedBufferAttribute(ib, 4, 0, true)); g.setAttribute('aS1', new THREE.InterleavedBufferAttribute(ib, 4, 4, true)); g.setAttribute('aS2', new THREE.InterleavedBufferAttribute(ib, 4, 8, true)); g.setAttribute('aR', new THREE.InterleavedBufferAttribute(ib, 4, 12, true));
     g.boundingBox = new THREE.Box3(new THREE.Vector3(0, d.minH - 40, 0), new THREE.Vector3(d.size, d.maxH, d.size));
     g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
-    const mesh = new THREE.Mesh(g, this.material);
+    const mesh = new THREE.Mesh(g, this.material); mesh.renderOrder = -1;     // (while the land's fading it draws in the see-through pass: first in it, or it would paint over glass and haze)
     mesh.position.set(d.x0, 0, d.z0);
     mesh.receiveShadow = true; mesh.castShadow = l <= 1;
     mesh.matrixAutoUpdate = false; mesh.updateMatrix();
