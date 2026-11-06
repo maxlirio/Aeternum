@@ -45,7 +45,7 @@ export class ShipView {
       const { W, D } = M.L;
       this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);
       this._m.compose(new THREE.Vector3(...s.c), this._q.setFromEuler(this._e), new THREE.Vector3(1, 1, 1)).multiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, -D / 2));
-      const col = LIVERY[s.colour % LIVERY.length];
+      const col = LIVERY[(((s.colour | 0) % LIVERY.length) + LIVERY.length) % LIVERY.length];     // (whatever a ship's record says, drawing it must not stop the game)
       this._c.setRGB(col[0], col[1], col[2]);
       for (const { im, tinted } of M.hull) { im.setMatrixAt(i, this._m); if (tinted) im.setColorAt(i, this._c); }
       let a = this.anim.get(s.id) ?? (s.rampDown ? 1 : 0);
