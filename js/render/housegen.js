@@ -43,7 +43,13 @@ function roofOf(P0, D) {
   if (D.shape === 'flat') {
     P.box(roof, 0, y, 0, w + 0.3, 0.2, d + 0.3);
     for (const s of [-1, 1]) { P.box(roof, 0, y + 0.2, s * (hd + 0.07), w + 0.3, 0.35, 0.16); P.box(roof, s * (hw + 0.07), y + 0.2, 0, 0.16, 0.35, d + 0.3); }
-    P.box('metal', w * 0.2, y + 0.2, d * 0.1, 0.9, 0.5, 0.7); return y + 0.55;
+    // what lives on a flat roof: the plant, its ducting, a hatch, pipes through the membrane, a coping
+    P.box('metal', w * 0.2, y + 0.2, d * 0.1, 0.9, 0.5, 0.7); P.box('rubber', w * 0.2, y + 0.7, d * 0.1, 0.62, 0.03, 0.42);
+    for (let i = 0; i < 4; i++) P.box('metal', w * 0.2 - 0.3 + i * 0.2, y + 0.73, d * 0.1, 0.02, 0.03, 0.44);
+    P.box('metal', w * 0.2, y + 0.25, d * 0.1 - 0.75, 0.3, 0.3, 0.8); P.box('tint', -w * 0.22, y + 0.2, -d * 0.18, 0.9, 0.22, 0.9); P.box('metal', -w * 0.22, y + 0.42, -d * 0.18, 0.96, 0.04, 0.96);
+    for (const [a, b] of [[-0.3, 0.26], [0.34, -0.3]]) { roundBox(P, 'metal', w * a, y + 0.2, d * b, 0.07, 0.07, 0.6, 8); roundBox(P, 'rubber', w * a, y + 0.8, d * b, 0.1, 0.1, 0.05, 8); }
+    for (const s of [-1, 1]) { P.box('metal', 0, y + 0.55, s * (hd + 0.07), w + 0.36, 0.03, 0.22); P.box('metal', s * (hw + 0.07), y + 0.55, 0, 0.22, 0.03, d + 0.36); }
+    return y + 0.58;
   }
   if (D.shape === 'hip') {
     const X = hw + over, Z = hd + over, yy = y - over * pitch, top = y + rise, r = Math.max(0, (w - d) / 2);
@@ -56,12 +62,28 @@ function roofOf(P0, D) {
   for (let i = 0; i <= n; i++) { const f = i / n, z = -Z + 2 * Z * f; prof.push([z, D.shape === 'vault' ? y + 4 * rise * f * (1 - f) : y + rise * (1 - Math.abs(z) / hd)]); }
   const t = roof === 'thatch' ? 0.32 : 0.11, lift = t * 0.6;
   for (let i = 0; i < n; i++) { const [z0, a] = prof[i], [z1, b] = prof[i + 1];
+    if (D.shape === 'gable' && roof !== 'thatch') {      // laid in courses, each lapping the one below, so the roof has an edge to every row and a shadow under it
+      const L = Math.hypot(z1 - z0, b - a), rows = Math.max(3, Math.round(L / 0.42));
+      for (let k = 0; k < rows; k++) { const f0 = k / rows, f1 = (k + 1) / rows, ya = a + (b - a) * f0 + lift, yb = a + (b - a) * f1 + lift, za = z0 + (z1 - z0) * f0, zb = z0 + (z1 - z0) * f1, up = b > a, lap = 0.035;
+        // whichever end of this course is downhill stands proud of the next one
+        const y0 = ya + (up ? lap : 0), y1 = yb + (up ? 0 : lap); P.face(roof, [[-X, y0, za], [-X, y1, zb], [X, y1, zb], [X, y0, za]]);
+        if (up) P.face(roof, [[-X, ya, za], [-X, y0, za], [X, y0, za], [X, ya, za]]); else P.face(roof, [[X, yb, zb], [X, y1, zb], [-X, y1, zb], [-X, yb, zb]]); }
+    } else
     P.face(roof, [[-X, a + lift, z0], [-X, b + lift, z1], [X, b + lift, z1], [X, a + lift, z0]]);                     // the top
     P.face(roof, [[-X, a + lift - t, z0], [X, a + lift - t, z0], [X, b + lift - t, z1], [-X, b + lift - t, z1]]);     // the underside
     for (const sx of [-1, 1]) { const q = sx > 0 ? [[X, a + lift - t, z0], [X, a + lift, z0], [X, b + lift, z1], [X, b + lift - t, z1]] : [[-X, b + lift - t, z1], [-X, b + lift, z1], [-X, a + lift, z0], [-X, a + lift - t, z0]]; P.face(roof, q); }
   }
   for (const s of [-1, 1]) { const x = s * hw, tri = []; for (const [z, yy] of prof) if (Math.abs(z) <= hd + 1e-3) tri.push([x, yy, z]); const ends = [[x, y, -hd], ...tri, [x, y, hd]]; P.face(wall, s > 0 ? ends : ends.slice().reverse()); }
   P.box(hard(trim), 0, y + rise + lift - 0.06, 0, w + 0.5, 0.12, 0.12);
+  if (D.shape === 'gable' && t < 0.3) {
+    const ee = prof[0][1] + lift, tr = hard(trim), step = 0.62, nr = Math.floor((w + 0.2) / step);
+    for (const s of [-1, 1]) {
+      for (let i = 0; i <= nr; i++) P.box(tr, -w / 2 - 0.1 + i * step, ee - 0.2, s * (hd + over * 0.5), 0.07, 0.11, over + 0.02);      // rafter ends under the eaves
+      P.box('metal', 0, ee - 0.14, s * (Z + 0.04), 2 * X, 0.09, 0.11); P.box(tr, 0, ee - 0.2, s * Z, 2 * X, 0.16, 0.03);               // fascia and gutter
+      for (const q of [-1, 1]) { const b0 = [q * X, prof[0][1] + lift + 0.015, s * Z], b1 = [q * X, y + rise + lift + 0.015, 0], th = 0.17, inn = -q * th;   // barge boards up each gable
+        P.face(tr, q * s > 0 ? [b0, [b0[0], b0[1] - 0.17, b0[2]], [b1[0], b1[1] - 0.17, b1[2]], b1] : [b1, [b1[0], b1[1] - 0.17, b1[2]], [b0[0], b0[1] - 0.17, b0[2]], b0]); }
+    }
+  }
   return y + rise + lift;
 }
 const hard = m => m === 'rubber' ? 'metal' : m;
@@ -70,12 +92,23 @@ function outside(P, D, plan) {
   const { w, d, h, floors, storey, wall, base, trim } = D, hw = w / 2, hd = d / 2, dr = plan.doors[plan.entrance], doorX = dr.x - hw, dw = dr.width, dh = dr.height, tr = hard(trim);
   P.box(base, 0, -5.4, 0, w + 0.2, 5.38, d + 0.2);       // the footing, its top just under the floor
   const top = roofOf(P, D);
+  // A wall stands on something and ends at something: a base course (broken at the door), corner boards, pipes off the gutters to the ground.
+  { const bt = 0.42, front = [[-hw - 0.05, doorX - dw / 2 - 0.1], [doorX + dw / 2 + 0.1, hw + 0.05]]; for (const [a, b] of front) if (b - a > 0.05) P.box(base, (a + b) / 2, 0, -hd - 0.025, b - a, bt, 0.05);
+    P.box(base, 0, 0, hd + 0.025, w + 0.1, bt, 0.05); for (const s of [-1, 1]) P.box(base, s * (hw + 0.025), 0, 0, 0.05, bt, d); P.box(tr, 0, bt, hd + 0.03, w + 0.08, 0.04, 0.03); for (const s of [-1, 1]) P.box(tr, s * (hw + 0.03), bt, 0, 0.03, 0.04, d);
+    if (!D.corner) for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.box(tr, sx * (hw + 0.01), 0, sz * (hd + 0.01), 0.1, h, 0.1);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) if (D.shape !== 'vault' && (sz > 0 || Math.abs(sx * (hw - 0.22) - doorX) > dw / 2 + 0.4)) { const x = sx * (hw - 0.22), z = sz * (hd + 0.07); P.box('metal', x, 0.05, z, 0.09, h - 0.05, 0.09); for (let yy = 0.9; yy < h - 0.2; yy += 1.6) P.box('metal', x, yy, z - sz * 0.03, 0.12, 0.03, 0.08); }
+    // by the door: a lamp, a meter and its conduit up the wall, a post box
+    const lx = doorX - dw / 2 - 0.34; P.box('metal', lx, dh * 0.84, -hd - 0.08, 0.05, 0.05, 0.14); P.box('lampwarm', lx, dh * 0.84 - 0.16, -hd - 0.14, 0.1, 0.2, 0.1); P.box('metal', lx, dh * 0.84 + 0.04, -hd - 0.14, 0.14, 0.02, 0.14);
+    const mx = doorX + dw / 2 + 0.5; if (mx + 0.25 < hw) { P.box('metal', mx, 1.05, -hd - 0.05, 0.34, 0.46, 0.1); P.box('rubber', mx, 1.2, -hd - 0.1, 0.2, 0.16, 0.01); P.box('metal', mx, 1.51, -hd - 0.03, 0.03, Math.max(0.2, Math.min(h, storey) - 1.6), 0.03); P.box('tint', mx, 0.72, -hd - 0.06, 0.28, 0.2, 0.12); }
+    // round the back: a vent stack, a condenser on brackets, a tap
+    P.box('metal', hw * 0.42, Math.min(h, storey) * 0.34, hd + 0.2, 0.7, 0.55, 0.32); P.box('rubber', hw * 0.42, Math.min(h, storey) * 0.34 + 0.08, hd + 0.37, 0.42, 0.4, 0.01); for (const s of [-0.28, 0.28]) P.box('metal', hw * 0.42 + s, Math.min(h, storey) * 0.34 - 0.05, hd + 0.2, 0.03, 0.05, 0.36);
+    P.box('metal', -hw * 0.35, 0.6, hd + 0.06, 0.06, 0.06, 0.1); }
   for (const s of [-1, 1]) P.box(tr, doorX + s * (dw / 2 + 0.05), 0, -hd - 0.04, 0.1, dh + 0.05, 0.1);
   P.box(tr, doorX, dh, -hd - 0.04, dw + 0.25, 0.1, 0.12);
   if (D.porch) { P.box(tr, doorX, Math.min(2.7, storey - 0.1), -hd - 0.65, dw + 1, 0.09, 1.4); for (const s of [-1, 1]) P.box(tr, doorX + s * (dw / 2 + 0.4), -1.5, -hd - 1.2, 0.09, Math.min(2.7, storey - 0.1) + 1.5, 0.09); }
   for (let k = 1; k < floors; k++) if (D.band) { for (const s of [-1, 1]) { P.box(tr, 0, k * storey - 0.05, s * (hd + 0.02), w + 0.08, 0.1, 0.04); P.box(tr, s * (hw + 0.02), k * storey - 0.05, 0, 0.04, 0.1, d + 0.08); } }
   if (D.corner) for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.box(tr, sx * hw, 0, sz * hd, 0.14, h, 0.14);
-  if (D.chimney) { const m = wall === 'brick' || wall === 'render' ? 'brick' : wall === 'rock' || wall === 'plank' ? 'rock' : 'metal', x = D.chimneyAt * w; P.box(m, x, h, d * 0.12, 0.55, top - h + 0.8, 0.55); P.box('limestone', x, top + 0.8, d * 0.12, 0.65, 0.1, 0.65); }
+  if (D.chimney) { const m = wall === 'brick' || wall === 'render' ? 'brick' : wall === 'rock' || wall === 'plank' ? 'rock' : 'metal', x = D.chimneyAt * w; P.box(m, x, h, d * 0.12, 0.55, top - h + 0.8, 0.55); P.box('limestone', x, top + 0.8, d * 0.12, 0.65, 0.1, 0.65); roundBox(P, 'brick', x - 0.1, top + 0.9, d * 0.12, 0.09, 0.07, 0.34, 8); roundBox(P, 'brick', x + 0.12, top + 0.9, d * 0.12, 0.09, 0.07, 0.28, 8); }
   // what makes it this kind of building
   if (D.awning) { const aw = Math.min(w - 0.6, dw + 5.5); for (let i = 0; i < 6; i++) P.face(i % 2 ? 'paint' : 'tint', [[-aw / 2 + i * aw / 6, 2.55, -hd - 1.25], [-aw / 2 + (i + 1) * aw / 6, 2.55, -hd - 1.25], [-aw / 2 + (i + 1) * aw / 6, 3.05, -hd - 0.02], [-aw / 2 + i * aw / 6, 3.05, -hd - 0.02]].reverse()); }
   if (D.fascia) { const y = Math.min(dh + 0.3, storey - 0.75); P.box('tint', doorX, y, -hd - 0.06, Math.min(w - 1, dw + 3.4), 0.55, 0.1); P.box(tr, doorX, y - 0.05, -hd - 0.07, Math.min(w - 1, dw + 3.4) + 0.1, 0.05, 0.12); }

@@ -4,14 +4,14 @@
 // from the same texture array as the ground, projected from three sides, with moss where the land is damp.
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { rockTile, TILE, VARIANTS } from '../gen/rocks.js';
+import { rockTile, ledgeTile, TILE, VARIANTS } from '../gen/rocks.js';
 import { hashInts, hashStr } from '../core/hash.js';
 import { Simplex2 } from '../core/noise.js';
 import { groundTextures, GROUND_LAYERS } from './materials.js';
 import { landTones } from '../gen/land.js';
 
 const LAYER = { plain: 'rock', sandstone: 'sandstone', basalt: 'basalt', granite: 'granite', pale: 'pale' };
-const NEAR_SMALL = 110, NEAR_BIG = 420, FAR = 1500;
+const NEAR_SMALL = 110, NEAR_BIG = 420, FAR = 1500, LEDGE = 170;
 
 function rockGeometry(seed, shape, rock, detail) {
   const r = k => hashInts(seed, [k]) / 4294967296, N = new Simplex2([seed, seed ^ 0x77]);
@@ -74,18 +74,19 @@ function rockMaterial(layerName) {
   return m;
 }
 
+const UP = new THREE.Vector3(0, 1, 0);
 export class RockView {
   constructor(planet) {
     this.planet = planet; this.group = new THREE.Group(); this.group.name = 'rocks';
-    this.ok = !!groundTextures(); this.sets = new Map(); this.mats = {}; this.tiles = new Map(); this.queue = []; this.at = null; this.last = 0;
+    this.ok = !!groundTextures(); this.sets = new Map(); this.mats = {}; this.tiles = new Map(); this.ledgeTiles = new Map(); this.queue = []; this.at = null; this.last = 0;
     const seed = hashStr(planet.universeSeed[1] ^ 0x60ccc, planet.address?.key || 'p'), t = landTones(planet);
     this.seed = seed;
     this.colour = { plain: planet.climate.rock.map(v => v * 1.5), sandstone: t.sandstone.map(v => v * 1.15), basalt: [0.2, 0.19, 0.19], granite: [0.62, 0.59, 0.56], pale: [0.92, 0.88, 0.8] };
-    this._m = new THREE.Matrix4(); this._c = new THREE.Color(); this._p = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._e = new THREE.Euler();
+    this._m = new THREE.Matrix4(); this._c = new THREE.Color(); this._p = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._e = new THREE.Euler(); this._n = new THREE.Vector3(); this._q2 = new THREE.Quaternion();
   }
   set(rock, shape, v, hi) {
-    const k = rock + shape + v + (hi ? 'h' : 'l'); let S = this.sets.get(k); if (S) return S;
-    const geo = rockGeometry(hashInts(this.seed, [hashStr(5, rock + shape), v]), shape, rock, hi ? 9 : 3);
+    const k = rock + shape + v + (hi === 2 ? 'm' : hi ? 'h' : 'l'); let S = this.sets.get(k); if (S) return S;
+    const geo = rockGeometry(hashInts(this.seed, [hashStr(5, rock + shape), v]), shape, rock, hi === 2 ? 5 : hi ? 9 : 3);
     const mat = this.mats[rock] || (this.mats[rock] = rockMaterial(LAYER[rock]));
     S = { geo, mat, list: [], im: null, hi }; this.sets.set(k, S);
     return S;
@@ -116,6 +117,10 @@ export class RockView {
         this.set(q.rock, q.shape, q.v, d < (big ? 300 : 45)).list.push(q);
       }
     }
+    // the rock standing out of the steep ground around you
+    { const R = Math.ceil(LEDGE / TILE), ti = Math.floor(x / TILE), tj = Math.floor(z / TILE), t0 = performance.now();
+      for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) { const key = (ti + a) + ',' + (tj + b); let L = this.ledgeTiles.get(key); if (!L) { if (performance.now() - t0 > 6) { this.pending = true; continue; } L = ledgeTile(this.planet, ti + a, tj + b); this.ledgeTiles.set(key, L); if (this.ledgeTiles.size > 80) this.ledgeTiles.delete(this.ledgeTiles.keys().next().value); }
+        for (const q of L) { const d = Math.hypot(q.x - x, q.z - z); if (d < LEDGE) this.set(q.rock, q.shape, q.v, d < 70 ? 2 : false).list.push(q); } } }
     for (const S of this.sets.values()) {
       const n = S.list.length;
       if (!S.im || S.im.instanceMatrix.count < n) {
@@ -127,9 +132,11 @@ export class RockView {
         this.group.add(S.im);
       }
       S.list.forEach((q, i) => {
-        this._e.set(q.tilt, q.rot, q.tilt * 0.6); this._q.setFromEuler(this._e); this._p.set(q.x, q.y, q.z); this._s.set(q.size, q.tall, q.size * (0.75 + 0.4 * q.tint));
+        if (q.gx !== undefined) {      // a ledge: long across the slope, leaning back into it
+          this._n.set(-q.gx * 0.9, 1, -q.gz * 0.9).normalize(); this._q.setFromUnitVectors(UP, this._n).multiply(this._q2.setFromAxisAngle(UP, q.across)); this._p.set(q.x, q.y, q.z); this._s.set(q.size, q.tall, q.deep);
+        } else { this._e.set(q.tilt, q.rot, q.tilt * 0.6); this._q.setFromEuler(this._e); this._p.set(q.x, q.y, q.z); this._s.set(q.size, q.tall, q.size * (0.75 + 0.4 * q.tint)); }
         S.im.setMatrixAt(i, this._m.compose(this._p, this._q, this._s));
-        const col = this.colour[q.rock], k = 0.82 + 0.34 * q.tint; S.im.setColorAt(i, this._c.setRGB(col[0] * k, col[1] * k, col[2] * k));
+        const col = this.colour[q.rock], k = (0.82 + 0.34 * q.tint) * (q.gx !== undefined ? 0.78 : 1); S.im.setColorAt(i, this._c.setRGB(col[0] * k, col[1] * k, col[2] * k));
         S.moss.setX(i, q.moss);
       });
       S.im.count = n; S.im.instanceMatrix.needsUpdate = true; S.im.instanceColor.needsUpdate = true; S.moss.needsUpdate = true;

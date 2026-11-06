@@ -118,6 +118,16 @@ try {
       await ev(`(() => { const O = ORBIS; O.setFlightForTest(window.__f); O.ctrl.mode = 'pilot'; return 1; })()`);
     }
   }
+  if (want('town')) {
+    await load('hour=' + (process.env.HOUR || 16));
+    const walk = (x, z, yaw, pitch = 0.05, dist = 6) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
+    // the next town along the road: built of designed buildings, not the home city
+    const end = await ev(`(() => { const W = __Rs[0], a = W.pts[W.pts.length - 1]; return a; })()`);
+    const B = await ev(`(() => { const T = ORBIS.currentTown, s = ORBIS.homeS; const L = s?.buildings || []; const hs = ORBIS.homeS; const cx = b => [hs.cx + b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, hs.cz + b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2]; return { town: Object.keys(T || {}).slice(0, 14), n: L.length, list: L.slice(0, 120).map(b => [...cx(b), Math.atan2(b.ez[0], b.ez[1]), b.type, b.d]) }; })()`);
+    console.log('   town', JSON.stringify(B.town), B.n, JSON.stringify(B.list.slice(0, 2)));
+    const seen = {}; let k = 0;
+    for (const [x, z, yaw, type, d] of B.list) { if (seen[type] || x == null) continue; seen[type] = 1; const a = yaw + 0.55, D = d / 2 + 11, px = x - Math.sin(a) * D, pz = z - Math.cos(a) * D; await hold(5000, () => walk(px, pz, a, 0.02, 3)); await shot('town-' + type); if (++k >= 5) break; }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);

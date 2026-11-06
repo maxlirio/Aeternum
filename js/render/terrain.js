@@ -52,6 +52,10 @@ function terrainMaterial(planet) {
       varying vec3 vRock; uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;
       // a tile without its repeat: which of eight shifted copies you see drifts across the ground, so no two stretches of it line up
+      vec3 hash33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+      // Rock breaks along planes: long bedding seams, and joints across each bed at uneven spacing, some of them not running through. Not cells.
+      // → x: metres to the nearest break, y: 0 if that's a bed seam 1 if a joint, z: which side of it, w: unused. id: which block.
+      vec3 rockBreaks(vec2 q, float H, out vec3 id) { float tv = q.y / H, iv = floor(tv), fv = tv - iv; vec3 hr = hash33(vec3(iv, H * 3.1, 11.0)); float L = H * (1.5 + 3.4 * hr.x), tu = q.x / L + hr.y * 9.0, iu = floor(tu), fu = tu - iu; float dv = min(fv, 1.0 - fv) * H, du = min(fu, 1.0 - fu) * L, side = fu < 0.5 ? iu : iu + 1.0; if (hash33(vec3(iv, side, H)).x < 0.38) du = 9.0; id = vec3(iv, du > 8.0 ? side : iu, H); bool bed = dv < du; return vec3(min(dv, du), bed ? 0.0 : 1.0, bed ? (fv < 0.5 ? -1.0 : 1.0) : (fu < 0.5 ? -1.0 : 1.0)); }
       vec3 anyTile(float layer, vec2 uv, vec2 dx, vec2 dy) {
         float l = texture2D(tNoise, uv * 0.019).b * 16.0, ia = floor(l), f = l - ia;
         vec2 oa = sin(vec2(3.0, 7.0) * ia), ob = sin(vec2(3.0, 7.0) * (ia + 1.0));
@@ -62,7 +66,7 @@ function terrainMaterial(planet) {
       .replace('#include <normalmap_pars_fragment>', 'uniform vec2 normalScale;')
       .replace('#include <map_fragment>', `
       // from high up the streamed land dissolves into the planet's picture underneath, not stopping at a hard edge
-      if (uFar.z > 0.0) { float hd = sqrt(max(dot(vViewPosition, vViewPosition) - uFar.z * uFar.z, 0.0)); if (smoothstep(uFar.x, uFar.y, hd) > fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard; }
+      if (uFar.z > 0.0) { float hd = sqrt(max(dot(vViewPosition, vViewPosition) - uFar.z * uFar.z, 0.0)); diffuseColor.a *= 1.0 - smoothstep(uFar.x, uFar.y, hd); if (diffuseColor.a < 0.004) discard; }
       vec3 wn = normalize(vWN);
       float W[16] = float[16](vS0.x, vS0.y, vS0.z, vS0.w, vS1.x, vS1.y, vS1.z, vS1.w, vS2.x, vS2.y, vS2.z, vS2.w, vR.x, vR.y, vR.z, vR.w);
       float rockW = vS2.w + vR.x + vR.y + vR.z + vR.w;
@@ -100,12 +104,12 @@ function terrainMaterial(planet) {
           detail += w * lay;
           if (near > 0.0) nAcc += w * layN;
         } else {          // rock: only its grain comes from the tile, read small; the fractures are drawn below
-          vec3 c = vec3(0.0); t *= 0.2;
+          vec3 c = vec3(0.0); t *= 0.7;
           if (bw.x > 0.02) c += bw.x * anyTile(fi, sd / t, dSx / t, dSy / t);
           if (bw.y > 0.02) c += bw.y * anyTile(fi, top / t, dTx / t, dTy / t);
           if (bw.z > 0.02) c += bw.z * anyTile(fi, fr / t, dFx / t, dFy / t);
-          detail += w * mix(vec3(1.0), c / uMean[i], 1.0 - smoothstep(10.0, 110.0, vViewPosition.z));
-          if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * mix(vec3(0.5, 0.5, 1.0), textureGrad(tGN, q, qx * 2.2 / t, qy * 2.2 / t).xyz, 0.4); }   // (kept weak and soft: at a low sun a strong one sparkles)
+          detail += w * mix(vec3(1.0), c / uMean[i], 0.38 * (1.0 - smoothstep(10.0, 110.0, vViewPosition.z)));
+          if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * mix(vec3(0.5, 0.5, 1.0), textureGrad(tGN, q * vec3(0.37, 0.37, 1.0), qx * 0.8 / t, qy * 0.8 / t).xyz, 0.22); }   // (kept weak and soft: at a low sun a strong one sparkles)
         }
       }
       detail *= 1.0 - 0.4 * clamp(-markD, 0.0, 1.0);        // (little sky reaches the bottom of a hollow)
@@ -132,6 +136,26 @@ function terrainMaterial(planet) {
         float fr1 = bw.x * texture2D(tNoise, vec2(vWP.z, vWP.y) / 37.0).g + bw.z * texture2D(tNoise, vec2(vWP.x, vWP.y) / 37.0).g + bw.y * texture2D(tNoise, top / 37.0).g;
         float fr2 = bw.x * texture2D(tNoise, R1 * vec2(vWP.z, vWP.y) / 11.0).g + bw.z * texture2D(tNoise, R1 * vec2(vWP.x, vWP.y) / 11.0).g + bw.y * texture2D(tNoise, R1 * top / 11.0).g;
         diffuseColor.rgb *= 1.0 - rocky * (0.3 * smoothstep(0.74, 0.92, fr1) + 0.22 * smoothstep(0.76, 0.94, fr2));
+      }
+      // Close up, what the rock is: beds and joints, each block its own tone, tilted its own way, its edges worn over into the break.
+      vec3 blockN = vec3(0.0); float blockK = 0.0;
+      if (rockW > 0.02 && vViewPosition.z < 110.0) {
+        float axis = max(bw.x, max(bw.y, bw.z)), k1 = (1.0 - smoothstep(60.0, 110.0, vViewPosition.z)) * clamp(rockW * 1.6, 0.0, 1.0) * smoothstep(0.6, 0.86, axis), k2 = (1.0 - smoothstep(14.0, 32.0, vViewPosition.z)) * k1;
+        bool flat_ = bw.y > 0.55; vec2 q0 = flat_ ? R1 * top : (bw.x > bw.z ? vec2(vWP.z, vWP.y) : vec2(vWP.x, vWP.y));
+        // the planes wander, tilt a little along the country, and never rule a line
+        q0.y += 0.09 * q0.x * (m1 - 0.5) + 2.6 * (m3 - 0.5);
+        vec2 q = q0 + 0.8 * (texture2D(tNoise, q0 / 9.1).rb - 0.5) + 0.1 * (texture2D(tNoise, q0 / 2.3).br - 0.5);
+        vec3 idA, idB; vec3 A = rockBreaks(q, 1.7, idA), B = rockBreaks(R1 * q * 0.97 + 13.0, 0.52, idB); vec3 h1 = hash33(idA), h2 = hash33(idB);
+        float rag = 0.012 + 0.05 * texture2D(tNoise, q / 0.8).g;         // a break is wider here, tighter there
+        float crack1 = 1.0 - smoothstep(rag * 0.5, rag + 0.03, A.x), lip1 = 1.0 - smoothstep(0.02, 0.26, A.x), crack2 = (1.0 - smoothstep(0.006, 0.04, B.x)) * smoothstep(0.42, 0.62, h1.z);
+        diffuseColor.rgb *= mix(vec3(1.0), (0.84 + 0.32 * h1.x) * mix(vec3(1.0), vec3(1.07, 1.0, 0.93), h1.y), k1);
+        diffuseColor.rgb *= 1.0 - k1 * crack1 * 0.86; diffuseColor.rgb *= 1.0 - k1 * lip1 * 0.18; diffuseColor.rgb *= 1.0 - k2 * crack2 * 0.5;
+        // the world direction of each set of breaks
+        vec3 dirV = flat_ ? vec3(R1[0][1], 0.0, R1[1][1]) : vec3(0.0, 1.0, 0.0), dirU = flat_ ? vec3(R1[0][0], 0.0, R1[1][0]) : (bw.x > bw.z ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
+        vec3 side1 = (A.y < 0.5 ? dirV : dirU) * A.z;
+        // the rough of a broken face, too small for the mesh
+        vec2 g1 = texture2D(tSlopes, q / 3.1).rg - 0.5, g2 = texture2D(tSlopes, R2 * q / 0.83).rg - 0.5;
+        blockN = (h1 - 0.5) * vec3(0.5, 0.26, 0.5) * k1 - side1 * lip1 * 0.6 * k1 + (dirU * (g1.x * 0.5 + g2.x * 0.42 * (1.0 - smoothstep(9.0, 26.0, vViewPosition.z))) + dirV * (g1.y * 0.5 + g2.y * 0.42 * (1.0 - smoothstep(9.0, 26.0, vViewPosition.z)))) * k1; blockK = k1;
       }
       // a forest from a distance is its canopy, not its floor
       if (W[2] > 0.01) diffuseColor.rgb = mix(diffuseColor.rgb, uCanopy * (0.75 + 0.5 * detail.g * 0.5), W[2] * smoothstep(70.0, 230.0, vViewPosition.z));
@@ -176,6 +200,7 @@ function terrainMaterial(planet) {
         if (bw.x > 0.04) { vec2 g = BUMP(vec2(vWP.z, vWP.y)); dn += bw.x * vec3(0.0, g.y, g.x); }
         if (bw.z > 0.04) { vec2 g = BUMP(vec2(vWP.x, vWP.y)); dn += bw.z * vec3(g.x, g.y, 0.0); }
         normal = normalize(normal - normalMatrix * dn * hs * 2.0 * 40.0);
+        if (blockK > 0.0) normal = normalize(normal - normalMatrix * blockN);
       }`);
   };
   return m;

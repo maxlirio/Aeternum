@@ -112,7 +112,7 @@ export class GrassField {
       rs.push(ok ? Math.max(0, 1 - Math.abs(s.h - (P.seaLevel + 0.25)) / 0.9) : 0);                 // reeds: in the margin of the water
       ls.push(ok && !(s.wet > 0.12) && s.h > P.seaLevel + 0.6 ? 0.25 + 0.75 * Math.max(0, Math.min(1, (moisture(P, x, z) - 0.12) / 0.6)) : 0);      // 0: no grass; else lushness (dry ground still has dry grass)
       const Lr = ok ? landTraits(P, x, z).grass : 0, Lg = Lr < 0.04 ? 0 : Lr; gs.push(Lg);
-      os.push(ok ? Math.max(0, Math.min(1, (ny - 0.66) / 0.2)) * Math.min(1, Lg * 1.4) : 0);                                 // too steep thins it out
+      os.push(ok ? Math.max(0, Math.min(1, (ny - 0.8) / 0.12)) * Math.min(1, Lg * 1.4) : 0);                                 // too steep thins it out
     }
     const at = (arr, u, v) => { const fu = u * G, fv = v * G, a = Math.min(G - 1, Math.floor(fu)), b = Math.min(G - 1, Math.floor(fv)), du = fu - a, dv = fv - b, k = b * (G + 1) + a;
       return arr[k] * (1 - du) * (1 - dv) + arr[k + 1] * du * (1 - dv) + arr[k + G + 1] * (1 - du) * dv + arr[k + G + 2] * du * dv; };

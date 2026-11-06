@@ -209,6 +209,18 @@ function exteriorDetail(mb, M, plan, b, rng, facade, fcol) {
     onFace(side, a - 0.1, a + 0.1, 0.05, 0.2, 0.05, 0.3, M.darkTrim);                         // shoe
     for (let y = 1.6; y < top; y += 2.2) onFace(side, a - 0.09, a + 0.09, y, y + 0.05, 0.0, 0.19, M.trim);   // brackets
   };
+  // A wall is built, not one sheet: a plinth broken at the doors, the floors' slab edges showing, pilasters on the bays between openings, a head and a sill to each window, a cornice and a coping.
+  const clad = !(b.type === 'workshop' || b.type === 'hangar');
+  for (const wl of plan.walls) {
+    if (!wl.exterior) continue;
+    const S = span(wl.side), ops = wl.openings || [], free = (a, r) => !ops.some(o => a + r > o.a - 0.08 && a - r < o.b + 0.08);
+    if (wl.k === 0) { let a0 = -0.03; for (const o of ops.filter(o => o.kind !== 'window').sort((p, q) => p.a - q.a)) { if (o.a - a0 > 0.1) onFace(wl.side, a0, o.a, 0, 0.5, 0, 0.05, M.concrete, [0.62, 0.62, 0.6]); a0 = o.b; } if (S + 0.03 - a0 > 0.1) onFace(wl.side, a0, S + 0.03, 0, 0.5, 0, 0.05, M.concrete, [0.62, 0.62, 0.6]); }
+    const nb = Math.max(1, Math.round(S / (clad ? 3.6 : 4.8)));
+    for (let i = 1; i < nb; i++) { const a = i * S / nb; if (free(a, clad ? 0.16 : 0.12)) onFace(wl.side, a - (clad ? 0.16 : 0.1), a + (clad ? 0.16 : 0.1), wl.y0 + (wl.k === 0 ? 0.5 : 0), wl.y0 + H, 0, clad ? 0.08 : 0.14, clad ? facade : M.metal, clad ? fcol.map(v => v * 0.9) : [0.5, 0.52, 0.54]); }
+    if (wl.k > 0) onFace(wl.side, -0.03, S + 0.03, wl.y0 - 0.16, wl.y0 + 0.08, 0, 0.1, M.concrete, [0.68, 0.68, 0.66]);
+    for (const o of ops) if (o.kind === 'window') { const y0 = wl.y0 + o.y0, y1 = wl.y0 + o.y1; onFace(wl.side, o.a - 0.12, o.b + 0.12, y1, y1 + 0.13, 0, 0.06, M.concrete, [0.72, 0.72, 0.7]); onFace(wl.side, o.a - 0.09, o.b + 0.09, y0 - 0.07, y0, 0, 0.11, M.concrete, [0.72, 0.72, 0.7]); }
+  }
+  for (const side of ['front', 'back', 'left', 'right']) { const S = span(side); onFace(side, -0.12, S + 0.12, top - 0.1, top + 0.06, 0, 0.17, M.trim); if (b.type !== 'house') onFace(side, -0.12, S + 0.12, top + 0.34, top + 0.42, -0.04, 0.12, M.metal, [0.6, 0.62, 0.64]); }
   pipe('front', 0.3); pipe('back', w - 0.3);
   if (w > 14) { pipe('front', w - 0.3); pipe('back', 0.3); }
   const home = b.type === 'hab' || b.type === 'house';

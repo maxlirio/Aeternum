@@ -1572,7 +1572,7 @@ async function start(fresh) {
     const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - planet.seaLevel);
-    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(13000, 15700, alt > 2500 ? alt : 0); inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 30000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(13000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 30000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
       globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
       const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
