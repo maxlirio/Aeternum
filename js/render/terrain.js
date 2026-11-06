@@ -45,11 +45,11 @@ function terrainMaterial(planet) {
   m.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkOn: terrainMarks.on, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uFar: terrainFar, tNoise: { value: terrainNoise() }, tSlopes: { value: noiseSlopes }, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-      attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR;
+      attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR; attribute vec3 aRock; varying vec3 vRock;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRock = aRock; vWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
+      varying vec3 vRock; uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;
       // a tile without its repeat: which of eight shifted copies you see drifts across the ground, so no two stretches of it line up
       vec3 anyTile(float layer, vec2 uv, vec2 dx, vec2 dy) {
@@ -151,6 +151,11 @@ function terrainMaterial(planet) {
       float foam = smoothstep(0.18, 0.0, abs(above - wash + 0.15)) * smoothstep(0.35, 0.75, textureGrad(tG, vec3(vWP.xz / 1.7 + uTime * 0.01, 1.0), dTx / 1.7, dTy / 1.7).r * 1.6);
       diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.92, 0.95, 0.96), foam * 0.85);
       `)
+      // Rock and soil are different stuff with an edge between them, not a blend: past a threshold that wanders with the ground, you're on one or the other.
+      .replace('#include <color_fragment>', `
+      { float rv = clamp(rockW, 0.0, 1.0), rn = 0.6 * m4 + 0.4 * texture2D(tNoise, R1 * sh / 13.0).r, crisp = smoothstep(0.42, 0.53, rv + (rn - 0.5) * 0.62);
+        vec3 rockC = vRock * vRock, soilC = clamp((vColor - rv * rockC) / max(1.0 - rv, 0.2), 0.0, 1.0);
+        diffuseColor.rgb *= (rv < 0.004 ? vColor : mix(soilC, rockC, crisp)); }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
       // peat holds water: its dark hollows shine. Salt and snow are a little smoother than soil.
       if (W[6] > 0.02) { float dk = 1.0 - smoothstep(0.18, 0.42, textureGrad(tG, vec3(top / uTile[6], 6.0), dTx / uTile[6], dTy / uTile[6]).r / uMean[6].r); roughnessFactor = mix(roughnessFactor, mix(0.92, 0.1, dk), W[6]); }
@@ -259,6 +264,7 @@ export class TerrainStreamer {
     g.setAttribute('normal', new THREE.BufferAttribute(d.nrm, 3));
     g.setAttribute('color', new THREE.BufferAttribute(d.col, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
+    g.setAttribute('aRock', new THREE.BufferAttribute(d.rock, 3, true));
     g.setIndex(new THREE.BufferAttribute(d.idx, 1));
     const ib = new THREE.InterleavedBuffer(d.ground, 16);
     g.setAttribute('aS0', new THREE.InterleavedBufferAttribute(ib, 4, 0, true)); g.setAttribute('aS1', new THREE.InterleavedBufferAttribute(ib, 4, 4, true)); g.setAttribute('aS2', new THREE.InterleavedBufferAttribute(ib, 4, 8, true)); g.setAttribute('aR', new THREE.InterleavedBufferAttribute(ib, 4, 12, true));

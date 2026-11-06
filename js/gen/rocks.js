@@ -6,6 +6,8 @@ import { surfaceAt } from './surface.js';
 import { gridTraits, mainLand } from './land.js';
 import { settlementNear } from './settlement.js';
 import { sitesNear, tracksNear, onTrack } from './outposts.js';
+import { slopeHere } from './terrain.js';
+import { landRill } from './land.js';
 
 export const TILE = 96, SHAPES = ['boulder', 'slab', 'pillar'], VARIANTS = 4;
 const cache = new Map();
@@ -30,7 +32,9 @@ export function rockTile(planet, ti, tj) {
   for (let b = 0; b < 12; b++) for (let a = 0; a < 12; a++) {
     const i = ti * 12 + a, j = tj * 12 + b, r = k => hashInts(seed, [i, j, k]) / 4294967296, x = (i + r(1)) * 8, z = (j + r(2)) * 8, st = LT(x, z, 'stones');
     const clump = 0.35 + 1.3 * (0.5 + 0.5 * Math.sin(x / 19 + Math.sin(z / 13) * 2.2) * Math.cos(z / 17 + Math.sin(x / 11) * 2));   // boulders lie in spreads
-    if (r(3) > 0.14 * st * clump) continue;
+    // what's fallen off the rock above lies on and below every steep slope
+    const fallen = (a % 2 === 0 && b % 2 === 0) ? Math.max(0, Math.min(1, (slopeHere(planet, x, z) - 0.3) / 0.5)) * landRill(planet, x, z) * 0.5 : 0;
+    if (r(3) > 0.14 * st * clump + fallen) continue;
     put(x, z, r(4) < 0.2 ? 'slab' : 'boulder', 0.28 + 2.1 * r(5) ** 2.6, r);
   }
   // house-sized rocks and pillars, 32 m apart at most

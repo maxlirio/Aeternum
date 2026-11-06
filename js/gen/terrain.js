@@ -103,8 +103,15 @@ export function weathering(planet, x, z, h, step = 0) {
     const W = OCT[o][0], keep = step > 0 ? smoothstep(3.5 * step, 9 * step, W) : 1; if (keep <= 0) break;
     out += OCT[o][1] * e * stripes(planet, x + W * (0.3 * m1 + 0.14 * m3), z + W * (0.3 * m2 + 0.14 * m4), o).v * keep;
   }
+  // Bare rock doesn't slope smoothly: it stands in beds of harder and softer stone, each a ledge. Near enough to hold them, the steep ground is stepped, and what lies on the shelves is the soil and scree.
+  if (step <= 6 && slope > 0.48) {
+    const rk = smoothstep(0.48, 1, slope) * fall * (step > 0 ? smoothstep(6, 2.5, step) : 1), y = h + out, wob = 6 * N.n(x / 90 + 4.1, z / 90 - 2.7) + 2 * N.n(x / 23 - 6.3, z / 23 + 1.9), H = 5.2, t = (y + wob) / H, i = Math.floor(t), f = t - i;
+    out += ((i + smoothstep(0.55, 0.92, f)) * H - (y + wob)) * rk * 0.85;
+  }
   return out + bumps;
 }
+// How steep the land lies here, over a few tens of metres (cheap: read from the same lattice).
+export function slopeHere(planet, x, z) { fallAt(planet, x, z); return Math.sqrt(GX * GX + GZ * GZ); }
 
 const wet = (planet, x, z) => clamp(0.5 + 0.5 * planet.noise.moist.fbm(x / 5000, z / 5000, 4) + planet.climate.moistBias, 0, 1);
 export function moisture(planet, x, z) {

@@ -28,13 +28,28 @@ def _beam(p, a, b, w, mat='rubber'):
     bm.faces.new(rs[0][::-1]); bm.faces.new(rs[1])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
 
+def _shell(p, x, y, pts, mat, inward=False, n=32):
+    """An open surface of revolution about the z axis through (z, r) points: no caps, so you can see into it."""
+    bm = bmesh.new(); rings = [[bm.verts.new(P(x + r_ * math.cos(2 * math.pi * k / n), y + r_ * math.sin(2 * math.pi * k / n), z)) for k in range(n)] for (z, r_) in pts]
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(n): bm.faces.new([r0[k], r0[(k + 1) % n], r1[(k + 1) % n], r1[k]])
+    for f in bm.faces:
+        f.normal_update(); c = f.calc_center_median()
+        pz = -c.y; radial = mathutils.Vector(P(x, y, pz)); out = (c - radial).dot(f.normal) > 0
+        if out == inward: f.normal_flip()
+    merge(p, bm, mat)
+
 def _bell(p, x, y, z0, z1, r, ribs=12):
-    """A rocket bell, flaring aft, with a lit throat and cooling ribs."""
-    add_cyl(p, x, y, z0, z1, r, 'metal', 28, axis='z', r2=r * 0.55)
-    add_cyl(p, x, y, z0 - 0.03, z0 + 0.03, r * 0.82, 'glow', 28, axis='z')
+    """A rocket nozzle, built as one: open at the aft end (z0). Outer skin, a dark inside you can look down, a hot throat deep in it, a lip, cooling ribs, and the mount that joins it to the ship."""
+    L = z1 - z0
+    _shell(p, x, y, [(z0, r), (z0 + L * 0.3, r * 0.84), (z0 + L * 0.7, r * 0.62), (z1, r * 0.5)], 'metal')
+    _shell(p, x, y, [(z0 + 0.01, r * 0.97), (z0 + L * 0.3, r * 0.8), (z0 + L * 0.6, r * 0.56), (z0 + L * 0.72, r * 0.42)], 'rubber', inward=True)
+    add_cyl(p, x, y, z0 + L * 0.72, z0 + L * 0.74, r * 0.42, 'glow', 24, axis='z')
+    _shell(p, x, y, [(z0 - 0.02 - r * 0.02, r * 0.96), (z0 - 0.02 - r * 0.02, r * 1.03), (z0 + r * 0.06, r * 1.03), (z0 + r * 0.06, r * 0.96)], 'paint', n=32)
     for k in range(ribs):
-        a = 2 * math.pi * k / ribs; c, s = math.cos(a), math.sin(a)
-        _beam(p, (x + c * r * 1.01, y + s * r * 1.01, z0 + 0.02), (x + c * r * 0.57, y + s * r * 0.57, z1), 0.035, 'paint')
+        a = 2 * math.pi * k / ribs; c, s_ = math.cos(a), math.sin(a)
+        _beam(p, (x + c * r * 1.0, y + s_ * r * 1.0, z0 + r * 0.05), (x + c * r * 0.52, y + s_ * r * 0.52, z1), max(0.025, r * 0.035), 'rubber')
+    add_cyl(p, x, y, z1 - 0.02, z1 + r * 0.5, r * 0.46, 'paint', 18, axis='z', r2=r * 0.62)
 
 def _nacelle(p, x, y, z0, z1, r, mat='tint'):
     """An engine pod: intake lip forward, bell aft, service bands round it."""
@@ -71,8 +86,102 @@ def _radiator(p, x0, y, z0, x1, z1, tilt=0.0):
     for k in range(n + 1):
         z = z0 + (z1 - z0) * k / max(1, n); _beam(p, (x0, y + 0.04, z), (x1, y + tilt + 0.04, z), 0.03, 'metal')
 
+def _stern(p, sec, xc, dx0, dx1, deck, dtop, z):
+    """The aft bulkhead: a smooth plate from the hull's edge in to the door's frame."""
+    _, cy_, ry, _, rx, e = sec; n = 72; dy = (deck + dtop) / 2; hw_, hh_ = (dx1 - dx0) / 2, (dtop - deck) / 2; dx = (dx0 + dx1) / 2; bm = bmesh.new(); O = []; I = []
+    for k in range(n):
+        a = 2 * math.pi * k / n; ox = xc + rx * math.copysign(abs(math.cos(a)) ** (2 / e), math.cos(a)); oy = cy_ + ry * math.copysign(abs(math.sin(a)) ** (2 / e), math.sin(a))
+        u, v = ox - dx, oy - dy; t = min(hw_ / abs(u) if abs(u) > 1e-6 else 1e9, hh_ / abs(v) if abs(v) > 1e-6 else 1e9)
+        O.append(bm.verts.new(P(ox, oy, z))); I.append(bm.verts.new(P(dx + u * t, dy + v * t, z)))
+    for k in range(n): bm.faces.new([O[k], O[(k + 1) % n], I[(k + 1) % n], I[k]])
+    for f in bm.faces:
+        f.normal_update()
+        if f.normal.dot(mathutils.Vector(P(0, 0, -1)) - mathutils.Vector(P(0, 0, 0))) < 0: f.normal_flip()
+    merge(p, bm, 'tint')
+
+def sleek_ship(p, lay, r, C, v):
+    """Fast, clean, nothing bolted on: a long smooth body, blended wings with a real aerofoil, engines faired in, glass that follows the curve. A bright trim line, lights in the tips."""
+    hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; W, D = lay['W'], lay['D']; a, b = (hx1 - hx0) / 2 + 0.06, (ceil + 0.14 - (deck - 0.24)) / 2; cy = (ceil + 0.14 + deck - 0.24) / 2; nose = D - 0.1; NL = nose - hz1; L = hz1 - hz0
+    e = 2.0; hw = max(a * 1.34, W / 2 * {'arrow': 0.24, 'manta': 0.62, 'wraith': 0.27}[C]); hh = _fit_ry(a, b, hw, e) * 1.04
+    # a long nose drawn to a point, the waist held over the cabin, the tail run out to the engines
+    ns = [(0.16, -0.02, 0.92, 0.9), (0.38, -0.07, 0.66, 0.62), (0.62, -0.14, 0.38, 0.34), (0.84, -0.2, 0.15, 0.13), (1, -0.24, 0.015, 0.015)] if C != 'manta' else [(0.2, -0.02, 0.86, 0.9), (0.5, -0.08, 0.5, 0.62), (0.8, -0.14, 0.2, 0.3), (1, -0.17, 0.02, 0.05)]
+    secs = [(hz0, cy, hh * 0.97, xc, hw * 0.97, e), (hz0 + 0.6, cy, hh, xc, hw, e), (hz1 + 0.3, cy, hh, xc, hw, e)]
+    for (t, dy, ry, rx) in ns: secs.append((hz1 + 0.3 + (NL - 0.3) * t, cy + dy * hh, max(0.012, hh * ry), xc, max(0.012, hw * rx), e))
+    hull_loft(p, secs, 'tint', (xc, cy, (hz0 + hz1) / 2))
+    def sect(z):
+        for (za, *A), (zb, *B) in zip(secs, secs[1:]):
+            if za <= z <= zb: t = (z - za) / max(1e-6, zb - za); return [q + (w - q) * t for q, w in zip(A, B)]
+        return list(secs[0 if z < secs[0][0] else -1][1:])
+    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
+    _stern(p, secs[0], xc, dx0, dx1, deck, dtop, hz0 - 0.05)
+    # the tail boat-tails away over the door
+    top0 = cy + hh * 0.98; under = dtop + 0.1; ry_t = max(0.2, (top0 - under) / 2); cy_t = under + ry_t; tail = 0.05; tw = hw * 0.84
+    add_loft(p, [(hz0 + 0.9, cy_t, ry_t, xc, hw * 0.9, 2), (hz0, cy_t, ry_t * 0.98, xc, tw, 2), (hz0 * 0.5, cy_t + ry_t * 0.1, ry_t * 0.72, xc, tw * 0.8, 2), (tail + 0.25, cy_t + ry_t * 0.18, ry_t * 0.42, xc, tw * 0.5, 2), (tail, cy_t + ry_t * 0.18, ry_t * 0.32, xc, tw * 0.42, 2)], 'tint', 40, axis='z')
+    ey = cy_t + ry_t * 0.18
+    # one long canopy, following the curve of the nose
+    span0, span1 = 0.0, 0.5 if C != 'manta' else 0.42; bm = bmesh.new(); rows = []
+    for k_ in range(7):
+        z = hz1 - 0.1 + (NL * span1 + 0.1) * k_ / 6; c_, ry, cx, rx, ee = sect(z); wrap = 28 + 12 * k_ / 6
+        rows.append([bm.verts.new(P(cx + (rx + 0.05) * math.copysign(abs(math.cos(q)) ** (2 / ee), math.cos(q)), c_ + (ry + 0.05) * math.copysign(abs(math.sin(q)) ** (2 / ee), math.sin(q)), z)) for q in (math.radians(wrap + (180 - 2 * wrap) * j / 14) for j in range(15))])
+    for r0, r1 in zip(rows, rows[1:]):
+        for j in range(14): bm.faces.new([r0[j], r0[j + 1], r1[j + 1], r1[j]])
+    for f in bm.faces:
+        f.normal_update()
+        if (f.calc_center_median() - mathutils.Vector(P(xc, cy, (hz0 + hz1) / 2))).dot(f.normal) < 0: f.normal_flip()
+    merge(p, bm, 'visor')
+    # wings: a true section, swept, thinning to the tip
+    span = W / 2
+    def wing(s, root_z, chord0, chord1, sweep, y0, dih, tip_x, thick, mat='tint', n=7):
+        st = []
+        for k_ in range(n):
+            t = k_ / (n - 1); x_ = xc + s * (hw * 0.55 + (tip_x - hw * 0.55) * t); ch = chord0 + (chord1 - chord0) * t ** 0.8; cz_ = root_z - sweep * t ** 1.2
+            st.append((x_, y0 + dih * t, max(0.02, thick * (1 - 0.86 * t)), cz_, ch / 2, 2))
+        if s < 0: st = st[::-1]
+        add_loft(p, st, mat, 20, axis='x')
+    if C == 'arrow':
+        for s in (-1, 1):
+            wing(s, hz0 + L * 0.5, L * 1.3, 0.6, L * 0.95, cy - hh * 0.2, -0.12, span, 0.2)
+            wing(s, hz1 + NL * 0.32, NL * 0.3, 0.1, NL * 0.2, cy - hh * 0.1, 0, hw * 1.5, 0.05)        # canard
+            add_cyl(p, xc + s * span, cy - hh * 0.2 - 0.12, hz0 + L * 0.5 - L * 0.95 - 0.3, hz0 + L * 0.5 - L * 0.95, 0.04, 'navgreen' if s > 0 else 'navred', 8, axis='z')
+            _fin(p, [(xc + s * hw * 0.4, cy + hh * 0.7, 0.4), (xc + s * hw * 0.4, cy + hh * 0.7, hz0 + L * 0.3), (xc + s * (hw * 0.4 + 0.9), cy + hh + 1.6, 0.5), (xc + s * (hw * 0.4 + 0.9), cy + hh + 1.7, -0.1)], 'tint', 0.05)
+            # engines faired into the body either side of the tail
+            ex = xc + s * tw * 0.5; add_loft(p, [(hz0 + L * 0.7, ey, 0.05, ex, 0.05, 2), (hz0 + L * 0.2, ey, 0.34, ex, 0.4, 2), (0.6, ey, 0.42, ex, 0.46, 2), (0.14, ey, 0.38, ex, 0.42, 2)], 'tint', 20, axis='z'); _bell(p, ex, ey, -0.32, 0.16, 0.38, 10)
+    elif C == 'manta':
+        # the whole thing is the wing: lifting body running out to tips, engines as a slot of bells in the trailing edge
+        for s in (-1, 1):
+            wing(s, hz0 + L * 0.4, D * 0.72, 0.5, D * 0.3, cy - hh * 0.28, 0.5, span, hh * 0.5, n=9)
+            _fin(p, [(xc + s * span * 0.98, cy, hz0 - 2.2), (xc + s * span * 0.98, cy, hz0 - 0.2), (xc + s * span * 1.02, cy + 1.2, hz0 - 2.0), (xc + s * span * 1.02, cy + 1.2, hz0 - 2.6)], 'tint', 0.04)
+            add_box(p, xc + s * span - 0.04, cy + 1.2, hz0 - 2.6, xc + s * span + 0.04, cy + 1.26, hz0 - 2.1, 'navgreen' if s > 0 else 'navred', 0)
+            for k_ in range(3):
+                bx_ = xc + s * (hw * 0.55 + k_ * 0.82); by_ = ey - 0.1 - k_ * 0.03
+                add_loft(p, [(hz0 + L * 0.5, by_, 0.04, bx_, 0.04, 2), (hz0 + 0.2, by_, 0.34, bx_, 0.38, 2), (0.5, by_, 0.36, bx_, 0.4, 2), (0.42, by_, 0.33, bx_, 0.37, 2)], 'tint', 18, axis='z')    # each engine in its own fairing, run forward into the wing
+                _bell(p, bx_, by_, -0.1, 0.45, 0.33, 8)
+    else:  # wraith: long, curved, gull wings and twin booms
+        for s in (-1, 1):
+            wing(s, hz0 + L * 0.75, L * 0.95, 0.7, L * 0.25, cy + hh * 0.05, 0.75, span * 0.55, 0.22, n=5)
+            wing(s, hz0 + L * 0.38 + (-L * 0.25), L * 0.72, 0.4, L * 0.72, cy + hh * 0.05 + 0.75, -0.95, span, 0.14, n=5) if False else None
+            bx = xc + s * span * 0.55; by = cy + hh * 0.05 + 0.75
+            add_loft(p, [(-0.1, by, 0.34, bx, 0.34, 2), (hz0 * 0.5, by, 0.44, bx, 0.44, 2), (hz0 + L * 0.5, by, 0.4, bx, 0.4, 2), (hz1 + NL * 0.25, by - 0.05, 0.16, bx, 0.16, 2), (hz1 + NL * 0.42, by - 0.08, 0.02, bx, 0.02, 2)], 'tint', 20, axis='z')
+            _bell(p, bx, by, -0.55, -0.05, 0.34, 10)
+            wing(s, hz0 + L * 0.1, L * 0.5, 0.25, L * 0.4, by, -0.7, span, 0.09, n=5) if False else None
+            st = [(bx, by, 0.09, hz0 + L * 0.15, L * 0.28, 2), (bx + s * (span - span * 0.55) * 0.5, by - 0.28, 0.05, hz0 - L * 0.08, L * 0.16, 2), (xc + s * span, by - 0.62, 0.015, hz0 - L * 0.28, 0.2, 2)]
+            add_loft(p, st if s > 0 else st[::-1], 'tint', 14, axis='x')
+            _fin(p, [(bx, by + 0.2, 0.1), (bx, by + 0.2, 1.8), (bx + s * 0.1, by + 1.5, 0.2), (bx + s * 0.1, by + 1.55, -0.4)], 'tint', 0.05)
+            add_cyl(p, bx + s * 0.1, by + 1.58, -0.4, -0.1, 0.03, 'navgreen' if s > 0 else 'navred', 6, axis='z')
+    # a thin bright line down each flank, the only ornament
+    for s in (-1, 1):
+        rows = []
+        for k_ in range(10):
+            z = hz0 + 0.4 + (hz1 + NL * 0.6 - hz0 - 0.4) * k_ / 9; c_, ry, cx, rx, ee = sect(z); q = 1 - min(1, abs(0.1)) ** ee; xx = rx * q ** (1 / ee) * 1.008; yy = c_ + ry * 0.1
+            rows.append((xc + s * xx, yy, z))
+        for (u, w) in zip(rows, rows[1:]): _beam(p, u, w, 0.035, 'glow' if C == 'wraith' else 'metal')
+    for (gx, gz) in ((xc - hw * 0.55, hz0 + 1), (xc + hw * 0.55, hz0 + 1), (xc, hz1 + NL * 0.2)):
+        add_cyl(p, gx, gz, 0.25, cy - hh * 0.6, 0.05, 'metal', 8); add_cyl(p, gx, gz, 0, 0.25, 0.16, 'rubber', 12)
+    ship_interior(p, lay)
+
 def designed_ship(p, L_, D_, H_, r, model):
     lay = SHIPCAT[model]; C = lay['cls']; v = int(model[-1])
+    if C in ('arrow', 'manta', 'wraith'): return sleek_ship(p, lay, r, C, v)
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; W, D = lay['W'], lay['D']
     a, b = (hx1 - hx0) / 2 + 0.06, (ceil + 0.14 - (deck - 0.24)) / 2; cy = (ceil + 0.14 + deck - 0.24) / 2
     nose = D - 0.2; NL = nose - hz1; L = hz1 - hz0
@@ -99,14 +208,7 @@ def designed_ship(p, L_, D_, H_, r, model):
         c_, ry, cx, rx, ee = sect(z); q = 1 - min(1, abs((y - c_) / ry)) ** ee; return rx * max(q, 0) ** (1 / ee)
     # the stern, round the ramp door
     d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
-    c0, ry0, _, rx0, e0 = secs[0][1:]
-    for k in range(48):
-        y0_, y1_ = c0 - ry0 + k * 2 * ry0 / 48, c0 - ry0 + (k + 1) * 2 * ry0 / 48; ym = (y0_ + y1_) / 2
-        q = 1 - abs((ym - c0) / ry0) ** e0
-        if q <= 0: continue
-        w_ = rx0 * q ** (1 / e0)
-        if deck < ym < dtop: add_box(p, xc - w_, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'heatshield', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'heatshield', 0)
-        else: add_box(p, xc - w_, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'heatshield', 0)
+    _stern(p, secs[0], xc, dx0, dx1, deck, dtop, hz0 - 0.05)
     for x in (dx0 - 0.16, dx1 + 0.06): add_box(p, x, deck, hz0 - 0.16, x + 0.1, dtop, hz0 - 0.1, 'hazard', 0.005)
     # The tail: the roof runs on aft over the door and narrows, so the ship ends in an engine deck, not a wall. The door sits under it.
     top0 = cy + hh * 0.98; under = dtop + 0.14; ry_t = max(0.25, (top0 - under) / 2); cy_t = under + ry_t; tail = max(0.25, 0.25 * hz0)

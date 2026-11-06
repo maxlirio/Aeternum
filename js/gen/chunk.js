@@ -20,7 +20,7 @@ export function chunkData(planet, lod, i, j) {
   }
   const skirt = 4 * CHUNK_RES;
   const vcount = n * n + skirt;
-  const pos = new Float32Array(vcount * 3), nrm = new Float32Array(vcount * 3), col = new Float32Array(vcount * 3), uv = new Float32Array(vcount * 2), ground = new Uint8Array(vcount * 16), W = new Float32Array(16), GC = [0, 0, 0];
+  const pos = new Float32Array(vcount * 3), nrm = new Float32Array(vcount * 3), col = new Float32Array(vcount * 3), uv = new Float32Array(vcount * 2), ground = new Uint8Array(vcount * 16), W = new Float32Array(16), GC = [0, 0, 0, 0, 0, 0], rockCol = new Uint8Array(vcount * 3);
   const lay = (k, t) => { if (t <= 0) return; if (t > 1) t = 1; for (let q = 0; q < 16; q++) W[q] *= 1 - t; W[k] += t; };
   const far0 = Math.abs(x0) > 300000 || Math.abs(z0) > 300000, cold = far0 ? smoothstep(0.85, 1.3, Math.abs(geoAt(planet, x0, z0).lat)) : 0, C = cold ? { ...planet.climate, treeline: planet.climate.treeline * (1 - cold) - 200 * cold } : planet.climate, sea = planet.seaLevel, worked = lod <= 3 ? workedNear(planet, x0 + size / 2, z0 + size / 2, size * 0.75) : [];   // (ground people have worn away shows in the land's own colour, from any distance)
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
@@ -55,11 +55,12 @@ export function chunkData(planet, lod, i, j) {
     { const wild = (1 - TOWN[k]) * (1 - ROAD[k]) * (1 - WET[k]) * smoothstep(sea + 1, sea + 8, h);
       if (wild > 0) {
         const scree = wild * rocky * smoothstep(0.02, 0.22, hollowW) * smoothstep(0.98, 0.65, nyWide) * (1 - snow) * 0.75; if (scree > 0) lay(S.gravel, scree);    // what's come down the gully lies in it
-        const sh = 1 + wild * (hollow > 0 ? -0.36 * hollow : -0.22 * hollow); c = [c[0] * sh, c[1] * sh, c[2] * sh];
+        const sh = 1 + wild * (hollow > 0 ? -0.36 * hollow : -0.22 * hollow); c = [c[0] * sh, c[1] * sh, c[2] * sh]; GC[3] *= sh; GC[4] *= sh; GC[5] *= sh;
       } }
     if (worked.length) { const w = workedGround(worked, wx, wz); if (w === 2) { c = [0.65, 0.39, 0.27]; lay(S.dirt, 1); } else if (w === 1) { c = [0.2, 0.13, 0.09]; lay(S.dirt, 1); } }
     for (let q = 0; q < 16; q++) ground[v * 16 + q] = W[q] * 255 + 0.5;
     col[v * 3] = c[0]; col[v * 3 + 1] = c[1]; col[v * 3 + 2] = c[2];
+    for (let q = 0; q < 3; q++) rockCol[v * 3 + q] = Math.min(255, Math.sqrt(Math.max(0, GC[3 + q])) * 255);
   }
   // skirts: duplicate edge vertices, dropped, to hide cracks against coarser neighbours
   const drop = step * 1.5 + 2;
@@ -70,7 +71,7 @@ export function chunkData(planet, lod, i, j) {
   for (let b = CHUNK_RES; b > 0; b--) edge.push(b * n);                      // a = 0 col
   edge.forEach((src, e) => {
     const v = n * n + e;
-    for (let c = 0; c < 3; c++) { pos[v * 3 + c] = pos[src * 3 + c]; nrm[v * 3 + c] = nrm[src * 3 + c]; col[v * 3 + c] = col[src * 3 + c]; }
+    for (let c = 0; c < 3; c++) { pos[v * 3 + c] = pos[src * 3 + c]; nrm[v * 3 + c] = nrm[src * 3 + c]; col[v * 3 + c] = col[src * 3 + c]; rockCol[v * 3 + c] = rockCol[src * 3 + c]; }
     ground.copyWithin(v * 16, src * 16, src * 16 + 16);
     pos[v * 3 + 1] -= drop; uv[v * 2] = uv[src * 2]; uv[v * 2 + 1] = uv[src * 2 + 1];
   });
@@ -88,7 +89,7 @@ export function chunkData(planet, lod, i, j) {
   }
   let minH = Infinity, maxH = -Infinity;
   for (let v = 0; v < n * n; v++) { const h = pos[v * 3 + 1]; if (h < minH) minH = h; if (h > maxH) maxH = h; }
-  return { lod, i, j, x0, z0, size, pos, nrm, col, uv, idx, minH, maxH, ground };
+  return { lod, i, j, x0, z0, size, pos, nrm, col, rock: rockCol, uv, idx, minH, maxH, ground };
 }
 
 const mix3 = (a, b, t) => { t = t < 0 ? 0 : t > 1 ? 1 : t; return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; };

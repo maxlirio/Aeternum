@@ -14,6 +14,7 @@ import { weather } from './grime.js';
 const FABRICS = [[0.32, 0.38, 0.46], [0.5, 0.33, 0.28], [0.42, 0.44, 0.40], [0.62, 0.58, 0.50], [0.22, 0.24, 0.27], [0.55, 0.5, 0.42], [0.3, 0.34, 0.3]];
 const PAINTS = [[0.55, 0.58, 0.6], [0.7, 0.7, 0.66], [0.42, 0.5, 0.55], [0.86, 0.86, 0.84], [0.36, 0.42, 0.36], [0.6, 0.4, 0.28], [0.3, 0.32, 0.36]];
 const SOFT = new Set(['bed', 'sofa', 'chair', 'armchair']);       // their 'tint' parts are upholstery; everyone else's are paint
+const SLEEK = /^(arrow|manta|wraith)/;       // paint like a car's: deep gloss over nothing
 const HULLED = { has: k => /^(shuttle|freighter|courier|patrol|yacht|speeder|runabout|racer|dropship|gunship|explorer|hauler|ferry|miner|interceptor|striker|needle|warden|shade)/.test(k) };   // panelled hull plating      // their 'tint' parts are panelled hull plating
 export const PAINTS_VEHICLE = [[0.62, 0.12, 0.08], [0.85, 0.55, 0.12], [0.16, 0.3, 0.52], [0.82, 0.82, 0.8], [0.12, 0.13, 0.14], [0.25, 0.42, 0.3], [0.5, 0.52, 0.56]];
 
@@ -51,6 +52,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
     else if (name.startsWith('neon')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { neonpink: 0xff2a8a, neoncyan: 0x29e0ff, neonamber: 0xffa21a, neongreen: 0x3aff6a, neonviolet: 0xa64bff }[name] || 0xffffff, emissiveIntensity: 2.4, roughness: 0.3 });
     else if (name === 'glass') m = new THREE.MeshStandardMaterial({ color: 0xb8d0dc, roughness: 0.04, metalness: 0, transparent: true, opacity: 0.2, depthWrite: false });
     else {
+      if (name === 'tint-sleek') { m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.22, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.06 }); mats.set(name, m); m.name = name; return m; }
       const base = name.replace(/^tint-/, ''), tile = index[base]?.tile || 1, orm = tex(base + '_orm.webp', false, tile);
       m = new THREE.MeshStandardMaterial({ map: tex(base + '_c.webp', true, tile), normalMap: tex(base + '_n.webp', false, tile),
         roughnessMap: orm, metalnessMap: orm, aoMap: orm, roughness: 1, metalness: 1, aoMapIntensity: 0.8 });
@@ -72,7 +74,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8) {
   });
   for (const v of variants.values()) for (const p of v.prims) {
     p.tinted = p.slot === 'tint';
-    p.material = surface(p.tinted ? 'tint-' + (/^(tent|tarp|leanto|stall_)/.test(v.kind) ? 'canvas' : SOFT.has(v.kind) ? 'fabric' : HULLED.has(v.kind) ? 'hull' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
+    p.material = surface(p.tinted ? 'tint-' + (/^(tent|tarp|leanto|stall_)/.test(v.kind) ? 'canvas' : SOFT.has(v.kind) ? 'fabric' : SLEEK.test(v.kind) ? 'sleek' : HULLED.has(v.kind) ? 'hull' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
   }
   // the city kit: kind → parts (geometry in the kit's own frame, its surface, tinted?)
   const cityKit = new Map(), worn = new Map();

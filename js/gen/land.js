@@ -225,5 +225,6 @@ export function groundAt(planet, x, z, ny, moist, w, col, C = planet.climate) {
     for (const k in K.soft) { const q = lw * (1 - rocky) * K.soft[k], t = T[k]; w[S[k]] += q; s0 += q * t[0]; g0 += q * t[1]; b0 += q * t[2]; }
   }
   col[0] = s0 + r0; col[1] = g0 + g1; col[2] = b0 + b1;
+  if (col.length > 3) { const k = rockTot > 0.002 ? 1 / rockTot : 0; col[3] = rockTot > 0.002 ? r0 * k : R.plain[0]; col[4] = rockTot > 0.002 ? g1 * k : R.plain[1]; col[5] = rockTot > 0.002 ? b1 * k : R.plain[2]; }     // (the rock's own colour, for where it stands clear of the soil)
   return rockTot;
 }

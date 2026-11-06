@@ -27,6 +27,9 @@ const CLASSES = [
   { cls: 'explorer', name: 'Explorer', W: [9, 10], D: [24, 27], iw: 0.5, nl: 0.2, rooms: [['lab', 'galley', 'crew'], ['lab', 'crew']], fields: true, price: [36000, 52000], flight: [190, 18, 0.9] },
   { cls: 'hauler', name: 'Hauler', W: [13, 14], D: [26, 30], iw: 0.42, nl: 0.16, rooms: [['hold', 'hold', 'crew'], ['hold', 'galley', 'crew']], fields: true, price: [34000, 48000], flight: [120, 10, 0.6] },
   { cls: 'ferry', name: 'Ferry', W: [11, 12], D: [24, 27], iw: 0.46, nl: 0.22, rooms: [['seats', 'seats'], ['seats', 'galley']], fields: true, price: [30000, 40000], flight: [170, 14, 0.8] },
+  { cls: 'arrow', name: 'Arrow', W: [10, 11], D: [18, 20], iw: 0.27, nl: 0.46, rooms: [[]], fields: false, price: [24000, 34000], flight: [320, 36, 1.5] },
+  { cls: 'manta', name: 'Manta', W: [11.4, 12], D: [15, 16.5], iw: 0.34, nl: 0.34, rooms: [['lounge']], fields: false, price: [40000, 56000], flight: [260, 28, 1.2] },
+  { cls: 'wraith', name: 'Wraith', W: [11, 12], D: [18, 20.5], iw: 0.26, nl: 0.42, rooms: [[]], fields: false, price: [46000, 62000], flight: [340, 38, 1.5] },
   { cls: 'miner', name: 'Mining barge', W: [12, 13], D: [20, 23], iw: 0.44, nl: 0.18, rooms: [['workshop', 'crew'], ['workshop', 'hold', 'crew']], fields: true, price: [26000, 36000], flight: [110, 9, 0.6] },
 ];
 const LOOK = {

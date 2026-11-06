@@ -5,6 +5,7 @@ const W = 34, deck = 1, ceiling = 8.2, hx0 = 2, hx1 = W - 2, xc = W / 2, hz0 = 1
 const ROOMS = {
   bastion: [['hold', 'hangar', 46], ['storage', 'armoury', 12], ['bedroom', 'crew bunks', 12], ['kitchen', 'mess deck', 12], ['office', 'combat bridge', 12]],
   meridian: [['hold', 'arrivals bay', 40], ['lobby', 'promenade', 16], ['living', 'lounge', 12], ['bedroom', 'staterooms', 12], ['office', 'purser\'s bridge', 12]],
+  halcyon: [['hold', 'tender bay', 40], ['lobby', 'grand stair', 16], ['living', 'salon', 14], ['bedroom', 'staterooms', 12], ['office', 'bridge', 12]],
   longshore: [['hold', 'lighter bay', 44], ['shopfloor-workshop', 'machine shop', 14], ['kitchen', 'galley', 10], ['bedroom', 'bunks', 10], ['office', 'wheelhouse', 12]],
 };
 const FURN = {
@@ -25,7 +26,7 @@ function decks(name, rooms) {
     const z0 = zs[i], z1 = zs[i + 1]; roomList.push({ i, purpose, label, rect: [hx0, z0, hx1, z1] });
     if (i > 0) { doors.push({ id: doors.length, kind: 'hatch', rooms: [i - 1, i], x: xc, z: z0, width: 2.4 }); partitions.push({ z: z0, door: doors.length - 1 }); }
     // down both walls, in order, and for a big room down its middle too; the aisle stays clear
-    const F = FURN[purpose]; let n = 0; const cap = props.length + (i === 0 ? 10 : 12);
+    const F = FURN[purpose]; let n = 0; const cap = props.length + (i === 0 ? 8 : 9);
     for (const side of [0, 1]) { let at = z0 + (i === 0 ? 14 : 0.6); while (true) { const [kind, len, dep, h] = F[n++ % F.length]; if (at + len > z1 - 0.5 || props.length >= cap) break; const p = side === 0 ? { x0: r1(hx0 + 0.1), x1: r1(hx0 + 0.1 + dep), face: 1 } : { x0: r1(hx1 - 0.1 - dep), x1: r1(hx1 - 0.1), face: 3 }; props.push({ kind, room: i, ...p, z0: r1(at), z1: r1(at + len), h, ...(['bed', 'sofa', 'armchair', 'chair'].includes(kind) ? { soft: true } : {}) }); if (kind === 'bed') seats.push({ kind: 'sleep', pose: 'lie', prop: props.length - 1, x: r1((p.x0 + p.x1) / 2), z: r1(at + len / 2), facing: 0, top: 0.55 }); at += len + 0.6; } }
     if (i > 0 && (purpose === 'bedroom' || purpose === 'kitchen' || purpose === 'lobby')) for (const x of [xc - 7, xc + 5]) { let at = z0 + 1; while (true) { const [kind, len, dep, h] = F[n++ % F.length]; if (at + len > z1 - 0.8 || props.length >= cap) break; props.push({ kind, room: i, x0: r1(x), x1: r1(x + dep), z0: r1(at), z1: r1(at + len), h, face: 1 }); if (kind === 'bed') seats.push({ kind: 'sleep', pose: 'lie', prop: props.length - 1, x: r1(x + dep / 2), z: r1(at + len / 2), facing: 0, top: 0.55 }); at += len + 1.0; } }
   });

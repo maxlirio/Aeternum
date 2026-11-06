@@ -11,9 +11,11 @@ export const FLEET = {
     solid: [[-40, -40, -660, 40, 40, 340], [-75, -75, 340, 75, 75, 650], [-360, -3, -520, 360, 3, -264], [16, -30, -319, 112, -23, -281], [16, -8, -319, 112, -1, -281]], rings: [[-170, 210, 18], [60, 240, 18], [260, 190, 18]] },
   longshore: { name: 'Longshore', length: 1570, dock: [58, -18, 650],
     solid: [[-85, -85, -640, 85, 85, 600], [-42, -40, 600, 42, 40, 631], [-42, -40, 669, 42, 40, 742], [-42, -7, 631, 42, 40, 669], [-42, -40, 631, 42, -25, 669], [-42, -20, 631, -38, -7, 669], [-65, -65, -830, 65, 65, -640]] },
+  halcyon: { name: 'Halcyon', length: 840, sleek: true, dock: [73, -8, -60],
+    solid: [[-72, -48, -432, 72, 48, -79], [-72, -48, -41, 72, 48, 404], [-72, -48, -79, 72, -12, -41], [-72, 3, -79, 72, 48, -41], [-72, -12, -79, -24, 3, -41], [-335, -16, -372, 335, -2, -60]] },
 };
-const deckLen = { bastion: 96, meridian: 94, longshore: 92 };
-const SPOTS = { bastion: [2100, 2300, 900], meridian: [-3200, 3900, -1400], longshore: [900, 5200, -5200] };   // east, height above the sea, north of the city
+const deckLen = { bastion: 96, meridian: 94, longshore: 92, halcyon: 94 };
+const SPOTS = { halcyon: [-1300, 2900, 4300], bastion: [2100, 2300, 900], meridian: [-3200, 3900, -1400], longshore: [900, 5200, -5200] };   // east, height above the sea, north of the city
 
 export function fleetOf(planet, S) {
   const seed = hashStr(planet.universeSeed[0], 'fleet');
@@ -21,7 +23,7 @@ export function fleetOf(planet, S) {
     const F = FLEET[model], [dx, h, dz] = SPOTS[model], yaw = ((seed >>> (i * 4)) % 628) / 100, x = S.cx + dx, z = S.cz + dz, y = planet.seaLevel + h;
     const c = Math.cos(yaw), s = Math.sin(yaw), [mx, my, mz] = F.dock, wx = x + mx * c + mz * s, wz = z - mx * s + mz * c, f = Math.atan2(-c, s);   // the decks run inward from the dock's mouth
     const D = deckLen[model];
-    return { model, name: F.name, x, y, z, yaw, colour: i, length: F.length, deckW: 34, deckD: D, ship: { id: `ship:${S.key}:fleet${i}`, model: model + '_decks', name: F.name, at: { c: [wx + Math.sin(f) * D / 2, y + my, wz + Math.cos(f) * D / 2], facing: f }, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } };
+    return { model, name: F.name, x, y, z, yaw, colour: i, length: F.length, sleek: !!F.sleek, deckW: 34, deckD: D, ship: { id: `ship:${S.key}:fleet${i}`, model: model + '_decks', name: F.name, at: { c: [wx + Math.sin(f) * D / 2, y + my, wz + Math.cos(f) * D / 2], facing: f }, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } };
   });
 }
 
