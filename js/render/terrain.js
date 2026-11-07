@@ -108,7 +108,7 @@ function terrainMaterial(planet) {
           if (bw.x > 0.02) c += bw.x * anyTile(fi, sd / t, dSx / t, dSy / t);
           if (bw.y > 0.02) c += bw.y * anyTile(fi, top / t, dTx / t, dTy / t);
           if (bw.z > 0.02) c += bw.z * anyTile(fi, fr / t, dFx / t, dFy / t);
-          detail += w * mix(vec3(1.0), c / uMean[i], 0.38 * (1.0 - smoothstep(10.0, 110.0, vViewPosition.z)));
+          detail += w * mix(vec3(1.0), c / uMean[i], 0.14 * (1.0 - smoothstep(10.0, 110.0, vViewPosition.z)));
           if (near > 0.0) { vec3 q = bw.y > 0.5 ? vec3(top / t, fi) : (bw.x > bw.z ? vec3(sd / t, fi) : vec3(fr / t, fi)); vec2 qx = bw.y > 0.5 ? dTx : (bw.x > bw.z ? dSx : dFx), qy = bw.y > 0.5 ? dTy : (bw.x > bw.z ? dSy : dFy); nAcc += w * mix(vec3(0.5, 0.5, 1.0), textureGrad(tGN, q * vec3(0.37, 0.37, 1.0), qx * 0.8 / t, qy * 0.8 / t).xyz, 0.22); }   // (kept weak and soft: at a low sun a strong one sparkles)
         }
       }
@@ -149,6 +149,7 @@ function terrainMaterial(planet) {
         float rag = 0.012 + 0.05 * texture2D(tNoise, q / 0.8).g;         // a break is wider here, tighter there
         float crack1 = 1.0 - smoothstep(rag * 0.5, rag + 0.03, A.x), lip1 = 1.0 - smoothstep(0.02, 0.26, A.x), crack2 = (1.0 - smoothstep(0.006, 0.04, B.x)) * smoothstep(0.42, 0.62, h1.z);
         diffuseColor.rgb *= mix(vec3(1.0), (0.84 + 0.32 * h1.x) * mix(vec3(1.0), vec3(1.07, 1.0, 0.93), h1.y), k1);
+        { float g0 = texture2D(tNoise, q / 0.61).r, g1 = texture2D(tNoise, R2 * q / 0.17).b, g2_ = texture2D(tNoise, R1 * q / 0.047).r; diffuseColor.rgb *= mix(1.0, 0.72 + 0.34 * g0 + 0.2 * g1 + 0.12 * g2_, k1); if (h1.x > 0.72) diffuseColor.rgb *= mix(vec3(1.0), vec3(0.9, 0.97, 0.78), k1 * smoothstep(0.52, 0.66, g0) * 0.7); }     // mineral grain and patches of lichen, no pebbles
         diffuseColor.rgb *= 1.0 - k1 * crack1 * 0.86; diffuseColor.rgb *= 1.0 - k1 * lip1 * 0.18; diffuseColor.rgb *= 1.0 - k2 * crack2 * 0.5;
         // the world direction of each set of breaks
         vec3 dirV = flat_ ? vec3(R1[0][1], 0.0, R1[1][1]) : vec3(0.0, 1.0, 0.0), dirU = flat_ ? vec3(R1[0][0], 0.0, R1[1][0]) : (bw.x > bw.z ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));

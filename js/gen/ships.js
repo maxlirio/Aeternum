@@ -40,6 +40,7 @@ export function shipPlan(model = 'shuttle') {
     wall(hx0, hz0, hx1, hz0, [opening(0, 'x')], 'back'), wall(hx0, hz1, hx1, hz1, [], 'front'),
     wall(hx0, hz0, hx0, hz1, [], 'left'), wall(hx1, hz0, hx1, hz1, [], 'right'),
     ...L.partitions.map(p => wall(hx0, p.z, hx1, p.z, [opening(p.door, 'x')], 'inner')),
+    ...(L.extra?.walls || []).map(([x0, z0, x1, z1, a, b]) => ({ ...wall(x0, z0, x1, z1, [], 'rail'), y0: a, y1: b, t: 0.08 })),     // (a stair's sides, a balcony's rail)
   ];
   const rooms = L.rooms.map(r => ({ i: r.i, k: 0, purpose: r.purpose, label: r.label, rect: r.rect.slice(), doors: L.doors.filter(d => d.rooms.includes(r.i)).map(d => d.id) }));
   const props = L.props.map(p => ({ kind: p.kind, k: 0, x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1, y: L.deck, h: p.h, face: p.face, room: p.room, ...(p.soft ? { soft: true } : {}) }));
@@ -49,8 +50,8 @@ export function shipPlan(model = 'shuttle') {
   });
   const plan = {
     key: 'ship:' + model, type: 'ship', w: L.W, d: L.D, F: 1, H: L.H, walls, windows: [], units: [],
-    slabs: [{ k: 0, y: L.deck, rects: [L.hull.slice()] }, { k: 0, y: L.ceiling + 0.2, roof: true, rects: [L.hull.slice()] }],
-    ramps: [{ k: 0, x0: L.ramp.x0, x1: L.ramp.x1, z0: L.ramp.z0, z1: L.ramp.z1, y0: 0, y1: L.deck }],
+    slabs: [{ k: 0, y: L.deck, rects: [L.hull.slice()] }, ...(L.extra?.slabs || []).map(q => ({ k: 0, y: q.y, rects: q.rects })), { k: 0, y: L.ceiling + 0.2, roof: true, rects: [L.hull.slice()] }],
+    ramps: [{ k: 0, x0: L.ramp.x0, x1: L.ramp.x1, z0: L.ramp.z0, z1: L.ramp.z1, y0: 0, y1: L.deck }, ...(L.extra?.ramps || []).map(r => ({ k: 0, ...r }))],
     rooms, props, anchors, doors: L.doors.map(d => ({ ...d, k: 0, axis: 'x', height: L.ceiling })), entrance: 0,
     layout: L,
   };

@@ -89,7 +89,7 @@ export class SkySystem {
     const fx = Math.round(focus.x / snap) * snap, fz = Math.round(focus.z / snap) * snap;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.set(fx + lightDir.x * 300, focus.y + lightDir.y * 300, fz + lightDir.z * 300);
-    this.ambient.intensity = 0.05 + 0.55 * (1 - day) + day * (0.2 + 0.25 * THREE.MathUtils.smoothstep(cover, 0.4, 0.95));   // (the open sky lights whatever the sun doesn't reach: shade is never black by day)
+    this.ambient.intensity = 0.05 + 0.55 * (1 - day) + day * (0.2 + 0.25 * THREE.MathUtils.smoothstep(cover, 0.4, 0.95)) + 0.75 * low * day;     // (a low sun lights the whole sky: the shadows are open, not black)   // (the open sky lights whatever the sun doesn't reach: shade is never black by day)
     const space = THREE.MathUtils.smoothstep(alt, 18000, 70000);
     this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), THREE.MathUtils.smoothstep(alt, 32000, 80000));
     this.sky.material.uniforms.uFade.value = 1 - space;
@@ -98,6 +98,7 @@ export class SkySystem {
     // fog: horizon colour by day, deep blue by night
     const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
     fogDay.lerp(new THREE.Color(0.58, 0.6, 0.63), THREE.MathUtils.smoothstep(cover, 0.5, 1.0) * 0.8);   // grey under overcast
+    fogDay.lerp(new THREE.Color(0.42, 0.55, 0.78), THREE.MathUtils.smoothstep(alt, 300, 3000) * 0.72);    // (from up high, haze is the colour of the sky behind it, or far towers glow white against it)
     const fog = new THREE.Color(0.012, 0.016, 0.03).lerp(fogDay, day);
     this.scene.fog.color.copy(fog);
     this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0)) * Math.exp(-Math.max(0, alt) / 7000);

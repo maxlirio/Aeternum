@@ -46,7 +46,7 @@ export class Mayhem {
         ctrl.pos = [q.x + ox, top, q.z + oz]; ctrl.vel[1] = 0; ctrl.grounded = true; ctrl.landed = 0; ctrl.where = { car: R.car }; ctrl.facing += da;
         Object.assign(R, { x: ctrl.pos[0], z: ctrl.pos[2], ox, oz, yaw: a1 });
       }
-    } else if (!ctrl.grounded || ctrl.vel[1] < 0) {       // coming down onto a roof?
+    } else {       // coming down onto a roof? (or set down on one: a car that's moved under you counts as much as one you fell on)
       const y0 = this.lastY ?? ctrl.pos[1];
       for (const v of this.view.nearby) {
         const T = box(v.car), q = this.carNow(v.car, t), top = q.y + T.H, dx = ctrl.pos[0] - q.x, dz = ctrl.pos[2] - q.z;
@@ -158,7 +158,7 @@ export class Mayhem {
       const armed = hooks.armed?.();
       if (armed && d < 35 && (!local || heat > 3)) { o.shot -= dt; if (o.shot <= 0) { o.shot = 0.9 + Math.random() * 0.7; hooks.shoot?.(o, d); } }
       if (d > (armed ? 14 : 1.2)) { const sp = 5.8 * dt, nx = o.pos[0] + dx / d * sp, nz = o.pos[2] + dz / d * sp, [rx, rz] = this.world.resolve(nx, nz, o.pos[1]); o.pos = [rx, this.world.groundAt(rx, rz, o.pos[1] + 0.5).h, rz]; o.moving = true; }
-      else if (!armed && !this.rider && ctrl.grounded) { hooks.caught?.(o, local); break; }
+      else if (!armed && !this.rider && ctrl.grounded && ctrl.mode === 'walk' && Math.abs(ctrl.pos[1] - o.pos[1]) < 2.5) { hooks.caught?.(o, local); break; }     // (arm's reach is in height too: nobody's arrested on a roof from the street)
     }
     if (want === 0 && this.officers.length) this.officers = this.officers.filter(o => Math.hypot(o.pos[0] - ctrl.pos[0], o.pos[2] - ctrl.pos[2]) < 40 && heat > 0.5);
   }

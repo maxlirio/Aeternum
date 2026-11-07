@@ -18,8 +18,8 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage'))
 DO_CITY = 'city' in argv
 DO_ITEMS = 'items' in argv
 DO_COMMON = 'common' in argv
@@ -693,28 +693,23 @@ def draw_twig(kind, seed):
         shade = 0.82 + 0.18 * np.clip(1 - np.abs(v) * 1.2, 0, 1) - 0.25 * (np.abs(v) < 0.06)        # midrib, darker edges
         sub = col[by0:by1, bx0:bx1]; sub[m] = (np.array(c)[None, :] * shade[m][:, None]); a[by0:by1, bx0:bx1][m] = 1
     if kind == 'leaf':
-        # a spray of fine twigs, each with many small leaves: reads as foliage, not as one big leaf
-        stroke(0.5, 0.99, 0.5, 0.08, 0.008, srgb((70, 52, 36)))
-        for tw in range(7):
-            ty = 0.92 - tw * 0.12; side = 1 if tw % 2 else -1
-            ex, ey = 0.5 + side * r.uniform(0.25, 0.42), ty - r.uniform(0.12, 0.22)
-            stroke(0.5, ty, ex, ey, 0.004, srgb((76, 60, 42)))
-            for k in range(11):
-                t = (k + 0.5) / 11; px, py = 0.5 + (ex - 0.5) * t, ty + (ey - ty) * t
-                for sd in (-1, 1):
-                    c = srgb((int(r.uniform(62, 112)), int(r.uniform(100, 150)), int(r.uniform(36, 62))))
-                    ang = math.atan2(ey - ty, ex - 0.5) + sd * r.uniform(0.6, 1.1)
-                    leaf(px, py, ang, r.uniform(0.055, 0.08), r.uniform(0.022, 0.03), c)
-        for k in range(10):                                   # a few at the tip
-            c = srgb((int(r.uniform(62, 112)), int(r.uniform(100, 150)), int(r.uniform(36, 62))))
-            leaf(0.5, 0.1 + k * 0.012, -math.pi / 2 + r.uniform(-0.9, 0.9), r.uniform(0.06, 0.085), 0.026, c)
+        # a clump of foliage as you see it on a tree: twigs under many overlapping leaves, dark within, lit on its edge, ragged where it ends
+        for tw in range(9):
+            ang = tw * 0.7 + r.uniform(-0.2, 0.2); stroke(0.5, 0.96, 0.5 + math.cos(ang) * 0.36, 0.5 + math.sin(ang) * 0.36, 0.006, srgb((66, 50, 34)))
+        # not a disc: several overlapping sprays, so the edge is a broken, leafy outline with sky through it
+        lobes = [(0.5 + math.cos(i * 1.257 + 0.4) * 0.27, 0.5 + math.sin(i * 1.257 + 0.4) * 0.27, r.uniform(0.15, 0.22)) for i in range(5)] + [(0.5, 0.5, 0.2)]
+        for k in range(2600):
+            lx, ly, lr = lobes[k % 6]; q = r.random() ** 0.6 * lr; ang = r.uniform(0, 6.283); cx, cy = lx + math.cos(ang) * q, ly + math.sin(ang) * q; lay = k / 2600; edge = q / lr
+            v = (0.55 + 0.75 * lay) * (0.82 + 0.3 * edge)
+            c = srgb((int(np.clip(r.uniform(58, 104) * v, 0, 255)), int(np.clip(r.uniform(100, 158) * v, 0, 255)), int(np.clip(r.uniform(36, 64) * v, 0, 255))))
+            leaf(cx, cy, r.uniform(0, 6.283), r.uniform(0.024, 0.04), r.uniform(0.01, 0.016), c)
     else:
         stroke(0.02, 0.5, 0.98, 0.5, 0.01, srgb((80, 60, 42)))
         for k in range(14):                                   # side shoots
             x0 = 0.06 + 0.86 * k / 14; ln = 0.32 * (1 - 0.6 * x0)
             for side in (-1, 1): stroke(x0, 0.5, x0 + ln * 0.5, 0.5 + side * ln, 0.006, srgb((80, 62, 44)))
-        for k in range(1800):                                 # needles
-            t = r.random(); x = 0.03 + 0.95 * t; side = r.choice([-1, 1]); spread = 0.36 * (1 - 0.55 * t) * r.random() ** 0.7
+        for k in range(4200):                                 # needles
+            t = r.random(); x = 0.03 + 0.95 * t; side = r.choice([-1, 1]); spread = 0.42 * (1 - 0.6 * t) * r.random() ** 0.55
             y = 0.5 + side * spread; ang = side * r.uniform(0.6, 1.3) - 0.35
             ln = r.uniform(0.025, 0.045)
             c = srgb((int(r.uniform(30, 55)), int(r.uniform(60, 92)), int(r.uniform(36, 52))))
@@ -1982,6 +1977,9 @@ def grow_tree(part, L, D, H, r, sp):
         rr = [sp['radius'] * (1.0 + 2.2 * math.sin(math.pi * min(1, i / 8 * 1.05)) ** 1.5) for i in range(9)]
         tube(part, [V((L / 2, trunk_len * i / 8 * 0.95, D / 2)) for i in range(9)], rr, sp['bark'], 14)
     grow_branch(part, sp, r, V((L / 2, -0.15, D / 2)), V((0, 1, 0)), trunk_len, sp['radius'], sp['levels'], leaves, sp.get('twist', 0.0))
+    for k in range(6):       # roots: the trunk spreads into the ground
+        an = k * 1.047 + r.uniform(-0.3, 0.3); ln = sp['radius'] * r.uniform(1.8, 2.8)
+        tube(part, [V((L / 2, 0.42 * sp['radius'] * 2.2, D / 2)), V((L / 2 + math.cos(an) * ln * 0.45, 0.14, D / 2 + math.sin(an) * ln * 0.45)), V((L / 2 + math.cos(an) * ln, -0.1, D / 2 + math.sin(an) * ln))], [sp['radius'] * 0.7, sp['radius'] * 0.42, sp['radius'] * 0.12], sp['bark'], 7)
     # leaves: cards at the twigs, facing out from the crown's middle
     crown = sum((p for p, _ in leaves), V((0, 0, 0))) / max(1, len(leaves))
     for p_, d_ in leaves:
@@ -1993,16 +1991,16 @@ def grow_tree(part, L, D, H, r, sp):
 TREES = {
     'oak':     dict(trunk=0.45, radius=0.36, levels=3, kids={3: 7, 2: 5, 1: 4}, start={3: 0.45, 2: 0.25, 1: 0.25}, angle={3: 58, 2: 42, 1: 38}, ratio={3: 0.95, 2: 0.6, 1: 0.55},
                    up={3: 0.06, 2: 0.04, 1: 0.03, 0: 0.02}, droop={3: 0, 2: 0.04, 1: 0.06, 0: 0.08}, wiggle=0.16, taper=0.7, child_r=0.62, phi=2.4, sides=10,
-                   bark='bark', card='leafcard', leaf=(1.0, 1.15), per_twig=5),
+                   bark='bark', card='leafcard', leaf=(1.35, 1.35), per_twig=3),
     'birch':   dict(trunk=0.95, radius=0.15, levels=3, kids={3: 9, 2: 3, 1: 2}, start={3: 0.35, 2: 0.3, 1: 0.3}, angle={3: 38, 2: 40, 1: 35}, ratio={3: 0.33, 2: 0.6, 1: 0.6},
                    up={3: 0.05, 2: 0.01, 1: 0.0, 0: 0.0}, droop={3: 0, 2: 0.07, 1: 0.12, 0: 0.15}, wiggle=0.12, taper=0.8, child_r=0.5, phi=2.4, sides=8, cone=True,
-                   bark='birchbark', card='leafcard', leaf=(0.65, 0.8), per_twig=5),
+                   bark='birchbark', card='leafcard', leaf=(0.95, 1.0), per_twig=3),
     'spruce':  dict(trunk=1.0, radius=0.24, levels=2, kids={2: 42, 1: 3}, start={2: 0.1, 1: 0.25}, angle={2: 84, 1: 50}, ratio={2: 0.32, 1: 0.4},
                    up={2: 0.05, 1: 0.0, 0: 0.0}, droop={2: 0, 1: 0.14, 0: 0.16}, wiggle=0.03, taper=0.97, child_r=0.3, phi=2.4, sides=8, cone=True, seg=0.45,
-                   bark='bark', card='needlecard', leaf=(0.75, 0.55), per_twig=3, along_x=True),
-    'pine':    dict(trunk=1.0, radius=0.26, levels=3, kids={3: 9, 2: 3, 1: 3}, start={3: 0.55, 2: 0.4, 1: 0.4}, angle={3: 62, 2: 40, 1: 35}, ratio={3: 0.38, 2: 0.6, 1: 0.55},
+                   bark='bark', card='needlecard', leaf=(0.95, 0.72), per_twig=3, along_x=True),
+    'pine':    dict(trunk=1.0, radius=0.26, levels=3, kids={3: 15, 2: 4, 1: 3}, start={3: 0.42, 2: 0.3, 1: 0.3}, angle={3: 76, 2: 36, 1: 32}, ratio={3: 0.34, 2: 0.62, 1: 0.6}, cone=True,
                    up={3: 0.06, 2: 0.08, 1: 0.1, 0: 0.1}, droop={3: 0, 2: 0, 1: 0, 0: 0}, wiggle=0.12, taper=0.85, child_r=0.5, phi=2.4, sides=10,
-                   bark='bark', card='needlecard', leaf=(1.1, 0.8), per_twig=4, along_x=True),
+                   bark='bark', card='needlecard', leaf=(1.35, 1.0), per_twig=4, along_x=True),
     'parasol': dict(trunk=0.5, radius=0.42, levels=5, fork=True, kids={5: 3, 4: 2, 3: 2, 2: 2, 1: 2}, start={5: 1, 4: 1, 3: 1, 2: 1, 1: 1}, angle={5: 58, 4: 42, 3: 36, 2: 30, 1: 26}, ratio={5: 0.36, 4: 0.75, 3: 0.75, 2: 0.72, 1: 0.7},
                    up={5: 0.0, 4: 0.0, 3: 0.0, 2: 0.0, 1: 0.0, 0: 0.0}, droop={5: 0, 4: 0, 3: 0, 2: 0, 1: 0, 0: 0}, wiggle=0.05, taper=0.4, child_r=0.72, phi=2.4, sides=12,
                    bark='smoothbark', card='frondcard', leaf=(0.9, 1.4), per_twig=9),
@@ -2011,7 +2009,7 @@ TREES = {
                    bark='smoothbark', card='padcard', leaf=(0.9, 1.15), per_twig=5, hang=True),
     'bottle':  dict(trunk=0.6, radius=0.34, levels=2, kids={2: 5, 1: 3}, start={2: 0.9, 1: 0.4}, angle={2: 48, 1: 40}, ratio={2: 0.55, 1: 0.6},
                    up={2: 0.1, 1: 0.05, 0: 0.05}, droop={2: 0, 1: 0, 0: 0}, wiggle=0.12, taper=0.75, child_r=0.45, phi=2.4, sides=10, bottle=True,
-                   bark='bark', card='leafcard', leaf=(0.7, 0.85), per_twig=3),
+                   bark='bark', card='leafcard', leaf=(1.1, 1.15), per_twig=3),
 }
 def tree_builder(name): return lambda p, L, D, H, r: grow_tree(p, L, D, H, random.Random(name), TREES[name])
 
@@ -2135,12 +2133,13 @@ def vehicle_from(v):
             return
         zc = W / 2; belly = 0.38; rr = b.get('round', 3)
         def S(t): return t * L
+        if k in ('car', 'van') and not b.get('open'):
+            _road_body(p, L, W, H, b, k == 'van' or b.get('box') or b.get('windows'))
+            _lift_pods(p, L, W, belly); return
         if k == 'truck':
             cab = b.get('cab', 0.3); cx0 = L * (1 - cab)
             add_box(p, 0.15, belly, 0.1, L - 0.1, belly + 0.35, W - 0.1, 'paint', 0.03)                        # chassis
-            add_loft(p, [(cx0, belly + 0.9, 0.9, zc, W / 2, rr), (L - 0.4, belly + 0.9, 0.9, zc, W / 2, rr), (L - 0.05, belly + 0.75, 0.6, zc, W / 2 - 0.15, rr)], 'tint', 28)
-            add_loft(p, [(cx0 + 0.3, belly + 1.85, 0.32, zc, W / 2 - 0.05, rr), (L - 0.55, belly + 1.85, 0.32, zc, W / 2 - 0.05, rr), (L - 0.2, belly + 1.55, 0.05, zc, W / 2 - 0.3, rr)], 'visor', 28)
-            add_loft(p, [(cx0, belly + 2.12, 0.08, zc, W / 2, rr), (L - 0.5, belly + 2.12, 0.08, zc, W / 2, rr)], 'tint', 24)
+            _road_body(p, L, W, H if H < 3.2 else 3.1, dict(b, nose=0.16 * L / (L - cx0) * 0.6), True, cx0)
             if b.get('box'): add_box(p, 0.1, belly + 0.35, 0.05, cx0 - 0.15, H, W - 0.05, 'corrugated', 0.03); add_box(p, 0.05, belly + 0.4, 0.15, 0.1, H - 0.1, W - 0.15, 'metal', 0.01)
             if b.get('tank'):
                 add_cyl(p, H * 0.5 + 0.3, W / 2, 0.2, cx0 - 0.2, W * 0.45, 'metal', 28, axis='x')
@@ -2281,7 +2280,9 @@ def build_props():
         print('wrote', out, os.path.getsize(out) // 1024, 'KB')
 
 SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *SHIPCAT.keys()}
-if DO_TEX: build_textures()
+if 'foliage' in argv:
+    for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')): save_rgba(name, draw_twig(kind, 11 if kind == 'leaf' else 12))
+elif DO_TEX: build_textures()
 if DO_CAPITAL:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capital_kit.py')).read())
     build_capital()

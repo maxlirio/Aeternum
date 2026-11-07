@@ -20,7 +20,7 @@ export const PAINTS_VEHICLE = [[0.62, 0.12, 0.08], [0.85, 0.55, 0.12], [0.16, 0.
 
 export async function loadPropLibrary(base = './assets/', anisotropy = 8, only = {}) {
   const [gltf, craft, index, city, itemsG, commonG, familyG] = await Promise.all([
-    gltfLoader().loadAsync(base + 'props.glb'),
+    gltfLoader().loadAsync(only.props || base + 'props.glb'),
     gltfLoader().loadAsync(only.craft || base + 'craft.glb').catch(() => null),      // ships and vehicles (tools/shipbooth.html: a file of just one)
     fetch(base + 'materials/index.json').then(r => r.json()),
     gltfLoader().loadAsync(base + 'city.glb').catch(() => null),       // the megacity kit (tools/assets/city_kit.py)
@@ -42,7 +42,8 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
     if (name === 'screen') m = new THREE.MeshStandardMaterial({ color: 0x0b1118, emissive: 0x5d8fc0, emissiveIntensity: 0.55, roughness: 0.15 });
     else if (name === 'leafcard' || name === 'needlecard' || name === 'frondcard' || name === 'padcard' || name.startsWith('imp')) {   // alpha-tested foliage cards (and distant tree pictures), lit from both sides
       const t = tl.load(base + 'materials/' + ({ leafcard: 'foliage_leaf', needlecard: 'foliage_needle', frondcard: 'foliage_frond', padcard: 'foliage_pad', impconifer: 'impostor_conifer', impbroadleaf: 'impostor_broadleaf' })[name] + '.png'); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = anisotropy;
-      m = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.45, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.75, metalness: 0 });     // (coverage: a leaf has a soft edge, not stair-steps)
+      m = new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.45, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.75, metalness: 0 });
+      m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '')); };   // (lit as a mass: a leaf's back is as bright as its front)     // (coverage: a leaf has a soft edge, not stair-steps)
     }
     else if (name === 'mirror') m = new THREE.MeshStandardMaterial({ color: 0xdfe6ea, roughness: 0.02, metalness: 1, envMapIntensity: 1.4 });
     else if (name.startsWith('nav')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { navred: 0xff2a1a, navgreen: 0x1aff4a, navwhite: 0xfff4e0 }[name], emissiveIntensity: 3 });
@@ -59,6 +60,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
         roughnessMap: orm, metalnessMap: orm, aoMap: orm, roughness: 1, metalness: 1, aoMapIntensity: 0.8 });
       if (base === 'leaf') m.side = THREE.DoubleSide;
       if (name === 'tint-hull') { m.metalnessMap = null; m.metalness = 0.18; }     // a ship is painted, not polished: the paint is the colour you see
+      if (/bark$/.test(base)) { m.metalnessMap = null; m.metalness = 0; m.aoMapIntensity = 0.4; }     // (bark isn't metal: it was reflecting nothing, and read black)
       if (base === 'metal') m.envMapIntensity = 1.5;       // (bare metal is nothing but what it reflects)
     }
     m.name = name; mats.set(name, m); return m;
@@ -72,6 +74,11 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
     const name = key(kind, ...dims);
     if (!variants.has(name)) variants.set(name, { name, kind, dims, prims: [] });
     const g = bakedPart(o);
+    if (/card$/.test(o.material.name) && !/^imp/.test(o.material.name)) {      // foliage is shaded as the crown it belongs to, not as a pile of flat cards
+      g.computeBoundingBox(); const c = g.boundingBox.getCenter(new THREE.Vector3()), P = g.attributes.position, N = g.attributes.normal; c.y -= (g.boundingBox.max.y - g.boundingBox.min.y) * 0.15;
+      for (let i = 0; i < P.count; i++) { const x = P.getX(i) - c.x, y = P.getY(i) - c.y, z = P.getZ(i) - c.z, l = Math.hypot(x, y, z) || 1; N.setXYZ(i, x / l, y / l + 0.25, z / l); } N.normalize?.();
+      const a = N.array; for (let i = 0; i < a.length; i += 3) { const l = Math.hypot(a[i], a[i + 1], a[i + 2]) || 1; a[i] /= l; a[i + 1] /= l; a[i + 2] /= l; }
+    }
     variants.get(name).prims.push({ geometry: g, slot: o.material.name });
   });
   for (const v of variants.values()) for (const p of v.prims) {

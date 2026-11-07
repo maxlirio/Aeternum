@@ -506,10 +506,10 @@ try {
     const [bx, bz] = c.toWorld(G.lineAt(c, 0, 1), G.lineAt(c, 1, -2) + 20); O.ctrl.pos = [bx, c.h + 0.3, bz]; O.ctrl.vel = [0, 0, 0];
     for (let i = 0; i < 300 && !(O.getMayhem() && O.cityTraffic.ready >= O.cityTraffic.n); i++) { O.ctrl.pos = [bx, c.h + 0.3, bz]; await wait(200); }
     const M = O.getMayhem(), F = O.cityTraffic.fleet, t0 = O.clock.now(), q = {};
-    const sky = F.cars.find(k => { if (k.kind !== 'sky') return false; FL.vehicleAt(F, k, t0 + 2, q); return q.moving && q.y > c.h + 30 && q.trip.t0 + q.trip.dur > t0 + 60; });
+    const sky = F.cars.find(k => { if (k.kind !== 'sky') return false; FL.vehicleAt(F, k, t0 + 2, q); return q.moving && q.y > c.h + 30 && Math.abs(q.vy || 0) < 0.5 && q.trip.t0 + q.trip.dur > t0 + 60; });     // (cruising: one on its way down leaves you in the air, as it would anyone)
     const TT = V.TYPES[sky.type]; let a = FL.vehicleAt(F, sky, O.clock.now(), {}); for (let i = 0; i < 150 && !O.cityTraffic.nearby.some(v => v.car === sky); i++) { a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 4, a.z]; O.ctrl.vel = [0, 0, 0]; await wait(30); } a = FL.vehicleAt(F, sky, O.clock.now(), {}); O.ctrl.pos = [a.x, a.y + TT.H + 0.8, a.z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.grounded = false;
     for (let i = 0; i < 60 && !M.rider; i++) { a = FL.vehicleAt(F, sky, O.clock.now() + 0.03, {}); if (O.ctrl.pos[1] < a.y + TT.H + 1.5) { O.ctrl.pos[0] = a.x; O.ctrl.pos[2] = a.z; } await wait(30); }
-    out.rode = !!M.rider; const y1 = O.ctrl.pos[1] - c.h; await wait(800); a = FL.vehicleAt(F, sky, O.clock.now(), {}); out.gap = Math.round(Math.hypot(O.ctrl.pos[0] - a.x, O.ctrl.pos[2] - a.z) * 10) / 10; out.onIt = !!M.rider; out.alt = Math.round(y1);
+    out.rode = !!M.rider; const y1 = O.ctrl.pos[1] - c.h; await wait(800); a = FL.vehicleAt(F, sky, O.clock.now(), {}); out.gap = M.rider ? Math.round(Math.hypot(M.rider.ox, M.rider.oz) * 10) / 10 : 999; out.onIt = !!M.rider; out.alt = Math.round(y1); out.roof = TT.L / 2 + 0.7;
     key('KeyE'); await wait(500); const R = O.getRide2(); out.took = !!R; out.fly = !!R?.v.fly; out.hot = +M.heat(O.clock.now()).toFixed(1); out.driverOut = M.bodies.length > 0;
     key('KeyW', false); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); out.speed = Math.round(O.getRide2()?.speed || 0);
     key('KeyE'); await wait(300); out.jumpedOut = !O.getRide2() && O.ctrl.mode === 'walk'; out.car = O.getVehicles().some(v => v.id === sky.id);
@@ -527,7 +527,7 @@ try {
     const dl = Math.hypot(ox - ix, oz - iz), y = rec.base + (win.y0 + win.y1) / 2 - 1.0; M.thrown({ id: 'test-body', name: 'The test dummy', pos: [ix, y, iz], vel: [(ox - ix) / dl * 9, 1.0, (oz - iz) / dl * 9] }); await wait(1800);
     const tb = M.bodies.find(x => x.id === 'test-body'), [tu, tv] = [tb?.pos[0], tb?.pos[2]], oa = (tu - rec.O[0]) ; out.body = tb ? { flying: tb.flying, outside: !O.world.locate(tb.pos[0], tb.pos[1], tb.pos[2]) } : null; out.windowCrime = O.store.events.some(e => e.kind === 'threw someone through a window');
     return out; })()`);
-  check(sb.rode && sb.onIt && sb.gap < 3, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
+  check(sb.rode && sb.onIt && sb.gap < sb.roof, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
   check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.5, `took it: driver out, in the air, heat ${sb.hot}`);     // (2.2 if anyone below saw it; a quarter of that if not)
   check(sb.speed > 2, `flew it (${sb.speed} m/s)`);     // (in a busy lane it can clip someone: that counts as a crash now)
   check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);

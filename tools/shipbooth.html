@@ -11,7 +11,7 @@ const q = new URLSearchParams(location.search), kind = q.get('v'), paint = LIVER
 const R = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); R.setPixelRatio(1); R.setSize(innerWidth, innerHeight); R.autoClear = false;
 R.outputColorSpace = THREE.SRGBColorSpace; R.toneMapping = THREE.ACESFilmicToneMapping; R.toneMappingExposure = 0.85; R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap; document.body.append(R.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x9db4cc); { const e = new THREE.Scene(); e.background = new THREE.Color(0x9db4cc); const fl = new THREE.Mesh(new THREE.CircleGeometry(50, 16).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x4a4a3c })); fl.position.y = -1; e.add(fl); scene.environment = new THREE.PMREMGenerator(R).fromScene(e, 0.02).texture; scene.environmentIntensity = 0.5; }
-const lib = await loadPropLibrary('../assets/', R.capabilities.getMaxAnisotropy(), { craft: q.get('glb') });
+const lib = await loadPropLibrary('../assets/', R.capabilities.getMaxAnisotropy(), { craft: q.get('glb'), props: q.get('props') || undefined });
 const v = [...lib.variants.values()].find(x => x.kind === kind), [W, D, H] = v.dims, g = new THREE.Group();
 for (const p of v.prims) { const m = new THREE.Mesh(p.geometry, p.tinted ? p.material.clone() : p.material); if (p.tinted) m.material.color.setRGB(...paint); m.castShadow = m.receiveShadow = true; g.add(m); }
 const box = new THREE.Box3().setFromObject(g), c = box.getCenter(new THREE.Vector3()), S = box.getSize(new THREE.Vector3()), big = Math.max(S.x, S.y, S.z);

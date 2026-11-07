@@ -595,3 +595,75 @@ def designed_ship(p, L_, D_, H_, r, model):
     for s in (-1, 1): _skin(p, BD, hz0 + 0.5, hz1 - 0.5, 90 + s * 13 - 1.6, 90 + s * 13 + 1.6, 0.05, 'metal', int(L), 1) if C not in ('runabout',) else None
     for (gx, gz) in gear: _gear(p, gx, gz, cy - hh * 0.55, 0.09)
     ship_interior(p, lay)
+
+
+# ---- road vehicles. Built along z like a ship, then turned to the vehicle frame (x along, z across).
+def _lift_pods(p, L, W, belly):
+    lw = W / 2
+    add_box(p, L * 0.14, belly - 0.03, 0.34, L * 0.86, belly + 0.08, W - 0.34, 'rubber', 0)
+    for x in (L * 0.18, L * 0.82):
+        for zz in (lw * 0.5, W - lw * 0.5):
+            add_cyl(p, x, zz, belly - 0.04, belly + 0.05, 0.33, 'rubber', 24); add_cyl(p, x, zz, belly - 0.12, belly - 0.04, 0.27, 'metal', 24, r2=0.31); add_cyl(p, x, zz, belly - 0.135, belly - 0.12, 0.2, 'glow', 20)
+            for q in range(6):
+                a_ = q * math.pi / 3; add_box(p, x + math.cos(a_) * 0.11 - 0.012, belly - 0.145, zz + math.sin(a_) * 0.11 - 0.012, x + math.cos(a_) * 0.11 + 0.012, belly - 0.12, zz + math.sin(a_) * 0.11 + 0.012, 'metal', 0)
+            add_cyl(p, x, zz, belly - 0.15, belly - 0.12, 0.05, 'metal', 10)
+
+def _road_body(out, L, W, H, b, tall=False, x0=0.0):
+    """One smooth body from the belly to the belt, the cabin growing out of it, every window a piece of glass in the body, gaps round the doors."""
+    p = Part(); LL = L - x0; xc = W / 2; lw = W / 2; belly = 0.38; e = max(2.4, min(4.5, b.get('round', 3) + 0.4)); nose = b.get('nose', 0.28); tail = b.get('tail', 0.18); wedge = b.get('wedge')
+    Z = lambda t: LL * t
+    if tall:
+        hb = (H - belly) / 2; cy = belly + hb
+        secs = [(0.0, cy, hb * 0.9, xc, lw * 0.9, e), (0.18, cy, hb * 0.98, xc, lw * 0.98, e), (0.5, cy, hb, xc, lw, e), (Z(1 - nose * 0.95), cy, hb, xc, lw, e), (Z(1 - nose * 0.45), cy - hb * 0.14, hb * 0.86, xc, lw * 0.98, e), (Z(1 - nose * 0.12), cy - hb * 0.42, hb * 0.54, xc, lw * 0.94, e), (LL, cy - hb * 0.5, 0.05, xc, lw * 0.7, 2.4)]
+        BL = Body(secs, 7); hull_loft(p, BL.secs, 'tint', (xc, cy, LL / 2), n=64); top = cy
+        add_loft(p, [(0.0, cy, hb * 0.9, xc, lw * 0.9, e), (0.012, cy, hb * 0.9, xc, lw * 0.9, e)], 'tint', 40, axis='z')
+        _skin(p, BL, Z(1 - nose * 0.92), Z(1 - nose * 0.3), 28, 152, 0.012, 'visor', 8, 12)
+        n = 4 if b.get('windows') else 1; z0 = Z(0.12); z1 = Z(1 - nose * 0.98)
+        for s0 in (24, 118):
+            if b.get('windows') or True:
+                for i in range(n if b.get('windows') else 0): zs = z0 + (z1 - z0) * i / n; _skin(p, BL, zs + 0.04, zs + (z1 - z0) / n - 0.04, s0, s0 + 38, 0.012, 'visor', 2, 3)
+            _skin(p, BL, z1 - min(0.95, (z1 - z0) * 0.25), z1 - 0.06, s0, s0 + 38, 0.012, 'visor', 2, 3)       # the cab door's window
+        doors = [z1 - 1.05, z1 + 0.03]; side = (-32, 18)
+    else:
+        Hb = (H - belly) * 0.54; top = belly + Hb; dn = 0.3 if wedge else 0.42
+        secs = [(0.0, belly + Hb * 0.64, Hb * 0.28, xc, lw * 0.8, e), (Z(0.045), belly + Hb * 0.56, Hb * 0.44, xc, lw * 0.95, e), (Z(0.16), belly + Hb * 0.5, Hb * 0.5, xc, lw, e), (Z(0.8), belly + Hb * 0.5, Hb * 0.5, xc, lw, e), (Z(0.93), belly + Hb * dn, Hb * (dn - 0.03), xc, lw * 0.96, e), (Z(0.985), belly + Hb * (dn - 0.05), Hb * 0.2, xc, lw * 0.86, e), (LL, belly + Hb * (dn - 0.06), 0.03, xc, lw * 0.66, 2.4)]
+        BL = Body(secs, 7); hull_loft(p, BL.secs, 'tint', (xc, belly + Hb / 2, LL / 2), n=64)
+        add_loft(p, [(0.0, belly + Hb * 0.64, Hb * 0.28, xc, lw * 0.8, e), (0.01, belly + Hb * 0.64, Hb * 0.28, xc, lw * 0.8, e)], 'tint', 40, axis='z')
+        cab = b.get('cabin', 0.42); c0 = Z(tail + (1 - tail - nose - cab) * 0.5); c1 = c0 + Z(cab); ch = (H - top) * b.get('roof', 0.92) + 0.08; e2 = 2.7
+        G = [(c0 - Z(0.11), top - 0.08, 0.02, xc, lw * 0.72, e2), (c0 - Z(0.02), top - 0.08 + ch * 0.26, ch * 0.34, xc, lw * 0.78, e2), (c0 + Z(0.05), top - 0.08 + ch * 0.5, ch * 0.54, xc, lw * 0.8, e2), (c1 - Z(0.05), top - 0.08 + ch * 0.5, ch * 0.54, xc, lw * 0.8, e2), (c1 + Z(0.05), top - 0.08 + ch * 0.29, ch * 0.36, xc, lw * 0.8, e2), (c1 + Z(0.15), top - 0.08, 0.02, xc, lw * 0.74, e2)]
+        BG = Body(G, 7); hull_loft(p, BG.secs, 'tint', (xc, top, (c0 + c1) / 2), n=64)
+        _skin(p, BG, c1 - Z(0.015), c1 + Z(0.125), 24, 156, 0.008, 'visor', 8, 12); _skin(p, BG, c0 - Z(0.085), c0 + Z(0.025), 26, 154, 0.008, 'visor', 6, 12)
+        mid = (c0 + c1) / 2
+        for s0 in (10, 118):
+            _skin(p, BG, c0 + Z(0.035), mid - 0.05, s0, s0 + 52, 0.008, 'visor', 4, 5); _skin(p, BG, mid + 0.05, c1 - Z(0.012), s0, s0 + 52, 0.008, 'visor', 4, 5)
+        doors = [c0 + Z(0.02), mid, c1 + Z(0.04)]; side = (-34, 28)
+        if b.get('taxi'): add_box(p, xc - 0.25, top - 0.08 + ch * 1.03, mid - 0.12, xc + 0.25, top - 0.08 + ch * 1.03 + 0.16, mid + 0.12, 'navwhite', 0.02)
+    # doors: gaps, handles; a rubbing strip; lights in their housings; the grille
+    for s0 in (0, 180):
+        for z in doors: _seam_ring(p, BL, z, s0 + side[0], s0 + side[1], 0.018)
+        _seam_long(p, BL, doors[0], doors[-1], s0 + side[1], 0.018)
+        _seam_long(p, BL, doors[0], doors[-1], s0 + side[0], 0.018)
+        for z in doors[1:]: _skin(p, BL, z - 0.2, z - 0.05, s0 + 12, s0 + 16, 0.02, 'metal', 1, 1)
+        _seam_long(p, BL, Z(0.05), Z(0.93), s0 + 354 if s0 == 0 else s0 + 6, 0.05, 'metal', 0.008)
+    if tall:
+        yL = BL.sect(Z(0.9))[0] + 0.1
+        for s in (-1, 1):
+            xl = xc + s * lw * 0.62; zl = LL - Z(0.055); add_box(p, xl - 0.2, yL - 0.1, zl, xl + 0.2, yL + 0.1, zl + 0.05, 'metal', 0.006); add_box(p, xl - 0.16, yL - 0.07, zl + 0.04, xl + 0.16, yL + 0.07, zl + 0.06, 'navwhite', 0)
+            xm = xc + s * (lw + 0.1); ym = BL.sect(Z(0.8))[0] + BL.sect(Z(0.8))[1] * 0.4; zm = Z(1 - nose * 0.75); _beam(p, (xc + s * lw * 0.9, ym + 0.1, zm), (xm, ym + 0.1, zm), 0.03, 'rubber'); add_box(p, xm - 0.05, ym - 0.14, zm - 0.02, xm + 0.05, ym + 0.16, zm + 0.04, 'rubber', 0.008)
+    else:
+        for s0, s1 in ((18, 50), (130, 162)):
+            _skin(p, BL, Z(0.915), Z(0.965), s0, s1, 0.01, 'metal', 6, 5); _skin(p, BL, Z(0.915) + 0.02, Z(0.965) - 0.02, s0 + 3, s1 - 3, 0.018, 'navwhite', 6, 4)
+    for s0, s1 in ((14, 60), (120, 166)):
+        _skin(p, BL, Z(0.02), Z(0.06), s0, s1, 0.012, 'rubber', 3, 5); _skin(p, BL, Z(0.024), Z(0.056), s0 + 4, s1 - 4, 0.02, 'navred', 3, 4)
+    cyN = BL.sect(Z(0.97))[0]; add_box(p, xc - lw * 0.42, cyN - 0.11, LL - Z(0.03) - 0.02, xc + lw * 0.42, cyN + 0.03, LL - Z(0.012), 'rubber', 0)
+    for q in range(4): add_box(p, xc - lw * 0.4, cyN - 0.09 + q * 0.03, LL - Z(0.03), xc + lw * 0.4, cyN - 0.08 + q * 0.03, LL - Z(0.008), 'metal', 0)
+    if not tall:
+        for s, mx in ((-1, xc - lw * 0.82), (1, xc + lw * 0.82)): mz = doors[-1] - Z(0.03); add_box(p, mx + s * 0.02, top - 0.0, mz - 0.03, mx + s * 0.14, top + 0.02, mz + 0.03, 'rubber', 0); _sloft(p, [(mz - 0.05, top + 0.05, 0.015, mx + s * 0.18, 0.015, 2), (mz, top + 0.05, 0.05, mx + s * 0.18, 0.09, 2), (mz + 0.04, top + 0.05, 0.05, mx + s * 0.18, 0.09, 2)], 'tint', 12, per=2)
+    if b.get('wing'):
+        for s in (-1, 1): _blade(p, (xc + s * lw * 0.6, top - 0.02, 0.42), (xc + s * lw * 0.6, top - 0.02, 0.1), (xc + s * lw * 0.6, top + 0.2, 0.05), (xc + s * lw * 0.6, top + 0.2, 0.3), 0.02)
+        _aero(p, [(xc - lw * 0.95, top + 0.22, 0.42, 0.02, 0.04), (xc, top + 0.24, 0.45, 0.02, 0.05), (xc + lw * 0.95, top + 0.22, 0.42, 0.02, 0.04)])
+    if b.get('chrome'): _seam_long(p, BL, Z(0.08), Z(0.92), 10, 0.03, 'metal', 0.01); _seam_long(p, BL, Z(0.08), Z(0.92), 170, 0.03, 'metal', 0.01)
+    # turn it to the vehicle frame: along x, nose at +x, the body's rear at x0
+    for v in p.bm.verts:
+        bx, by, bz = v.co; x, y, z = bx, bz, -by; v.co = P(x0 + z, y, W - x)
+    m = bpy.data.meshes.new('tmp'); p.bm.to_mesh(m); p.bm.free(); out.bm.from_mesh(m); bpy.data.meshes.remove(m)

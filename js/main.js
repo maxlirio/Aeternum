@@ -692,7 +692,7 @@ async function start(fresh) {
     for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v), true); }
     for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D, true);
     for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), true, (v.speed || 0) * cityTraffic.life.rateOf(v.id));
-    for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), !mayhem?.rider, v.moving === false ? 0 : (v.speed || 0));
+    for (const v of cityTraffic.nearby) if (!v.ship && v.type && !trafficGone.has('city:' + v.car?.i) && v.car !== mayhem?.rider?.car && !cityTraffic.taken.has(v.car?.i)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), !mayhem?.rider && (v.parked || (v.speed || 0) < 1), v.moving === false ? 0 : (v.speed || 0));     // (the car you're riding isn't in your way; a moving roof is the rider code's to catch, or you'd stand on where it was a frame ago)
     world.carBoxes = out;
   }
   let rideCamY = null;
@@ -716,7 +716,7 @@ async function start(fresh) {
     if (Math.abs(ride.speed) > 9) floraNear(planet, me[0] + Math.sin(ride.facing) * T.L * 0.5, me[2] + Math.cos(ride.facing) * T.L * 0.5, T.W * 0.5 + 1.2, p => { if (!p.solid || p.felled || Math.abs(p.y - me[1]) > 3 || p.size > 8 + Math.abs(ride.speed) * 0.7) return; const a = Math.atan2(Math.sin(ride.facing), Math.cos(ride.facing)); felledOf(planet).set(fellKey(p), +ride.facing.toFixed(2)); p.felled = { a: ride.facing }; store.patchDelta('felled', { list: [...felledOf(planet).entries()] }); flora.at = null; fx.dust([p.x, p.y + 0.2, p.z], 16, [0.32, 0.28, 0.2]); wreckView.throwBits({ facing: 0, pos: [p.x, p.y, p.z] }, [0, 1, 0], [0, 0, 0], 16, 4, [0.26, 0.17, 0.09]); ride.speed *= 0.72; const dv = Math.abs(ride.speed) * 0.3; if (!ride.crash || dv > ride.crash.dv) ride.crash = { dv, at: [T.L * 0.48, T.H * 0.4, 0], dir: [-1, 0, 0], nx: 0, nz: 0 }; });
     const near = trafficNear(planet, s, clock.now(), me[0], me[2], 18, cityTraffic.life.delayOf);
     for (const v of near) { if (v.parked || trafficGone.has(v.id)) continue; const O = typeOf(v); hitOne(v.id, v.pos, v.facing, v.speed * cityTraffic.life.rateOf(v.id), O, () => { trafficGone.add(v.id); return crashRec(v.id, v, O); }); }
-    for (const v of cityTraffic.nearby) { if (v.ship || v.parked || v.car === mayhem?.rider?.car || Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const O = typeOf(v), id = 'city:' + v.car?.i; if (trafficGone.has(id)) continue; hitOne(id, v.pos, v.facing, v.speed || 0, O, () => { trafficGone.add(id); if (v.car) cityTraffic.taken.add(v.car.i); return crashRec(id, { ...v, type: v.type }, O); }); }
+    for (const v of cityTraffic.nearby) { if (v.ship || v.parked || v.car === mayhem?.rider?.car || cityTraffic.taken.has(v.car?.i) || Math.abs(v.pos[0] - me[0]) > 15 || Math.abs(v.pos[2] - me[2]) > 15) continue; const O = typeOf(v), id = 'city:' + v.car?.i; if (trafficGone.has(id)) continue; hitOne(id, v.pos, v.facing, v.speed || 0, O, () => { trafficGone.add(id); if (v.car) cityTraffic.taken.add(v.car.i); return crashRec(id, { ...v, type: v.type }, O); }); }
   }
   // A crash of the vehicle you're in: what it did to the machine, and what it did to you.
   function afterRide(dt) {
@@ -1572,7 +1572,7 @@ async function start(fresh) {
     const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
     const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - planet.seaLevel);
-    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(13000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(8000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
       globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
       const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
