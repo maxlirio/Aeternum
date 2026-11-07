@@ -97,7 +97,7 @@ function terrainMaterial(planet) {
             mat2 Rw = mat2(uPrev.y, uPrev.x, -uPrev.x, uPrev.y); p = Rw * top; px = Rw * dTx; py = Rw * dTy;
           }
           vec3 a = anyTile(fi, p / t, px / t, py / t), b = textureGrad(tG, vec3(p / t2 + 0.37, fi), px / t2, py / t2).rgb;
-          vec3 lay = (a * 0.6 + b * 0.4) / uMean[i], layN = near > 0.0 ? textureGrad(tGN, vec3(p / t, fi), px / t, py / t).xyz : vec3(0.5, 0.5, 1.0);
+          vec3 lay = (a * 0.6 + b * 0.4) / uMean[i]; if (i == 9) lay = mix(vec3(1.0), lay, 0.42); vec3 layN = near > 0.0 ? textureGrad(tGN, vec3(p / t, fi), px / t, py / t).xyz : vec3(0.5, 0.5, 1.0); if (i == 9) layN = mix(vec3(0.5, 0.5, 1.0), layN, 0.35);
           if (i == 3) {   // a slip face has just avalanched: smooth, no ripples on it
             float slip = 1.0 - smoothstep(0.85, 0.93, wn.y); lay = mix(lay, vec3(1.0), slip); layN = mix(layN, vec3(0.5, 0.5, 1.0), slip);
           }

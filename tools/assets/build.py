@@ -1974,8 +1974,8 @@ def grow_tree(part, L, D, H, r, sp):
     leaves = []
     trunk_len = H * sp['trunk']
     if sp.get('bottle'):   # a swollen trunk: a fat tube under the real one
-        rr = [sp['radius'] * (1.0 + 2.2 * math.sin(math.pi * min(1, i / 8 * 1.05)) ** 1.5) for i in range(9)]
-        tube(part, [V((L / 2, trunk_len * i / 8 * 0.95, D / 2)) for i in range(9)], rr, sp['bark'], 14)
+        rr = [sp['radius'] * (0.95 + 2.2 * math.sin(math.pi * min(1, (i / 28) ** 0.85)) ** 1.8) for i in range(29)]
+        tube(part, [V((L / 2, trunk_len * i / 28 * 1.0, D / 2)) for i in range(29)], rr, sp['bark'], 32)
     grow_branch(part, sp, r, V((L / 2, -0.15, D / 2)), V((0, 1, 0)), trunk_len, sp['radius'], sp['levels'], leaves, sp.get('twist', 0.0))
     for k in range(6):       # roots: the trunk spreads into the ground
         an = k * 1.047 + r.uniform(-0.3, 0.3); ln = sp['radius'] * r.uniform(1.8, 2.8)

@@ -159,6 +159,14 @@ try {
     console.log('   houses', JSON.stringify(items));
     k = 0; for (const [x, z, rot] of items) { const a = rot + 3.6, px = x - Math.sin(a) * 12, pz = z - Math.cos(a) * 12; await hold(5000, () => walk(px, pz, a, 0.0, 2.5)); await shot('house-' + (k++)); }
   }
+  if (want('trees')) {
+    await load('hour=11');
+    const pos = await ev(`(async () => { const F = await import('./js/gen/flora.js').catch(() => null); const O = ORBIS, h = O.homeS; return [h.cx + 1500, h.cz + 400]; })()`);
+    const walk = (x, z, yaw, pitch = 0.04, dist = 6) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
+    const near = await ev(`(async () => { const F = await import('./js/gen/plants.js').catch(() => null); return null; })()`);
+    await hold(9000, () => walk(pos[0], pos[1], 0.6)); await shot('trees-a');
+    await hold(6000, () => walk(pos[0] - 900, pos[1] + 1400, 2.1)); await shot('trees-b');
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
