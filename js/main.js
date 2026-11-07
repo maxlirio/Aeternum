@@ -1423,7 +1423,7 @@ async function start(fresh) {
     }
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
-    avatar.object.visible = !flight;
+    avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
     pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]);
     // a hard landing: you feel it from about 4 m, and a long fall can put you down

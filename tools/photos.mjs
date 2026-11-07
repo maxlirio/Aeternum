@@ -167,6 +167,14 @@ try {
     await hold(9000, () => walk(pos[0], pos[1], 0.6)); await shot('trees-a');
     await hold(6000, () => walk(pos[0] - 900, pos[1] + 1400, 2.1)); await shot('trees-b');
   }
+  if (want('stair')) {
+    await load('hour=12&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    const L = JSON.parse(await (await fetch('http://127.0.0.1:' + PORT + '/assets/ships/capital.json')).text());
+    for (const C of ['halcyon', 'meridian']) { const S = L[C + '_decks'].stairs[0], [a, b] = S.flights[1], x = (a + b) / 2;
+      const r = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, wait = ms => new Promise(r => setTimeout(r, ms)), f = at.facing, fx = Math.sin(f), fz = Math.cos(f), lx = Math.cos(f), lz = -Math.sin(f), W = (X, Z) => [at.c[0] + fx * (Z - C.deckD / 2) + lx * (X - C.deckW / 2), at.c[2] + fz * (Z - C.deckD / 2) + lz * (X - C.deckW / 2)]; const fl = O.getFlight(); O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.shipView.group.visible = false; const [px, pz] = W(${x}, ${S.foot} - 2); O.ctrl.pos = [px, at.c[1] + 1.05, pz]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = f; O.cam.yaw = f; O.cam.pitch = 0.1; O.cam.dist = 4; await wait(800); const y0 = O.ctrl.pos[1] - at.c[1]; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); let top = y0; for (let i = 0; i < 70; i++) { O.cam.yaw = f; await wait(100); top = Math.max(top, O.ctrl.pos[1] - at.c[1]); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(400); const end = O.ctrl.pos[1] - at.c[1]; return { y0: +y0.toFixed(2), top: +top.toFixed(2), end: +end.toFixed(2), want: ${S.by} }; })()`);
+      console.log('   stair', C, JSON.stringify(r)); await shot('stair-' + C); }
+  }
   if (want('land')) {
     await load('hour=16');
     const walk = (x, z, yaw, { pitch = 0.08, dist = 5.5 } = {}) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);
