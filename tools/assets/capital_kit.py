@@ -489,6 +489,159 @@ def dress_longshore(p, r):
     for k in range(10):
         a = k * 0.628; add_box(p, math.cos(a) * 42 - 1.5, math.sin(a) * 42 - 1.5, -745, math.cos(a) * 42 + 1.5, math.sin(a) * 42 + 1.5, -655, 'heatshield', 0)
 
+
+def _sphere(p, x, y, z, R, mat='tint', n=32, rows=14):
+    """A ball, as a loft along z: tanks and domes."""
+    st = [(z - R + 2 * R * k / rows, y, max(0.05, R * math.sin(math.pi * k / rows)), x, max(0.05, R * math.sin(math.pi * k / rows)), 2) for k in range(rows + 1)]
+    add_loft(p, st, mat, n, axis='z')
+
+def _lit_bands(p, x, y0, y1, z0, z1, rows, sx, seg=6, r=None):
+    """Decks of windows at this scale: long lit bands, broken where a compartment is dark, a sill under each."""
+    for j in range(rows):
+        y = y0 + (y1 - y0) * (j + 0.5) / rows; z = z0
+        while z < z1:
+            ln = (z1 - z0) / seg * (r.uniform(0.5, 1.2) if r else 1); e_ = min(z1, z + ln)
+            if not r or r.random() < 0.8: add_box(p, min(x, x + sx * 0.6), y, z, max(x, x + sx * 0.6), y + (y1 - y0) / rows * 0.34, e_, 'lampwarm', 0)
+            add_box(p, min(x, x + sx * 1.1), y - 0.7, z, max(x, x + sx * 1.1), y - 0.2, e_, 'metal', 0)
+            z = e_ + (z1 - z0) / seg * 0.06
+
+def _tower(p, x, z, y0, h, w, d, r, lit=True):
+    """A block of the ship's city: raked walls, setbacks, a crown of plant and aerials, floors of light."""
+    steps = r.randint(2, 3); y = y0; ww, dd = w, d
+    for k in range(steps):
+        hh = h / steps; _taper(p, x - ww / 2, x + ww / 2, z - dd / 2, z + dd / 2, y, y + hh, ww * 0.05, dd * 0.05, r.choice(('tint', 'tint', 'paint')))
+        if lit:
+            for sx, xx in ((-1, x - ww / 2 * 0.95), (1, x + ww / 2 * 0.95)): _lit_bands(p, xx, y + 4, y + hh - 4, z - dd * 0.42, z + dd * 0.42, max(2, int(hh / 16)), sx, 3, r)
+        add_box(p, x - ww / 2 * 1.02, y + hh, z - dd / 2 * 1.02, x + ww / 2 * 1.02, y + hh + 2.4, z + dd / 2 * 1.02, 'metal', 0)
+        y += hh + 2.4; ww *= 0.7; dd *= 0.7
+    if r.random() < 0.6: _mast(p, x, y, z, h * 0.3)
+
+def anvil(p, lay, r):
+    """A dreadnought, 3.4 km: a wedge of armour rising in terraces to a double citadel, main batteries down the spine, broadsides along both shoulders, nine engines."""
+    secs = [(-1700, 0, 120, 0, 300, 3.4), (-1500, 0, 180, 0, 420, 3.4), (0, 0, 210, 0, 440, 3.2), (900, -12, 170, 0, 300, 2.8), (1450, -24, 90, 0, 120, 2.2), (1700, -30, 6, 0, 8, 2)]
+    add_loft(p, smooth_secs(secs, 6), 'tint', 120, axis='z')
+    # terraces of armour up the back
+    for (x, z0, z1, y0, y1, ix) in ((340, -1450, 860, 150, 225, 40), (250, -1400, 640, 225, 290, 30), (160, -1300, 300, 290, 350, 24)):
+        _taper(p, -x, x, z0, z1, y0, y1, ix, 60, 'tint')
+        for sx in (-1, 1): _lit_bands(p, sx * (x - ix * 0.5), y0 + 8, y1 - 6, z0 + 80, z1 - 80, 3, sx, 9, r); _pipes(p, r, sx * (x - ix * 0.2), y0 + 2, z0 + 40, z1 - 40, 3, 5, 1.6)
+    # the double citadel and its bridges
+    for zc in (-900, -220):
+        _taper(p, -80, 80, zc - 180, zc + 180, 350, 470, 12, 24, 'tint'); _taper(p, -46, 46, zc - 100, zc + 100, 470, 540, 8, 14, 'paint'); _bridgeglass(p, -40, 40, zc - 70, zc + 70, 540, 553, 3, 8)
+        add_box(p, -130, 508, zc - 18, 130, 514, zc + 18, 'paint', 0)
+        for sx in (-1, 1): _lit_bands(p, sx * 76, 360, 464, zc - 170, zc + 170, 6, sx, 6, r); _phased(p, sx * 44, 480, 530, zc - 40, zc + 40, sx)
+        _mast(p, 0, 553, zc, 110, 5)
+    # main batteries on the spine, broadsides on the shoulders
+    for z in (480, 700, 920, 1100): _turret(p, 0, 170 if z < 860 else 150, z, 46, 1, 3)
+    for sx in (-1, 1):
+        for k in range(14): _turret(p, sx * (360 - k * 2), 188, -1360 + k * 170, 18, 1, 2)
+        for k in range(9): _turret(p, sx * 300, -150, -1200 + k * 260, 20, -1, 2)
+        _lit_bands(p, sx * 436, -60, 60, -1300, 300, 6, sx, 14, r); _vents(p, sx * 434, -110, -1300, 400, 80, 26, sx)
+        _pods(p, sx * 432, 70, -1400, 500, 70, 6, sx)
+    # engines
+    for (x, y, R) in ((-260, 60, 74), (0, 60, 90), (260, 60, 74), (-300, -60, 60), (-100, -70, 66), (100, -70, 66), (300, -60, 60), (-170, 130, 40), (170, 130, 40)): _engine(p, x, y, -1800, -1690, R)
+    add_box(p, -24, -220, -1500, 24, -196, 1100, 'heatshield', 0)
+    return (441, -6, -330, 1)
+
+def vesper(p, lay, r):
+    """An ark, 5.2 km: a whole city on a keel. Towers packed along it round a great spire, parks under glass, tiers of lit decks down its sides, seven engines the size of stadiums."""
+    secs = [(-2600, 0, 70, 0, 340, 3.6), (-2300, 0, 130, 0, 660, 3.8), (0, 0, 150, 0, 760, 3.8), (1500, -8, 130, 0, 600, 3.4), (2300, -30, 70, 0, 240, 2.6), (2600, -46, 5, 0, 6, 2)]
+    add_loft(p, smooth_secs(secs, 6), 'tint', 128, axis='z')
+    add_box(p, -640, 110, -2150, 640, 134, 1400, 'paint', 0)     # the city's ground
+    # the spire, in stages, on the ship's centre, and a ring of buttresses
+    y = 134
+    for (w, h) in ((260, 240), (190, 220), (130, 200), (80, 180), (40, 150)):
+        _taper(p, -w, w, -200 - w, -200 + w, y, y + h, w * 0.14, w * 0.14, 'tint')
+        for sx in (-1, 1): _lit_bands(p, sx * w * 0.93, y + 10, y + h - 10, -200 - w * 0.8, -200 + w * 0.8, max(3, int(h / 24)), sx, 4, r)
+        add_box(p, -w * 1.04, y + h, -200 - w * 1.04, w * 1.04, y + h + 5, -200 + w * 1.04, 'metal', 0); y += h + 5
+    add_cyl(p, 0, -200, y, y + 150, 16, 'metal', 16, r2=0.8); add_cyl(p, 0, -200, y + 150, y + 153, 2, 'navred', 8)
+    for k in range(8):
+        a = k * math.pi / 4; _beam(p, (math.cos(a) * 420, 134, -200 + math.sin(a) * 420), (math.cos(a) * 170, 500, -200 + math.sin(a) * 170), 16, 'tint')
+    # the city around it
+    for _ in range(230):
+        x = r.uniform(-610, 610); z = r.uniform(-2100, 1350)
+        if math.hypot(x, z + 200) < 330 or (440 < x and -440 < z < -120) or any(math.hypot(x - a, z - b) < R_ + 40 for (a, b, R_) in ((-380, 900, 170), (340, -1500, 150), (-300, -1650, 120))): continue
+        h = r.uniform(60, 270) * (1.5 - abs(x) / 800) * (1.25 - abs(z + 300) / 3400); _tower(p, x, z, 134, h, r.uniform(36, 96), r.uniform(36, 110), r, h > 150)
+    # parks under glass
+    for (x, z, R) in ((-380, 900, 170), (340, -1500, 150), (-300, -1650, 120)):
+        add_cyl(p, x, z, 134, 136, R, 'leaf', 40)
+        for _ in range(26):
+            a = r.uniform(0, 6.28); q = r.uniform(0, R * 0.85); tx, tz = x + math.cos(a) * q, z + math.sin(a) * q; H_ = r.uniform(14, 34); add_cyl(p, tx, tz, 136, 136 + H_ * 0.6, 1.5, 'bark', 7); _sphere(p, tx, 136 + H_ * 0.75, tz, H_ * 0.34, 'leaf', 10, 6)
+        rows = 8; st = [(z - R * math.cos(math.pi * k / rows), 134, max(0.5, R * 0.62 * math.sin(math.pi * k / rows)), x, max(0.5, R * math.sin(math.pi * k / rows)), 2) for k in range(rows + 1)]
+        add_loft(p, smooth_secs(st, 2), 'glass', 64, axis='z')
+        for k in range(12): a = k * math.pi / 6; _beam(p, (x + math.cos(a) * R, 134, z + math.sin(a) * R), (x, 134 + R * 0.62, z), 2.4, 'metal')
+    # the sides: tiers of decks, promenades, lifeboats
+    for sx in (-1, 1):
+        for (y0, y1) in ((-90, -30), (-20, 40), (50, 104)): _lit_bands(p, sx * 757, y0, y1, -1900, 1100, 5, sx, 22, r)
+        for yy in (-96, -26, 44, 108): add_box(p, min(sx * 756, sx * 772), yy - 1.5, -2000, max(sx * 756, sx * 772), yy, 1200, 'metal', 0)
+        _pods(p, sx * 770, 112, -1900, 1100, 90, 7, sx)
+    # keel and engines
+    add_box(p, -44, -176, -2300, 44, -140, 1700, 'heatshield', 0)
+    for k in range(10): _beam(p, (-600, -60, -2100 + k * 380), (-30, -160, -2100 + k * 380), 12, 'metal'); _beam(p, (600, -60, -2100 + k * 380), (30, -160, -2100 + k * 380), 12, 'metal')
+    for (x, y, R) in ((-470, 0, 88), (-235, 10, 100), (0, 14, 110), (235, 10, 100), (470, 0, 88), (-350, -80, 56), (350, -80, 56)): _engine(p, x, y, -2730, -2590, R)
+    return (761, -4, -280, 1)
+
+def tiller(p, lay, r):
+    """A refinery, 4.2 km: a long open truss carrying ball tanks and cracking towers, flare stacks burning, ore arms folded along it, a blocky cab at the bow where people live, six engines."""
+    for (x, y) in ((-130, 130), (130, 130), (-130, -130), (130, -130)): _beam(p, (x, y, -1900), (x, y, 1500), 16, 'heatshield')
+    for k in range(40):
+        z = -1900 + k * 85
+        for (a, b) in (((-130, 130), (130, 130)), ((130, 130), (130, -130)), ((130, -130), (-130, -130)), ((-130, -130), (-130, 130))):
+            _beam(p, (a[0], a[1], z), (b[0], b[1], z), 7, 'metal'); _beam(p, (a[0], a[1], z), (b[0], b[1], z + 85), 3.6, 'metal')
+    # the core tube
+    _sloft(p, [(-1880, 0, 46, 0, 46, 2), (1500, 0, 46, 0, 46, 2)], 'paint', 24, per=1)
+    # ball tanks in ranks
+    for k in range(9):
+        z = -1650 + k * 340
+        for sx in (-1, 1):
+            R = r.uniform(120, 165); x = sx * (R + 138); _sphere(p, x, 0, z, R, 'tint', 40, 16)
+            for dz in (-0.0,): add_cyl(p, x, z - 2, -R * 1.02 * 0 , 0.1, 1, 'metal', 4)
+            _shell(p, x, 0, [(z - 3, R * 1.0), (z - 3, R * 1.02), (z + 3, R * 1.02), (z + 3, R * 1.0)], 'metal', n=48)
+            _beam(p, (sx * 130, 0, z), (x - sx * R * 0.96, 0, z), 18, 'heatshield'); _beam(p, (sx * 130, 60, z), (x - sx * R * 0.8, 40, z), 8, 'metal')
+    # cracking towers and flares on top
+    for k in range(14):
+        z = -1700 + k * 230; x = r.uniform(-90, 90); h = r.uniform(120, 300); R = r.uniform(12, 30)
+        add_cyl(p, x, z, 130, 130 + h, R, r.choice(('tint', 'metal', 'paint')), 24)
+        for q in range(int(h / 40)): add_cyl(p, x, z, 140 + q * 40, 143 + q * 40, R * 1.2, 'metal', 24)
+        if k % 3 == 0: add_cyl(p, x, z, 130 + h, 130 + h + 6, R * 0.5, 'heatshield', 16); _sloft(p, [(z - 8, 130 + h + 26, 0.3, x, 0.3, 2), (z, 130 + h + 22, 18, x, 10, 2), (z + 8, 130 + h + 26, 0.3, x, 0.3, 2)], 'neonamber', 12, per=3)
+    # ore arms, folded
+    for sx in (-1, 1):
+        # stowed flat against the underside of the truss
+        add_cyl(p, sx * 130, -600, -170, -130, 40, 'heatshield', 24); _beam(p, (sx * 130, -170, -600), (sx * 130, -215, 400), 44, 'hazard'); _beam(p, (sx * 130, -215, 400), (sx * 80, -190, 1330), 32, 'hazard'); _beam(p, (sx * 130, -150, -300), (sx * 130, -205, 200), 14, 'metal')
+        for q in (-1, 0, 1): _beam(p, (sx * 80, -190, 1330), (sx * 80 + q * 60, -220, 1430), 14, 'metal')
+    # the cab: a blunt rounded bow, decks of windows along it, a raked house on top with a wide bridge
+    cab = [(1440, 0, 170, 0, 200, 3.4), (1560, 0, 178, 0, 214, 3.4), (1960, -6, 172, 0, 212, 3.2), (2090, -20, 130, 0, 150, 2.6), (2170, -36, 70, 0, 70, 2.2), (2200, -44, 6, 0, 8, 2)]
+    add_loft(p, smooth_secs(cab, 6), 'tint', 96, axis='z')
+    _taper(p, -150, 150, 1480, 2010, 150, 240, 16, 24, 'paint'); _taper(p, -92, 92, 1600, 1920, 240, 280, 8, 12, 'tint'); _bridgeglass(p, -84, 84, 1630, 1890, 280, 294, 4, 9)
+    add_box(p, -210, 288, 1740, 210, 292, 1780, 'paint', 0)
+    for sx in (-1, 1):
+        _lit_bands(p, sx * 213, -110, 120, 1540, 1970, 9, sx, 8, r); _lit_bands(p, sx * 142, 158, 232, 1500, 1990, 4, sx, 7, r); _pods(p, sx * 214, 124, 1520, 2000, 18, 4, sx); _vents(p, sx * 212, -150, 1520, 2000, 16, 22, sx)
+    for (x, z, h) in ((-44, 1720, 90), (40, 1830, 70), (0, 1660, 110)): _mast(p, x, 294, z, h, 5)
+    add_cyl(p, 0, 2120, -20, -6, 30, 'paint', 24)
+    # engines on a thrust frame
+    for (x, y, R) in ((-190, 120, 74), (0, 130, 74), (190, 120, 74), (-190, -120, 74), (0, -130, 74), (190, -120, 74)):
+        _engine(p, x, y, -2060, -1940, R); _beam(p, (x, y, -1940), (x * 0.5, y * 0.5, -1880), 14, 'metal')
+    return (214, -14, 1760, 1)
+
+def sable(p, lay, r):
+    """A black flying wing, 2.4 km across: nothing bolted on it at all, one long curve from tip to tip, a slit of light along its edge, engines buried in the trailing edge."""
+    _sloft(p, [(-600, 0, 40, 0, 200, 2), (-300, 2, 86, 0, 220, 2), (100, 0, 96, 0, 200, 2), (500, -4, 60, 0, 110, 2), (880, -10, 12, 0, 16, 2), (960, -12, 0.5, 0, 0.6, 2)], 'tint', 96, per=8)
+    for s in (-1, 1):
+        _aero(p, _span(s * 60, -6, 620, -560, s * 1200, 60, -760, -860, 110, 18, 1.5, 0.05), 0, 1, 'tint', 16)
+        for f in (0.2, 0.48, 0.76):
+            st = _span(s * 60, -6, 620, -560, s * 1200, 60, -760, -860, 110, 3, 1.5, 0.05, f, f + 0.04)
+        for k in range(30):
+            t0, t1 = k / 30, (k + 1) / 30; xa, xb = s * (60 + 1140 * t0), s * (60 + 1140 * t1); ya, yb = -6 + 66 * t0, -6 + 66 * t1; za, zb = 620 - 1380 * t0 ** 1.5, 620 - 1380 * t1 ** 1.5
+            _beam(p, (xa, ya, za + 0.5), (xb, yb, zb + 0.5), 2.6, 'glow')
+        add_box(p, s * 1200 - 3, 58, -870, s * 1200 + 3, 72, -760, 'navgreen' if s > 0 else 'navred', 0)
+        _aero(p, _span(s * 1190, 60, -760, -860, s * 1205, 240, -860, -930, 16, 4, 1, 0.2), 0, 1, 'tint', 8)
+        for k in range(3):
+            ex = s * (120 + k * 150); _sloft(p, [(-200, 6 + k * 2, 30, ex, 56, 2.6), (-560 - k * 22, 6 + k * 2, 26, ex, 54, 3.4)], 'heatshield', 32, per=3); _engine(p, ex, 6 + k * 2, -640 - k * 22, -560 - k * 22, 24, 12)
+        _lit_bands(p, s * 196, -20, 30, -300, 200, 3, s, 10, r)
+    _canopy_like = [(420, 40), (620, 26)]
+    bm_rows = 9; st = [(330 + 300 * k / bm_rows, 44 - 22 * (k / bm_rows) ** 2, max(0.3, 16 * math.sin(math.pi * k / bm_rows)), 0, max(0.3, 44 * math.sin(math.pi * k / bm_rows)), 2) for k in range(bm_rows + 1)]
+    add_loft(p, smooth_secs(st, 3), 'visor', 48, axis='z')
+    return (204, -6, -60, 1)
+
 def _ibeam(p, a, b, h, w, mat='metal'):
     """A beam as it's rolled: a web between two flanges."""
     d = mathutils.Vector(b) - mathutils.Vector(a)
@@ -708,14 +861,17 @@ def dress_decks(p, lay, name):
         across = pr['face'] in (0, 2); L, D = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
         place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
 
-CAPITALS = {'bastion': bastion, 'meridian': meridian, 'longshore': longshore, 'halcyon': halcyon}
+CAPITALS = {'bastion': bastion, 'meridian': meridian, 'longshore': longshore, 'halcyon': halcyon, 'anvil': anvil, 'vesper': vesper, 'tiller': tiller, 'sable': sable}
+DECKS_OF = {'anvil': 'bastion', 'vesper': 'meridian', 'tiller': 'longshore', 'sable': 'halcyon'}      # (a ship of the same line has the same rooms: no more to download)
 DRESS = {'bastion': dress_bastion, 'meridian': dress_meridian, 'longshore': dress_longshore, 'halcyon': lambda p, r: None}
+for _k in ('anvil', 'vesper', 'tiller', 'sable'): DRESS[_k] = lambda p, r: None
 def build_capital():
     for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
     decks = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'capital.json'))); hulls = []; rooms = []; docks = {}
     for name, fn in CAPITALS.items():
-        p = Part(); r = random.Random(name); lay = decks[name + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
+        p = Part(); r = random.Random(name); lay = decks[DECKS_OF.get(name, name) + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
+        if name in DECKS_OF: continue
         p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
     json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
     for fname, group in (('capital.glb', hulls), ('capital-decks.glb', rooms)):

@@ -3,9 +3,9 @@
 import * as THREE from 'three';
 import { gltfLoader, bakedPart } from './gltf.js';
 
-const DECK = { bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]] };
+const DECK = { anvil: [[0.2, 0.22, 0.25], [0.1, 0.11, 0.13]], vesper: [[0.6, 0.57, 0.5], [0.3, 0.28, 0.25]], tiller: [[0.46, 0.41, 0.26], [0.2, 0.2, 0.18]], sable: [[0.16, 0.17, 0.2], [0.07, 0.08, 0.1]], bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]] };
 const LIVERY = [[0.1, 0.11, 0.13], [0.62, 0.6, 0.55], [0.32, 0.12, 0.05]];   // gunmetal, ivory, oxide
-function plated(base, colour) {
+function plated(base, colour, k = 1) {
   const m = base.clone(); m.color = new THREE.Color(...colour); m.map = null; m.metalnessMap = null; m.roughnessMap = null; m.aoMap = null; m.normalMap = null; m.metalness = 0.25; m.roughness = 0.62;
   m.onBeforeCompile = sh => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vShip;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvShip = position;');
@@ -16,14 +16,15 @@ function plated(base, colour) {
       vec2 panels(vec3 q, vec3 n, float size) { vec3 a = abs(n); vec2 uv = a.x > a.y && a.x > a.z ? q.zy : a.y > a.z ? q.xz : q.xy; uv.x *= 0.62; vec2 c = floor(uv / size); uv.x += h31(vec3(c.y, size, 3.0)) * size; c = floor(uv / size); vec2 f = fract(uv / size); float e = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y)) * size; return vec2(h31(vec3(c, size)), e); }`)
       .replace('#include <map_fragment>', `
       { vec3 nw = normalize(cross(dFdx(vShip), dFdy(vShip)));
-        vec2 big = panels(vShip, nw, 46.0), mid = panels(vShip + 7.0, nw, 11.0), small = panels(vShip + 3.0, nw, 2.8); float dist = length(vViewPosition), pxSize = dist * 0.0012;
-        float tone = 0.74 + 0.42 * big.x + 0.2 * (mid.x - 0.5) * (1.0 - smoothstep(600.0, 2600.0, dist)) + 0.1 * (small.x - 0.5) * (1.0 - smoothstep(80.0, 400.0, dist));
-        float seam = (1.0 - 0.55 * (1.0 - smoothstep(0.12, 0.34 + pxSize, big.y))) * (1.0 - 0.34 * (1.0 - smoothstep(0.06, 0.16 + pxSize, mid.y)) * (1.0 - smoothstep(900.0, 3000.0, dist))) * (1.0 - 0.1 * (1.0 - smoothstep(0.02, 0.05 + pxSize, small.y)) * (1.0 - smoothstep(60.0, 260.0, dist)));
+        vec2 big = panels(vShip, nw, ${(46 * k).toFixed(1)}), mid = panels(vShip + 7.0, nw, ${(11 * k).toFixed(1)}), small = panels(vShip + 3.0, nw, 2.8); float dist = length(vViewPosition), pxSize = dist * 0.0012;
+        float tone = 0.86 + 0.2 * big.x + 0.2 * (mid.x - 0.5) * (1.0 - smoothstep(600.0, 2600.0, dist)) + 0.1 * (small.x - 0.5) * (1.0 - smoothstep(80.0, 400.0, dist));
+        float seam = (1.0 - 0.3 * (1.0 - smoothstep(0.12, 0.34 + pxSize, big.y))) * (1.0 - 0.18 * (1.0 - smoothstep(0.06, 0.16 + pxSize, mid.y)) * (1.0 - smoothstep(900.0, 3000.0, dist))) * (1.0 - 0.1 * (1.0 - smoothstep(0.02, 0.05 + pxSize, small.y)) * (1.0 - smoothstep(60.0, 260.0, dist)));
         float grime = 0.86 + 0.14 * h31(floor(vShip / vec3(3.0, 19.0, 3.0)));
         // long weather streaks along the ship, the underside in its own shade, and what the sky doesn't reach
         float streak = 0.9 + 0.1 * h31(vec3(floor(vShip.x / 2.4), floor(vShip.y / 2.4), floor(vShip.z / 70.0)));
         diffuseColor.rgb *= tone * seam * grime * streak * mix(0.6, 1.0, smoothstep(-0.8, 0.5, nw.y)); }`);
   };
+  m.customProgramCacheKey = () => 'plated-' + k;
   return m;
 }
 // Inside, the sun doesn't reach: rooms are lit by their own fittings, in pools under each (they stand on the same grid: tools/assets/capital_kit.py), with a wash of daylight in from the open dock. (No shadow map could stop the sun at this scale.)
@@ -63,7 +64,7 @@ export class CapitalView {
   // Each part is its own stuff. Only the hull's skin carries plating; a nozzle is burnt metal, a frame is steel, a heat tile is a tile.
   partMaterial(slot, C) {
     const base = this.lib.surface(slot === 'tint' ? 'tint-hull' : slot), plain = (col, rough, metal) => { const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...col), roughness: rough, metalness: metal, envMapIntensity: 1 }); return m; };
-    if (slot === 'tint') return C.sleek ? new THREE.MeshPhysicalMaterial({ color: new THREE.Color(0.78, 0.76, 0.72), roughness: 0.24, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.05 }) : plated(base, LIVERY[C.colour % 3]);
+    if (slot === 'tint') return C.sleek ? new THREE.MeshPhysicalMaterial({ color: C.dark ? new THREE.Color(0.018, 0.02, 0.026) : new THREE.Color(0.78, 0.76, 0.72), roughness: 0.24, metalness: 0.2, clearcoat: C.dark ? 0.35 : 1, clearcoatRoughness: 0.05, envMapIntensity: C.dark ? 0.3 : 1 }) : plated(base, LIVERY[C.livery ?? C.colour % 3], Math.max(1, C.length / 1100));
     if (slot === 'metal') return plain([0.34, 0.33, 0.32], 0.42, 0.9);
     if (slot === 'heatshield') return plain([0.03, 0.03, 0.033], 0.85, 0.05);
     if (slot === 'paint') return plain([0.16, 0.17, 0.19], 0.6, 0.3);
@@ -88,7 +89,7 @@ export class CapitalView {
       if (!C.mesh) { C.mesh = new THREE.Group(); for (const { g, slot } of this.models[C.model]) { const m = new THREE.Mesh(g, this.partMaterial(slot, C)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.mesh.add(m); } this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; }
       C.mesh.position.set(...toRender(C.x, C.y, C.z));
       // the decks inside, once you're near enough to see in
-      const dk = this.models[C.model + '_decks'], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
+      const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if (!this.loadingDecks && far < 5000) { this.loadingDecks = true; this.fetch('./assets/capital-decks.glb'); }
       if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen)/.test(slot), m = new THREE.Mesh(g, glows ? b : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
       if (C.decks) { C.decks.visible = far < 1100; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }

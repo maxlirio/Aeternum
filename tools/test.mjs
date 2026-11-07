@@ -1632,6 +1632,26 @@ suites.towns = async () => {
   console.log(`  ${towns} towns, ${withBridge} with bridges (${decks} spans)`);
 };
 
+suites.roadrules = async () => {
+  const { townSignals, townLight, townRedAhead, wrongSideTown } = await import('../js/gen/roadrules.js'), { RoadRules } = await import('../js/sim/roadrules.js');
+  const p = makePlanet(uni(1), HOMEWORLD); let s = null; for (let a = 0; a < 6 && !s; a++) { const q = getSettlement(p, a, 0); if (q && townSignals(q).length) s = q; }
+  check(s, 'a town with lights');
+  const Sg = townSignals(s)[0]; let viaV = Sg.arms.vm; check(Sg.arms.vm || Sg.arms.up || Sg.arms.um || Sg.arms.vp, 'it has roads coming in');
+  // a time this junction is red for the road along v, and one it's green; and the world heading of +v
+  let tRed = null, tGreen = null; for (let t = 0; t < 40; t += 0.5) { if (tRed === null && townLight(Sg, t) === 1) tRed = t; if (tGreen === null && townLight(Sg, t) === 0) tGreen = t; }
+  const fx = -s.sin, fz = s.cos, drive = (t0, v0, v1, speed, side = 2) => { const store = { player: { credits: 1000, id: 'me' }, touchPlayer() {}, log(e) { (this.events ||= []).push(e); }, events: [] }, RR = new RoadRules({ planet: p, store, signalAt: () => 0 }), ride = { pos: [0, s.h, 0], facing: Math.atan2(fx, fz), speed, air: false }; const dt = 0.1; let t = t0; for (let v = v0; (v1 > v0 ? v < v1 : v > v1); v += Math.sign(v1 - v0) * speed * dt) { const [x, z] = s.toWorld(Sg.u + side, v); ride.pos = [x, s.h, z]; RR.step(dt, t, ride, s, null, null); t += dt; } return store; };
+  const run = n => drive(n, Sg.v - Sg.hv - 40, Sg.v + Sg.hv + 8, 10);
+  // find a start whose crossing lands in the red phase, and one that lands in green
+  let ranRed = null, wentGreen = null; for (let t = 0; t < 34 && (!ranRed || !wentGreen); t += 1) { const st = townLight(Sg, t + 3), en = townLight(Sg, t + 6); const S = run(t); if (st !== 0 && en !== 0 && !ranRed) ranRed = S; if (st === 0 && en === 0 && !wentGreen) wentGreen = S; }
+  check(ranRed.events.some(e => e.kind === 'red') && ranRed.player.credits < 1000, 'through a red light: fined');
+  check(!wentGreen.events.some(e => e.kind === 'red'), 'through on green: no fine');
+  check(townRedAhead(s, ...s.toWorld(Sg.u + 2, Sg.v - Sg.hv - 20), fx, fz, tRed)?.d > 0, 'traffic sees the red ahead');
+  check(!townRedAhead(s, ...s.toWorld(Sg.u + 2, Sg.v - Sg.hv - 20), fx, fz, tGreen), 'and nothing on green');
+  const slow = drive(tRed, Sg.v - Sg.hv - 40, Sg.v - Sg.hv - 5, 8); check(!slow.events.length, 'stopping short of the line: nothing');
+  const fast = drive(tGreen, Sg.v - Sg.hv - 200, Sg.v - Sg.hv - 20, 30); check(fast.events.some(e => e.kind === 'speed'), 'speeding in town: fined');
+  console.log('  ' + townSignals(s).length + ' junctions with lights in ' + s.name);
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

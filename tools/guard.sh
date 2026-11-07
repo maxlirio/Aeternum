@@ -4,9 +4,10 @@
 #   guard.sh <tool pid> <browser pid = its process group> <profile dir> <max seconds> <max MB>
 # Stops the browser when: the tool has gone, time is up, the browser's group uses more than max MB
 # (top's MEM, which counts compressed pages; ps RSS doesn't, and that hid a 47 GB helper), or the
-# whole machine is short (under 20% free, or over 4 GB of swap). Logs each run to out/guard.log.
+# whole machine is short (under 20% free, or swap has grown 1.5 GB since this run began: idle apps' old swap isn't this run's doing). Logs each run to out/guard.log.
 TOOL=$1; GROUP=$2; PROFILE=$3; MAXS=$4; MAXMB=$5
 LOG=out/guard.log; START=$(date +%s); PEAK=0; WHY=
+SWAP0=$(sysctl -n vm.swapusage | sed -E 's/.*used = ([0-9]+).*/\1/')
 while :; do
   sleep 3
   kill -0 "$GROUP" 2>/dev/null || { WHY=finished; break; }
@@ -18,7 +19,7 @@ while :; do
   FREE=$(sysctl -n kern.memorystatus_level)
   [ "$FREE" -lt 20 ] && { WHY="machine at ${FREE}% free"; break; }
   SWAP=$(sysctl -n vm.swapusage | sed -E 's/.*used = ([0-9]+).*/\1/')
-  [ "$SWAP" -gt 4096 ] && { WHY="swap ${SWAP} MB"; break; }
+  [ "$SWAP" -gt $((SWAP0 + 1536)) ] && { WHY="swap grew to ${SWAP} MB from ${SWAP0}"; break; }
 done
 kill -9 -"$GROUP" 2>/dev/null
 rm -rf "$PROFILE"

@@ -90,6 +90,8 @@ import { Mayhem } from './sim/mayhem.js';
 import { cityWalkers } from './gen/citytraffic.js';
 import { siteWalkers, villagerSays } from './gen/villagers.js';
 import { signalAt, driverOf, purposeOf } from './gen/cityfleet.js';
+import { townSignals, townLight, townRedAhead } from './gen/roadrules.js';
+import { RoadRules } from './sim/roadrules.js';
 import { getCity, cityPlace, blocksNear, liftsOf, CURB as CITY_CURB } from './gen/city.js';
 import { GrassField } from './render/grass.js';
 import { WeatherView } from './render/weather.js';
@@ -229,6 +231,7 @@ async function start(fresh) {
   root.add(bridgeGroup(planet, s));
   const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
+  let roadRules = null, roadLimit = null;
   let mayhem = null;           // what you can do to the city, and what it does back (made with the collision world)
   let doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
@@ -490,7 +493,12 @@ async function start(fresh) {
   const villagerChats = new Map();
   // the traffic lights near you show what their junction's doing
   function showCityLights() {
-    const c = cityView.city, out = []; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 300) { cityTraffic.showLights(out); return; }
+    const c = cityView.city, out = [];
+    if (town.group.visible) { const t = clock.now(), RED = [1, 0.1, 0.06], AMB = [1, 0.6, 0.1], GRN = [0.1, 1, 0.3], base = s.h + 0.05;
+      for (const S of townSignals(s)) { if (Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) > 190) continue; const st = townLight(S, t);
+        // over each lane coming in, on its right: the head on its arm
+        for (const [on, lu, lv, axis] of [[S.arms.vm, S.u + S.hu + 0.7 - 3.5, S.v - S.hv - 1.2 - 0.33, 0], [S.arms.vp, S.u - S.hu - 0.7 + 3.5, S.v + S.hv + 1.2 + 0.33, 0], [S.arms.um, S.u - S.hu - 1.2 - 0.33, S.v - S.hv - 0.7 + 3.5, 1], [S.arms.up, S.u + S.hu + 1.2 + 0.33, S.v + S.hv + 0.7 - 3.5, 1]]) { if (!on) continue; const y = st === axis ? 4.5 : st === -1 ? 4.83 : 5.16, [wx, wz] = s.toWorld(lu, lv); out.push({ pos: toRender(wx, base + y, wz), col: st === axis ? GRN : st === -1 ? AMB : RED }); } } }
+    if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 300) { cityTraffic.showLights(out); return; }
     const [u, v] = c.toLocal(ctrl.pos[0], ctrl.pos[2]), t = clock.now(), base = c.h + CITY_CURB, RED = [1, 0.1, 0.06], AMB = [1, 0.6, 0.1], GRN = [0.1, 1, 0.3];
     blocksNear(c, u, v, 150, B => { for (const p of B.props) { if (p.k !== 'trafficlight' || Math.hypot(p.u - u, p.v - v) > 170) continue;
       const lu = p.u - 3.56 * Math.sin(p.rot), lv = p.v - 3.56 * Math.cos(p.rot), i = p.u < (B.rect[0] + B.rect[2]) / 2 ? B.i : B.i + 1, j = p.v < (B.rect[1] + B.rect[3]) / 2 ? B.j : B.j + 1, st = signalAt(c, i, j, t);
@@ -1551,8 +1559,9 @@ async function start(fresh) {
     if (!inSpace) terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     if (!inSpace) cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     homeTown.town.group.visible = Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 7000;   // (the town is a speck from the city)
-    { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked) : []); }
+    { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked).map(v => { const r = townRedAhead(s, v.pos[0], v.pos[2], Math.sin(v.facing), Math.cos(v.facing), clock.now()); return r ? { ...v, stop: Math.max(0, r.d) } : v; }) : []); }
     showCityLights();
+    roadLimit = ride ? (roadRules ||= new RoadRules({ planet, store, signalAt, say: h => ui.toast(h, 'bad', 5000) })).step(dt, clock.now(), ride, town.group.visible ? s : null, cityView.city, mayhem) : null;
     if (!cityRooms) { cityRooms = new CityInteriors(planet, homeS, cityView.city, world, cityView, propLib); root.add(cityRooms.group);
       mayhem = new Mayhem({ world, store, planet, city: cityView.city, view: cityTraffic }); mayhem.onAlarm = (A, n) => { if (n && A.kind !== 'trespassing') ui.toast(`<i>“${SHOUTS[Math.floor(A.t * 7) % SHOUTS.length]}”</i>`, 'bad', 2600); }; mayhem.peopleNear = (t, x, z, r, max) => { const here = world.locate(...ctrl.pos)?.b?.item; return peopleNear(t, x, z, r, max).filter(w => !w.indoors || w.indoors === here); };   // (whoever's indoors sees only what happens indoors, with them)
       cityView.isBroken = (B, idx) => mayhem.brokenProp(B, idx); }
@@ -1602,7 +1611,7 @@ async function start(fresh) {
       }
       else if (rampHold > 0) {}
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
-      else if (ride) ui.showPrompt(`<b>${Math.round(Math.abs(ride.speed) * 3.6)} km/h</b>`);
+      else if (ride) { const k = Math.round(Math.abs(ride.speed) * 3.6), L = roadLimit; ui.showPrompt(`<b${L && k > L + 8 ? ' style="color:#ff7a66"' : ''}>${k} km/h</b>${L ? ` <span style="display:inline-block;margin-left:8px;min-width:22px;padding:1px 5px;border:2px solid #e0453a;border-radius:12px;background:#fff;color:#111;font-weight:700;text-align:center">${L}</span>` : ''}`); }
       else if (hotwire > 0) {}
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? `<kbd>E</kbd> ${typeOf(nv).kind === 'bike' ? 'Ride' : 'Drive'} your ${typeOf(nv).name.toLowerCase()}` : nv.forSale ? `<kbd>E</kbd> ${typeOf(nv).name} for sale — ${typeOf(nv).price} cr` : `${esc(nv.ownerName)}'s ${typeOf(nv).name.toLowerCase()} · hold <kbd>F</kbd> hotwire`);
       else if (ctrl.mode === 'seat') ui.showPrompt(null);

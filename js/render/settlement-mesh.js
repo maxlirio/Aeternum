@@ -25,6 +25,7 @@ export function buildingFrame(s, b) {
 }
 
 // Streets, pavements, pads and the roads out of town, in the town's own space. Cheap enough to stand for a town seen from far off.
+import { townSignals } from '../gen/roadrules.js';
 export function buildStreets(planet, s) {
   const M = materials();
   const rotFrame = () => [[0, 0, 0], [s.cos, 0, s.sin], [-s.sin, 0, s.cos]];
@@ -49,7 +50,7 @@ export function buildStreets(planet, s) {
       const e0 = c + side * hw, e1 = c + side * (hw + SIDEWALK);
       if (alongU) flat(M.pavers, s0, Math.min(e0, e1), s1, Math.max(e0, e1), y + 0.05); else flat(M.pavers, Math.min(e0, e1), s0, Math.max(e0, e1), s1, y + 0.05);
     }
-    if (r.arterial) for (let t = lo + 3; t < hi - 3; t += 6) { // centre dashes
+    for (let t = lo + hw + 3; t < hi - hw - 3; t += r.arterial ? 6 : 8) { // centre dashes: this side's yours, that side's theirs
       if (alongU) flat(M.marking, t, c - 0.08, t + 3, c + 0.08, yy + 0.003); else flat(M.marking, c - 0.08, t, c + 0.08, t + 3, yy + 0.003);
     }
   }
@@ -63,6 +64,17 @@ export function buildStreets(planet, s) {
       const u0 = node.u + su * hu, u1 = node.u + su * (hu + SIDEWALK), v0 = node.v + sv * hv, v1 = node.v + sv * (hv + SIDEWALK);
       flat(M.pavers, Math.min(u0, u1), Math.min(v0, v1), Math.max(u0, u1), Math.max(v0, v1), y + 0.05);
     }
+  }
+  // Lights at the junctions: a stop line and a crossing painted on every road coming in, and on its right a pole, an arm over the lane, a head with three lamps (lit by the game: main.js)
+  for (const S of townSignals(s)) {
+    const my = y + 0.042, stripes = (axisU, c0, c1, a0, a1) => { for (let q = c0 + 0.3; q < c1 - 0.5; q += 1.15) { if (axisU) flat(M.marking, a0, q, a1, q + 0.55, my); else flat(M.marking, q, a0, q + 0.55, a1, my); } };
+    const round = (cu, cv, y0, y1, r) => { const n = 10; for (let k = 0; k < n; k++) { const a0 = k / n * 6.2832, a1 = (k + 1) / n * 6.2832, A = [cu + Math.cos(a0) * r, cv + Math.sin(a0) * r], B = [cu + Math.cos(a1) * r, cv + Math.sin(a1) * r], am = (a0 + a1) / 2; gb.quad(M.darkTrim, [[A[0], y0, A[1]], [A[0], y1, A[1]], [B[0], y1, B[1]], [B[0], y0, B[1]]], [Math.cos(am), 0, Math.sin(am)], [[0, 0], [0, 1], [1, 1], [1, 0]]); } };
+    const head = (cu, cv, du, dv) => { const b = y + 0.05; gb.box(M.darkTrim, cu - 0.19, b + 4.25, cv - 0.19, cu + 0.19, b + 5.4, cv + 0.19, [0.4, 0.4, 0.42]); for (const h_ of [4.5, 4.83, 5.16]) { gb.box(M.darkTrim, cu - 0.13 + du * 0.19, b + h_ - 0.13, cv - 0.13 + dv * 0.19, cu + 0.13 + du * 0.19, b + h_ + 0.13, cv + 0.13 + dv * 0.19, [0.12, 0.12, 0.13]); } };
+    const { u, v, hu, hv, arms } = S, b = y + 0.05;
+    if (arms.vm) { flat(M.marking, u, v - hv - 2.9, u + hu, v - hv - 2.5, my); stripes(false, u - hu, u + hu, v - hv - 2.3, v - hv - 0.5); round(u + hu + 0.7, v - hv - 1.2, b, b + 5.8, 0.09); gb.box(M.darkTrim, u + hu + 0.7 - 3.5, b + 5.45, v - hv - 1.25, u + hu + 0.7, b + 5.55, v - hv - 1.15, [0.4, 0.4, 0.42]); head(u + hu + 0.7 - 3.5, v - hv - 1.2, 0, -1); }
+    if (arms.vp) { flat(M.marking, u - hu, v + hv + 2.5, u, v + hv + 2.9, my); stripes(false, u - hu, u + hu, v + hv + 0.5, v + hv + 2.3); round(u - hu - 0.7, v + hv + 1.2, b, b + 5.8, 0.09); gb.box(M.darkTrim, u - hu - 0.7, b + 5.45, v + hv + 1.15, u - hu - 0.7 + 3.5, b + 5.55, v + hv + 1.25, [0.4, 0.4, 0.42]); head(u - hu - 0.7 + 3.5, v + hv + 1.2, 0, 1); }
+    if (arms.um) { flat(M.marking, u - hu - 2.9, v - hv, u - hu - 2.5, v, my); stripes(true, v - hv, v + hv, u - hu - 2.3, u - hu - 0.5); round(u - hu - 1.2, v - hv - 0.7, b, b + 5.8, 0.09); gb.box(M.darkTrim, u - hu - 1.25, b + 5.45, v - hv - 0.7, u - hu - 1.15, b + 5.55, v - hv - 0.7 + 3.5, [0.4, 0.4, 0.42]); head(u - hu - 1.2, v - hv - 0.7 + 3.5, -1, 0); }
+    if (arms.up) { flat(M.marking, u + hu + 2.5, v, u + hu + 2.9, v + hv, my); stripes(true, v - hv, v + hv, u + hu + 0.5, u + hu + 2.3); round(u + hu + 1.2, v + hv + 0.7, b, b + 5.8, 0.09); gb.box(M.darkTrim, u + hu + 1.15, b + 5.45, v + hv + 0.7 - 3.5, u + hu + 1.25, b + 5.55, v + hv + 0.7, [0.4, 0.4, 0.42]); head(u + hu + 1.2, v + hv + 0.7 - 3.5, 1, 0); }
   }
   // roads out of town: a ribbon along each routed centreline, draped over the graded ground
   linksOfTown(planet, s);     // (settles which of them run on to another town)

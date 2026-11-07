@@ -55,7 +55,7 @@ function fallAt(planet, x, z) {
   GX /= 2 * LAT; GZ /= 2 * LAT;
 }
 const ROUGH = [[150, 1.1], [70, 1], [33, 0.55], [15, 0.26], [7, 0.12]];
-const OCT = [[540, 52], [270, 26], [135, 11], [68, 5], [34, 1.6], [17, 0.5]];
+const OCT = [[640, 40], [320, 16], [160, 6], [80, 2.6], [40, 1], [20, 0.35]];      // (mostly the big buttresses: a lot of small deep gullies turns a mountain into a thicket of needles)
 const patches = new WeakMap();
 // One patch of gullies. Straight within itself: it takes one direction, read at its centre. Its direction is the fall of the land there plus the sides of the
 // larger gullies it lies on, so finer ones run into coarser ones and the whole thing branches like drainage.

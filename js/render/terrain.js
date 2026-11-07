@@ -43,13 +43,13 @@ function terrainMaterial(planet) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
   m.normalScale.set(0.8, 0.8);
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkOn: terrainMarks.on, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uFar: terrainFar, tNoise: { value: terrainNoise() }, tSlopes: { value: noiseSlopes }, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) } });
+    Object.assign(sh.uniforms, { tG: { value: T.map }, tGN: { value: T.normal }, uMean: { value: T.means }, uTile: { value: T.tiles }, uSea: { value: planet.seaLevel }, uTime: terrainTime, uWind: terrainWind, tMark: terrainMarks.tex, uMarkOn: terrainMarks.on, uMarkC: terrainMarks.c, uMarkS: terrainMarks.s, uFar: terrainFar, tNoise: { value: terrainNoise() }, tSlopes: { value: noiseSlopes }, uPrev: { value: new THREE.Vector2(Math.cos(prevailing(planet)), Math.sin(prevailing(planet))) }, uCanopy: { value: new THREE.Vector3(...planet.climate.grass).multiplyScalar(0.62) }, uRockBase: { value: new THREE.Vector3(...planet.climate.rock.map(v => v * v)) }, uTree: { value: planet.climate.treeline ?? 1e6 } });
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
       attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR; attribute vec3 aRock; varying vec3 vRock;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRock = aRock; vWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
-      varying vec3 vRock; uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy;
+      varying vec3 vRock; uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy; uniform vec3 uRockBase; uniform float uTree;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;
       // a tile without its repeat: which of eight shifted copies you see drifts across the ground, so no two stretches of it line up
       vec3 hash33(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
@@ -122,15 +122,15 @@ function terrainMaterial(planet) {
       float rocky = clamp(rockW + 0.0, 0.0, 1.0), soft = 1.0 - rocky;
       // weathered patches, iron stains, lichen: a slow drift of warm and cool
       vec3 tint = mix(vec3(0.66, 0.69, 0.76), vec3(1.34, 1.2, 1.02), smoothstep(0.34, 0.66, macro));
-      diffuseColor.rgb *= mix(vec3(1.0), tint, 0.32 * soft + 0.85 * rocky);
+      diffuseColor.rgb *= mix(vec3(1.0), tint, 0.32 * soft + 0.2 * rocky);
       if (rocky > 0.01) {
         // down a rock face, water stains; through it, beds of harder and softer rock that wander with the land. Never ruled lines.
         float streak = bw.x * texture2D(tNoise, vec2(vWP.z / 95.0, vWP.y / 900.0)).g + bw.z * texture2D(tNoise, vec2(vWP.x / 95.0, vWP.y / 900.0)).g + bw.y * 0.5;
-        float wander = 90.0 * (m1 - 0.5) + 30.0 * (m2 - 0.5);
+        float wander = 40.0 * (m0 - 0.5) + 14.0 * (m2 - 0.5);
         float yb = vWP.y + wander + 0.03 * vWP.x - 0.018 * vWP.z;
         float bedA = texture2D(tNoise, vec2(0.13, yb / 760.0)).r, bedB = texture2D(tNoise, vec2(0.61, yb / 190.0)).b, bed = smoothstep(0.3, 0.7, bedA * 0.65 + bedB * 0.35);
-        float showBeds = W[11] * 0.34 + W[12] * 1.0 + W[13] * 0.28 + W[14] * 0.14 + W[15] * 0.5;
-        diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.68, 0.62, 0.6), vec3(1.24, 1.2, 1.12), bed), showBeds * (0.55 + 0.45 * m2));
+        float showBeds = 0.55 + 0.45 * (W[12] + W[15]);
+        diffuseColor.rgb *= mix(vec3(1.0), mix(vec3(0.74, 0.7, 0.68), vec3(1.2, 1.17, 1.1), bed), showBeds * rocky);
         diffuseColor.rgb *= mix(1.0, 0.62 + 0.76 * streak, rocky * (1.0 - bw.y));
         // fractures at two sizes: thin wandering lines, not a net of cells
         float fr1 = bw.x * texture2D(tNoise, vec2(vWP.z, vWP.y) / 37.0).g + bw.z * texture2D(tNoise, vec2(vWP.x, vWP.y) / 37.0).g + bw.y * texture2D(tNoise, top / 37.0).g;
@@ -178,8 +178,14 @@ function terrainMaterial(planet) {
       `)
       // Rock and soil are different stuff with an edge between them, not a blend: past a threshold that wanders with the ground, you're on one or the other.
       .replace('#include <color_fragment>', `
-      { float rv = clamp(rockW, 0.0, 1.0), rn = 0.6 * m4 + 0.4 * texture2D(tNoise, R1 * sh / 13.0).r, crisp = smoothstep(0.42, 0.53, rv + (rn - 0.5) * 0.62);
-        vec3 rockC = vRock * vRock, soilC = clamp((vColor - rv * rockC) / max(1.0 - rv, 0.2), 0.0, 1.0);
+      { float rv = clamp(rockW, 0.0, 1.0), rn = 0.45 * m4 + 0.3 * texture2D(tNoise, R1 * sh / 13.0).r + 0.25 * texture2D(tNoise, R2 * sh / 3.7).b;
+        // above the tree line the ground is bare whatever its slope; the climb to it is thinner and thinner soil
+        float bare = smoothstep(uTree - 260.0, uTree + 120.0, vWP.y + 120.0 * (m2 - 0.5)); rv = max(rv, bare * 0.9);
+        float crisp = smoothstep(0.38, 0.56, rv + (rn - 0.5) * 0.9);
+        // A range is one body of rock: its colour comes from the planet's stone, shifting only slowly across country, not from cell to cell
+        vec3 rockC = mix(vRock * vRock, uRockBase, 0.62) * (1.2 + 0.26 * m0);
+        vec3 soilC = clamp((vColor - clamp(rockW, 0.0, 1.0) * vRock * vRock) / max(1.0 - clamp(rockW, 0.0, 1.0), 0.2), 0.0, 1.0);
+        soilC = mix(soilC, rockC * vec3(0.92, 0.86, 0.72), smoothstep(0.02, 0.45, rv) * 0.72);       // soil is what its rock weathered into
         diffuseColor.rgb *= (rv < 0.004 ? vColor : mix(soilC, rockC, crisp)); }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
       // peat holds water: its dark hollows shine. Salt and snow are a little smoother than soil.
