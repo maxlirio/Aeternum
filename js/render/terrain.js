@@ -150,7 +150,8 @@ function terrainMaterial(planet) {
         float crack1 = 1.0 - smoothstep(rag * 0.5, rag + 0.03, A.x), lip1 = 1.0 - smoothstep(0.02, 0.26, A.x), crack2 = (1.0 - smoothstep(0.006, 0.04, B.x)) * smoothstep(0.42, 0.62, h1.z);
         diffuseColor.rgb *= mix(vec3(1.0), (0.84 + 0.32 * h1.x) * mix(vec3(1.0), vec3(1.07, 1.0, 0.93), h1.y), k1);
         { float g0 = texture2D(tNoise, q / 0.61).r, g1 = texture2D(tNoise, R2 * q / 0.17).b, g2_ = texture2D(tNoise, R1 * q / 0.047).r; diffuseColor.rgb *= mix(1.0, 0.72 + 0.34 * g0 + 0.2 * g1 + 0.12 * g2_, k1); if (h1.x > 0.72) diffuseColor.rgb *= mix(vec3(1.0), vec3(0.9, 0.97, 0.78), k1 * smoothstep(0.52, 0.66, g0) * 0.7); }     // mineral grain and patches of lichen, no pebbles
-        diffuseColor.rgb *= 1.0 - k1 * crack1 * 0.86; diffuseColor.rgb *= 1.0 - k1 * lip1 * 0.18; diffuseColor.rgb *= 1.0 - k2 * crack2 * 0.5;
+        { float near_ = 1.0 - smoothstep(8.0, 26.0, vViewPosition.z);      // (a crack is a shadow in a gap: from further than this it's thinner than a pixel and only ever drew as a scribble, the beds as hatching)
+          diffuseColor.rgb *= 1.0 - k1 * crack1 * 0.34 * near_ * (A.y > 0.5 ? 1.0 : 0.55); diffuseColor.rgb *= 1.0 - k1 * lip1 * 0.08 * near_; diffuseColor.rgb *= 1.0 - k2 * crack2 * 0.25; }
         // the world direction of each set of breaks
         vec3 dirV = flat_ ? vec3(R1[0][1], 0.0, R1[1][1]) : vec3(0.0, 1.0, 0.0), dirU = flat_ ? vec3(R1[0][0], 0.0, R1[1][0]) : (bw.x > bw.z ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
         vec3 side1 = (A.y < 0.5 ? dirV : dirU) * A.z;

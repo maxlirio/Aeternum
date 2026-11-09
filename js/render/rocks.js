@@ -21,9 +21,11 @@ function rockGeometry(seed, shape, rock, detail) {
   const P = g.attributes.position, v = new THREE.Vector3(), beds = rock === 'sandstone' ? 9 : rock === 'pale' ? 6 : rock === 'basalt' ? 0 : 3;
   for (let i = 0; i < P.count; i++) {
     v.fromBufferAttribute(P, i).normalize();
-    let R = 1.15; for (const [a, b, c, d] of planes) { const q = a * v.x + b * v.y + c * v.z; if (q > 0.02) R = Math.min(R, d / q); }
+    // the joints cut it, but no break in stone is a knife edge: where two faces meet the edge is worn round (a soft minimum, not a hard one)
+    let R = 1.15; const kk = 0.075; for (const [a, b, c, d] of planes) { const q = a * v.x + b * v.y + c * v.z; if (q > 0.02) { const r2 = d / q, h = Math.max(kk - Math.abs(R - r2), 0) / kk; R = Math.min(R, r2) - h * h * kk * 0.25; } }
     const u = v.x * 1.9 + v.y * 0.7, w = v.z * 1.9 - v.y * 0.7;
-    R *= 1 + 0.12 * N.fbm(u * 1.4 + 3, w * 1.4, 3) + 0.035 * N.ridged(u * 6, w * 6, 2);
+    // then roughened at every scale the mesh can carry: the lumps of the block, the chips off its faces, the grain of the stone
+    R *= 1 + 0.11 * N.fbm(u * 1.4 + 3, w * 1.4, 3) + 0.035 * N.ridged(u * 6, w * 6, 2) + (detail >= 5 ? 0.014 * N.fbm(u * 17 + 7, w * 17 - 3, 2) + 0.006 * N.n(u * 41, w * 41) : 0);
     let x = v.x * R, y = v.y * R, z = v.z * R;
     if (shape === 'slab') y = y * 0.62;
     if (beds) { const k = beds * 0.5, t = (y + 2) * k, f = t - Math.floor(t), step = (Math.floor(t) + (f > 0.7 ? (f - 0.7) / 0.3 : 0)) / k - 2, sh = 1 + 0.05 * Math.sin(Math.floor(t) * 12.9 + seed); y = y * 0.35 + step * 0.65; x *= sh; z *= sh; }
@@ -86,7 +88,7 @@ export class RockView {
   }
   set(rock, shape, v, hi) {
     const k = rock + shape + v + (hi === 2 ? 'm' : hi ? 'h' : 'l'); let S = this.sets.get(k); if (S) return S;
-    const geo = rockGeometry(hashInts(this.seed, [hashStr(5, rock + shape), v]), shape, rock, hi === 2 ? 5 : hi ? 9 : 3);
+    const geo = rockGeometry(hashInts(this.seed, [hashStr(5, rock + shape), v]), shape, rock, hi === 2 ? 6 : hi ? 9 : 4);
     const mat = this.mats[rock] || (this.mats[rock] = rockMaterial(LAYER[rock]));
     S = { geo, mat, list: [], im: null, hi }; this.sets.set(k, S);
     return S;
@@ -120,7 +122,7 @@ export class RockView {
     // the rock standing out of the steep ground around you
     { const R = Math.ceil(LEDGE / TILE), ti = Math.floor(x / TILE), tj = Math.floor(z / TILE), t0 = performance.now();
       for (let a = -R; a <= R; a++) for (let b = -R; b <= R; b++) { const key = (ti + a) + ',' + (tj + b); let L = this.ledgeTiles.get(key); if (!L) { if (performance.now() - t0 > 6) { this.pending = true; continue; } L = ledgeTile(this.planet, ti + a, tj + b); this.ledgeTiles.set(key, L); if (this.ledgeTiles.size > 80) this.ledgeTiles.delete(this.ledgeTiles.keys().next().value); }
-        for (const q of L) { const d = Math.hypot(q.x - x, q.z - z); if (d < LEDGE) this.set(q.rock, q.shape, q.v, d < 70 ? 2 : false).list.push(q); } } }
+        for (const q of L) { const d = Math.hypot(q.x - x, q.z - z); if (d < LEDGE) this.set(q.rock, q.shape, q.v, d < 110 ? 2 : false).list.push(q); } } }
     for (const S of this.sets.values()) {
       const n = S.list.length;
       if (!S.im || S.im.instanceMatrix.count < n) {
@@ -133,7 +135,7 @@ export class RockView {
       }
       S.list.forEach((q, i) => {
         if (q.gx !== undefined) {      // a ledge: long across the slope, leaning back into it
-          this._n.set(-q.gx * 0.9, 1, -q.gz * 0.9).normalize(); this._q.setFromUnitVectors(UP, this._n).multiply(this._q2.setFromAxisAngle(UP, q.across)); this._p.set(q.x, q.y, q.z); this._s.set(q.size, q.tall, q.deep);
+          this._n.set(-q.gx * 0.9, 1, -q.gz * 0.9).normalize(); this._q.setFromUnitVectors(UP, this._n).multiply(this._q2.setFromAxisAngle(UP, q.across)); this._p.set(q.x, q.y - q.tall * 0.38, q.z); this._s.set(q.size, q.tall, q.deep * 0.8);      // (bedded in the slope it stands out of, not laid on it)
         } else { this._e.set(q.tilt, q.rot, q.tilt * 0.6); this._q.setFromEuler(this._e); this._p.set(q.x, q.y, q.z); this._s.set(q.size, q.tall, q.size * (0.75 + 0.4 * q.tint)); }
         S.im.setMatrixAt(i, this._m.compose(this._p, this._q, this._s));
         const col = this.colour[q.rock], k = (0.82 + 0.34 * q.tint) * (q.gx !== undefined ? 0.78 : 1); S.im.setColorAt(i, this._c.setRGB(col[0] * k, col[1] * k, col[2] * k));

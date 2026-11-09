@@ -11,30 +11,38 @@ import { workedGround, workedNear } from '../gen/outposts.js';
 import { landTraits } from '../gen/land.js';
 
 const PATCH = 10, NEAR = 20, FAR = 60;           // m; dense blades out to NEAR, a coarser ring to FAR
-const SEG = 3;                                   // segments per near blade
+const SEG = 4;                                   // segments per near blade
 const DENS_NEAR = 90, DENS_FAR = 12;              // blades per m² at full lushness
 const G = 5;                                     // height-sample grid per patch side
 const sat = (c, k) => { const m = (c[0] + c[1] + c[2]) / 3; return c.map(v => Math.max(0, m + (v - m) * k)); };
 
 function bladeGeometry(seg) {
+  // a blade has a midrib: three verts across it, the middle one set back, so it's a shallow V and catches the light differently on each half
   const P = [], U = [], I = [];
-  for (let i = 0; i <= seg; i++) { const t = i / seg; P.push(-0.5, t, 0, 0.5, t, 0); U.push(0, t, 1, t); }
-  for (let i = 0; i < seg; i++) { const a = i * 2; I.push(a, a + 1, a + 3, a, a + 3, a + 2); }
-  P.push(0, 1.0, 0); U.push(0.5, 1);                          // a pointed tip
-  const tip = (seg + 1) * 2; I.push(tip - 2, tip - 1, tip);
+  for (let i = 0; i <= seg; i++) { const t = i / seg; P.push(-0.5, t, 0, 0, t, 0.28, 0.5, t, 0); U.push(0, t, 0.5, t, 1, t); }
+  for (let i = 0; i < seg; i++) { const a = i * 3; I.push(a, a + 1, a + 4, a, a + 4, a + 3, a + 1, a + 2, a + 5, a + 1, a + 5, a + 4); }
+  const tip = (seg + 1) * 3; P.push(0, 1.0, 0.05); U.push(0.5, 1);                          // a pointed tip
+  I.push(tip - 3, tip - 2, tip, tip - 2, tip - 1, tip);
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I);
   g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(P.length).fill(0).map((_, i) => i % 3 === 2 ? 1 : 0), 3));
   return g;
 }
-
 function flowerGeometry() {
+  // a wildflower: its stalk, then a head made as a flower is — a cup of petals (each its own pair of faces, curling up at the tip) round a raised heart
   const P = [], U = [], I = [];
-  for (let i = 0; i <= 2; i++) { const t = i / 2; P.push(-0.5, t, 0, 0.5, t, 0); U.push(0, t, 1, t); }
-  for (let i = 0; i < 2; i++) { const a = i * 2; I.push(a, a + 1, a + 3, a, a + 3, a + 2); }
-  const c = P.length / 3; P.push(0, 1, 0); U.push(2, 1);                 // head centre
-  for (let k = 0; k < 10; k++) { const a = k / 10 * Math.PI * 2, r = k % 2 ? 0.45 : 1; P.push(Math.cos(a) * r, 1, Math.sin(a) * r); U.push(2, 1); }
-  for (let k = 0; k < 10; k++) I.push(c, c + 1 + k, c + 1 + (k + 1) % 10);
+  for (let i = 0; i <= 3; i++) { const t = i / 3; P.push(-0.5, t, 0, 0.5, t, 0); U.push(0, t, 1, t); }
+  for (let i = 0; i < 3; i++) { const a = i * 2; I.push(a, a + 1, a + 3, a, a + 3, a + 2); }
+  const n = 6;
+  for (let k = 0; k < n; k++) {
+    const a = k / n * Math.PI * 2, w = Math.PI / n * 0.8, o = P.length / 3, pt = (ang, r, y) => [Math.cos(ang) * r, 1 + y, Math.sin(ang) * r];
+    P.push(...pt(a, 0.12, 0.02), ...pt(a - w, 0.55, 0.1), ...pt(a + w, 0.55, 0.1), ...pt(a - w * 0.6, 0.95, 0.3), ...pt(a + w * 0.6, 0.95, 0.3), ...pt(a, 1.1, 0.42));
+    for (let q = 0; q < 6; q++) U.push(2, 1);
+    I.push(o, o + 1, o + 2, o + 1, o + 3, o + 2, o + 2, o + 3, o + 4, o + 3, o + 5, o + 4);
+  }
+  const c = P.length / 3; P.push(0, 1.16, 0); U.push(3, 1);              // the heart: a little dome
+  for (let k = 0; k < 8; k++) { const a = k / 8 * Math.PI * 2; P.push(Math.cos(a) * 0.22, 1.04, Math.sin(a) * 0.22); U.push(3, 1); }
+  for (let k = 0; k < 8; k++) I.push(c, c + 1 + (k + 1) % 8, c + 1 + k);
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setIndex(I);
   g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(P.length).fill(0).map((_, i) => i % 3 === 1 ? 1 : 0), 3));
@@ -61,7 +69,7 @@ export class GrassField {
         attribute vec4 aShape;    // height, width, lean, phase
         attribute vec3 aCol;
         uniform float uTime; uniform vec2 uWind;
-        varying vec3 vCol; varying float vT; varying float vHead;`)
+        varying vec3 vCol; varying float vT; varying float vHead; varying float vHeart; varying float vCup;`)
         .replace('#include <beginnormal_vertex>', `
           float t = uv.y; vT = t; vCol = aCol;
           float c = cos(aPos.w), s = sin(aPos.w);
@@ -71,22 +79,23 @@ export class GrassField {
           float flutter = sin(uTime * 4.1 + aShape.w * 20.0) * 0.06;
           float bendAmt = aShape.z + (0.35 + 0.9 * gust) * length(uWind) * 0.11 + flutter;
           vec2 wdir = normalize(uWind + vec2(1e-4));
-          vec3 objectNormal = normalize(vec3(s * 0.4, 0.75, c * 0.4));        // soft: lit mostly like the ground
+          float side = position.x > 0.01 ? 1.0 : position.x < -0.01 ? -1.0 : 0.0;     // each half of the blade turned its own way off the midrib
+          vec3 objectNormal = normalize(vec3(s * 0.45 + c * side * 0.35, 0.7, c * 0.45 - s * side * 0.35));
         `)
         .replace('#include <begin_vertex>', `
-          float h = aShape.x, w = aShape.y * (1.0 - t * 0.85);
-          vec3 local = vec3(position.x * w, 0.0, 0.0);
-          local = vec3(local.x * c, 0.0, -local.x * s);                      // the blade faces its own way
-          vHead = step(1.5, uv.x);
-          if (vHead > 0.5) local = vec3(position.x, 0.0, position.z) * aShape.y * 0.62;   // a flower head: a flat star at the stalk's top
+          float h = aShape.x, w = aShape.y * (1.0 - t * 0.85) * (aShape.w >= 2.0 ? 0.2 : 1.0);      // (a flower's stalk is a thin stem, not a blade)
+          vec3 local = vec3(position.x * w, 0.0, position.z * w);
+          local = vec3(local.x * c + local.z * s, 0.0, -local.x * s + local.z * c);   // the blade faces its own way
+          vHead = step(1.5, uv.x); vHeart = step(2.5, uv.x); float cup = 0.0;
+          if (vHead > 0.5) { local = vec3(position.x, 0.0, position.z) * aShape.y * 0.62; cup = (position.y - 1.0) * aShape.y * 0.62; } vCup = clamp((position.y - 1.0) / 0.42, 0.0, 1.0);   // a flower head: its petals cupped round its heart
           float b = bendAmt * t * t * h;                                       // it curves over as it rises
           vec3 transformed = vec3(aPos.x + local.x + wdir.x * b + s * aShape.z * t * t * h * 0.4,
-                                  aPos.y + h * t * (1.0 - 0.35 * bendAmt * t),
+                                  aPos.y + h * t * (1.0 - 0.35 * bendAmt * t) + cup,
                                   aPos.z + local.z + wdir.y * b + c * aShape.z * t * t * h * 0.4);
         `);
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vCol; varying float vT; varying float vHead;')
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vCol; varying float vT; varying float vHead; varying float vHeart; varying float vCup;')
         .replace('#include <color_fragment>', `#include <color_fragment>
-          diffuseColor.rgb = vHead > 0.5 ? vCol : (vCol.r + vCol.g + vCol.b > 1.2 ? vec3(0.12, 0.2, 0.06) : vCol) * mix(0.18, 1.1, smoothstep(0.0, 1.0, vT));    // shaded root, sunlit tip; a flower's stalk is green, its head its own colour`);
+          diffuseColor.rgb = vHeart > 0.5 ? vec3(0.55, 0.38, 0.08) : vHead > 0.5 ? vCol * (0.55 + 0.6 * vCup) : (vCol.r + vCol.g + vCol.b > 1.2 ? vec3(0.12, 0.2, 0.06) : vCol) * mix(0.18, 1.1, smoothstep(0.0, 1.0, vT));    // shaded root, sunlit tip; a flower's stalk is green, its head its own colour`);
     };
     return m;
   }
