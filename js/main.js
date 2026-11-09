@@ -977,32 +977,66 @@ async function start(fresh) {
     return best;
   }
   function startDock(C) {
-    const L = flight.L; if (L.W > 26 || L.D > 40 || (L.H ?? L.ceiling + 1) > 7) { ui.toast(`The ${esc(flight.ship.name)} won't fit in the ${esc(C.name)}'s bay.`, 'warn', 4000); return; }
-    const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, lay = C.ship.model && LAYOUTS[C.ship.model], R0 = lay.rooms[0], zl = Math.max(R0.rect[1] + L.D / 2 + 6, (R0.rect[1] + R0.rect[3]) / 2 - 2), y = at.c[1] + lay.deck;
-    const P = z => [at.c[0] + fx * (z - D / 2), y + 5, at.c[2] + fz * (z - D / 2)], A = P(-160), B = P(zl);
-    // round the hull, not through it: as high as it takes for the way there to be clear
-    const clear = (p, q) => { for (let k = 0; k <= 40; k++) { const t = k / 40; if (fleetContact(fleet, p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t, Math.max(4, L.W * 0.6))) return false; } return true; };
-    const here = flight.pos.slice(), way = [];
-    if (!clear(here, A)) { for (const h of [150, 400, 800, 1300, 1800]) { const Y = Math.max(here[1], C.y + h), a1 = [here[0], Y, here[2]], a2 = [A[0], Y, A[2]]; if (clear(here, a1) && clear(a1, a2) && clear(a2, A)) { way.push(a1, a2); break; } } }
-    way.push(A, B);
-    docking = { C, way, i: 0, f: at.facing, y }; flight.throttle = 0; flight.hover = 0;
-    ui.toast(`Docking with the ${esc(C.name)}. Hands off: the ship's flying itself in.`, '', 4000);
+    const L = flight.L, H = L.H ?? L.ceiling + 1, at = C.ship.at, lay = LAYOUTS[C.ship.model], mouth = lay.doors[0], hole = mouth.height ?? 6.6;
+    if (L.W > mouth.width - 2 || L.D > 40 || H > hole - 0.2) { ui.toast(`The ${esc(flight.ship.name)} won't fit through the ${esc(C.name)}'s bay doors.`, 'warn', 4000); return; }
+    const fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, R0 = lay.rooms[0], zl = Math.max(R0.rect[1] + L.D / 2 + 8, (R0.rect[1] + R0.rect[3]) / 2 - 2);
+    const deckY = at.c[1] + lay.deck, yIn = deckY + Math.min(0.9, (hole - H) / 2);      // (through the middle of the doors, not the ceiling over them)
+    const P = (z, y = yIn) => [at.c[0] + fx * (z - D / 2), y, at.c[2] + fz * (z - D / 2)];
+    // the way: from where you are, on round onto the bay's line a long way out, down it, in through the doors, to the spot to set down
+    const here = flight.pos.slice(), sp = Math.max(8, flight.airspeed), dir = sp > 9 ? flight.vel.map(v => v / flight.airspeed) : flight.fwd;
+    const lead = [here[0] + dir[0] * Math.min(260, sp * 3), here[1] + dir[1] * Math.min(260, sp * 3), here[2] + dir[2] * Math.min(260, sp * 3)];
+    const far = P(-420, yIn + 40), mid = P(-150, yIn + 6), near = P(-30), inside = P(zl);
+    const clear = pts => { for (let i = 0; i < pts.length; i += 3) { const q = pts[i]; if (fleetContact(fleet, q[0], q[1], q[2], Math.max(4, L.W * 0.6))) return false; } return true; };
+    let route = null;
+    for (const h of [0, 150, 400, 800, 1300, 1800]) {
+      const ctl = h ? [here, lead, [lead[0], C.y + h, lead[2]], [far[0], C.y + h, far[2]], far] : [here, lead, far];
+      const curve = spline(ctl.concat([mid, near, inside]));
+      const outside = curve.filter(q => q.s < curve.find(c => c.u >= ctl.length + 1 - 1e-6)?.s);     // (in the dock's own approach the hull's shape doesn't apply: the doorway is the gap in it)
+      if (clear(outside) || h === 1800) { route = curve; break; }
+    }
+    const sIn = route.find(q => Math.hypot(q.p[0] - near[0], q.p[2] - near[2]) < 3)?.s ?? route[route.length - 1].s * 0.95, sMid = route.find(q => Math.hypot(q.p[0] - mid[0], q.p[2] - mid[2]) < 6)?.s ?? sIn * 0.8;
+    docking = { C, route, s: 0, v: sp, sIn, sMid, end: route[route.length - 1].s, f: at.facing, settle: false, deckY, roll: flight.roll, pitch: flight.pitch, facing: flight.facing };
+    flight.throttle = 0.3;
+    ui.toast(`Docking with the ${esc(C.name)}. The ship's flying itself in.`, '', 4000);
+  }
+  // a smooth way through points (centripetal Catmull-Rom), as points every ~2 m with the distance along it: [{ p, s, u }]
+  function spline(pts) {
+    const out = [], ext = [pts[0].map((v, i) => 2 * v - pts[1][i]), ...pts, pts[pts.length - 1].map((v, i) => 2 * v - pts[pts.length - 2][i])];
+    let s = 0, prev = null;
+    for (let k = 1; k < ext.length - 2; k++) {
+      const [p0, p1, p2, p3] = [ext[k - 1], ext[k], ext[k + 1], ext[k + 2]], d = (a, b) => Math.max(1e-3, Math.sqrt(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])));
+      const t0 = 0, t1 = t0 + d(p0, p1), t2 = t1 + d(p1, p2), t3 = t2 + d(p2, p3), n = Math.max(4, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]) / 2));
+      for (let j = 0; j <= n; j++) {
+        if (j === 0 && k > 1) continue;
+        const t = t1 + (t2 - t1) * j / n, L = (a, b, ta, tb) => a.map((v, i) => v * (tb - t) / (tb - ta) + b[i] * (t - ta) / (tb - ta));
+        const A1 = L(p0, p1, t0, t1), A2 = L(p1, p2, t1, t2), A3 = L(p2, p3, t2, t3), B1 = L(A1, A2, t0, t2), B2 = L(A2, A3, t1, t3), p = L(B1, B2, t1, t2);
+        if (prev) s += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]); out.push({ p, s, u: k - 1 + j / n }); prev = p;
+      }
+    }
+    return out;
   }
   function stepDock(dt) {
-    const d = docking, p = flight.pos, inBay = d.i >= d.way.length;
-    let tgt = inBay ? null : d.way[d.i], want = d.f;
-    if (tgt) {
-      const dx = tgt[0] - p[0], dy = tgt[1] - p[1], dz = tgt[2] - p[2], dist = Math.hypot(dx, dy, dz), last = d.i === d.way.length - 1, sp = last ? Math.min(10, 1.5 + dist * 0.4) : Math.min(140, 6 + dist * 0.35);
-      const k = Math.min(1, sp * dt / Math.max(dist, 1e-6)); p[0] += dx * k; p[1] += dy * k; p[2] += dz * k; flight.vel = [dx / Math.max(dist, 1e-6) * sp, dy / Math.max(dist, 1e-6) * sp, dz / Math.max(dist, 1e-6) * sp];
-      if (Math.hypot(dx, dz) > 30 && !last && d.i < d.way.length - 1) want = Math.atan2(dx, dz);       // (faces where it's going until it lines up on the bay)
-      if (dist < 0.5) d.i++;
-    } else {           // over the hangar deck: down onto the gear
+    const d = docking, R = d.route, p = flight.pos;
+    if (!d.settle) {
+      // speed: up to a cruise, easing down so it reaches the line slow, creeps in through the doors, stops on the spot
+      const left = d.end - d.s, cap = d.s > d.sIn ? 4 : d.s > d.sMid ? 16 : 85, want = Math.min(cap, Math.sqrt(0.36 + 2 * 2.2 * Math.max(0, left)), d.s < d.sMid ? Math.sqrt(16 * 16 + 2 * 3 * Math.max(0, d.sMid - d.s)) : 99);
+      d.v += Math.max(-4 * dt, Math.min(3 * dt, want - d.v)); d.s = Math.min(d.end, d.s + Math.max(0.3, d.v) * dt);
+      let i = R.findIndex(q => q.s >= d.s); if (i < 1) i = 1; const a = R[i - 1], b = R[i], k = (d.s - a.s) / Math.max(1e-6, b.s - a.s);
+      const q = a.p.map((v, j) => v + (b.p[j] - v) * k), T = b.p.map((v, j) => v - a.p[j]), tl = Math.hypot(...T) || 1;
+      flight.vel = T.map(v => v / tl * d.v); p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
+      // the attitude a pilot would fly it with: nose along the way, banked into the turn, nose up or down with the climb; level and square to the bay at the end
+      const hd = d.s > d.sMid ? d.f : Math.atan2(T[0], T[2]), turn = Math.atan2(Math.sin(hd - d.facing), Math.cos(hd - d.facing)), rate = Math.max(-0.5, Math.min(0.5, turn * 1.5));
+      d.facing += rate * dt; const bank = d.s > d.sMid ? 0 : Math.max(-0.55, Math.min(0.55, Math.atan(-d.v * rate / 9.81))), climb = d.s > d.sIn ? 0 : Math.max(-0.3, Math.min(0.3, Math.asin(T[1] / tl) * 0.8));
+      d.roll += (bank - d.roll) * Math.min(1, dt * 1.8); d.pitch += (climb - d.pitch) * Math.min(1, dt * 1.5);
+      flight.hover = d.s > d.sMid ? 0.6 : 0; flight.throttle = d.s > d.sMid ? 0 : 0.35;
+      if (d.s >= d.end - 0.01 && d.v < 0.8) d.settle = true;
+    } else {           // over the spot: let it down onto the gear, slowing as it nears the deck
       const fx = Math.sin(d.f), fz = Math.cos(d.f), a = flight.L.D * 0.32, b = flight.L.W * 0.3, g = Math.max(...[[a, b], [a, -b], [-a, b], [-a, -b]].map(([u, v]) => world.groundAt(p[0] + fx * u - fz * v, p[2] + fz * u + fx * v, p[1] - 0.3).h));     // (the deck under it, not the deck over it)
-      p[1] = Math.max(g, p[1] - 1.6 * dt); flight.vel = [0, -1.6, 0];
-      if (p[1] <= g + 0.001) { flight.vel = [0, 0, 0]; flight.onGround = true; docking = null; ui.toast(`Down in the ${esc(d.C.name)}'s bay. <kbd>E</kbd> to shut down and step out.`, '', 5000); }
+      const vy = Math.min(1.0, 0.12 + (p[1] - g) * 0.9); p[1] = Math.max(g, p[1] - vy * dt); flight.vel = [0, -vy, 0]; flight.hover = 0.4;
+      d.facing += Math.atan2(Math.sin(d.f - d.facing), Math.cos(d.f - d.facing)) * Math.min(1, dt * 2); d.roll *= 1 - Math.min(1, dt * 3); d.pitch *= 1 - Math.min(1, dt * 3);
+      if (p[1] <= g + 0.002) { flight.vel = [0, 0, 0]; flight.onGround = true; flight.hover = 0; flight.throttle = 0; docking = null; ui.toast(`Down in the ${esc(d.C.name)}'s bay. <kbd>E</kbd> to shut down and step out.`, '', 5000); }
     }
-    const turn = Math.atan2(Math.sin(want - flight.facing), Math.cos(want - flight.facing)), f = flight.facing + turn * Math.min(1, dt * 1.2);
-    flight.q = fromEuler(f, 0, 0); flight.w = [0, 0, 0]; flight.syncEuler(); flight.onGround = !docking;
+    flight.q = fromEuler(d.facing, d.pitch, d.roll); flight.w = [0, 0, 0]; flight.syncEuler(); flight.onGround = !docking;
   }
   function setDown() {
     const why = flight.landingProblem();
