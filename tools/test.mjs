@@ -1681,6 +1681,18 @@ suites.rings = async () => {
   }
 };
 
+suites.fleetdecks = async () => {
+  // every great ship has its own insides: its own layout, the deck length the game places it by matching that layout, and its own model file
+  const { fleetOf } = await import('../js/gen/capital.js'), L = JSON.parse(readFileSync(new URL('../assets/ships/capital.json', import.meta.url), 'utf8'));
+  const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), F = fleetOf(p, s), seen = new Set();
+  for (const C of F) {
+    const lay = L[C.ship.model]; if (!check(lay, `${C.model}: no layout ${C.ship.model}`)) continue; check(C.ship.model === C.model + '_decks', `${C.model} borrows ${C.ship.model}`);
+    check(Math.abs(lay.D - C.deckD) < 1e-6, `${C.model}: deck length ${C.deckD} but its layout is ${lay.D}`);
+    const sig = lay.rooms.map(r => r.label).join('|'); check(!seen.has(sig), `${C.model}: the same rooms as another ship`); seen.add(sig);
+    check(existsSync(new URL('../assets/decks-' + C.model + '.glb', import.meta.url)), `${C.model}: no decks-${C.model}.glb`);
+  }
+  console.log(`  ${F.length} ships, ${seen.size} different interiors`);
+};
 suites.vesper = async () => {
   const { vesperCity, DY } = await import('../js/gen/vesper.js'), { vesperStructure } = await import('../js/world/vesper.js'), { fleetOf, fleetContact } = await import('../js/gen/capital.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js');
   const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => true), C = fleetOf(p, s).find(c => c.model === 'vesper'), V = vesperCity();

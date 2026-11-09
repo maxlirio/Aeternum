@@ -150,7 +150,7 @@ export class CapitalView {
       C.mesh.position.set(...toRender(C.x, C.y, C.z));
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
-      if (!this.loadingDecks && far < 5000) { this.loadingDecks = true; this.fetch('./assets/capital-decks.glb'); }
+      if (far < 5000 && !(this.deckLoads ||= new Set()).has(C.ship.model)) { this.deckLoads.add(C.ship.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
       if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
       if (C.decks) { C.decks.visible = far < 1100; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
     }

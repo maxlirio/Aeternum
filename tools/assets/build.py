@@ -1308,7 +1308,7 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
     # ---- outer hull: open at the stern (the rear bulkhead with the ramp door closes it)
     secs = [(hz0, 2.92, 1.75, xc, 3.3, 2.8), (8.0, 2.95, 1.95, xc, 3.45, 2.7), (13.0, 2.95, 1.95, xc, 3.45, 2.7), (16.0, 2.9, 1.85, xc, 3.35, 2.8),
             (18.6, 2.85, 1.65, xc, 3.0, 2.9), (19.6, 2.7, 1.2, xc, 2.3, 2.6), (20.4, 2.5, 0.6, xc, 1.15, 2.3), (20.85, 2.4, 0.08, xc, 0.15, 2)]
-    bm = bmesh.new(); n = 40; rings = []
+    bm = bmesh.new(); n = 112; rings = []
     for (z, cy, ry, cx, rx, e) in secs:
         ring = []
         for k in range(n):
@@ -1348,24 +1348,7 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
     def side_x(y, z, s_):                # hull side at height y
         cy, ry, cx, rx, e = sect(z); q = 1 - min(1, abs((y - cy) / ry)) ** e
         return cx + s_ * rx * max(q, 0) ** (1 / e)
-    # cockpit canopy: a dark visor hump over the cockpit (its underside stays above the ceiling)
-    add_loft(p, [(15.4, 4.62, 0.12, xc, 1.6, 2.6), (16.6, 4.72, 0.3, xc, 2.3, 2.6), (18.2, 4.62, 0.26, xc, 2.3, 2.6), (18.75, 4.45, 0.1, xc, 1.9, 2.4)], 'visor', 32, axis='z')
-    for z in (16.1, 17.0, 17.9):          # canopy frame ribs
-        add_box(p, xc - 2.0, top_y(xc, z) + 0.18, z - 0.04, xc + 2.0, top_y(xc, z) + 0.26, z + 0.04, 'metal', 0.01)
-    # windscreen seen from outside: a framed dark band on the nose, built facing out only (so from inside it culls away)
-    bm = bmesh.new(); rows = []
-    for z in (18.62, 19.0, 19.4):
-        cy, ry, cx, rx, e = sect(z); row = []
-        for k in range(15):
-            a = math.radians(32 + 116 * k / 14); u, v = math.cos(a), math.sin(a)
-            row.append(bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(u) ** (2 / e), u), cy + 1.012 * ry * math.copysign(abs(v) ** (2 / e), v), z)))
-        rows.append(row)
-    for r0, r1 in zip(rows, rows[1:]):
-        for k in range(14): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
-    for f in bm.faces:
-        cm = f.calc_center_median()
-        if (cm - mathutils.Vector(P(xc, 2.9, 13.0))).dot(f.normal) < 0: f.normal_flip()
-    merge(p, bm, 'visor')
+    CK = _glass_cockpit(p, lay, secs, 0.9, 0.2, 3.0)          # the canopy, drawn from the cockpit inside it
     # heat-shield belly, dorsal spine, tail fins with hazard tips
     add_loft(p, [(hz0 + 0.05, 1.5, 0.32, xc, 2.6, 2.4), (8.0, 1.36, 0.36, xc, 3.0, 2.4), (15.0, 1.38, 0.36, xc, 2.9, 2.4), (18.8, 1.6, 0.3, xc, 2.2, 2.4), (20.2, 2.05, 0.15, xc, 0.9, 2)], 'heatshield', 32, axis='z')
     add_box(p, xc - 0.5, top_y(xc, 10) - 0.1, hz0 + 0.4, xc + 0.5, top_y(xc, 10) + 0.28, 15.0, 'metal', 0.04, 3)
@@ -1390,7 +1373,7 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
         add_box(p, x - 0.04, 2.1, 13.4, x + 0.04, 3.2, 14.6, 'tint', 0.02)
         add_box(p, x - 0.07, 2.55, 14.35, x + 0.07, 2.75, 14.5, 'hazard', 0.005)
         for z in (hz0 + 0.5, 18.2):        # RCS thruster blocks at the shoulders: four nozzles each
-            y0_ = 3.9; x = side_x(y0_, z, s_)
+            y0_ = 3.9 if z < 10 else 2.2; x = side_x(y0_, z, s_)     # (the forward pair low on the cheeks, under the glass)
             add_box(p, x - 0.3, y0_ - 0.25, z - 0.3, x + 0.3, y0_ + 0.25, z + 0.3, 'metal', 0.04, 3)
             for (dy, dz) in ((0.12, 0.12), (-0.12, 0.12), (0.12, -0.12), (-0.12, -0.12)):
                 add_cyl(p, x + s_ * 0.3, y0_ + dy, z + dz - 0.06, z + dz + 0.06, 0.05, 'rubber', 10, axis='x') if False else add_box(p, x + s_ * 0.27 - 0.04, y0_ + dy - 0.05, z + dz - 0.05, x + s_ * 0.27 + 0.04, y0_ + dy + 0.05, z + dz + 0.05, 'rubber', 0.005)
@@ -1432,13 +1415,16 @@ def shuttle(p, L_, D_, H_, r, model='shuttle'):
             add_box(p, gx - 0.3, 1.25, gz - 0.3, gx + 0.3, 1.5, gz + 0.3, 'metal', 0.02)
     # hazard frame round the ramp door
     for x in (dx0 - 0.2, dx1 + 0.08): add_box(p, x, deck, hz0 - 0.16, x + 0.12, dtop, hz0 - 0.1, 'hazard', 0.005)
-    ship_interior(p, lay)
+    ship_interior(p, lay, CK)
 
-def ship_interior(p, lay):
+def ship_interior(p, lay, ck=None):
     """Deck, walls, partitions with hatches, windscreen, lights and furniture: exactly the layout."""
+    if '_GLASS' in globals(): _GLASS[0] = None
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2
     d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
     T = 0.1; hz_ = ceil - 0.42; hw_ = 0.42
+    cockpit = next((R for R in lay.get('rooms', []) if R.get('purpose') == 'cockpit'), None)
+    ze = cockpit['rect'][1] if (ck and cockpit) else hz1          # (the box stops at the cockpit: forward of it you're inside the nose itself)
     # the deck: tread plates on a dark sub-deck, each its own piece, a runner down the middle
     add_box(p, hx0, deck - 0.2, hz0, hx1, deck - 0.02, hz1, 'rubber', 0)
     nx = max(2, int((hx1 - hx0) / 1.25)); nz = max(2, int((hz1 - hz0) / 0.9))
@@ -1446,30 +1432,31 @@ def ship_interior(p, lay):
         for j in range(nz): add_box(p, hx0 + (hx1 - hx0) * i / nx + 0.006, deck - 0.02, hz0 + (hz1 - hz0) * j / nz + 0.006, hx0 + (hx1 - hx0) * (i + 1) / nx - 0.006, deck, hz0 + (hz1 - hz0) * (j + 1) / nz - 0.006, 'metal', 0)
     add_box(p, xc - 0.42, deck, hz0 + 0.1, xc + 0.42, deck + 0.008, hz1 - 0.1, 'heatshield', 0)
     # the ceiling: panels, and a trough of light down the middle of it
-    add_box(p, hx0 + hw_, ceil, hz0, hx1 - hw_, ceil + 0.06, hz1, 'laminate', 0); add_box(p, hx0, ceil + 0.06, hz0, hx1, ceil + 0.12, hz1, 'paint', 0)
-    add_box(p, xc - 0.26, ceil - 0.015, hz0 + 0.15, xc + 0.26, ceil + 0.01, hz1 - 0.15, 'lampwarm', 0)
-    for x in (xc - 0.3, xc + 0.26): add_box(p, x, ceil - 0.08, hz0 + 0.15, x + 0.04, ceil, hz1 - 0.15, 'metal', 0)
+    add_box(p, hx0 + hw_, ceil, hz0, hx1 - hw_, ceil + 0.06, ze, 'laminate', 0); add_box(p, hx0, ceil + 0.06, hz0, hx1, ceil + 0.12, ze, 'paint', 0)
+    add_box(p, xc - 0.26, ceil - 0.015, hz0 + 0.15, xc + 0.26, ceil + 0.01, ze - 0.15, 'lampwarm', 0)
+    for x in (xc - 0.3, xc + 0.26): add_box(p, x, ceil - 0.08, hz0 + 0.15, x + 0.04, ceil, ze - 0.15, 'metal', 0)
     # the walls: a dark lower panel, a light upper one, the corner to the ceiling cut across (a haunch), lit along its foot; the ship's colour low down
     for (x, sx) in ((hx0, 1), (hx1, -1)):
         a, b = (x, x + T) if sx > 0 else (x - T, x)
-        add_box(p, a, deck, hz0, b, deck + 1.0, hz1, 'paint', 0); add_box(p, a, deck + 1.0, hz0, b, hz_, hz1, 'laminate', 0)
-        add_box(p, min(x, x + sx * (T + 0.02)), deck + 0.98, hz0, max(x, x + sx * (T + 0.02)), deck + 1.02, hz1, 'metal', 0)
-        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x + sx * T, hz_, hz0), (x + sx * T, hz_, hz1), (x + sx * hw_, ceil + 0.01, hz1), (x + sx * hw_, ceil + 0.01, hz0))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.03); merge(p, bm, 'laminate')
-        add_box(p, min(x + sx * T, x + sx * (T + 0.05)), hz_ - 0.06, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.05)), hz_, hz1 - 0.1, 'lampwarm', 0)
-        add_box(p, min(x + sx * T, x + sx * (T + 0.03)), deck + 0.1, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.03)), deck + 0.13, hz1 - 0.1, 'glow', 0)
+        add_box(p, a, deck, hz0, b, deck + 1.0, ze, 'paint', 0); add_box(p, a, deck + 1.0, hz0, b, hz_, ze, 'laminate', 0)
+        add_box(p, min(x, x + sx * (T + 0.02)), deck + 0.98, hz0, max(x, x + sx * (T + 0.02)), deck + 1.02, ze, 'metal', 0)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x + sx * T, hz_, hz0), (x + sx * T, hz_, ze), (x + sx * hw_, ceil + 0.01, ze), (x + sx * hw_, ceil + 0.01, hz0))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.03); merge(p, bm, 'laminate')
+        add_box(p, min(x + sx * T, x + sx * (T + 0.05)), hz_ - 0.06, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.05)), hz_, ze - 0.1, 'lampwarm', 0)
+        add_box(p, min(x + sx * T, x + sx * (T + 0.03)), deck + 0.1, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.03)), deck + 0.13, ze - 0.1, 'glow', 0)
     # frames: a rib up each wall, along the haunch and across the ceiling, every 1.2 m
     z = hz0 + 0.7
-    while z < hz1 - 0.4:
+    while z < ze - 0.4:
         for (x, sx) in ((hx0, 1), (hx1, -1)):
             add_box(p, min(x + sx * T, x + sx * (T + 0.07)), deck + 0.15, z - 0.06, max(x + sx * T, x + sx * (T + 0.07)), hz_, z + 0.06, 'metal', 0)
             _beam(p, (x + sx * (T + 0.04), hz_, z), (x + sx * (hw_ + 0.02), ceil - 0.03, z), 0.1, 'metal')
         add_box(p, hx0 + hw_, ceil - 0.07, z - 0.06, hx1 - hw_, ceil, z + 0.06, 'paint', 0)
         z += 1.2
-    wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, max(hx0 + 0.45, xc - 3.2), min(hx1 - 0.45, xc + 3.2)                         # forward bulkhead around the windscreen:
-    add_box(p, hx0, deck, hz1 - T, hx1, wy0, hz1, 'paint', 0.01); add_box(p, hx0, wy1, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)
-    add_box(p, hx0, wy0, hz1 - T, wx0, wy1, hz1, 'paint', 0.01); add_box(p, wx1, wy0, hz1 - T, hx1, wy1, hz1, 'paint', 0.01)
-    for (x0_, x1_, y0_, y1_) in ((wx0 - 0.06, wx1 + 0.06, wy0 - 0.06, wy0), (wx0 - 0.06, wx1 + 0.06, wy1, wy1 + 0.06), (wx0 - 0.06, wx0, wy0, wy1), (wx1, wx1 + 0.06, wy0, wy1), (xc - 0.03, xc + 0.03, wy0, wy1)):
-        add_box(p, x0_, y0_, hz1 - T - 0.03, x1_, y1_, hz1 + 0.02, 'metal', 0.005)                  # frame and centre mullion
+    if ze >= hz1:
+        wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, max(hx0 + 0.45, xc - 3.2), min(hx1 - 0.45, xc + 3.2)                         # forward bulkhead around the windscreen:
+        add_box(p, hx0, deck, hz1 - T, hx1, wy0, hz1, 'paint', 0.01); add_box(p, hx0, wy1, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)
+        add_box(p, hx0, wy0, hz1 - T, wx0, wy1, hz1, 'paint', 0.01); add_box(p, wx1, wy0, hz1 - T, hx1, wy1, hz1, 'paint', 0.01)
+        for (x0_, x1_, y0_, y1_) in ((wx0 - 0.06, wx1 + 0.06, wy0 - 0.06, wy0), (wx0 - 0.06, wx1 + 0.06, wy1, wy1 + 0.06), (wx0 - 0.06, wx0, wy0, wy1), (wx1, wx1 + 0.06, wy0, wy1), (xc - 0.03, xc + 0.03, wy0, wy1)):
+            add_box(p, x0_, y0_, hz1 - T - 0.03, x1_, y1_, hz1 + 0.02, 'metal', 0.005)                  # frame and centre mullion
     # (the hull and canopy beyond are seen from inside, so they cull away: the windscreen looks out)
     add_box(p, hx0, deck, hz0, dx0, ceil, hz0 + T, 'paint', 0.01); add_box(p, dx1, deck, hz0, hx1, ceil, hz0 + T, 'paint', 0.01)
     add_box(p, dx0, dtop, hz0, dx1, ceil, hz0 + T, 'paint', 0.01)
@@ -1478,6 +1465,7 @@ def ship_interior(p, lay):
         add_box(p, hx0, deck, z - T / 2, a0, ceil, z + T / 2, 'paint', 0.01); add_box(p, a1, deck, z - T / 2, hx1, ceil, z + T / 2, 'paint', 0.01)
         add_box(p, a0, deck + 2.1, z - T / 2, a1, ceil, z + T / 2, 'paint', 0.01)
         for x in (a0 - 0.05, a1): add_box(p, x, deck, z - 0.08, x + 0.05, deck + 2.1, z + 0.08, 'metal', 0.005)
+    if ze < hz1: _cockpit(p, lay, ck, ze)
     B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine,
          'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'),
          'desk': desk, 'cabinet': cabinet,
@@ -1532,18 +1520,7 @@ def freighter(p, L_, D_, H_, r, model='freighter'):
     for x in (dx0 - 0.3, dx1 + 0.1): add_box(p, x, deck, hz0 - 0.18, x + 0.2, dtop, hz0 - 0.1, 'hazard', 0.005)
     add_box(p, dx0 - 0.3, dtop, hz0 - 0.18, dx1 + 0.3, dtop + 0.2, hz0 - 0.1, 'hazard', 0.005)
     for x in (dx0 - 0.6, dx1 + 0.45): add_box(p, x, dtop + 0.3, hz0 - 0.3, x + 0.15, dtop + 0.45, hz0 - 0.1, 'navwhite', 0.005)   # floodlights over the door
-    # windscreen band on the nose (outward faces only) and a framed visor hump over the flight deck
-    bm = bmesh.new(); rows = []
-    for z in (30.5, 31.0, 31.6):
-        cy, ry, cx, rx, e = sect(z); rows.append([bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(math.cos(a)) ** (2 / e), math.cos(a)), cy + 1.012 * ry * math.copysign(abs(math.sin(a)) ** (2 / e), math.sin(a)), z))
-                                                for a in (math.radians(30 + 120 * k / 16) for k in range(17))])
-    for r0, r1 in zip(rows, rows[1:]):
-        for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
-    for f in bm.faces:
-        f.normal_update()     # (a new face's normal isn't computed yet: without this the flip below does nothing)
-        if (f.calc_center_median() - mathutils.Vector(P(xc, 4.3, 18.0))).dot(f.normal) < 0: f.normal_flip()
-    merge(p, bm, 'visor')
-    add_loft(p, [(26.6, top_y(xc, 27) - 0.1, 0.15, xc, 2.4, 2.6), (27.8, top_y(xc, 28) + 0.1, 0.35, xc, 2.9, 2.6), (29.6, top_y(xc, 29.6), 0.3, xc, 2.8, 2.6), (30.3, top_y(xc, 30.3) - 0.15, 0.1, xc, 2.2, 2.4)], 'visor', 32, axis='z')
+    CK = _glass_cockpit(p, lay, secs, 0.8, 0.22, 4.0)          # the flight deck's glass, drawn from the flight deck
     # heat-shield belly
     add_loft(p, [(hz0 + 0.05, 1.75, 0.25, xc, 4.8, 3.5), (12.0, 1.62, 0.3, xc, 5.3, 3.5), (29.0, 1.65, 0.3, xc, 5.2, 3.5), (32.5, 2.4, 0.2, xc, 2.6, 2.5)], 'heatshield', 32, axis='z')
     # container pods along both flanks, with hazard ends and lights
@@ -1579,7 +1556,7 @@ def freighter(p, L_, D_, H_, r, model='freighter'):
             add_box(p, gx - 0.06, 0.7, gz - 0.18, gx + 0.06, 0.88, gz + 0.18, 'hazard', 0.005)
             add_cyl(p, gx, gz, 0.0, 0.14, 0.55, 'rubber', 20); add_cyl(p, gx, gz, 0.12, 0.2, 0.42, 'metal', 20)
             add_box(p, gx - 0.4, 1.7, gz - 0.4, gx + 0.4, 2.0, gz + 0.4, 'metal', 0.03)
-    ship_interior(p, lay)
+    ship_interior(p, lay, CK)
 
 def styled_ship(p, L_, D_, H_, r, model):
     """A hull wrapped round a layout (assets/ships/<model>.json), dressed by its style:
@@ -1614,17 +1591,7 @@ def styled_ship(p, L_, D_, H_, r, model):
         if deck < ym < dtop: add_box(p, xc - w_, y0_, hz0 - 0.1, dx0, y1_, hz0 + 0.05, 'tint', 0); add_box(p, dx1, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'tint', 0)
         else: add_box(p, xc - w_, y0_, hz0 - 0.1, xc + w_, y1_, hz0 + 0.05, 'tint', 0)
     for x in (dx0 - 0.16, dx1 + 0.06): add_box(p, x, deck, hz0 - 0.16, x + 0.1, dtop, hz0 - 0.1, 'hazard' if st != 'yacht' else 'metal', 0.005)
-    # windscreen: a dark band on the nose in front of the cockpit (outward faces only), and a visor over it
-    bm = bmesh.new(); rows = []
-    for z in (hz1 + 0.05, hz1 + noseLen * 0.22, hz1 + noseLen * 0.42):
-        c_, ry, cx, rx, ee = sect(z); rows.append([bm.verts.new(P(cx + 1.012 * rx * math.copysign(abs(math.cos(a)) ** (2 / ee), math.cos(a)), c_ + 1.012 * ry * math.copysign(abs(math.sin(a)) ** (2 / ee), math.sin(a)), z))
-                                                for a in (math.radians(25 + 130 * k / 16) for k in range(17))])
-    for r0, r1 in zip(rows, rows[1:]):
-        for k in range(16): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
-    for f in bm.faces:
-        f.normal_update()     # (a new face's normal isn't computed yet: without this the flip below does nothing)
-        if (f.calc_center_median() - mathutils.Vector(P(xc, cy, (hz0 + hz1) / 2))).dot(f.normal) < 0: f.normal_flip()
-    merge(p, bm, 'visor')
+    CK = _glass_cockpit(p, lay, secs, {'patrol': 0.7, 'courier': 0.95, 'yacht': 1.0}.get(st, 0.9), {'patrol': 0.12, 'yacht': 0.26}.get(st, 0.2), 3.0 if st != 'patrol' else 5.0)
     # belly
     add_loft(p, [(hz0 + 0.05, cy - hh * 0.85, 0.18, xc, hw * 0.75, 3), (hz1, cy - hh * 0.9, 0.2, xc, hw * 0.8, 3), (hz1 + noseLen * 0.6, cy - hh * 0.55, 0.12, xc, hw * 0.4, 2.5)], 'heatshield', 28, axis='z')
     gear = [(xc - hw * 0.6, hz0 + 1.2), (xc + hw * 0.6, hz0 + 1.2), (xc - hw * 0.5, hz1 - 0.6), (xc + hw * 0.5, hz1 - 0.6)]
@@ -1639,8 +1606,9 @@ def styled_ship(p, L_, D_, H_, r, model):
             bm = bmesh.new(); q = [(nx, ny + 0.4, hz0 - 0.2), (nx, ny + 0.4, hz0 + 1.6), (nx + s_ * 0.1, ny + 1.4, hz0 - 0.1), (nx + s_ * 0.1, ny + 1.45, hz0 - 0.6)]
             bm.faces.new([bm.verts.new(P(*v)) for v in q]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.08); merge(p, bm, 'tint')
     if st == 'patrol':
-        add_box(p, xc - 0.7, ty - 0.05, hz1 - 2.2, xc + 0.7, ty + 0.18, hz1 - 1.9, 'metal', 0.02)
-        add_box(p, xc - 0.65, ty + 0.18, hz1 - 2.18, xc - 0.02, ty + 0.3, hz1 - 1.92, 'navred', 0.01); add_box(p, xc + 0.02, ty + 0.18, hz1 - 2.18, xc + 0.65, ty + 0.3, hz1 - 1.92, 'glow', 0.01)
+        lb = CK['cz0'] - 0.75; ty = top_y(xc, lb + 0.15) - 0.04       # (the light bar sits just behind the canopy)
+        add_box(p, xc - 0.7, ty - 0.05, lb, xc + 0.7, ty + 0.18, lb + 0.3, 'metal', 0.02)
+        add_box(p, xc - 0.65, ty + 0.18, lb + 0.02, xc - 0.02, ty + 0.3, lb + 0.28, 'navred', 0.01); add_box(p, xc + 0.02, ty + 0.18, lb + 0.02, xc + 0.65, ty + 0.3, lb + 0.28, 'glow', 0.01)
         for s_ in (-1, 1):
             gx = xc + s_ * hw * 0.45; gy = cy - hh * 0.85
             add_box(p, gx - 0.15, gy - 0.25, hz1 - 0.5, gx + 0.15, gy, hz1 + 0.6, 'metal', 0.03)
@@ -1663,11 +1631,12 @@ def styled_ship(p, L_, D_, H_, r, model):
     for k in range(int((40 if st != 'yacht' else 12) * look.get('greeble', 1.0))):        # greebles (few on the yacht: it's smooth)
         z = r.uniform(hz0 + 0.4, hz1 - 0.6); x = xc + r.choice([-1, 1]) * r.uniform(0.3, hw * 0.75)
         y = top_y(x, z); w_, d_, h_ = r.uniform(0.15, 0.6), r.uniform(0.2, 1.0), r.uniform(0.04, 0.15)
+        if z + d_ > CK['cz0'] - 0.2: continue
         add_box(p, x - w_ / 2, y - 0.2, z, x + w_ / 2, y + h_ - 0.05, z + d_, r.choice(['metal', 'paint', 'tint']), 0.01)
     for (gx, gz) in gear:
         add_cyl(p, gx, gz, 0.3, cy - hh * 0.6, 0.08, 'paint', 10); add_cyl(p, gx, gz, 0.05, 0.45, 0.05, 'metal', 10)
         add_cyl(p, gx, gz, 0.0, 0.08, 0.28, 'rubber', 16)
-    ship_interior(p, lay)
+    ship_interior(p, lay, CK)
 
 def dress_generated(p, look, xc, cy, hh, hw, hz0, hz1, noseLen, top_y, r):
     """Engines, fins, wings and markings for a designed ship (tools/gen-ships.mjs 'look')."""
@@ -2286,6 +2255,25 @@ def build_props():
         p = Part(); fn(p, L, D, H, random.Random(name)); ob = finish(p, name)
         ob['kind'] = kind; ob['dims'] = [L, D, H]
         made.append(ob); print('prop', name, len(ob.data.polygons), 'faces')
+    if ONLY and os.environ.get('EYE'):           # the pilot's eye in each ship built: what the cockpit looks like from the seat (EYE=dx,dy,yaw-ish target)
+        for ob in made:
+            fp_ = os.path.join(ROOT, 'assets', 'ships', ob['kind'] + '.json'); lay = SHIPCAT.get(ob['kind']) or (json.load(open(fp_)) if os.path.exists(fp_) and not ob['kind'].endswith('_ramp') else None)
+            if not lay: continue
+            a = next(q for q in lay['seats'] if q['kind'] == 'pilot'); ex, ey, ez = a['x'], lay['deck'] + 1.7, a['z'] - 0.45
+            tg = [tuple(float(t) for t in v.split(',')) for v in os.environ['EYE'].split(';')]
+            os.environ['CAM'] = '|'.join(f'{ex},{ey},{ez};{ex + d[0]},{ey + d[1]},{ez + d[2]}' for d in tg) if not os.environ.get('EYEOUT') else '|'.join(f'{ex + d[0]},{ey + d[1]},{ez + d[2]};{ex},{ey - 0.5},{ez}' for d in tg)
+            sc = bpy.context.scene; sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = 'MATERIAL'
+            sc.display.shading.show_backface_culling = True; sc.display.shading.show_cavity = True; sc.render.resolution_x, sc.render.resolution_y = 1280, 720
+            COL = {'tint': (0.8, 0.78, 0.74), 'visor': (0.1, 0.13, 0.17), 'lampwarm': (1, 0.85, 0.5), 'glass': (0.62, 0.8, 0.92), 'paint': (0.33, 0.35, 0.38), 'metal': (0.6, 0.62, 0.64), 'laminate': (0.78, 0.76, 0.72), 'rubber': (0.08, 0.08, 0.09), 'screen': (0.2, 0.45, 0.8), 'glow': (0.4, 0.85, 1.0), 'heatshield': (0.12, 0.12, 0.12), 'fabric': (0.5, 0.3, 0.25)}
+            for m in bpy.data.materials: m.diffuse_color = (*COL.get(m.name, (0.6, 0.5, 0.6)), 1)
+            cam = bpy.data.objects.get('eyecam') or bpy.data.objects.new('eyecam', bpy.data.cameras.new('eyecam'))
+            if cam.name not in sc.collection.objects: sc.collection.objects.link(cam)
+            sc.camera = cam; cam.data.lens = 18
+            for o in bpy.data.objects: o.hide_render = o.type == 'MESH' and o is not ob
+            for i, q in enumerate(os.environ['CAM'].split('|')):
+                a_, b_ = [mathutils.Vector(P(*[float(t) for t in u.split(',')])) for u in q.split(';')]
+                cam.location = a_; cam.rotation_euler = (b_ - a_).to_track_quat('-Z', 'Y').to_euler()
+                sc.render.filepath = os.path.join(ROOT, 'out', 'booth', ob.name.split('_')[0] + '-eye' + str(i) + '.png'); bpy.ops.render.render(write_still=True)
     # two files: furniture, plants and fittings; and the big things — ships and vehicles
     big = lambda ob: ob['kind'].startswith('veh_') or ob['kind'].endswith('_ramp') or ob['kind'] in SHIPKINDS
     for fname, sel in (('props.glb', lambda ob: not big(ob)), ('craft.glb', big)):

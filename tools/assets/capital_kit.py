@@ -853,6 +853,17 @@ def _partition(p, L, D, H, r):
     n = max(1, int(L / 2.4))
     for k in range(n + 1): add_box(p, k * (L - 0.06) / n, 0, -0.012, k * (L - 0.06) / n + 0.06, H, D + 0.012, 'wood', 0)
 
+THEMES = {      # what each great ship is like inside: its hangar's roof, and what its rooms are made of and lit by (a remap of the materials)
+    'anvil': {'hangar': 'vault', 'remap': {'glow': 'navred', 'laminate': 'paint', 'wood': 'heatshield', 'fabric': 'rubber', 'stone': 'concrete'}},
+    'vesper': {'hangar': 'sky', 'remap': {'heatshield': 'stone', 'concrete': 'stone', 'glow': 'lampwarm', 'paint': 'laminate'}},
+    'tiller': {'hangar': 'gantry', 'remap': {'laminate': 'corrugated', 'lampwarm': 'neonamber', 'glow': 'neonamber', 'stone': 'concrete', 'wood': 'plank'}},
+    'sable': {'hangar': 'sleek', 'remap': {'glow': 'neoncyan', 'laminate': 'heatshield', 'wood': 'rubber', 'stone': 'heatshield', 'concrete': 'heatshield', 'paint': 'heatshield', 'fabric': 'rubber'}},
+}
+def _remap(p, remap):
+    idx = {SLOTS.index(a): SLOTS.index(b) for a, b in remap.items()}
+    for f in p.bm.faces:
+        if f.material_index in idx: f.material_index = idx[f.material_index]
+
 def dress_decks(p, lay, name):
     """The decks, made of what decks are made of: floor plates laid on a dark sub-floor, wall panels with gaps between them, real beams, a truss roof in the hangar and a lowered ceiling where people live. Everything keeps to walls and overhead; the floor you walk on is left clear."""
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; r = random.Random(name); T = 0.14
@@ -889,41 +900,90 @@ def dress_decks(p, lay, name):
             zz = ze
         # the roof
         if hangar:
-            zz = z0 + 3.5
-            while zz < z1:
-                for x in (x0, x1): _ibeam(p, (x + (0.2 if x == x0 else -0.2), deck, zz), (x + (0.2 if x == x0 else -0.2), ceil, zz), 0.5, 0.4)
-                # a truss across: top and bottom chords and the diagonals between them
-                _ibeam(p, (x0, ceil - 0.2, zz), (x1, ceil - 0.2, zz), 0.36, 0.3); _ibeam(p, (x0, ceil - 0.5, zz), (x1, ceil - 0.5, zz), 0.26, 0.26)      # (a shallow truss: everything overhead stays above the bay doors' 6.6 m, so whatever comes in under them clears it)
-                n = 12
-                for k in range(n):
-                    a = x0 + (x1 - x0) * k / n; b = x0 + (x1 - x0) * (k + 1) / n; _beam(p, (a, ceil - 0.5 if k % 2 else ceil - 0.2, zz), (b, ceil - 0.2 if k % 2 else ceil - 0.5, zz), 0.08, 'metal')
-                zz += 7
-            for x in (xc - 10, xc, xc + 10):
-                add_box(p, x - 0.08, ceil - 0.3, z0, x + 0.08, ceil - 0.06, z1, 'metal', 0)     # stringers
-            zz = z0 + 7
-            while zz < z1:
-                for x in (xc - 10, xc, xc + 10): _fitting(p, x, ceil - 0.52, zz, 2.6, 0.5)
-                zz += 7
+            HG = THEMES.get(name, {}).get('hangar', 'truss')
+            if HG in ('truss', 'gantry'):
+                zz = z0 + 3.5
+                while zz < z1:
+                    for x in (x0, x1): _ibeam(p, (x + (0.2 if x == x0 else -0.2), deck, zz), (x + (0.2 if x == x0 else -0.2), ceil, zz), 0.5, 0.4)
+                    # a truss across: top and bottom chords and the diagonals between them
+                    _ibeam(p, (x0, ceil - 0.2, zz), (x1, ceil - 0.2, zz), 0.36, 0.3); _ibeam(p, (x0, ceil - 0.5, zz), (x1, ceil - 0.5, zz), 0.26, 0.26)      # (a shallow truss: everything overhead stays above the bay doors' 6.6 m, so whatever comes in under them clears it)
+                    n = 12
+                    for k in range(n):
+                        a = x0 + (x1 - x0) * k / n; b = x0 + (x1 - x0) * (k + 1) / n; _beam(p, (a, ceil - 0.5 if k % 2 else ceil - 0.2, zz), (b, ceil - 0.2 if k % 2 else ceil - 0.5, zz), 0.08, 'metal')
+                    zz += 7
+                for x in (xc - 10, xc, xc + 10):
+                    add_box(p, x - 0.08, ceil - 0.3, z0, x + 0.08, ceil - 0.06, z1, 'metal', 0)     # stringers
+                zz = z0 + 7
+                while zz < z1:
+                    for x in (xc - 10, xc, xc + 10): _fitting(p, x, ceil - 0.52, zz, 2.6, 0.5)
+                    zz += 7
+            elif HG == 'vault':
+                # a warship's roof: deep box girders across every 3.5 m and along it, dark coffers between, battle lights set in them
+                zz = z0 + 1.75
+                while zz < z1:
+                    _ibeam(p, (x0, ceil - 0.28, zz), (x1, ceil - 0.28, zz), 0.56, 0.42, 'paint')
+                    for x in (x0, x1): _ibeam(p, (x + (0.25 if x == x0 else -0.25), deck, zz), (x + (0.25 if x == x0 else -0.25), ceil, zz), 0.5, 0.5, 'paint')
+                    zz += 3.5
+                for x in (xc - 14, xc - 7, xc, xc + 7, xc + 14): _ibeam(p, (x, ceil - 0.27, z0 + 0.3), (x, ceil - 0.27, z1 - 0.3), 0.5, 0.3, 'paint')
+                add_box(p, x0, ceil - 0.06, z0, x1, ceil, z1, 'heatshield', 0)
+                zz = z0 + 3.5
+                while zz < z1 - 1:
+                    for x in (xc - 10.5, xc - 3.5, xc + 3.5, xc + 10.5): add_box(p, x - 2.2, ceil - 0.1, zz - 0.06, x + 2.2, ceil - 0.06, zz + 0.06, 'navred', 0); add_box(p, x - 0.06, ceil - 0.1, zz - 1.2, x + 0.06, ceil - 0.06, zz + 1.2, 'lampwarm', 0)
+                    zz += 3.5
+            elif HG == 'sky':
+                # a skyport: the roof is glass, the sky over the ship seen through it, in a fine frame on slender beams
+                add_box(p, x0, ceil - 0.025, z0, x1, ceil - 0.01, z1, 'mirror', 0)          # (just under the deck above: the pane shows the sky)
+                zz = z0
+                while zz <= z1 + 0.01:
+                    add_box(p, x0, ceil - 0.24, zz - 0.05, x1, ceil + 0.02, zz + 0.05, 'metal', 0); zz += 3.0
+                for k in range(11): x = x0 + (x1 - x0) * k / 10; add_box(p, x - 0.04, ceil - 0.16, z0, x + 0.04, ceil + 0.02, z1, 'metal', 0)
+                zz = z0 + 6
+                while zz < z1:
+                    _ibeam(p, (x0, ceil - 0.45, zz), (x1, ceil - 0.45, zz), 0.3, 0.2, 'metal'); zz += 6
+                for x in (x0 + 0.2, x1 - 0.2): add_box(p, x - 0.12, ceil - 0.62, z0 + 0.4, x + 0.12, ceil - 0.5, z1 - 0.4, 'lampwarm', 0)
+            else:
+                # sleek: a flush dark ceiling, lines of light let into it, nothing hanging
+                add_box(p, x0, ceil - 0.1, z0, x1, ceil, z1, 'heatshield', 0)
+                zz = z0 + 2
+                while zz < z1:
+                    add_box(p, x0 + 1, ceil - 0.12, zz - 0.03, x1 - 1, ceil - 0.1, zz + 0.03, 'neoncyan', 0); zz += 4
+                for x in (xc - 9, xc + 9): add_box(p, x - 0.03, ceil - 0.12, z0 + 1, x + 0.03, ceil - 0.1, z1 - 1, 'neoncyan', 0)
+                zz = z0 + 0.5
+                while zz < z1:
+                    for x in (x0, x1): add_box(p, x - 0.04, deck + 0.3, zz, x + 0.04, ceil - 0.3, zz + 0.04, 'neoncyan', 0)
+                    zz += 4
+            if HG == 'gantry':
+                # gantry cranes: heavy bridges across on rails along both walls, a crab on each, parked well back
+                for x in (x0 + 0.4, x1 - 0.4): _ibeam(p, (x, ceil - 0.5, z0 + 0.5), (x, ceil - 0.5, z1 - 0.5), 0.36, 0.4, 'soil')
+                for zg in (z0 + 12, z0 + 24, z1 - 8):
+                    for dz_ in (0, 1.6): _ibeam(p, (x0 + 0.4, ceil - 0.42, zg + dz_), (x1 - 0.4, ceil - 0.42, zg + dz_), 0.34, 0.5, 'hazard')
+                    tx = xc + r.uniform(-8, 8); add_box(p, tx - 1.1, ceil - 0.6, zg - 0.3, tx + 1.1, ceil - 0.18, zg + 1.9, 'paint', 0)
+                    for x in (x0 + 0.15, x1 - 0.15): add_box(p, x - 0.12, ceil - 0.9, zg - 0.4, x + 0.12, ceil - 0.4, zg + 2.0, 'hazard', 0)
+                zf = z0 + 3
+                while zf < z1:
+                    for (x, sx) in ((x0 + 0.3, 1), (x1 - 0.3, -1)): add_cyl(p, x + sx * 0.2, zf, deck + 5.8, deck + 6.1, 0.28, 'neonamber', 14); add_box(p, x - 0.08, deck + 6.1, zf - 0.08, x + 0.08, deck + 6.5, zf + 0.08, 'metal', 0)
+                    zf += 7
             # services along the roof: fat ducts on hangers, pipe runs, a cable tray
             for (dxx, R_) in ((-13, 0.42), (13, 0.42)):
                 add_cyl(p, xc + dxx, ceil - 0.36, z0 + 1, z1 - 1, R_ * 0.7, 'metal', 16, axis='z'); zb = z0 + 3
                 while zb < z1 - 1: add_cyl(p, xc + dxx, ceil - 0.36, zb, zb + 0.09, R_ * 0.75, 'paint', 16, axis='z'); zb += 3
             for x, y_, R_, m in ((x0 + 0.34, deck + 5.4, 0.1, 'metal'), (x0 + 0.34, deck + 5.15, 0.07, 'hazard'), (x1 - 0.34, deck + 5.4, 0.1, 'metal'), (x1 - 0.34, deck + 5.15, 0.07, 'paint')): add_cyl(p, x, y_, z0 + 0.4, z1 - 0.4, R_, m, 10, axis='z')
-            # a gallery down each wall with a real rail, and a stair up to it at the back
-            cy_ = deck + 4.5
-            for (a, b, inner) in ((x0 + 0.1, x0 + 1.5, x0 + 1.5), (x1 - 1.5, x1 - 0.1, x1 - 1.5)):
-                add_box(p, a, cy_ - 0.06, z0 + 4, b, cy_, z1 - 0.3, 'metal', 0); _ibeam(p, (inner, cy_ - 0.2, z0 + 4), (inner, cy_ - 0.2, z1 - 0.3), 0.2, 0.12)
-                for yy in (0.55, 1.1): add_cyl(p, inner, cy_ + yy, z0 + 4, z1 - 0.3, 0.025, 'metal', 6, axis='z')
-                zr = z0 + 4
-                while zr < z1: add_box(p, inner - 0.02, cy_, zr, inner + 0.02, cy_ + 1.1, zr + 0.04, 'metal', 0); zr += 1.4
-                zb = z0 + 7
-                while zb < z1 - 1:
-                    _beam(p, (min(a, b) if inner > xc else max(a, b), cy_ - 1.2, zb), (inner, cy_ - 0.1, zb), 0.1, 'metal'); zb += 7      # brackets
-            # an overhead crane on rails under the roof
-            # the overhead crane, parked against the back wall where nothing flies in, its hook drawn right up
-            for zc_ in (z1 - 4.5,):
-                for dz_ in (0, 1.4): _ibeam(p, (x0 + 0.5, ceil - 0.62, zc_ + dz_), (x1 - 0.5, ceil - 0.62, zc_ + dz_), 0.24, 0.36, 'soil')
-                tx = xc + 4; add_box(p, tx - 1, ceil - 1.1, zc_ - 0.3, tx + 1, ceil - 0.74, zc_ + 1.7, 'heatshield', 0); add_cyl(p, tx, zc_ + 0.7, ceil - 1.5, ceil - 1.1, 0.025, 'metal', 6); add_box(p, tx - 0.18, ceil - 1.72, zc_ + 0.5, tx + 0.18, ceil - 1.5, zc_ + 0.9, 'hazard', 0)
+            if HG == 'truss':
+                # a gallery down each wall with a real rail, and a stair up to it at the back
+                cy_ = deck + 4.5
+                for (a, b, inner) in ((x0 + 0.1, x0 + 1.5, x0 + 1.5), (x1 - 1.5, x1 - 0.1, x1 - 1.5)):
+                    add_box(p, a, cy_ - 0.06, z0 + 4, b, cy_, z1 - 0.3, 'metal', 0); _ibeam(p, (inner, cy_ - 0.2, z0 + 4), (inner, cy_ - 0.2, z1 - 0.3), 0.2, 0.12)
+                    for yy in (0.55, 1.1): add_cyl(p, inner, cy_ + yy, z0 + 4, z1 - 0.3, 0.025, 'metal', 6, axis='z')
+                    zr = z0 + 4
+                    while zr < z1: add_box(p, inner - 0.02, cy_, zr, inner + 0.02, cy_ + 1.1, zr + 0.04, 'metal', 0); zr += 1.4
+                    zb = z0 + 7
+                    while zb < z1 - 1:
+                        _beam(p, (min(a, b) if inner > xc else max(a, b), cy_ - 1.2, zb), (inner, cy_ - 0.1, zb), 0.1, 'metal'); zb += 7      # brackets
+                # an overhead crane on rails under the roof
+                # the overhead crane, parked against the back wall where nothing flies in, its hook drawn right up
+                for zc_ in (z1 - 4.5,):
+                    for dz_ in (0, 1.4): _ibeam(p, (x0 + 0.5, ceil - 0.62, zc_ + dz_), (x1 - 0.5, ceil - 0.62, zc_ + dz_), 0.24, 0.36, 'soil')
+                    tx = xc + 4; add_box(p, tx - 1, ceil - 1.1, zc_ - 0.3, tx + 1, ceil - 0.74, zc_ + 1.7, 'heatshield', 0); add_cyl(p, tx, zc_ + 0.7, ceil - 1.5, ceil - 1.1, 0.025, 'metal', 6); add_box(p, tx - 0.18, ceil - 1.72, zc_ + 0.5, tx + 0.18, ceil - 1.5, zc_ + 0.9, 'hazard', 0)
             # work stations on the walls: tool boards, hose reels, status screens, a fire point
             zw = z0 + 5.2
             while zw < z1 - 2:
@@ -1156,6 +1216,7 @@ def dress_decks(p, lay, name):
     for pr in lay['props']:
         across = pr['face'] in (0, 2); L, D = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
         place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
+    _remap(p, THEMES.get(name, {}).get('remap', {}))
 
 def _look(obs):
     """A partial build is for looking at: each piece from four sides, rendered here (workbench, a colour per material), into out/booth/."""
@@ -1181,22 +1242,24 @@ def _look(obs):
             sc.render.filepath = os.path.join(ROOT, 'out', 'booth', ob.name + '-' + str(i) + '.png'); bpy.ops.render.render(write_still=True); print('look', sc.render.filepath)
 
 CAPITALS = {'bastion': bastion, 'meridian': meridian, 'longshore': longshore, 'halcyon': halcyon, 'anvil': anvil, 'vesper': vesper, 'tiller': tiller, 'sable': sable}
-DECKS_OF = {'anvil': 'bastion', 'vesper': 'meridian', 'tiller': 'longshore', 'sable': 'halcyon'}      # (a ship of the same line has the same rooms: no more to download)
 DRESS = {'bastion': dress_bastion, 'meridian': dress_meridian, 'longshore': dress_longshore, 'halcyon': lambda p, r: None}
 for _k in ('anvil', 'vesper', 'tiller', 'sable'): DRESS[_k] = lambda p, r: None
 def build_capital():
     for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
     decks = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'capital.json'))); hulls = []; rooms = []; docks = {}
+    DO = os.environ.get('DECKS_ONLY')          # (rebuild only the insides: the hulls don't change when only the rooms do)
     for name, fn in CAPITALS.items():
         if ONLY and name not in ONLY: continue
-        p = Part(); r = random.Random(name); lay = decks[DECKS_OF.get(name, name) + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
+        lay = decks[name + '_decks']
+        if DO:
+            p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces'); continue
+        p = Part(); r = random.Random(name); mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
         for i, q in enumerate(RING_PARTS.pop(name, [])): o2 = finish(q, f'{name}_ring{i}'); o2['kind'] = f'{name}_ring{i}'; o2['dims'] = [1, 1, 1]; hulls.append(o2); print('ring part', o2.name, len(o2.data.polygons), 'faces')
-        if name in DECKS_OF: continue
         p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
     if ONLY: _look(hulls + rooms); return
-    json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
-    for fname, group in (('capital.glb', hulls), ('capital-decks.glb', rooms)):
+    if not DO: json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
+    for fname, group in ([] if DO else [('capital.glb', hulls)]) + [('decks-' + ob['kind'][:-6] + '.glb', [ob]) for ob in rooms]:      # (each ship's insides its own file: fetched when you come near that ship)
         bpy.ops.object.select_all(action='DESELECT')
         for ob in group: ob.select_set(True)
         out = os.path.join(ROOT, 'assets', fname)

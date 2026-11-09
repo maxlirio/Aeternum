@@ -7,8 +7,13 @@ const ROOMS = {
   meridian: [['hold', 'arrivals bay', 40], ['lobby', 'promenade', 16], ['living', 'lounge', 12], ['bedroom', 'staterooms', 12], ['office', 'purser\'s bridge', 12]],
   halcyon: [['hold', 'tender bay', 40], ['lobby', 'grand stair', 16], ['living', 'salon', 14], ['bedroom', 'staterooms', 12], ['office', 'bridge', 12]],
   longshore: [['hold', 'lighter bay', 44], ['shopfloor-workshop', 'machine shop', 14], ['kitchen', 'galley', 10], ['bedroom', 'bunks', 10], ['office', 'wheelhouse', 12]],
+  // the great ones, each its own ship inside as well as out
+  anvil: [['hold', 'flight deck', 44], ['storage', 'ordnance magazine', 12], ['shopfloor-workshop', 'drone shop', 10], ['kitchen', 'wardroom', 10], ['bedroom', 'marine barracks', 10], ['office', 'flag bridge', 12]],
+  vesper: [['hold', 'skyport', 38], ['lobby', 'concourse', 16], ['kitchen', 'food hall', 14], ['living', 'transit lounge', 12], ['office', 'harbour control', 12]],
+  tiller: [['hold', 'ore bay', 46], ['shopfloor-workshop', 'smelter floor', 16], ['storage', 'parts store', 10], ['kitchen', 'canteen', 10], ['office', 'tow control', 12]],
+  sable: [['hold', 'shadow bay', 36], ['storage', 'weapons locker', 10], ['office', 'ops room', 14], ['bedroom', 'sleep pods', 10], ['office', 'command deck', 12]],
 };
-const LINERS = new Set(['meridian', 'halcyon']);
+const LINERS = new Set(['meridian', 'halcyon', 'vesper']);
 const FURN = {
   hold: [['crate', 2.4, 2.4, 2.2], ['crate', 1.2, 1.2, 1.0], ['rack', 2.4, 0.8, 2.2], ['machine', 1.8, 1.4, 1.7]],
   storage: [['locker', 0.9, 0.55, 2.0], ['rack', 2.4, 0.8, 2.2], ['locker', 0.9, 0.55, 2.0], ['crate', 1.2, 1.2, 1.0]],
@@ -18,6 +23,13 @@ const FURN = {
   lobby: [['bench', 2.4, 0.5, 0.45], ['planter', 1.0, 1.0, 1.1]],
   living: [['sofa', 2.0, 0.9, 0.8], ['armchair', 0.85, 0.85, 0.95], ['table', 1.2, 0.8, 0.75]],
   'shopfloor-workshop': [['bench', 2.4, 1.0, 0.95], ['machine', 1.8, 1.4, 1.7], ['rack', 2.4, 0.8, 2.2]],
+};
+// what stands along a hangar's walls says what the ship is: a warship racks ordnance, a skyport seats travellers, an ore ship stacks crates and plant
+const HOLD = {
+  anvil: [['rack', 2.4, 0.8, 2.2], ['crate', 2.4, 2.4, 2.2], ['rack', 2.4, 0.8, 2.2], ['locker', 0.9, 0.55, 2.0]],
+  vesper: [['bench', 2.4, 0.5, 0.45], ['planter', 1.0, 1.0, 1.1], ['bench', 2.4, 0.5, 0.45], ['counter', 1.8, 0.65, 0.92]],
+  tiller: [['crate', 2.4, 2.4, 2.2], ['crate', 2.4, 2.4, 2.2], ['machine', 1.8, 1.4, 1.7], ['crate', 1.2, 1.2, 1.0]],
+  sable: [['locker', 0.9, 0.55, 2.0], ['locker', 0.9, 0.55, 2.0], ['cabinet', 1.0, 0.5, 1.4], ['rack', 2.4, 0.8, 2.2]],
 };
 const r1 = v => Math.round(v * 100) / 100;
 function decks(name, rooms) {
@@ -30,7 +42,7 @@ function decks(name, rooms) {
     const put = (kind, x0, z0_, x1, z1_, h, face, extra = {}) => { if (z1_ > z1 - 0.3 || z0_ < z0 + 0.3 || x0 < hx0 + 0.1 || x1 > hx1 - 0.1) return false; props.push({ kind, room: i, x0: r1(x0), x1: r1(x1), z0: r1(z0_), z1: r1(z1_), h, face, ...(['bed', 'sofa', 'armchair', 'chair'].includes(kind) ? { soft: true } : {}), ...extra }); return true; };
     const wallRun = (list, start = z0 + 0.6, gap = 0.6) => { for (const side of [0, 1]) { let at = start, n = 0; while (true) { const [kind, len, dep, h] = list[n++ % list.length]; if (at + len > z1 - 0.5) break; if (side === 0) put(kind, hx0 + 0.1, at, hx0 + 0.1 + dep, at + len, h, 1); else put(kind, hx1 - 0.1 - dep, at, hx1 - 0.1, at + len, h, 3); at += len + gap; } } };
     const sides = fn => { for (const s of [-1, 1]) fn(s); };
-    if (purpose === 'hold') wallRun(FURN.hold, z0 + 14);
+    if (purpose === 'hold') wallRun(HOLD[name] || FURN.hold, z0 + 14);
     else if (purpose === 'kitchen') {           // a mess: galley down one wall and fridges, long tables with benches either side
       wallRun([['counter', 2.6, 0.65, 0.92], ['fridge', 0.8, 0.7, 1.9], ['counter', 1.8, 0.65, 0.92]]);
       sides(s => { for (const off of [5.4, 10]) for (let z = z0 + 1.6; z + 2 < z1; z += 4.2) { const xa = xc + s * off - 1.5; put('table', xa, z, xa + 3, z + 1.2, 0.75, 0); put('bench', xa + 0.3, z - 0.62, xa + 2.7, z - 0.12, 0.45, 2); put('bench', xa + 0.3, z + 1.32, xa + 2.7, z + 1.82, 0.45, 0); } });

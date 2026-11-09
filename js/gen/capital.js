@@ -16,12 +16,12 @@ export const FLEET = {
   halcyon: { name: 'Halcyon', length: 840, sleek: true, dock: [73, -8, -60],
     solid: [[-72, -48, -432, 72, 48, -79], [-72, -48, -41, 72, 48, 404], [-72, -48, -79, 72, -12, -41], [-72, 3, -79, 72, 48, -41], [-72, -12, -79, -24, 3, -41], [-335, -16, -372, 335, -2, -60]] },
   // the great ones
-  anvil: { name: 'Anvil', length: 3500, livery: 0, decks: 'bastion', dock: [441, -6, -330], solid: [...cut(440, 215, -1800, 1100, 441, -6, -330), [-120, -60, 1100, 120, 40, 1700], [-340, 150, -1450, 340, 350, 860], [-80, 350, -1080, 80, 553, -40]] },
-  vesper: { name: 'Vesper', length: 5300, livery: 1, decks: 'meridian', dock: [770, -4, -280], solid: [...cut(770, 118, -2740, 1700, 770, -4, -280), [-620, -330, -2600, 620, -118, 1700], [-520, -300, 1700, 520, 118, 2300], [-160, -150, 2300, 160, 118, 2640]] },     // (above the deck the city is solid where its buildings are: world/vesper.js)
-  tiller: { name: 'Tiller', length: 4260, livery: 2, decks: 'longshore', dock: [214, -14, 1760], solid: [[-310, -170, -2060, 310, 170, 1500], [-130, -170, 1500, 130, 170, 1460 + 40], ...cut(212, 180, 1460, 2100, 214, -14, 1760), [-150, 150, 1480, 150, 294, 2010]] },
-  sable: { name: 'Sable', length: 1620, span: 2410, sleek: true, dark: true, decks: 'halcyon', dock: [204, -6, -60], solid: [...cut(200, 90, -640, 960, 204, -6, -60), [-1200, -10, -860, -200, 70, 400], [200, -10, -860, 1200, 70, 400]] },
+  anvil: { name: 'Anvil', length: 3500, livery: 0, dock: [441, -6, -330], solid: [...cut(440, 215, -1800, 1100, 441, -6, -330), [-120, -60, 1100, 120, 40, 1700], [-340, 150, -1450, 340, 350, 860], [-80, 350, -1080, 80, 553, -40]] },
+  vesper: { name: 'Vesper', length: 5300, livery: 1, dock: [770, -4, -280], solid: [...cut(770, 118, -2740, 1700, 770, -4, -280), [-620, -330, -2600, 620, -118, 1700], [-520, -300, 1700, 520, 118, 2300], [-160, -150, 2300, 160, 118, 2640]] },     // (above the deck the city is solid where its buildings are: world/vesper.js)
+  tiller: { name: 'Tiller', length: 4260, livery: 2, dock: [214, -14, 1760], solid: [[-310, -170, -2060, 310, 170, 1500], [-130, -170, 1500, 130, 170, 1460 + 40], ...cut(212, 180, 1460, 2100, 214, -14, 1760), [-150, 150, 1480, 150, 294, 2010]] },
+  sable: { name: 'Sable', length: 1620, span: 2410, sleek: true, dark: true, dock: [204, -6, -60], solid: [...cut(200, 90, -640, 960, 204, -6, -60), [-1200, -10, -860, -200, 70, 400], [200, -10, -860, 1200, 70, 400]] },
 };
-const deckLen = { bastion: 96, meridian: 94, longshore: 92, halcyon: 94 };
+const deckLen = { bastion: 96, meridian: 94, longshore: 92, halcyon: 96, anvil: 100, vesper: 94, tiller: 96, sable: 84 };     // (2 + the rooms' lengths: tools/gen-capital.mjs)
 const SPOTS = { halcyon: [-1300, 2900, 4300], bastion: [2100, 2300, 900], meridian: [-3200, 3900, -1400], longshore: [900, 5200, -5200], anvil: [7200, 3400, 3200], vesper: [-7600, 5200, 5600], tiller: [-5400, 4300, -8200], sable: [5200, 6400, -6400] };   // east, height above the sea, north of the city
 
 export function fleetOf(planet, S) {
@@ -29,8 +29,8 @@ export function fleetOf(planet, S) {
   return Object.keys(FLEET).map((model, i) => {
     const F = FLEET[model], [dx, h, dz] = SPOTS[model], yaw = ((seed >>> (i * 4)) % 628) / 100, x = S.cx + dx, z = S.cz + dz, y = planet.seaLevel + h;
     const c = Math.cos(yaw), s = Math.sin(yaw), [mx, my, mz] = F.dock, wx = x + mx * c + mz * s, wz = z - mx * s + mz * c, f = Math.atan2(-c, s);   // the decks run inward from the dock's mouth
-    const D = deckLen[F.decks || model];
-    return { model, name: F.name, x, y, z, yaw, colour: i, length: F.length, sleek: !!F.sleek, deckW: 34, deckD: D, dark: !!F.dark, livery: F.livery, ship: { id: `ship:${S.key}:fleet${i}`, model: (F.decks || model) + '_decks', name: F.name, at: { c: [wx + Math.sin(f) * D / 2, y + my, wz + Math.cos(f) * D / 2], facing: f }, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } };
+    const D = deckLen[model];
+    return { model, name: F.name, x, y, z, yaw, colour: i, length: F.length, sleek: !!F.sleek, deckW: 34, deckD: D, dark: !!F.dark, livery: F.livery, ship: { id: `ship:${S.key}:fleet${i}`, model: model + '_decks', name: F.name, at: { c: [wx + Math.sin(f) * D / 2, y + my, wz + Math.cos(f) * D / 2], facing: f }, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } };
   });
 }
 

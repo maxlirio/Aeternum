@@ -63,6 +63,7 @@ def _grid(p, B, rows, mat):
 
 def _skin(p, B, z0, z1, a0, a1, lift=0.025, mat='tint', nz=4, na=4):
     """A separate sheet lying on the hull, its edges turned down to meet it: a panel, a hatch, an armour plate."""
+    if any(_glazed(z_, a_) for z_ in (z0, (z0 + z1) / 2, z1) for a_ in (a0, (a0 + a1) / 2, a1)): return
     pts = lambda L: [[B.at(z0 + (z1 - z0) * i / nz, a0 + (a1 - a0) * j / na, L) for j in range(na + 1)] for i in range(nz + 1)]
     top, low = pts(lift), pts(-0.01); bm = bmesh.new(); T = [[bm.verts.new(P(*q)) for q in r_] for r_ in top]
     for r0, r1 in zip(T, T[1:]):
@@ -73,12 +74,19 @@ def _skin(p, B, z0, z1, a0, a1, lift=0.025, mat='tint', nz=4, na=4):
         (i2, j2) = edge[(k + 1) % len(edge)]; bm.faces.new([T[i][j], T[i2][j2], L_[(k + 1) % len(edge)], L_[k]])
     _outward(B, bm); merge(p, bm, mat)
 
+_GLASS = [None]          # (while a ship is built: is this spot of skin under its canopy? nothing is fitted there, you'd see it from the seat)
+def _glazed(z, a): return bool(_GLASS[0]) and _GLASS[0](z, a % 360 if a % 360 < 270 else a % 360 - 360)
+
 def _seam_long(p, B, z0, z1, a, w=0.026, mat='rubber', lift=0.006):
-    """A gap between plates, running along the hull."""
+    """A gap between plates, running along the hull (broken where the glass is)."""
     n = max(2, int(abs(z1 - z0) / 0.5)); rows = []
     for i in range(n + 1):
-        z = z0 + (z1 - z0) * i / n; _, ry, _, rx, _ = B.sect(z); d = math.degrees(w / 2 / max(0.06, (rx + ry) / 2)); rows.append([B.at(z, a - d, lift), B.at(z, a + d, lift)])
-    _grid(p, B, rows, mat)
+        z = z0 + (z1 - z0) * i / n; _, ry, _, rx, _ = B.sect(z); d = math.degrees(w / 2 / max(0.06, (rx + ry) / 2))
+        if _glazed(z, a):
+            if len(rows) > 1: _grid(p, B, rows, mat)
+            rows = []; continue
+        rows.append([B.at(z, a - d, lift), B.at(z, a + d, lift)])
+    if len(rows) > 1: _grid(p, B, rows, mat)
 
 def _seam_ring(p, B, z, a0, a1, w=0.026, mat='rubber', lift=0.006):
     """A gap between plates, running round it."""
@@ -113,17 +121,20 @@ def _vent(p, B, z, a, ln=0.7, wd=14, slats=5):
 
 def _rcs(p, B, z, a):
     """Attitude thrusters: a block on the skin, a little nozzle out of each face."""
+    if any(_glazed(z_, a_) for z_ in (z - 0.3, z + 0.3) for a_ in (a - 8, a + 8)): return
     x, y, _ = B.at(z, a, 0.05); _skin(p, B, z - 0.16, z + 0.16, a - 6, a + 6, 0.05, 'metal', 2, 2)
     add_cyl(p, x, y, z + 0.1, z + 0.28, 0.035, 'rubber', 10, axis='z', r2=0.055); add_cyl(p, x, y, z - 0.28, z - 0.1, 0.055, 'rubber', 10, axis='z', r2=0.035)
 
-def _canopy(p, B, z0, z1, half, bulge, k=2.2, bows=(0.34, 0.62), top=90, frame='tint', mat='visor'):
+def _canopy(p, B, z0, z1, half, bulge, k=2.2, bows=(0.34, 0.62), top=90, frame='tint', mat='visor', edge=None):
     """Glass that stands up from the hull, in a real frame: a rail round it, bows across, a bar down the middle."""
     def shape(t):
+        if edge: return (1 - max(0.0, 1 - t / 0.3) ** k) ** (1 / k)          # (drawn from the cockpit: rounded behind the head, running out to the nose in front)
         m = max(0.0, 1 - abs(2 * t ** 0.72 - 1) ** k); return m ** (1 / k)
     def pt(t, u, ex=0.0):
-        m = shape(t); a = top + half * m * u; L = bulge * (m ** 0.75) * max(0.0, 1 - abs(u) ** 2.6) ** 0.5 + 0.012 + ex
+        m = shape(t); fr = min(1.0, (1 - t) / 0.2) ** 0.6 if edge else 1.0
+        a = top + (edge(z0 + (z1 - z0) * t) if edge else half) * m * u; L = bulge * fr * (m ** 0.75) * max(0.0, 1 - abs(u) ** 2.6) ** 0.5 + 0.012 + ex
         return B.at(z0 + (z1 - z0) * t, a, L)
-    nz, na = 20, 14; _grid(p, B, [[pt(i / nz, -1 + 2 * j / na) for j in range(na + 1)] for i in range(nz + 1)], mat)
+    nz, na = (60, 22) if edge else (20, 14); _grid(p, B, [[pt(i / nz, -1 + 2 * j / na) for j in range(na + 1)] for i in range(nz + 1)], mat)
     W = 0.05 / max(0.5, z1 - z0)
     for t in bows: _grid(p, B, [[pt(t - W, -1 + 2 * j / na, 0.012) for j in range(na + 1)], [pt(t + W, -1 + 2 * j / na, 0.012) for j in range(na + 1)]], frame)
     for u in (-0.97, 0.97): _grid(p, B, [[pt(i / nz, u - 0.03, 0.01), pt(i / nz, u + 0.03, 0.01)] for i in range(1, nz)], frame)
@@ -299,6 +310,162 @@ def _cheeks(p, xc, dx0, dx1, hw, cy, hh, hz0):
         xm = (outer + inner) / 2
         _sloft(p, [(hz0 + 0.9, cy, hh * 0.88, xm, rx, 2.4), (hz0, cy - hh * 0.04, hh * 0.8, xm, rx * 0.96, 2.4), (hz0 * 0.66, cy + hh * 0.08, hh * 0.46, xm, rx * 0.68, 2.2), (hz0 * 0.4, cy + hh * 0.18, hh * 0.2, xm, rx * 0.34, 2.1), (hz0 * 0.26, cy + hh * 0.22, 0.02, xm, 0.03, 2)], 'tint', 36, per=6)
 
+def _inward(B, bm):
+    for f in bm.faces:
+        f.normal_update(); c = f.calc_center_median(); z = -c.y; cy, ry, cx, rx, e = B.sect(z)
+        if (c - mathutils.Vector(P(cx, cy, z))).dot(f.normal) > 0: f.normal_flip()
+
+def _strip(p, B, rows, mat, inward=True):
+    bm = bmesh.new(); V = [[bm.verts.new(P(*q)) for q in r_] for r_ in rows]
+    for r0, r1 in zip(V, V[1:]):
+        for j in range(len(r0) - 1):
+            if (r0[j].co - r0[j + 1].co).length + (r1[j].co - r1[j + 1].co).length < 1e-5: continue
+            bm.faces.new([r0[j], r0[j + 1], r1[j + 1], r1[j]])
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    (_inward if inward else _outward)(B, bm); merge(p, bm, mat)
+
+def _ang_at_y(B, z, y, lift):
+    """The angle (−90..90, the +x side) at which the hull's skin, lifted by `lift`, is at height y; None if the section doesn't reach y."""
+    lo, hi = -90.0, 90.0
+    if B.at(z, lo, lift)[1] > y: return -90.0
+    if B.at(z, hi, lift)[1] < y: return None
+    for _ in range(30):
+        m = (lo + hi) / 2
+        if B.at(z, m, lift)[1] < y: lo = m
+        else: hi = m
+    return (lo + hi) / 2
+
+def _glass_plan(B, lay, f, ext=0.0):
+    """Where the canopy is, from the cockpit inside it: it starts just behind the pilot's head and runs forward until the nose has
+    dropped to the dash; at each station its edge comes down the hull as far as the dash line (times f: less glass on an armoured
+    ship). The same plan draws the glass outside and cuts the opening in the lining inside, so the two always agree."""
+    deck = lay['deck']; sill = deck + 1.02; hz1 = lay['hull'][3]
+    R = next((q for q in lay['rooms'] if q.get('purpose') == 'cockpit'), None); zc0 = R['rect'][1] if R else hz1 - 3.2
+    pz = next((q['z'] for q in lay['seats'] if q['kind'] == 'pilot'), hz1 - 1.6)
+    z0 = max(zc0 + 0.25, pz - 1.35); z1 = hz1
+    while z1 < lay['D'] and B.at(z1 + 0.05, 90, 0)[1] > sill + 0.16 and z1 < pz + 6.0: z1 += 0.05
+    def edge(z):
+        a = _ang_at_y(B, z, sill, 0.0)
+        return 0.0 if a is None else max(0.0, min(84.0, (90 - a) * f))
+    return z0, z1 + ext, edge
+
+def _glass_cockpit(p, lay, secs, f=0.9, bulge=0.18, k=3.0, bows=(0.25, 0.5, 0.75)):
+    """For a hull lofted straight through its sections (no smoothing): the canopy drawn from the cockpit, and what the cockpit needs to match it."""
+    B = Body(secs); B.secs = list(secs)
+    cz0, cz1, edge = _glass_plan(B, lay, f)
+    _canopy(p, B, cz0, cz1, 60, bulge, k, bows=bows, edge=edge)
+    _GLASS[0] = lambda z, ang: cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < edge(min(cz1, max(cz0, z))) + 4
+    return dict(B=B, cz0=cz0, cz1=cz1, half=60, bulge=bulge, k=k, bows=bows, edge=edge)
+
+def _cockpit(p, lay, ck, zc0):
+    """The cockpit is the inside of the nose: a lining that follows the hull's own curve, open where the canopy is, the canopy's
+    frame seen from within, a floor that runs on into the nose, a glare shield over the instruments. What you see from the pilot's
+    seat is what the ship looks like from outside."""
+    B = ck['B']; deck = lay['deck']; ceil = lay['ceiling']; hx0, hz0, hx1, hz1 = lay['hull']; xc = (hx0 + hx1) / 2
+    cz0, cz1, half, bulge, k = ck['cz0'], ck['cz1'], ck['half'], ck['bulge'], ck['k']; LN = -0.07
+    def shape(t):
+        if ck.get('edge'): return (1 - max(0.0, 1 - t / 0.3) ** k) ** (1 / k)
+        m = max(0.0, 1 - abs(2 * t ** 0.72 - 1) ** k); return m ** (1 / k)
+    def hc(z):
+        if not (cz0 < z < cz1): return 0.0
+        return (ck['edge'](z) if ck.get('edge') else half) * shape((z - cz0) / (cz1 - cz0))
+    # how far the lining runs forward: until the nose has closed down to the floor
+    zend = zc0
+    while zend < lay['D'] and (B.at(zend + 0.05, 90, LN)[1] > deck + 0.35): zend += 0.05
+    zs = []; z = zc0
+    while z < zend: zs.append(z); z += 0.08
+    zs.append(zend)
+    for z_ in (cz0, cz1):
+        if zc0 < z_ < zend: zs.append(z_)
+    zs = sorted(set(round(q, 4) for q in zs)); NA = 22
+    # the lining, in two strips (right and left of the centre line) that meet over the top where there's no glass between them
+    for side in (1, -1):
+        rows, reveal, floor_ = [], [], []
+        for z in zs:
+            ar = _ang_at_y(B, z, deck, LN)
+            if ar is None: continue
+            h = hc(z); a0, a1 = (ar, 90 - h) if side > 0 else (90 + h, 180 - ar)
+            rows.append([B.at(z, a0 + (a1 - a0) * j / NA, LN) for j in range(NA + 1)])
+            ae = 90 - h if side > 0 else 90 + h
+            reveal.append([B.at(z, ae, LN), B.at(z, ae, 0.03)])
+            q = B.at(z, ar, LN); floor_.append([(xc, deck - 0.004, z), (q[0], deck - 0.004, z)])
+        _strip(p, B, rows, 'paint')
+        if any(hc(z) > 0 for z in zs): _strip(p, B, reveal, 'metal')
+        bm = bmesh.new(); V = [[bm.verts.new(P(*q)) for q in r_] for r_ in floor_]
+        for r0, r1 in zip(V, V[1:]): bm.faces.new([r0[0], r0[1], r1[1], r1[0]])
+        for f in bm.faces:
+            f.normal_update()
+            if f.normal.z < 0: f.normal_flip()
+        merge(p, bm, 'rubber')
+    # frames: a rib round the lining every 0.55 m, broken where the glass is; a lit strip low down each side
+    z = zc0 + 0.35
+    while z < zend - 0.25:
+        ar = _ang_at_y(B, z, deck, LN)
+        if ar is not None:
+            h = hc(z)
+            for (a0, a1) in ((ar + 3, 90 - h), (90 + h, 177 - ar)):
+                if a1 - a0 < 2: continue
+                _strip(p, B, [[B.at(z - 0.035, a0 + (a1 - a0) * j / 16, -0.12) for j in range(17)], [B.at(z + 0.035, a0 + (a1 - a0) * j / 16, -0.12) for j in range(17)]], 'metal')
+        z += 0.55
+    for side in (1, -1):
+        rows = []
+        for z in zs:
+            ar = _ang_at_y(B, z, deck + 0.12, LN - 0.01)
+            if ar is None: continue
+            a = ar if side > 0 else 180 - ar; rows.append([B.at(z, a, LN - 0.01), B.at(z, a + side * 1.6, LN - 0.01)])
+        if len(rows) > 1: _strip(p, B, rows, 'glow')
+    # the canopy from inside: its glass (seen from below it catches the sky), the bows across it and the rails along its edges
+    if cz1 > zc0:
+        def pt(t, u, ex=0.0):
+            z_ = cz0 + (cz1 - cz0) * t; m = shape(t); fr = min(1.0, (1 - t) / 0.2) ** 0.6 if ck.get('edge') else 1.0; a = 90 + (ck['edge'](z_) if ck.get('edge') else half) * m * u; L = bulge * fr * (m ** 0.75) * max(0.0, 1 - abs(u) ** 2.6) ** 0.5 + 0.012 + ex
+            return B.at(cz0 + (cz1 - cz0) * t, a, L)
+        nz, na = 60, 22
+        _strip(p, B, [[pt(i / nz, -1 + 2 * j / na, -0.006) for j in range(na + 1)] for i in range(nz + 1)], 'glass')
+        W = 0.045 / max(0.5, cz1 - cz0)
+        for t in ck['bows']:
+            if cz0 + (cz1 - cz0) * t < zc0: continue
+            _strip(p, B, [[pt(t - W, -1 + 2 * j / na, -0.03) for j in range(na + 1)], [pt(t + W, -1 + 2 * j / na, -0.03) for j in range(na + 1)]], 'metal')
+        for u in (-0.96, 0.96): _strip(p, B, [[pt(i / nz, u - 0.04, -0.03), pt(i / nz, u + 0.04, -0.03)] for i in range(1, nz)], 'metal')
+    # the bulkhead at the back of the cockpit: everything between the cabin's box and the hull's curve
+    zb = zc0
+    cy, ry, cx, rx, e = B.sect(zb); ytop = cy + ry + LN; NY = 48
+    for kk in range(NY):
+        y0_, y1_ = deck + (ytop - deck) * kk / NY, deck + (ytop - deck) * (kk + 1) / NY; ym = (y0_ + y1_) / 2
+        ar = _ang_at_y(B, zb, ym, LN)
+        if ar is None: continue
+        xr = B.at(zb, ar, LN)[0]; xl = 2 * cx - xr
+        if ym < ceil + 0.12:
+            if xl < hx0 - 0.01: add_box(p, xl, y0_, zb - 0.05, hx0, y1_, zb + 0.05, 'paint', 0)
+            if xr > hx1 + 0.01: add_box(p, hx1, y0_, zb - 0.05, xr, y1_, zb + 0.05, 'paint', 0)
+        else: add_box(p, xl, y0_, zb - 0.05, xr, y1_, zb + 0.05, 'paint', 0)
+    # the glare shield: a shelf over the instruments, from the console forward to the skin, a row of screens set in it
+    yd = deck + 1.0; z = hz1 - 0.06; rows = []; zstop = min(zend, cz1 if cz1 > hz1 else zend)
+    while z < zstop:
+        ar = _ang_at_y(B, z, yd, LN)
+        if ar is None: break
+        xr = B.at(z, ar, LN)[0]; rows.append([(2 * xc - xr, yd, z), (xr, yd, z)]); z += 0.06
+    if len(rows) > 1:
+        bm = bmesh.new(); V = [[bm.verts.new(P(*q)) for q in r_] for r_ in rows]
+        for r0, r1 in zip(V, V[1:]): bm.faces.new([r0[0], r0[1], r1[1], r1[0]])
+        for f in bm.faces:
+            f.normal_update()
+            if f.normal.z < 0: f.normal_flip()
+        merge(p, bm, 'paint')
+        zf = min(hz1 + 0.5, rows[-1][0][2] - 0.05); wd = min(xc - rows[0][0][0], 1.6)
+        for kk in (-1, 0, 1):
+            x0 = xc + kk * wd * 0.62 - wd * 0.28
+            add_box(p, x0, yd, hz1 + 0.02, x0 + wd * 0.56, yd + 0.012, min(zf, hz1 + 0.34), 'screen', 0)
+        add_box(p, 2 * xc - rows[0][1][0] + 0.02, yd - 0.04, hz1 - 0.08, rows[0][1][0] - 0.02, yd + 0.025, hz1 - 0.04, 'metal', 0)
+    # in front of the glass the nose is closed off above the dash: a bulkhead across it, where the glass ends
+    if hz1 < cz1 < zend - 0.1:
+        cy, ry, cx, rx, e = B.sect(cz1); ytop = cy + ry + LN; NY = 80
+        for kk in range(NY):
+            y0_, y1_ = yd + (ytop - yd) * kk / NY, yd + (ytop - yd) * (kk + 1) / NY
+            ar = _ang_at_y(B, cz1, (y0_ + y1_) / 2, LN)
+            if ar is None: continue
+            xr = B.at(cz1, ar, LN)[0]; add_box(p, 2 * cx - xr, y0_, cz1 - 0.04, xr, y1_, cz1 + 0.04, 'paint', 0)
+    return zend
+
 def sleek_ship(p, lay, r, C, v):
     """Fast, clean, nothing bolted on: a long smooth body, blended wings with real aerofoils and their flaps, engines faired in, glass in a frame. A bright trim line, lights in the tips."""
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; W, D = lay['W'], lay['D']; a, b = (hx1 - hx0) / 2 + 0.06, (ceil + 0.14 - (deck - 0.24)) / 2; cy = (ceil + 0.14 + deck - 0.24) / 2; nose = D - 0.45; NL = nose - hz1; L = hz1 - hz0
@@ -315,9 +482,11 @@ def sleek_ship(p, lay, r, C, v):
     _sloft(p, [(hz0 + 0.9, cy_t, ry_t, xc, hw * 0.9, 2), (hz0, cy_t, ry_t * 0.98, xc, tw, 2), (hz0 * 0.5, cy_t + ry_t * 0.1, ry_t * 0.72, xc, tw * 0.8, 2), (tail + 0.25, cy_t + ry_t * 0.18, ry_t * 0.42, xc, tw * 0.5, 2), (tail, cy_t + ry_t * 0.18, ry_t * 0.32, xc, tw * 0.42, 2)], 'tint', 48, per=5)
     ey = cy_t + ry_t * 0.18
     # the canopy
-    cz0, cz1, half, bulge = {'arrow': (hz1 - 2.7, hz1 + NL * 0.3, 44, 0.3), 'racer': (hz1 - 1.9, hz1 + NL * 0.2, 42, 0.36), 'manta': (hz1 - 1.9, hz1 + NL * 0.3, 34, 0.26), 'wraith': (hz1 - 2.5, hz1 + NL * 0.28, 40, 0.32)}[C]
-    _canopy(p, B, cz0, cz1, half, bulge, bows=(0.36, 0.64))
-    clear = lambda z, ang: not (cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < half + 4)
+    bulge, gf = {'arrow': (0.3, 0.9), 'racer': (0.34, 0.8), 'manta': (0.26, 0.75), 'wraith': (0.32, 0.85)}[C]
+    cz0, cz1, edge = _glass_plan(B, lay, gf); half = 60
+    _canopy(p, B, cz0, cz1, half, bulge, bows=(0.36, 0.64), edge=edge); CK = dict(B=B, cz0=cz0, cz1=cz1, half=half, bulge=bulge, k=2.2, bows=(0.36, 0.64), edge=edge)
+    clear = lambda z, ang: not (cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < edge(min(cz1, max(cz0, z))) + 4)
+    _GLASS[0] = lambda z, ang: not clear(z, ang)
     _plating(p, B, hz0 + 0.5, hz1 + NL * 0.62, r, clear, 0.72)
     span = W / 2; y0 = cy - hh * 0.2
     if C == 'arrow':
@@ -367,9 +536,10 @@ def sleek_ship(p, lay, r, C, v):
     _beam(p, (xc, cy - droop * hh, nose - 0.03), (xc, cy - droop * hh, nose + 0.4), 0.03, 'metal')       # the pitot probe
     _skin(p, B, hz0 + L * 0.55, hz0 + L * 0.68, 87, 93, 0.03, 'metal', 2, 1); _beam(p, B.at(hz0 + L * 0.62, 90, 0.02), (xc, cy + hh + 0.55, hz0 + L * 0.52), 0.03, 'metal')    # antenna
     for (gx, gz) in ((xc - hw * 0.55, hz0 + 1), (xc + hw * 0.55, hz0 + 1), (xc, hz1 + NL * 0.2)): _gear(p, gx, gz, cy - hh * 0.6, 0.07)
-    ship_interior(p, lay)
+    ship_interior(p, lay, CK)
 
 def designed_ship(p, L_, D_, H_, r, model):
+    _GLASS[0] = None
     lay = SHIPCAT[model]; C = lay['cls']; v = int(model[-1])
     if C in ('arrow', 'manta', 'wraith', 'racer'): return sleek_ship(p, lay, r, C, v)
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2; W, D = lay['W'], lay['D']
@@ -401,48 +571,11 @@ def designed_ship(p, L_, D_, H_, r, model):
     _sloft(p, [(hz0 + 0.9, cy_t, ry_t, xc, hw * 0.88, tail_e), (hz0, cy_t, ry_t, xc, tail_w, tail_e), (hz0 * 0.5 + tail * 0.5, cy_t + ry_t * 0.1, ry_t * 0.86, xc, tail_w * 0.92, tail_e), (tail, cy_t + ry_t * 0.2, ry_t * 0.66, xc, tail_w * 0.78, tail_e)], 'tint', 48)
     deck_y = cy_t + ry_t * 0.2; deck_ry = ry_t * 0.66; deck_rx = tail_w * 0.78
     # the canopy: glass in a frame; how much of the nose it takes is the ship's character. Squarer on the working ships, more bows across it.
-    cs, ce, half, bg, kk = {'runabout': (0.0, 0.5, 66, 0.22, 2.4), 'ferry': (0.0, 0.34, 54, 0.14, 4), 'explorer': (0.0, 0.42, 60, 0.18, 3), 'gunship': (0.02, 0.24, 36, 0.1, 5), 'dropship': (0.0, 0.3, 52, 0.12, 5), 'hauler': (0.02, 0.32, 54, 0.1, 6), 'miner': (0.02, 0.3, 50, 0.1, 6)}[C]
-    cz0, cz1 = hz1 - 0.5 + NL * cs, hz1 + NL * ce
-    _canopy(p, BD, cz0, cz1, half, bg, kk, bows=(0.25, 0.5, 0.75) if kk > 3 else (0.34, 0.62))
-    clear = lambda z, ang: not (cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < half + 4)
-    _plating(p, BD, hz0 + 0.5, hz1 + NL * 0.5, r, clear)
-    # a heat-shielded belly: separate tiles, gaps between them
-    z_ = hz0 + 0.3; tn = 5
-    while z_ < hz1 + NL * 0.55:
-        for k in range(tn): _skin(p, BD, z_, z_ + 0.96, 232 + k * 76 / tn + 0.5, 232 + (k + 1) * 76 / tn - 0.5, 0.022, 'heatshield', 2, 2)
-        z_ += 1.0
-    gear = [(xc - hw * 0.62, hz0 + 1.0), (xc + hw * 0.62, hz0 + 1.0), (xc - hw * 0.5, hz1 - 0.4), (xc + hw * 0.5, hz1 - 0.4)]
-    ty = cy + hh * 0.96; stern = hz0 - 0.1
-
-    if C == 'gunship': e, wide, ns = 1.4, 0.56, [(0.3, -0.02, 0.76, 0.86, 1.3), (0.68, -0.14, 0.32, 0.5, 1.2), (1, -0.24, 0.04, 0.1, 1.2)]
-    elif C == 'dropship':e, wide, ns = 2.6, 0.58, [(0.45, -0.06, 0.8, 0.92, 2.4), (0.85, -0.2, 0.44, 0.78, 2.2), (1, -0.28, 0.2, 0.56, 2.0)]
-    elif C == 'hauler':  e, wide, ns = 3.4, 0.48, [(0.5, 0.0, 0.92, 0.94, 3.2), (0.86, -0.1, 0.62, 0.74, 2.8), (1, -0.18, 0.28, 0.42, 2.4)]
-    elif C == 'miner':   e, wide, ns = 3.0, 0.52, [(0.42, 0.04, 0.88, 0.92, 2.8), (0.82, -0.06, 0.6, 0.66, 2.4), (1, -0.14, 0.26, 0.3, 2.2)]
-    elif C == 'ferry':   e, wide, ns = 2.2, 0.66, [(0.4, -0.06, 0.8, 0.8, 2.1), (0.76, -0.2, 0.42, 0.44, 2.0), (1, -0.3, 0.05, 0.06, 2)]
-    elif C == 'explorer':e, wide, ns = 2.2, 0.6, [(0.36, 0.02, 0.84, 0.84, 2.1), (0.72, 0.0, 0.5, 0.5, 2.0), (1, -0.02, 0.1, 0.1, 2)]
-    else:                e, wide, ns = 2.0, 0.62, [(0.42, -0.04, 0.84, 0.84, 2.0), (0.8, -0.12, 0.5, 0.52, 2.0), (1, -0.18, 0.08, 0.1, 2)]     # runabout: a smooth egg
-    hw = max(a * 1.1, W / 2 * wide); hh = _fit_ry(a, b, hw, e) * 1.05
-    secs = [(hz0, cy, hh * 0.97, xc, hw * 0.97, e), (hz0 + 0.8, cy, hh, xc, hw, e), (hz1 + 0.35, cy, hh, xc, hw, e)]
-    for (t, dy, ry, rx, ee) in ns: secs.append((hz1 + 0.35 + (NL - 0.35) * t, cy + dy * hh, max(0.02, hh * ry), xc, max(0.02, hw * rx), ee))
-    BD = Body(secs); hull_loft(p, BD.secs, 'tint', (xc, cy, (hz0 + hz1) / 2), n=72); sect = BD.sect
-    def top_y(x, z):
-        c_, ry, cx, rx, ee = sect(z); q = 1 - min(1, abs((x - cx) / rx)) ** ee; return c_ + ry * max(q, 0) ** (1 / ee)
-    def side_x(y, z):
-        c_, ry, cx, rx, ee = sect(z); q = 1 - min(1, abs((y - c_) / ry)) ** ee; return rx * max(q, 0) ** (1 / ee)
-    # the stern, round the ramp door
-    d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
-    _stern(p, secs[0], xc, dx0, dx1, deck, dtop, hz0 - 0.05)
-    _stern_dress(p, xc, dx0, dx1, deck, dtop, hz0 - 0.05, hw, cy, hh); _cheeks(p, xc, dx0, dx1, hw, cy, hh, hz0)
-    # The tail: the roof runs on aft over the door and narrows, so the ship ends in an engine deck, not a wall. The door sits under it.
-    top0 = cy + hh * 0.98; under = dtop + 0.14; ry_t = max(0.25, (top0 - under) / 2); cy_t = under + ry_t; tail = max(0.25, 0.25 * hz0)
-    tail_e = max(2.0, e); tail_w = hw * 0.78
-    _sloft(p, [(hz0 + 0.9, cy_t, ry_t, xc, hw * 0.88, tail_e), (hz0, cy_t, ry_t, xc, tail_w, tail_e), (hz0 * 0.5 + tail * 0.5, cy_t + ry_t * 0.1, ry_t * 0.86, xc, tail_w * 0.92, tail_e), (tail, cy_t + ry_t * 0.2, ry_t * 0.66, xc, tail_w * 0.78, tail_e)], 'tint', 48)
-    deck_y = cy_t + ry_t * 0.2; deck_ry = ry_t * 0.66; deck_rx = tail_w * 0.78
-    # the canopy: glass in a frame; how much of the nose it takes is the ship's character. Squarer on the working ships, more bows across it.
-    cs, ce, half, bg, kk = {'runabout': (0.0, 0.5, 66, 0.22, 2.4), 'ferry': (0.0, 0.34, 54, 0.14, 4), 'explorer': (0.0, 0.42, 60, 0.18, 3), 'gunship': (0.02, 0.24, 36, 0.1, 5), 'dropship': (0.0, 0.3, 52, 0.12, 5), 'hauler': (0.02, 0.32, 54, 0.1, 6), 'miner': (0.02, 0.3, 50, 0.1, 6)}[C]
-    cz0, cz1 = hz1 - 0.5 + NL * cs, hz1 + NL * ce
-    _canopy(p, BD, cz0, cz1, half, bg, kk, bows=(0.25, 0.5, 0.75) if kk > 3 else (0.34, 0.62))
-    clear = lambda z, ang: not (cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < half + 4)
+    half, bg, kk, gf = {'runabout': (66, 0.22, 2.4, 1.0), 'ferry': (54, 0.14, 4, 0.9), 'explorer': (60, 0.18, 3, 1.0), 'gunship': (36, 0.1, 5, 0.7), 'dropship': (52, 0.12, 5, 0.85), 'hauler': (54, 0.1, 6, 0.85), 'miner': (50, 0.1, 6, 0.8)}[C]
+    cz0, cz1, edge = _glass_plan(BD, lay, gf); bows = (0.25, 0.5, 0.75) if kk > 3 else (0.34, 0.62)
+    _canopy(p, BD, cz0, cz1, half, bg, kk, bows=bows, edge=edge); CK = dict(B=BD, cz0=cz0, cz1=cz1, half=half, bulge=bg, k=kk, bows=bows, edge=edge)
+    clear = lambda z, ang: not (cz0 - 0.1 < z < cz1 + 0.1 and abs(ang - 90) < edge(min(cz1, max(cz0, z))) + 4)
+    _GLASS[0] = lambda z, ang: not clear(z, ang)
     _plating(p, BD, hz0 + 0.5, hz1 + NL * 0.5, r, clear)
     # a heat-shielded belly: separate tiles, gaps between them
     z_ = hz0 + 0.3; tn = 5
@@ -595,7 +728,7 @@ def designed_ship(p, L_, D_, H_, r, model):
     for z_ in (hz0 + L * 0.2, hz0 + L * 0.75): add_cyl(p, xc, z_, ty - 0.02, ty + 0.06, 0.05, 'navwhite', 10)
     for s in (-1, 1): _skin(p, BD, hz0 + 0.5, hz1 - 0.5, 90 + s * 13 - 1.6, 90 + s * 13 + 1.6, 0.05, 'metal', int(L), 1) if C not in ('runabout',) else None
     for (gx, gz) in gear: _gear(p, gx, gz, cy - hh * 0.55, 0.09)
-    ship_interior(p, lay)
+    ship_interior(p, lay, CK)
 
 
 # ---- road vehicles. Built along z like a ship, then turned to the vehicle frame (x along, z across).

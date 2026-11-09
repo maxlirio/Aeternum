@@ -101,7 +101,7 @@ try {
   }
   if (want('decks')) {
     await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0');
-    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
     for (const C of ['bastion', 'meridian', 'longshore', 'halcyon']) {
       // land on the deck like anyone would: lined up outside, then set down inside. Report what the game says.
       const R = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, wait = ms => new Promise(r => setTimeout(r, ms)), x = at.c[0] - fx * D * 0.22, z = at.c[2] - fz * D * 0.22; f.pos[0] = x; f.pos[1] = at.c[1] + 4.4; f.pos[2] = z; f.vel = [0, 0, 0]; f.throttle = 0; f.onGround = false; const y = at.facing; f.q = [0, Math.sin(y / 2), 0, Math.cos(y / 2)]; f.syncEuler(); O.cam.dist = 26; O.cam.pitch = 0.1; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' })); for (let i = 0; i < 180 && !f.onGround; i++) await wait(100); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' })); await wait(800); const out = { onGround: f.onGround, y: +(f.pos[1] - at.c[1]).toFixed(2), impact: f.impact, problem: f.landingProblem?.(), inDeck: O.world.locate(f.pos[0], f.pos[1] + 2, f.pos[2])?.room?.label || O.world.locate(f.pos[0], f.pos[1] + 2, f.pos[2])?.room?.purpose };
@@ -113,9 +113,10 @@ try {
   }
   if (want('inside')) {
     await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0');
-    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
     for (const C of (process.env.FLEET || 'bastion,meridian,longshore,halcyon').split(',')) {
       const rooms = await ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), f = O.getFlight(); window.__f = f; f.pos[0] = at.c[0] - fx * 60; f.pos[1] = at.c[1] + 2; f.pos[2] = at.c[2] - fz * 60; f.vel = [0, 0, 0]; f.throttle = 0; O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.shipView.group.visible = false; return O.world.locate ? C.ship.layoutRooms || null : null; })()`);
+      for (let i = 0; i < 120 && !(await ev(`ORBIS.capitalView.models.${C}_decks ? 1 : 0`)); i++) await sleep(500);      // (each ship's insides load when you come near it)
       const L = JSON.parse(await (await fetch('http://127.0.0.1:' + PORT + '/assets/ships/capital.json')).text())[C + '_decks'];
       if (process.env.DBG) { await sleep(3000); console.log('   dbg', await ev(`(() => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), V = O.capitalView, g = C.decks; return JSON.stringify({ models: Object.keys(V.models), n: V.models['${C}_decks']?.length, decks: !!g, vis: g?.visible, kids: g?.children.length, pos: g?.position?.toArray(), cam: O.camera.position.toArray(), player: O.ctrl.pos, at: C.ship.at.c, slots: V.models['${C}_decks']?.map(m => m.slot + ':' + m.g.attributes.position.count) }); })()`)); }
       for (const R of L.rooms) { const [x0, z0, x1, z1] = R.rect, mid = (z0 + z1) / 2, tag = R.label.replace(/[^a-z]+/g, '-'), big = R.purpose === 'hold';
@@ -167,7 +168,7 @@ try {
   }
   if (want('dock')) {
     await load('hour=15&fly=runabout0');
-    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
     for (const [C, off] of (process.env.DOCKS ? JSON.parse(process.env.DOCKS) : [['bastion', [600, 120, 500]], ['vesper', [1400, 200, -900]], ['meridian', [-700, -80, -900]], ['longshore', [400, 60, 0]]])) {
       const R = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), wait = ms => new Promise(r => setTimeout(r, ms)), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = ${JSON.stringify(off)};
         f.pos[0] = C.x + a * c + d * s; f.pos[1] = C.y + b; f.pos[2] = C.z - a * s + d * c; f.vel = [0, 0, 0]; f.onGround = false; f.throttle = 0.4; await wait(300);
@@ -267,7 +268,7 @@ try {
   }
   if (want('stair')) {
     await load('hour=12&fly=runabout0');
-    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
     const L = JSON.parse(await (await fetch('http://127.0.0.1:' + PORT + '/assets/ships/capital.json')).text());
     for (const C of ['halcyon', 'meridian']) { const S = L[C + '_decks'].stairs[0], [a, b] = S.flights[1], x = (a + b) / 2;
       const r = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), at = C.ship.at, wait = ms => new Promise(r => setTimeout(r, ms)), f = at.facing, fx = Math.sin(f), fz = Math.cos(f), lx = Math.cos(f), lz = -Math.sin(f), W = (X, Z) => [at.c[0] + fx * (Z - C.deckD / 2) + lx * (X - C.deckW / 2), at.c[2] + fz * (Z - C.deckD / 2) + lz * (X - C.deckW / 2)]; const fl = O.getFlight(); O.setFlightForTest(null); O.ctrl.mode = 'walk'; O.shipView.group.visible = false; const [px, pz] = W(${x}, ${S.foot} - 2); O.ctrl.pos = [px, at.c[1] + 1.05, pz]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = f; O.cam.yaw = f; O.cam.pitch = 0.1; O.cam.dist = 4; await wait(800); const y0 = O.ctrl.pos[1] - at.c[1]; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); let top = y0; for (let i = 0; i < 70; i++) { O.cam.yaw = f; await wait(100); top = Math.max(top, O.ctrl.pos[1] - at.c[1]); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(400); const end = O.ctrl.pos[1] - at.c[1]; return { y0: +y0.toFixed(2), top: +top.toFixed(2), end: +end.toFixed(2), want: ${S.by} }; })()`);
