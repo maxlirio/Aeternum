@@ -323,16 +323,17 @@ export class CollisionWorld {
   // Which building/floor/room is this point in (for HUD, lights, interaction)?
   locate(x, y, z) {
     if (y > SPACE) return null;
+    let outside = null;      // (over or under one structure, maybe inside another stacked with it: the one you're in wins)
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
       const { plan } = this.colliders(b);
       const ly = y - this.baseOf(b) + 0.05;
-      if (ly < -0.3 || ly > plan.F * plan.H) return { b, roof: ly >= plan.F * plan.H };
+      if (ly < -0.3 || ly > plan.F * plan.H) { outside ||= { b, roof: ly >= plan.F * plan.H }; continue; }
       const k = Math.max(0, Math.min(plan.F - 1, Math.floor(ly / plan.H)));
       const room = plan.rooms.find(r => r.k === k && lx >= r.rect[0] && lx <= r.rect[2] && lz >= r.rect[1] && lz <= r.rect[3]);
       return { b, plan, k, room, lx, lz };
     }
-    return null;
+    return outside;
   }
 }

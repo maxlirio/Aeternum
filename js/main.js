@@ -63,7 +63,7 @@ import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
 import { SHIP_PRICE, PRICES, tripOf, LAYOUTS } from './gen/ships.js';
 import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
-import { Flight } from './player/flight.js';
+import { Flight, fromEuler } from './player/flight.js';
 import { AirWar, raidAt, raidIndex } from './sim/aircombat.js';
 import { CombatView } from './render/combat.js';
 import { ShipView } from './render/ships.js';
@@ -457,6 +457,8 @@ async function start(fresh) {
     const lad = nearLadder();
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
+    if (flight && docking) return;
+    if (flight && !flight.onGround) { const dt_ = dockTarget(); if (dt_) { startDock(dt_.C); return; } }
     if (flight) { setDown(); return; }
     const rp = nearRamp();
     if (rp) { rampFlow(rp); return; }
@@ -877,7 +879,7 @@ async function start(fresh) {
   const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.map(C => C.ship)); if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
   let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
-  cam.onMouse = (dx, dy) => { if (!flight) return false; stick[0] = Math.max(-1, Math.min(1, stick[0] + dx * 0.006)); stick[1] = Math.max(-1, Math.min(1, stick[1] + dy * 0.006)); return true; };   // mouse forward = nose down
+  cam.onMouse = () => !!flight;      // (in a ship the mouse is for the guns — click to fire — not for steering or looking round: the view is straight ahead, the ship flies on the arrow keys)
   const placed = new Map();          // ship id → structure in the collision world
   const shipById = id => ships.find(x => x.id === id);
   function syncShips() {
@@ -965,6 +967,42 @@ async function start(fresh) {
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25;
     joinWar();
 
+  }
+  // ---- docking with one of the great ships: E near one and the ship flies itself in — out to the line of the bay, along it, in through the
+  // mouth, and down onto the hangar deck. It's flown, not jumped, and once started it can't be broken off.
+  let docking = null;
+  function dockTarget() {
+    if (!flight || docking) return null; let best = null, bd = 1500;
+    for (const C of fleet) { const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), m = [at.c[0] - fx * C.deckD / 2, at.c[1], at.c[2] - fz * C.deckD / 2], d = Math.hypot(flight.pos[0] - m[0], flight.pos[1] - m[1], flight.pos[2] - m[2]); if (d < bd) { bd = d; best = { C, d }; } }
+    return best;
+  }
+  function startDock(C) {
+    const L = flight.L; if (L.W > 26 || L.D > 40 || (L.H ?? L.ceiling + 1) > 7) { ui.toast(`The ${esc(flight.ship.name)} won't fit in the ${esc(C.name)}'s bay.`, 'warn', 4000); return; }
+    const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, lay = C.ship.model && LAYOUTS[C.ship.model], R0 = lay.rooms[0], zl = Math.max(R0.rect[1] + L.D / 2 + 6, (R0.rect[1] + R0.rect[3]) / 2 - 2), y = at.c[1] + lay.deck;
+    const P = z => [at.c[0] + fx * (z - D / 2), y + 5, at.c[2] + fz * (z - D / 2)], A = P(-160), B = P(zl);
+    // round the hull, not through it: as high as it takes for the way there to be clear
+    const clear = (p, q) => { for (let k = 0; k <= 40; k++) { const t = k / 40; if (fleetContact(fleet, p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t, Math.max(4, L.W * 0.6))) return false; } return true; };
+    const here = flight.pos.slice(), way = [];
+    if (!clear(here, A)) { for (const h of [150, 400, 800, 1300, 1800]) { const Y = Math.max(here[1], C.y + h), a1 = [here[0], Y, here[2]], a2 = [A[0], Y, A[2]]; if (clear(here, a1) && clear(a1, a2) && clear(a2, A)) { way.push(a1, a2); break; } } }
+    way.push(A, B);
+    docking = { C, way, i: 0, f: at.facing, y }; flight.throttle = 0; flight.hover = 0;
+    ui.toast(`Docking with the ${esc(C.name)}. Hands off: the ship's flying itself in.`, '', 4000);
+  }
+  function stepDock(dt) {
+    const d = docking, p = flight.pos, inBay = d.i >= d.way.length;
+    let tgt = inBay ? null : d.way[d.i], want = d.f;
+    if (tgt) {
+      const dx = tgt[0] - p[0], dy = tgt[1] - p[1], dz = tgt[2] - p[2], dist = Math.hypot(dx, dy, dz), last = d.i === d.way.length - 1, sp = last ? Math.min(10, 1.5 + dist * 0.4) : Math.min(140, 6 + dist * 0.35);
+      const k = Math.min(1, sp * dt / Math.max(dist, 1e-6)); p[0] += dx * k; p[1] += dy * k; p[2] += dz * k; flight.vel = [dx / Math.max(dist, 1e-6) * sp, dy / Math.max(dist, 1e-6) * sp, dz / Math.max(dist, 1e-6) * sp];
+      if (Math.hypot(dx, dz) > 30 && !last && d.i < d.way.length - 1) want = Math.atan2(dx, dz);       // (faces where it's going until it lines up on the bay)
+      if (dist < 0.5) d.i++;
+    } else {           // over the hangar deck: down onto the gear
+      const fx = Math.sin(d.f), fz = Math.cos(d.f), a = flight.L.D * 0.32, b = flight.L.W * 0.3, g = Math.max(...[[a, b], [a, -b], [-a, b], [-a, -b]].map(([u, v]) => world.groundAt(p[0] + fx * u - fz * v, p[2] + fz * u + fx * v, p[1] - 0.3).h));     // (the deck under it, not the deck over it)
+      p[1] = Math.max(g, p[1] - 1.6 * dt); flight.vel = [0, -1.6, 0];
+      if (p[1] <= g + 0.001) { flight.vel = [0, 0, 0]; flight.onGround = true; docking = null; ui.toast(`Down in the ${esc(d.C.name)}'s bay. <kbd>E</kbd> to shut down and step out.`, '', 5000); }
+    }
+    const turn = Math.atan2(Math.sin(want - flight.facing), Math.cos(want - flight.facing)), f = flight.facing + turn * Math.min(1, dt * 1.2);
+    flight.q = fromEuler(f, 0, 0); flight.w = [0, 0, 0]; flight.syncEuler(); flight.onGround = !docking;
   }
   function setDown() {
     const why = flight.landingProblem();
@@ -1383,13 +1421,14 @@ async function start(fresh) {
         stick[0] *= Math.exp(-dt * 2.5); stick[1] *= Math.exp(-dt * 2.5);
         world.carBoxes = null;
         const kp = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0), kr = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
+        if (docking) { stepDock(dt); ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; } else
         flight.step(dt, { throttle: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), pitch: Math.max(-1, Math.min(1, stick[1] + kp)), roll: Math.max(-1, Math.min(1, stick[0] + kr)),
           yaw: (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: weatherAt(planet, t).wind });
         ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;
         afterFlight(dt, t);
         if (flight && myCraft && firing) war.fireGuns(myCraft, dt);
         // chase camera: behind and a little above, following the heading and part of the pitch
-        if (flight) { cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 3);
+        if (flight) { cam.yaw += Math.atan2(Math.sin(flight.facing - cam.yaw), Math.cos(flight.facing - cam.yaw)) * Math.min(1, dt * 6);
           cam.pitch += (0.18 + (0.4 * THREE.MathUtils.smoothstep(flight.pos[1], 30000, 900000) + 0.85 * THREE.MathUtils.smoothstep(flight.pos[1], 500000, 12000000)) - flight.pitch * 0.6 - cam.pitch) * Math.min(1, dt * 3); }     // (from orbit you want to be looking at the planet)
       } else if (ride) {
         world.carBoxes = null;
@@ -1489,7 +1528,7 @@ async function start(fresh) {
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
     capitalView.day.value = sky.state.day ?? 1; capitalView.update(fleet, toRender, camera.position, t);
     ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
-    if (flight) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
+    if (flight && !docking) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
     shipView.update(ships.filter(sh => !sh.fleet).map(sh => {
       if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
@@ -1605,10 +1644,10 @@ async function start(fresh) {
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
-      const L = flight.L, a = flight.L.seats.find(x => x.kind === 'pilot'), e = new THREE.Euler(-flight.pitch, flight.facing, flight.roll, 'YXZ');
-      const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyEuler(e), ahead = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.45, a.z - L.D / 2 + 12).applyEuler(e);
-      const p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z), p1 = toRender(flight.pos[0] + ahead.x, flight.pos[1] + ahead.y, flight.pos[2] + ahead.z);
-      camera.position.set(...p0); camera.lookAt(...p1);
+      // the eye is fixed in the ship, turned with it: bank and the world tilts, the cockpit stays put round you
+      const L = flight.L, a = flight.L.seats.find(x => x.kind === 'pilot'), Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-flight.pitch, flight.facing, flight.roll, 'YXZ'));
+      const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyQuaternion(Q), p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z);
+      camera.position.set(...p0); camera.quaternion.copy(Q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.08)); camera.updateMatrixWorld();
     } else if (!shot) {
       // driving, the camera rides on its own softer springs: you see the car move over a bump, not the whole world
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
@@ -1675,7 +1714,7 @@ async function start(fresh) {
       if (flight) {
         const why = flight.onGround ? flight.landingProblem() : null, f = flight;
         ui.showPrompt(`<span class="fltape"><b>${Math.round(f.airspeed * 3.6)}</b> km/h · <b>${f.altitude() > 20000 ? `${Math.round(f.altitude() / 1000).toLocaleString()}</b> km` : `${Math.round(f.altitude())}</b> m`} · ${f.vel[1] >= 0 ? '↑' : '↓'}${Math.abs(f.vel[1]).toFixed(1)} m/s · thr <b>${Math.round(f.throttle * 100)}%</b>${f.hover > 0.05 ? ` · lift ${Math.round(f.hover * 100)}%` : ''} · α ${(f.aoa * 57.3).toFixed(0)}° · ${f.gload.toFixed(1)} g${f.assist ? '' : ' · <b class="late">ASSIST OFF</b>'}${myCraft ? ` · hull <b class="${myCraft.hp / myCraft.maxHp < 0.35 ? 'late' : ''}">${Math.max(0, Math.round(myCraft.hp / myCraft.maxHp * 100))}%</b>${myCraft.guns ? ` · msl ${myCraft.missiles} · flares ${myCraft.flares}` : ''}` : ''}${war.missiles.some(m => m.target === myCraft) ? ' · <b class="late">MISSILE</b>' : ''}${f.stalled ? ' · <b class="late">STALL</b>' : Math.abs(f.aoa) > 0.22 && !f.onGround && f.airspeed > f.vs * 0.45 ? ' · <b class="warnc">stall warning</b>' : ''}</span>
-          <small>${f.onGround && why ? `can't land: ${why}` : ''}</small>`);
+          <small>${f.onGround && why ? `can't land: ${why}` : ''}${docking ? ` · docking with the ${esc(docking.C.name)}` : (() => { const q = !f.onGround && dockTarget(); return q ? ` · <kbd>E</kbd> dock with the ${esc(q.C.name)}` : ''; })()}</small>`);
       }
       else if (rampHold > 0) {}
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
@@ -1730,7 +1769,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

@@ -23,7 +23,7 @@ export class AirWar {
   }
   // add a combatant: model, side, where, heading, speed; pilot: 'ai' | 'player'
   spawn(model, side, pos, facing, speed = 0, pilot = 'ai', flight = null) {
-    const f = flight || new Flight(this.world, this.planet, { model }, pos, facing);
+    const f = flight || new Flight(this.world, this.planet, { model }, pos, facing); if (!flight) f.ai = true;
     if (!flight) { f.onGround = false; f.vel = [Math.sin(facing) * speed, 0, Math.cos(facing) * speed]; f.throttle = speed > 0 ? 0.85 : 0; }
     const L = shipPlan(model).layout, W = L.weapons || { guns: 0, missiles: 0 };
     const c = { id: this.nextId++, model, side, pilot, f, hp: Math.round(60 + f.mass / 900), maxHp: 0, flares: 8, flareCool: 0, guns: W.guns, missiles: W.missiles, gunCool: 0, mslCool: 0, lock: null, lockT: 0, target: null, alive: true, wreck: 0, name: L.name, r: Math.max(L.W, L.D) * 0.42 };

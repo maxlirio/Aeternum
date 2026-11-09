@@ -144,6 +144,28 @@ try {
     const L = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), M = O.meridianLift(); if (!M) return 'no decks'; O.ctrl.pos = [M.at[0], M.at[1] + 0.05, M.at[2]]; O.ctrl.vel = [0, 0, 0]; await wait(800); const lf = O.liftNear(); return lf ? lf.L.stops.map(q => q.label) : 'no lift here'; })()`);
     console.log('   lift', JSON.stringify(L));
   }
+  if (want('cockpit')) {
+    await load('hour=14&fly=' + (process.env.SHIP || 'runabout0'));
+    for (const [tag, roll, pitch] of [['level', 0, 0], ['bank', 0.7, 0.1]]) {
+      await ev(`(ORBIS.setCockpitView(true), 1)`);
+      await hold(1500, () => ev(`(async () => { const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'); f.q = F.fromEuler(f.facing, ${pitch}, ${roll}); f.w = [0, 0, 0]; f.syncEuler(); f.vel = [Math.sin(f.facing) * 120, 0, Math.cos(f.facing) * 120]; f.pos[1] = Math.max(f.pos[1], 1200); return 1; })()`));
+      await shot('cockpit-' + tag);
+    }
+  }
+  if (want('dock')) {
+    await load('hour=15&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore_decks ? 1 : 0')); i++) await sleep(500);
+    for (const [C, off] of (process.env.DOCKS ? JSON.parse(process.env.DOCKS) : [['bastion', [600, 120, 500]], ['vesper', [1400, 200, -900]], ['meridian', [-700, -80, -900]], ['longshore', [400, 60, 0]]])) {
+      const R = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), wait = ms => new Promise(r => setTimeout(r, ms)), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = ${JSON.stringify(off)};
+        f.pos[0] = C.x + a * c + d * s; f.pos[1] = C.y + b; f.pos[2] = C.z - a * s + d * c; f.vel = [0, 0, 0]; f.onGround = false; f.throttle = 0.4; await wait(300);
+        const tg = O.dockTarget(); if (!tg || tg.C.model !== '${C}') return { target: tg?.C?.model || null };
+        dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); const t0 = performance.now(); let hit = 0;
+        for (let i = 0; i < 1000 && O.getDocking(); i++) { await wait(100); if (O.getFlight().impact > 0) hit++; }
+        const fl = O.getFlight(), loc = O.world.locate(fl.pos[0], fl.pos[1] + 1, fl.pos[2]);
+        const D = O.getDocking(); return { target: tg.C.model, secs: Math.round((performance.now() - t0) / 1000), done: !D, at: D ? D.i + '/' + D.way.length : null, onGround: fl.onGround, room: loc?.room?.label, key: loc?.b?.key, deckLocal: (() => { const b = [...O.world.loose.map(q => q.b), ...[...O.world.grid.values()].flat()].find(q => q.key === tg.C.ship.id); if (!b) return 'no decks'; const [lx, lz] = O.world.toB(b, fl.pos[0], fl.pos[2]); return [+lx.toFixed(1), +lz.toFixed(1), +(fl.pos[1] - b.base).toFixed(2)]; })(), hits: hit, problem: fl.landingProblem() }; })()`);
+      console.log('   dock', C, JSON.stringify(R)); await shot('dock-' + C);
+    }
+  }
   if (want('vesper')) {
     await load('hour=' + (process.env.HOUR || 16) + '&fly=runabout0');
     for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.vesper ? 1 : 0')); i++) await sleep(500);

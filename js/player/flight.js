@@ -95,6 +95,9 @@ export class Flight {
       force = add(force, vh, -qd * this.S * CD);
       force = add(force, X, -qd * this.S * 0.9 * Math.sin(slip));
     }
+    // At speed the wings carry the weight (any wing that can't, the assist trims it with the lift jets): you fly level without sinking, and climb by
+    // pulling up. Only across the path, so climbing still costs speed, and only when fast — slow down and the weight comes back on.
+    if (V > 0.5 && !this.onGround && !this.dead && !this.ai && !this.vtol) { const fast = sstep(this.vs * 0.7, this.vs * 1.1, V) * (1 - this.stall), w = m * G * (1 - vac) * fast, up = [0, 1, 0], c = dot(up, vh); force = add(force, add(up, vh, -c), w); }
     force = add(force, F, this.thrustMax * this.throttle * (burner ? 1.9 : 1) * (1 + vac * (burner ? 180 : 40)));
     if (inp.brake && vac) force = add(force, this.vel, -m * 1.5 * vac);
     if (V > 30000) force = add(force, vh, -(V - 30000) * m);

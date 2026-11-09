@@ -833,7 +833,7 @@ suites.ships = async () => {
     fl.pos = [spot[0], fl.pos[1], spot[1]]; fl.vel = [0, 0, 0]; fl.onGround = false; fl.throttle = 0; fl.q = (await import('../js/player/flight.js')).fromEuler(fl.facing, 0, 0); fl.w = [0, 0, 0];
     for (let t = 0; t < 300 && !fl.onGround; t += 1 / 60) fl.step(1 / 60, { fwd: 0, right: 0, up: false, down: fl.vel[1] > (fl.altitude() > 40 ? -30 : -3), boost: false });
     fly({}, 3);
-    check(fl.onGround && fl.landingProblem() === null && fl.impact === 0, `touched down gently, can land (${fl.landingProblem()})`);
+    check(fl.onGround && fl.landingProblem() === null && fl.impact === 0, `touched down gently, can land (${fl.landingProblem()}; ${Math.round(Math.hypot(fl.pos[0] - spot[0], fl.pos[2] - spot[1]))} m from the spot, ${fl.vtol}, ${fl.hover.toFixed(2)})`);
     S.land(st, sh, fl.pos, fl.facing);
     const sh2 = S.shipsIn(st, p, s).find(x => x.id === sh.id), b2 = S.structureOf(s, sh2, () => true, p);
     world.addStructure(b2);
