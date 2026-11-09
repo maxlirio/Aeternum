@@ -94,7 +94,7 @@ export class RingView {
     if (this.waters) { const k = (this.lastT === undefined ? 0 : t - this.lastT); for (const w of this.waters) w.normalMap.offset.y -= k * 0.05; } this.lastT = t;
     this.U.day.value = day;
     this.group.position.set(r[0], r[1], r[2]); this.group.rotation.set(0, C.yaw, 0);
-    for (const { g, turn } of this.spin) { turn.rotation.z = ringTurn(g, t); turn.visible = inside ? inside === g.key : g.kind === 'garden' && far < 1800; }
+    for (const { g, turn } of this.spin) { turn.rotation.z = ringTurn(g, t); turn.visible = inside ? inside === g.key : far < 1600; }      // (from outside, near enough, you see them all through their glass)
   }
 }
 

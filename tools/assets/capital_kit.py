@@ -248,7 +248,7 @@ def _torus(p, R, r_, z, mat, n=72):
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
 
 RING_PARTS = {}
-def _ringshell(p, R, rz, glazed=False, n=192, m=28):
+def _ringshell(p, R, rz, glass_half=7.0, n=192, m=40):
     """A habitat tube round the axle: its section a squared ellipse 40 m deep and 64 wide. The side toward the axle carries its windows
     (all of it, in the greenhouse ring); lit window bands along its flanks, frames round it every few degrees."""
     bm = bmesh.new(); Q = [_se(2 * math.pi * j / m, 3.0) for j in range(m)]
@@ -257,13 +257,13 @@ def _ringshell(p, R, rz, glazed=False, n=192, m=28):
     for i in range(n):
         for j in range(m):
             f = bm.faces.new([rings[i][j], rings[(i + 1) % n][j], rings[(i + 1) % n][(j + 1) % m], rings[i][(j + 1) % m]])
-            qm = (Q[j][1] + Q[(j + 1) % m][1]) / 2; (glass if (qm < -0.55 if not glazed else qm < 0.1) else hull).append(f)
+            qm = (Q[j][1] + Q[(j + 1) % m][1]) / 2; wm = abs(Q[j][0] + Q[(j + 1) % m][0]) / 2 * 32; (glass if (qm < 0 and wm < glass_half + 1.5) else hull).append(f)     # (glass exactly where the inside has its glazing: js/gen/rings.js, tools/assets/ring_kit.py)
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     for f in bm.faces:
         f.normal_update(); c = f.calc_center_median(); x, y = c.x, -c.y * 0; rr = math.hypot(c.x, c.z); ctr = mathutils.Vector((c.x / rr * R, c.y, c.z / rr * R)) if False else None
     g2 = bm.copy(); [g2.faces.remove(f) for f in [f for f in g2.faces if f.index in {x.index for x in hull}]] if False else None
     keep_glass = {f.index for f in glass}
-    bm2 = bm.copy(); bmesh.ops.delete(bm2, geom=[f for f in bm2.faces if f.index not in keep_glass], context='FACES'); merge(p, bm2, 'visor')
+    bm2 = bm.copy(); bmesh.ops.delete(bm2, geom=[f for f in bm2.faces if f.index not in keep_glass], context='FACES'); merge(p, bm2, 'glass')
     bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index in keep_glass], context='FACES'); merge(p, bm, 'tint')
     for k in range(48):              # frames round the tube
         a = 2 * math.pi * k / 48; c, s_ = math.cos(a), math.sin(a)
@@ -293,8 +293,8 @@ def meridian(p, lay, r):
     # three spin rings on spokes, each its own piece because each turns: a habitat tube of squared section (people live in it: js/gen/rings.js), its hub, six spokes with lifts in them
     RING_PARTS['meridian'] = []
     for i, (rz, R) in enumerate(((60, 240), (260, 190), (-170, 210))):
-        q = Part(); RING_PARTS['meridian'].append(q); glazed = i == 1
-        _ringshell(q, R, rz, glazed)
+        q = Part(); RING_PARTS['meridian'].append(q)
+        _ringshell(q, R, rz, (7.0, 26.0, 6.0)[i])
         add_cyl(q, 0, 0, rz - 8, rz + 8, 44, 'metal', 40, axis='z'); add_cyl(q, 0, 0, rz - 9, rz - 8, 46, 'heatshield', 40, axis='z'); add_cyl(q, 0, 0, rz + 8, rz + 9, 46, 'heatshield', 40, axis='z')
         for k in range(6):
             a = (k + 0.5) * math.pi / 3 - math.pi / 2; c, s = math.cos(a), math.sin(a)     # (spoke k comes down to the floor at s = (k + 0.5) C / 6: see gen/rings.js)

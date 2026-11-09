@@ -111,6 +111,7 @@ export class CapitalView {
   partMaterial(slot, C) {
     const base = this.lib.surface(slot === 'tint' ? 'tint-hull' : slot), plain = (col, rough, metal) => { const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...col), roughness: rough, metalness: metal, envMapIntensity: 1 }); return m; };
     if (slot === 'tint') return C.sleek ? new THREE.MeshPhysicalMaterial({ color: C.dark ? new THREE.Color(0.018, 0.02, 0.026) : new THREE.Color(0.78, 0.76, 0.72), roughness: 0.24, metalness: 0.2, clearcoat: C.dark ? 0.35 : 1, clearcoatRoughness: 0.05, envMapIntensity: C.dark ? 0.3 : 1 }) : plated(base, LIVERY[C.livery ?? C.colour % 3], Math.max(1, C.length / 1100));
+    if (slot === 'glass') return new THREE.MeshPhysicalMaterial({ color: 0xd6e8f2, roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.2, depthWrite: false, envMapIntensity: 1.4 });     // clear glass you see into (a ring's glazing, a dome)
     if (slot === 'visor') return facade(base);
     if (slot === 'mirror' && this.waterBase) { const w = this.waterBase.clone(); w.normalMap = this.waterBase.normalMap.clone(); w.normalMap.needsUpdate = true; w.normalMap.repeat.set(0.16, 0.16); w.opacity = 0.9; return w; }     // (the Vesper's canal and lakes: the planet's own water)
     if (slot === 'metal') return plain([0.34, 0.33, 0.32], 0.42, 0.9);
