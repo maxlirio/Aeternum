@@ -132,7 +132,7 @@ export class Flight {
     // with the assist on, the stick asks for as much turn as the wing will give without stalling: hold it and the nose keeps coming round
     // (a loop), not up past the stall and back down again, over and over
     let cmd = sp * 1.1 * A;
-    if (this.assist && sp && aero > 0.15 && !this.onGround) { const room = (A_CRIT * 0.85 - Math.sign(sp) * aoa) / 0.08; cmd *= clamp(room, 0, 1); }
+    if (this.assist && sp && aero > 0.15 && !this.onGround && !this.ai) { const room = (A_CRIT * 0.85 - Math.sign(sp) * aoa) / 0.08; cmd *= clamp(room, 0, 1); }
     if (sp || this.assist) qr += (cmd + (this.vtol ? hoverHold : 0) - qr) * Math.min(1, dt * resp);
     if (sy || this.assist) r += (sy * 0.6 * A + (this.assist ? -slip * 2 : 0) - r) * Math.min(1, dt * resp);
     qr += -aoa * 3.2 * aero * dt * (1 + 2.5 * this.stall);                    // noses into the airflow

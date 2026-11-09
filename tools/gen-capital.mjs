@@ -54,7 +54,8 @@ function decks(name, rooms) {
       const by = deck + 3.6, top = z1 - 2.4, foot = top - 7.2, inL = hx0 + 3, inR = hx1 - 3, fA = [xc - 9.5, xc - 5.5], fB = [xc + 5.5, xc + 9.5];
       stairs.push({ flights: [fA, fB], foot, top, by, inL, inR, z0, z1 });
       extra.slabs.push({ y: by, rects: [[hx0, z0 + 0.2, inL, z1], [inR, z0 + 0.2, hx1, z1], [inL, top, inR, z1]] });
-      for (const [a, b] of [fA, fB]) { extra.ramps.push({ x0: a, x1: b, z0: foot, z1: top, y0: deck, y1: by }); extra.walls.push([a, foot, a, top, deck, by + 1.05], [b, foot, b, top, deck, by + 1.05]); }
+      const st = (by - deck) / Math.floor((by - deck) / 0.18);      // (the treads are drawn as steps: the slope you walk runs half a step up, through the middle of each tread, so your feet are on the wood, not in it)
+      for (const [a, b] of [fA, fB]) { extra.ramps.push({ x0: a, x1: b, z0: foot, z1: top, y0: deck + st / 2, y1: by + st / 2 }); extra.walls.push([a, foot, a, top, deck, by + 1.05], [b, foot, b, top, deck, by + 1.05]); }
       extra.walls.push([inL, z0 + 0.2, inL, top, by, by + 1.05], [inR, z0 + 0.2, inR, top, by, by + 1.05], [inL, top, fA[0], top, by, by + 1.05], [fA[1], top, fB[0], top, by, by + 1.05], [fB[1], top, inR, top, by, by + 1.05]);
     }
     // the ship's frame shows in its rooms: columns either side of the clear way, carrying girders under the deck above (where nothing stands already)

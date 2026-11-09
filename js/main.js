@@ -40,6 +40,7 @@ import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
 import { CapitalView } from './render/capital.js';
+import { ThrustView } from './render/thrust.js';
 import { fleetOf, fleetContact } from './gen/capital.js';
 import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
 import { ringStructure, spinOf, wrapRing } from './world/rings.js';
@@ -704,6 +705,7 @@ async function start(fresh) {
   }
   // ---- crashes (sim/crash.js: what happens; render/wrecks.js and fx.js: what it looks like)
   const fx = new FX(); root.add(fx.group);
+  const thrustView = new ThrustView(scene, shipView, fx);
   const trafficGone = new Set();
   const wrecks = new Crashes({ ground: (x, z, y) => Math.max(world.groundAt(x, z, y).h, planet.seaLevel), load: id => store.getDelta('wreck/' + id) || null, save: (id, d) => store.patchDelta('wreck/' + id, d) });
   const wreckView = new WreckView(D => {
@@ -1564,18 +1566,22 @@ async function start(fresh) {
     ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
     if (flight && !docking) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
-    shipView.update(ships.filter(sh => !sh.fleet).map(sh => {
-      if (flight && flight.ship.id === sh.id) return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false };
+    const vacOf = y => Math.min(1, Math.max(0, (y - 12000) / 28000)), heatOf = c => c ? Math.min(1, Math.max(0, (0.6 - c.hp / c.maxHp) / 0.45)) : 0;
+    const shipList = ships.filter(sh => !sh.fleet).map(sh => {
+      if (flight && flight.ship.id === sh.id) { const agl = flight.altitude(), dk = docking && (docking.settle || docking.s > docking.sIn - 40);
+        return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false,
+          gear: flight.onGround || dk || (agl < 45 && flight.airspeed < 40) || (flight.vtol && flight.hover > 0.25 && agl < 90) ? 1 : 0, thrust: flight.throttle * (keys.has('ShiftLeft') && flight.throttle > 0.95 ? 1.7 : 1), hover: flight.hover, heat: heatOf(myCraft), vac: vacOf(flight.pos[1]), ground: agl, landed: flight.onGround }; }
       if (sh.flying) return null;
       if (sh.at?.c && Math.hypot(sh.at.c[0] - ctrl.pos[0], sh.at.c[2] - ctrl.pos[2]) > 2200 && !onRun(sh)) return null;     // parked, and too far to see
       if (onRun(sh)) {   // on a cargo run: drawn along its path, recomputed every frame so it moves smoothly
         const tr = tripOf(planet, sh, t, centreOf(shipTown(sh), sh), sh.skip);
-        return tr.c ? { id: sh.id, model: sh.model, c: toRender(...tr.c), facing: tr.facing, pitch: tr.pitch, colour: sh.colour, rampDown: false } : null;
+        return tr.c ? { id: sh.id, model: sh.model, c: toRender(...tr.c), facing: tr.facing, pitch: tr.pitch, colour: sh.colour, rampDown: false, gear: tr.phase === 'away' ? 0 : 1, thrust: tr.phase === 'away' ? 0.8 : 0.2, hover: tr.phase === 'away' ? 0 : 0.7, ground: tr.phase === 'away' ? 99 : Math.max(0, tr.c[1] - surfaceHeight(planet, tr.c[0], tr.c[2])) } : null;
       }
       const { c, facing } = centreOf(shipTown(sh), sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
-    }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c) })))
-      .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false }))), dt);
+    }).filter(Boolean).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c), gear: 0, thrust: 0.7, hover: 0 })))
+      .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
+    shipView.update(shipList, dt); thrustView.update(shipList, dt, origin);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
     stepCrashes(dt, t, wx0 => wx0, traffic); lastTraffic = traffic;
     vehView.update(traffic.filter(v => !trafficGone.has(v.id)).map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => !wrecks.get(v.id)?.hits?.length && !(wrecks.get(v.id)?.burnt > 0) && (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
@@ -1803,7 +1809,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, thrustView, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

@@ -144,6 +144,19 @@ try {
     const L = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), M = O.meridianLift(); if (!M) return 'no decks'; O.ctrl.pos = [M.at[0], M.at[1] + 0.05, M.at[2]]; O.ctrl.vel = [0, 0, 0]; await wait(800); const lf = O.liftNear(); return lf ? lf.L.stops.map(q => q.label) : 'no lift here'; })()`);
     console.log('   lift', JSON.stringify(L));
   }
+  if (want('jets')) {
+    await load('hour=' + (process.env.HOUR || 15) + '&fly=' + (process.env.SHIP || 'runabout0'));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R), d = new O.camera.position.constructor(); window.__orbit = null; R.render = (sc, ca) => { if (ca === O.camera && window.__orbit) { ca.getWorldDirection(d); const dist = O.cam.dist, c = ca.position.clone().addScaledVector(d, dist), yaw = O.getFlight().facing + window.__orbit[0], el = window.__orbit[1], L = window.__orbit[2]; ca.position.set(c.x + Math.sin(yaw) * Math.cos(el) * L, c.y + Math.sin(el) * L, c.z + Math.cos(yaw) * Math.cos(el) * L); ca.lookAt(c); ca.updateMatrixWorld(); } r0(sc, ca); }; return 1; })()`);
+    const setup = (js, orbit) => ev(`(async () => { const O = ORBIS, f = O.getFlight(), wait = ms => new Promise(r => setTimeout(r, ms)); window.__orbit = ${JSON.stringify(orbit)}; ${js}; await wait(2500); return { thr: f.throttle, hover: +f.hover.toFixed(2), agl: Math.round(f.altitude()), gear: O.shipView.gearOf(f.ship.id) }; })()`);
+    const shots = [
+      ['cruise', `f.pos[1] = Math.max(f.pos[1], 900); f.throttle = 1; f.vtol = false`, [2.7, 0.15, 26]],
+      ['burner', `f.throttle = 1; dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' }))`, [2.3, 0.05, 22]],
+      ['hover', `dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftLeft' })); const g = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h; f.pos[1] = g + 7; f.vel = [0, 0, 0]; f.throttle = 0; f.vtol = true; f.onGround = false; f.q = (await import('./js/player/flight.js')).fromEuler(f.facing, 0, 0)`, [1.6, 0.08, 20]],
+      ['landed', `const g = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h; for (let i = 0; i < 80 && !f.onGround; i++) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' })); await wait(100); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyQ' }))`, [1.9, 0.1, 15]],
+      ['damaged', `const c = O.war.craft.find(c => c.f === f); if (c) c.hp = c.maxHp * 0.12; f.onGround = false; f.pos[1] += 900; f.throttle = 0.8; f.vtol = false`, [2.6, 0.12, 28]],
+    ];
+    for (const [tag, js, orbit] of shots) { const r = await setup(js, orbit); console.log('   jets', tag, JSON.stringify(r)); await shot('jets-' + tag); }
+  }
   if (want('cockpit')) {
     await load('hour=14&fly=' + (process.env.SHIP || 'runabout0'));
     for (const [tag, roll, pitch] of [['level', 0, 0], ['bank', 0.7, 0.1]]) {

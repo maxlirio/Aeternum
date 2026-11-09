@@ -234,7 +234,8 @@ def _nacelle(p, x, y, z0, z1, r, mat='tint'):
     _bell(p, x, y, z0 - r * 0.9, z0 + 0.05, r * 0.82, 10)
 
 def _gear(p, gx, gz, top, r=0.08):
-    """A landing leg: outer cylinder, polished piston, a torque link at the knee, a real foot."""
+    """A landing leg — now drawn by the game itself, so it can fold away (js/render/ships.js): nothing in the model."""
+    return
     add_cyl(p, gx, gz, 0.42, top, r, 'heatshield', 14); add_cyl(p, gx, gz, 0.1, 0.5, r * 0.62, 'metal', 14)
     _beam(p, (gx, 0.62, gz + r * 1.1), (gx, 0.36, gz + r * 2.2), 0.035, 'metal'); _beam(p, (gx, 0.36, gz + r * 2.2), (gx, 0.14, gz + r * 0.9), 0.035, 'metal')
     add_cyl(p, gx, gz, 0.03, 0.12, r * 3.4, 'metal', 20, r2=r * 1.3); add_cyl(p, gx, gz, 0, 0.035, r * 3.6, 'rubber', 20)

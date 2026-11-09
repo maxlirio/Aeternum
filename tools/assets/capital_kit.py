@@ -970,7 +970,7 @@ def dress_decks(p, lay, name):
                     add_box(p, x - 0.42, roof - 0.16, z0 + 0.2, x - 0.36, roof + 0.02, z1 - 0.2, 'metal', 0); add_box(p, x + 0.36, roof - 0.16, z0 + 0.2, x + 0.42, roof + 0.02, z1 - 0.2, 'metal', 0)
                     add_box(p, x - 0.36, roof - 0.02, z0 + 0.2, x + 0.36, roof + 0.02, z1 - 0.2, 'lampwarm', 0)
                 add_box(p, x0, roof + 0.06, z0, x1, roof + 0.09, z1, 'rubber', 0)
-                add_box(p, x0, roof, z0 - 0.08, x1, ceil, z0 + 0.08, 'rubber', 0); add_box(p, x0, roof, z1 - 0.08, x1, ceil, z1 + 0.08, 'rubber', 0)
+                add_box(p, x0, roof + 0.09, z0 + 0.09, x1, ceil, z0 + 0.12, 'rubber', 0); add_box(p, x0, roof + 0.09, z1 - 0.12, x1, ceil, z1 - 0.09, 'rubber', 0)      # (closing the space over the ceiling, just inside the bulkhead: never in the same plane as it)
                 # services in the haunch: a pipe and a cable tray run the length of it
                 for (x, sx) in ((x0, 1), (x1, -1)):
                     add_cyl(p, x + sx * 0.7, roof - 0.42, z0 + 0.2, z1 - 0.2, 0.07, 'metal', 8, axis='z'); add_box(p, min(x + sx * 0.9, x + sx * 1.15), roof - 0.62, z0 + 0.2, max(x + sx * 0.9, x + sx * 1.15), roof - 0.58, z1 - 0.2, 'metal', 0)

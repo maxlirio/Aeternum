@@ -33,12 +33,29 @@ export class ShipView {
         ramp: mk(ramp ? ramp.prims : box(L.ramp.x1 - L.ramp.x0, 0.1, L.ramp.z1 - L.ramp.z0, hinge.x, L.deck / 2, (L.ramp.z0 + L.ramp.z1) / 2)),
       };
     }
+    // landing gear, made of its parts and drawn here so it can move: a leg at each of the four points the ship stands on (player/flight.js
+    // feet), its strut down from inside the hull, a polished piston, a torque link, a foot; bay doors that swing open for it
+    const gm = (c, r, mt) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: mt });
+    const GP = { strut: [new THREE.CylinderGeometry(0.1, 0.12, 1, 12).translate(0, -0.5, 0), gm(0x2a2c30, 0.55, 0.6)], piston: [new THREE.CylinderGeometry(0.07, 0.07, 0.42, 12).translate(0, -0.79, 0), gm(0xd8dade, 0.15, 1)],
+      link: [new THREE.BoxGeometry(0.035, 0.36, 0.05).rotateX(0.5).translate(0, -0.72, 0.09), gm(0x55585e, 0.4, 0.8)], foot: [new THREE.CylinderGeometry(0.2, 0.26, 0.09, 18).translate(0, 0.045, 0), gm(0x1c1d20, 0.7, 0.4)],
+      door: [new THREE.BoxGeometry(0.34, 0.025, 0.8).translate(0.17, 0, 0), gm(0x3a3c40, 0.5, 0.5)] };
+    this.gearParts = Object.fromEntries(Object.entries(GP).map(([k, [g, m]]) => { const im = new THREE.InstancedMesh(g, m, 512); im.count = 0; im.frustumCulled = false; im.castShadow = true; this.group.add(im); return [k, im]; }));
+    for (const [model, M] of Object.entries(this.models)) {
+      const L = M.L, pts = [[L.W / 2 + L.W * 0.3, L.D / 2 + L.D * 0.32], [L.W / 2 - L.W * 0.3, L.D / 2 + L.D * 0.32], [L.W / 2 + L.W * 0.3, L.D / 2 - L.D * 0.32], [L.W / 2 - L.W * 0.3, L.D / 2 - L.D * 0.32]];
+      // how high the hull's underside is over each foot: from the model itself
+      const low = pts.map(() => Infinity), v = new THREE.Vector3();
+      for (const pr of M.hullPrims) { if (pr.slot === 'glow') continue; const P = pr.geometry.attributes.position; for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i); pts.forEach(([x, z], k) => { if (Math.abs(v.x - x) < 0.9 && Math.abs(v.z - z) < 0.9 && v.y > 0.12 && v.y < low[k]) low[k] = v.y; }); } }
+      M.gear = pts.map(([x, z], k) => ({ x, z, bot: Math.min(Number.isFinite(low[k]) ? low[k] : L.deck * 0.6, L.deck + 0.2) }));
+    }
+    this.gearAnim = new Map();   // ship id → how far its gear is down, 0..1
     this.anim = new Map();      // ship id → ramp openness 0..1
     this._m = new THREE.Matrix4(); this._r = new THREE.Matrix4(); this._c = new THREE.Color(); this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
   // list: [{ id, model, c (render space ground point under the centre), facing, pitch?, roll?, colour, rampDown }]
+  putGear(k, m) { const im = this.gearParts[k], i = this.gearN[im.uuid] = (this.gearN[im.uuid] || 0); if (i >= 512) return; im.setMatrixAt(i, m); this.gearN[im.uuid]++; }
+  gearOf(id) { return this.gearAnim.get(id); }
   update(list, dt) {
-    const n = {};
+    const n = {}; this.gearN = {}; this.gearSeen = new Set();
     for (const s of list) {
       const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue; if (this.viewer && Math.hypot(s.c[0] - this.viewer[0], s.c[2] - this.viewer[2]) > 2400) continue;     // (too far to see)
       const i = n[s.model || 'shuttle'] = (n[s.model || 'shuttle'] ?? 0); if (i >= MAX) continue;
@@ -54,7 +71,21 @@ export class ShipView {
       this._r.copy(this._m).multiply(new THREE.Matrix4().makeTranslation(h.x, h.y, h.z)).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-h.x, -h.y, -h.z));
       for (const { im, tinted } of M.ramp) { im.setMatrixAt(i, this._r); if (tinted) im.setColorAt(i, this._c); }
       n[s.model || 'shuttle']++;
+      // the gear: down on the ground, or when it's been asked for; up and stowed in the hull otherwise
+      let g = this.gearAnim.get(s.id) ?? (s.gear ?? 1); g += Math.max(-dt / 2.2, Math.min(dt / 2.2, (s.gear ?? 1) - g)); this.gearAnim.set(s.id, g); this.gearSeen.add(s.id);
+      const legT = Math.min(1, g * 1.35), doorT = Math.min(1, g * 3, (1 - g) * 6 + (g > 0.98 ? 0.75 : 0));      // (the doors open first, the leg swings down; closed again once it's stowed)
+      for (const G of M.gear || []) {
+        if (G.bot < 0.3) continue; const top = G.bot + 0.25, fold = (1 - legT) * Math.PI / 2, len = top * (0.62 + 0.38 * legT);
+        if (g > 0.01) {
+          const base = this._m.clone().multiply(new THREE.Matrix4().makeTranslation(G.x, top, G.z)).multiply(new THREE.Matrix4().makeRotationX(G.z > M.L.D / 2 ? fold : -fold));      // (each leg folds in toward the middle of the ship)
+          const S = base.clone().multiply(new THREE.Matrix4().makeScale(1, len, 1));
+          this.putGear('strut', S); this.putGear('piston', S); this.putGear('link', S); this.putGear('foot', base.clone().multiply(new THREE.Matrix4().makeTranslation(0, -len, 0)));
+        }
+        for (const sx of [-1, 1]) this.putGear('door', this._m.clone().multiply(new THREE.Matrix4().makeTranslation(G.x + sx * 0.34, G.bot - 0.02, G.z)).multiply(new THREE.Matrix4().makeRotationZ(sx > 0 ? Math.PI + doorT * 1.35 : -doorT * 1.35)));
+      }
     }
+    for (const im of Object.values(this.gearParts)) { im.count = this.gearN[im.uuid] || 0; im.instanceMatrix.needsUpdate = true; }
+    for (const id of [...this.gearAnim.keys()]) if (!this.gearSeen.has(id)) this.gearAnim.delete(id);
     for (const [model, M] of Object.entries(this.models)) for (const { im, tinted } of [...M.hull, ...M.ramp]) {
       im.count = n[model] || 0; im.instanceMatrix.needsUpdate = true; if (tinted && im.instanceColor) im.instanceColor.needsUpdate = true;
     }
