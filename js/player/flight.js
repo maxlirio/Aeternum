@@ -49,7 +49,7 @@ export class Flight {
     this.agility = clamp(F.yaw ?? 0.9, 0.4, 2.4);
     this.top = top;
     this.pos = c.slice(); this.vel = [0, 0, 0]; this.q = fromEuler(facing, 0, 0); this.w = [0, 0, 0];
-    this.throttle = 0; this.hover = 0; this.assist = true; this.stall = 0; this.aoa = 0; this.slip = 0; this.wobble = 0;
+    this.throttle = 0; this.hover = 0; this.vtol = true; this.assist = true; this.stall = 0; this.aoa = 0; this.slip = 0; this.wobble = 0;
     this.onGround = true; this.impact = 0; this.gload = 1;
     this.syncEuler();
   }
@@ -88,7 +88,7 @@ export class Flight {
     const CL = attached * (1 - this.stall) + separated * this.stall;
     const CD = this.cd0 + this.k * CL * CL + 1.2 * this.stall * Math.sin(aoa) ** 2 + 0.4 * Math.abs(Math.sin(slip));
     const qd = 0.5 * rho * V * V, aero = Math.min(1, Math.max(0, vf) / this.vs) ** 2 * thin;
-    let force = [0, -m * G, 0];
+    let force = [0, -m * G * (1 - vac), 0];          // (up in space nothing pulls you down: the ship stays where you leave it)
     if (V > 0.5) {
       const liftDir = norm(add(U, vh, -dot(U, vh)));
       force = add(force, liftDir, qd * this.S * CL);
@@ -99,32 +99,45 @@ export class Flight {
     if (inp.brake && vac) force = add(force, this.vel, -m * 1.5 * vac);
     if (V > 30000) force = add(force, vh, -(V - 30000) * m);
     const fade = Math.max(1 - clamp((V - 25) / 45, 0, 1), sstep(1500, 6000, y0));
+    // The lift jets hold you up only when you've asked for them: Space or Q, or lifting off the ground. Flying on the wings with the throttle
+    // back, nothing catches you: lose your airspeed and you fall, as anything does.
+    if (inp.up || inp.down || this.onGround) this.vtol = true;
+    else if (this.vtol && this.throttle > 0.15 && V > this.vs) this.vtol = false;
     let h;
-    if (this.assist) {
+    if (this.assist && this.vtol && U[1] > 0.55) {
       const agl = this.pos[1] - Math.max(this.world.groundAt(this.pos[0], this.pos[2], this.pos[1]).h, this.planet.seaLevel);
       const want = inp.up ? 10 + Math.min(20000, Math.max(0, agl) * 0.25) : inp.down && agl > 2000 ? -Math.min(20000, agl * 0.25) : inp.down ? -Math.min(8, 0.6 + agl * 0.35) : 0, uy = Math.max(0.2, U[1]);   // a hover descent flares near the ground
       const need = m * (G + 2.2 * (want - this.vel[1])) - (force[1] + m * G);
       h = this.onGround && !inp.up ? 0 : clamp(need / (this.hoverMax * (1 + vac * 60 + sstep(200, 1500, y0) * 2.5) * uy), 0, 1);
-    } else h = inp.up ? 1 : 0;
+    } else h = inp.up && U[1] > 0.2 ? 1 : 0;
     this.hover += (h * fade - this.hover) * Math.min(1, dt * 5);
     force = add(force, U, this.hoverMax * (1 + vac * 60 + sstep(200, 1500, y0) * 2.5) * this.hover);
-    if (this.assist && V < this.vs && this.throttle < 0.15 && !this.onGround) {   // assist in a hover: RCS jets kill the drift
+    if (this.assist && this.vtol && V < this.vs && this.throttle < 0.15 && !this.onGround) {   // assist in a hover: RCS jets kill the drift
       force = add(force, [this.vel[0], 0, this.vel[2]], -m * 0.8 * (1 - aero));
     }
         this.gload = dot(add(force, [0, m * G, 0]), U) / (m * G);
     this.vel = add(this.vel, force, dt / m);
+    // In space it flies as it does in the air: where the nose goes, the ship goes (the thrusters trim the drift out), so a turn is a turn, not a skid
+    if (vac > 0.01 && !this.onGround) { const Vv = len(this.vel); if (Vv > 0.5) { const along = Math.sign(dot(this.vel, F) || 1), want = F.map(x => x * Vv * along), k = Math.min(1, dt * 6 * vac), nv = add(this.vel, add(want, this.vel, -1), k), nl = len(nv) || 1; this.vel = nv.map(x => x * Vv / nl); } }
     // rotation: the stick commands a rate; authority from the air, plus a little from RCS jets
-    const auth = 0.3 + 0.7 * aero * (1 - 0.6 * this.stall), A = this.agility, resp = 4 * auth;
+    const feel = Math.max(aero, vac), auth = 0.3 + 0.7 * feel * (1 - 0.6 * this.stall), A = this.agility, resp = 4 * auth;      // (in space, the attitude jets give it the feel it has in the air)
     let p = dot(this.w, F), qr = -dot(this.w, X), r = -dot(this.w, U);         // roll right, nose up, yaw right
     const sp = inp.pitch || 0, sr = inp.roll || 0, sy = inp.yaw || 0;
-    if (sr || this.assist) p += (sr * 2.4 * A + (this.assist && !sr ? -this.roll * 1.6 : 0) - p) * Math.min(1, dt * resp);
+    const level = this.assist && !sr && !sp && Math.abs(this.pitch) < 1.0 ? -this.roll * 1.6 * (1 - sstep(0.6, 1.0, Math.abs(this.pitch))) : 0;     // (going over the top of a loop is not a reason to roll upright)
+    if (sr || this.assist) p += (sr * 2.4 * A + level - p) * Math.min(1, dt * resp);
     const hoverHold = this.assist && !sp && V < this.vs * 1.1 ? -this.pitch * 1.5 * (1 - aero) : 0;   // assist in a hover: hold the nose level
-    if (sp || this.assist) qr += (sp * 1.1 * A + hoverHold - qr) * Math.min(1, dt * resp);
+    // with the assist on, the stick asks for as much turn as the wing will give without stalling: hold it and the nose keeps coming round
+    // (a loop), not up past the stall and back down again, over and over
+    let cmd = sp * 1.1 * A;
+    if (this.assist && sp && aero > 0.15 && !this.onGround) { const room = (A_CRIT * 0.85 - Math.sign(sp) * aoa) / 0.08; cmd *= clamp(room, 0, 1); }
+    if (sp || this.assist) qr += (cmd + (this.vtol ? hoverHold : 0) - qr) * Math.min(1, dt * resp);
     if (sy || this.assist) r += (sy * 0.6 * A + (this.assist ? -slip * 2 : 0) - r) * Math.min(1, dt * resp);
     qr += -aoa * 3.2 * aero * dt * (1 + 2.5 * this.stall);                    // noses into the airflow
+    // run out of airspeed nose-high and the nose falls through: the weight's behind the wing that's no longer holding it
+    if (!this.onGround && !this.vtol && rho > 0.02) qr -= 2.2 * (1 - aero) * Math.max(0, F[1] + 0.25) * dt;
     r += slip * 2.2 * aero * dt;
     if (this.stall > 0.05) { qr -= Math.sign(aoa) * 1.4 * this.stall * dt; this.wobble += dt * 2.3; p += Math.sin(this.wobble) * 3 * this.stall * dt; }   // the nose drops; a wing goes
-    if (!this.assist) { p *= 1 - 0.25 * aero * dt; qr *= 1 - 0.9 * aero * dt; r *= 1 - 0.6 * aero * dt; }
+    if (!this.assist) { p *= 1 - 0.25 * feel * dt; qr *= 1 - 0.9 * feel * dt; r *= 1 - 0.6 * feel * dt; }
     if (this.onGround) { p = -this.roll * 4; qr = Math.max(qr, -this.pitch * 3); if (this.pitch > 0.3) qr = Math.min(qr, 0); r = sy * 0.5 * Math.min(1, 0.4 + this.speed / 6); }
     this.w = add(add(F.map(x => x * p), X, -qr), U, -r);
     const wl = len(this.w);

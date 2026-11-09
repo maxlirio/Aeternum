@@ -528,7 +528,7 @@ try {
     const tb = M.bodies.find(x => x.id === 'test-body'), [tu, tv] = [tb?.pos[0], tb?.pos[2]], oa = (tu - rec.O[0]) ; out.body = tb ? { flying: tb.flying, outside: !O.world.locate(tb.pos[0], tb.pos[1], tb.pos[2]) } : null; out.windowCrime = O.store.events.some(e => e.kind === 'threw someone through a window');
     return out; })()`);
   check(sb.rode && sb.onIt && sb.gap < sb.roof, `landed on a flying car ${sb.alt} m up and it carried me (${JSON.stringify(sb).slice(0, 110)})`);
-  check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.5, `took it: driver out, in the air, heat ${sb.hot}`);     // (2.2 if anyone below saw it; a quarter of that if not)
+  check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.2, `took it: driver out, in the air, heat ${sb.hot}`);     // (hijacking a moving car: 2.2 if anyone below saw it, a quarter if not; one that had stopped is theft, 1 or a quarter)
   check(sb.speed > 2, `flew it (${sb.speed} m/s)`);     // (in a busy lane it can clip someone: that counts as a crash now)
   check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);
   check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
