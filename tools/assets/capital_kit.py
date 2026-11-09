@@ -724,12 +724,12 @@ def vesper(p, lay, r):
     # js/gen/vesper.js (assets/ships/vesper.json) so the streets, roofs and lifts here are the ones the game walks
     V = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'vesper.json'))); PARKS = [tuple(q) for q in V['parks']]
     for P_ in V['podiums']:
-        xm, zm, hx, hz = P_['xm'], P_['zm'], P_['hx'], P_['hz']
-        _yloft(p, [(DY, xm, hx, zm, hz, 7), (DY + 14, xm, hx, zm, hz, 7)], 'tint', 28)
-        _band(p, xm, zm, DY + 7, DY + 11, hx - 0.5, hz - 0.5, 7, 0.3, 'lampwarm' if P_['lit'] else 'visor', 28)
-        # at street level: shopfronts all round, an awning over them, a kerbed pavement out to the street
-        _band(p, xm, zm, DY + 0.15, DY + 4.6, hx, hz, 7, 0.25, 'visor', 28); _band(p, xm, zm, DY + 4.6, DY + 4.9, hx, hz, 7, 2.2, 'metal', 28)
-        _yloft(p, [(DY, xm, hx + 4.0, zm, hz + 4.0, 7), (DY + 0.14, xm, hx + 4.0, zm, hz + 4.0, 7)], 'stone', 28)
+        xm, zm, hx, hz, cx_, cz_ = P_['xm'], P_['zm'], P_['hx'], P_['hz'], P_['cx'], P_['cz']
+        # the block's core, carrying its towers; the street buildings round it are the game's own real buildings (js/render/vesperreal.js)
+        _yloft(p, [(DY, xm, cx_, zm, cz_, 7), (DY + 14, xm, cx_, zm, cz_, 7)], 'tint', 28)
+        _band(p, xm, zm, DY + 7, DY + 11, cx_ - 0.5, cz_ - 0.5, 7, 0.3, 'lampwarm' if P_['lit'] else 'visor', 28)
+        _yloft(p, [(DY + 14, xm, hx, zm, hz, 7), (DY + 14.4, xm, hx, zm, hz, 7)], 'paint', 28) if False else None
+        _band(p, xm, zm, DY, DY + 0.14, hx + 0.2, hz + 0.2, 7, 4.0, 'stone', 28)          # the kerbed pavement round the block
     for T in V['towers']:
         _city_tower(p, T['x'], T['z'], T['y0'], T['h'], T['w'], T['d'], random.Random(T['seed']), T['kind'], T['crown'])
     for i, (x, z) in enumerate(V['lamps']):

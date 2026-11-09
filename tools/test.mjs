@@ -1702,6 +1702,17 @@ suites.vesper = async () => {
     for (let t = 0; t < 20; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw, run: true });
     check(c.grounded && Math.abs(c.pos[1] - (C.y + DY)) < 0.05 && Math.hypot(c.pos[0] - st[0], c.pos[2] - st[2]) > 60, `walked ${Math.round(Math.hypot(c.pos[0] - st[0], c.pos[2] - st[2]))} m down a street`); }
   { const pl = b.toWorld(V.plaza[0], DY, V.plaza[1] - 2.6), c = settle(pl); check(c.grounded && Math.abs(c.pos[1] - pl[1]) < 0.05, 'the plaza lift stands on open deck'); }
+  // the street buildings are real: their plans lay out, and you can walk in at the front door off the street (the door open in its hours)
+  { const { unitReal } = await import('../js/world/vesperreal.js'); let made = 0, walked = 0, tried = 0;
+    for (const u of V.units.filter((_, i) => i % 97 === 0)) {
+      const rec = unitReal(p, s, C, V, u); if (!rec) continue; made++; rec.doorPassable = () => true; world.addStructure(rec);
+      const dr = rec.plan.doors[rec.plan.entrance], at = (x, z) => { const [wx, wz] = s.toWorld(rec.O[0] + rec.ex[0] * x + rec.ez[0] * z, rec.O[1] + rec.ex[1] * x + rec.ez[1] * z); return [wx, rec.base, wz]; };
+      const out = at(dr.x, -2.5), inn = at(dr.x, 3.5), c = settle(out), yaw = Math.atan2(inn[0] - out[0], inn[2] - out[2]); tried++;
+      for (let t = 0; t < 4; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw });
+      if (world.locate(...c.pos)?.b === rec && c.pos[1] - rec.base < 0.1) walked++;     // (in, on its ground floor: a room or the stair hall)
+      world.removeStructure(rec);
+    }
+    check(made >= tried * 0 + 25 && walked === tried, `the street buildings are real: ${made} of ${V.units.filter((_, i) => i % 97 === 0).length} laid out, walked in off the street into ${walked} of ${tried}`); }
   // flying in: nothing solid in the air over the deck, and the deck is ground under a ship's feet
   { const q = b.toWorld(V.plaza[0], DY + 30, V.plaza[1] + 40); check(!fleetContact([C], q[0], q[1], q[2], 4), 'the air over the city deck is open to fly into');
     const g = world.groundAt(q[0], q[2], q[1]); check(Math.abs(g.h - (C.y + DY)) < 0.01, 'and the deck is ground to land on'); }

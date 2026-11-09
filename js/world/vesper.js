@@ -22,7 +22,7 @@ export function vesperPlan() {
   slabs.push({ k: 0, y: DY, rects: deckRects });
   // blocks: podiums (their roofs walkable), towers on them, roofs where they're pads, a rail round those
   const pods = [];
-  for (const P of V.podiums) { block(P.xm - P.hx, P.zm - P.hz, P.xm + P.hx, P.zm + P.hz, DY - 1, DY + 14); pods.push([HX + P.xm - P.hx, HZ + P.zm - P.hz, HX + P.xm + P.hx, HZ + P.zm + P.hz]); }
+  for (const P of V.podiums) { block(P.xm - P.cx, P.zm - P.cz, P.xm + P.cx, P.zm + P.cz, DY - 1, DY + 14); pods.push([HX + P.xm - P.cx, HZ + P.zm - P.cz, HX + P.xm + P.cx, HZ + P.zm + P.cz]); }     // (the core: the street buildings round it are real buildings, world/vesperreal.js)
   slabs.push({ k: 0, y: DY + 14, rects: pods });
   const roofs = [];
   for (const T of V.towers) {

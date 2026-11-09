@@ -74,7 +74,7 @@ export class Flight {
   sub(dt, inp) {
     const m = this.mass, F = this.fwd, U = this.up, X = this.left, y0 = this.pos[1], rho = RHO0 * Math.exp(-Math.max(0, y0 - 3000) / SCALE_H), vac = sstep(12000, 40000, y0), thin = Math.min(1, rho / 0.2);
     const wind = inp.wind && !vac ? [inp.wind[0], 0, inp.wind[1]] : [0, 0, 0];
-    this.throttle = clamp(this.throttle + (inp.throttle || 0) * dt * 0.45, 0, 1);
+    this.throttle = clamp(this.throttle + (inp.throttle || 0) * dt * 0.45, -0.6, 1);      // (back through zero is reverse thrust: hold S and it slows you, then backs you)
     if (this.dead) { this.throttle = 0; inp = { ...inp, up: false, down: false, boost: false }; this.assist = false; }     // nothing's answering
     const burner = !!inp.boost && this.throttle > 0.95;
     const va = add(this.vel, wind, -1), V = len(va), vh = V > 0.5 ? norm(va) : F;

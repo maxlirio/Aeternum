@@ -184,7 +184,16 @@ try {
   if (want('vesper')) {
     await load('hour=' + (process.env.HOUR || 16) + '&fly=runabout0');
     for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.vesper ? 1 : 0')); i++) await sleep(500);
-    const spots = [['street', 'street', 0, 0.06, 4], ['roof', 'roof', 0, -0.25, 6], ['roof2', 'roof', 2.4, 0.05, 5], ['plaza', 'plaza', 3.14, 0.12, 6]];
+    for (const [tag, back, turn, pitch, dist] of [['terrace', 14, 0.9, 0.12, 5], ['shopfront', 7, 0, 0.05, 3.5], ['shop', -5, 3.14, 0.08, 2.2]]) {
+      const R = await ev(`(async () => { const O = ORBIS, V = await import('./js/gen/vesper.js').then(m => m.vesperCity()), wait = ms => new Promise(r => setTimeout(r, ms)); O.setFlightForTest(null); O.ctrl.mode = 'walk';
+        const u = V.units.find(q => q.type === 'store' && q.label !== 'workshop' && q.ez[1] === 1 && q.id > 600), b = O.vesperB, d = ${back}, x = u.O[0] + u.ex[0] * u.w / 2, z = u.O[1] - d;
+        let at = b.toWorld(x, V.DY, z); O.ctrl.pos = [at[0], at[1] + 0.3, at[2]]; O.ctrl.vel = [0, 0, 0]; await wait(2500);
+        const live = O.vesperStreets.live.get(u.id); if (live && d < 0) { const rec = live.rec, dr = rec.plan.doors[rec.plan.entrance], [wx, wz] = O.homeS.toWorld(rec.O[0] + rec.ex[0] * dr.x + rec.ez[0] * 4, rec.O[1] + rec.ex[1] * dr.x + rec.ez[1] * 4); O.ctrl.pos = [wx, rec.base + 0.1, wz]; }
+        const o = b.toWorld(0, 0, 0), q = b.toWorld(0, 0, 1), yaw = Math.atan2(q[0] - o[0], q[2] - o[2]) + ${turn}; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; await wait(2500);
+        const loc = O.world.locate(...O.ctrl.pos); return { live: O.vesperStreets.live.size, real: !!live, room: loc?.room?.label || loc?.room?.purpose, label: u.label }; })()`);
+      console.log('   vesper', tag, JSON.stringify(R)); await shot('vesper-' + tag);
+    }
+    const spots = [['roof', 'roof', 0, -0.25, 6], ['plaza', 'plaza', 3.14, 0.12, 6]];
     for (const [tag, where, turn, pitch, dist] of spots) {
       const R = await ev(`(async () => { const O = ORBIS, b = O.vesperB, V = await import('./js/gen/vesper.js').then(m => m.vesperCity()), wait = ms => new Promise(r => setTimeout(r, ms)); O.setFlightForTest(null); O.ctrl.mode = 'walk';
         const Lf = V.lifts.slice().sort((a, c) => V.towers[c.tower].h - V.towers[a.tower].h)[${tag === 'roof2' ? 3 : 0}], at = '${where}' === 'plaza' ? b.toWorld(V.plaza[0], V.DY, V.plaza[1] - 6) : b.toWorld(...Lf['${where}' === 'roof' ? 'roof' : 'street']);
