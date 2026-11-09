@@ -542,43 +542,205 @@ def anvil(p, lay, r):
     add_box(p, -24, -220, -1500, 24, -196, 1100, 'heatshield', 0)
     return (441, -6, -330, 1)
 
+def _se(a, e):
+    """A point on the unit superellipse of exponent e at angle a: the shape of everything rounded-square in the fleet."""
+    u, v = math.cos(a), math.sin(a); return math.copysign(abs(u) ** (2 / e), u), math.copysign(abs(v) ** (2 / e), v)
+
+def _yloft(p, secs, mat, n=24, top=True, bottom=False):
+    """A tower's body: rounded sections (y, cx, rx, cz, rz, e) stacked up the y axis."""
+    bm = bmesh.new(); rings = []
+    for (y, cx, rx, cz, rz, e) in secs:
+        rings.append([bm.verts.new(P(cx + rx * q[0], y, cz + rz * q[1])) for q in (_se(2 * math.pi * k / n, e) for k in range(n))])
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(n): bm.faces.new([r0[k], r0[(k + 1) % n], r1[(k + 1) % n], r1[k]])
+    if top: bm.faces.new(rings[-1])
+    if bottom: bm.faces.new(rings[0][::-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
+
+def _band(p, cx, cz, y0, y1, rx, rz, e, t, mat, n=24):
+    """A floor slab's edge standing proud of the glass: an outer face and its top and underside back to the wall."""
+    bm = bmesh.new(); Q = [_se(2 * math.pi * k / n, e) for k in range(n)]
+    ring = lambda y, d: [bm.verts.new(P(cx + (rx + d) * q[0], y, cz + (rz + d) * q[1])) for q in Q]
+    a0, a1, b0, b1 = ring(y0, 0), ring(y0, t), ring(y1, t), ring(y1, 0)
+    for k in range(n):
+        j = (k + 1) % n
+        for (A, B) in ((a0, a1), (a1, b0), (b0, b1)): bm.faces.new([A[k], A[j], B[j], B[k]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
+
+def _hring(p, x, y, z, R, r_, mat, n=64, m=8):
+    """A ring lying flat: a halo round a spire, a rim round a dome."""
+    bm = bmesh.new(); rings = []
+    for i in range(n):
+        a = 2 * math.pi * i / n; c, s = math.cos(a), math.sin(a)
+        rings.append([bm.verts.new(P(x + (R + r_ * math.cos(2 * math.pi * j / m)) * c, y + r_ * math.sin(2 * math.pi * j / m), z + (R + r_ * math.cos(2 * math.pi * j / m)) * s)) for j in range(m)])
+    for i in range(n):
+        for j in range(m): bm.faces.new([rings[i][j], rings[(i + 1) % n][j], rings[(i + 1) % n][(j + 1) % m], rings[i][(j + 1) % m]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
+
+def _arc(p, pts, w0, w1, mat, n=14):
+    """A curved member through three points (a quadratic curve), tapering from w0 to w1: a buttress, a rib."""
+    A, B, C = [mathutils.Vector(q) for q in pts]; prev = None
+    for k in range(n + 1):
+        t = k / n; q = A * (1 - t) ** 2 + B * 2 * t * (1 - t) + C * t * t
+        if prev is not None: _beam(p, tuple(prev), tuple(q), w0 + (w1 - w0) * (k - 0.5) / n, mat)
+        prev = q
+
+def _city_tower(p, x, z, y0, h, w, d, r, kind):
+    """One building of the ark's city, as a building is made: a glass body, its floor slabs standing out of the glass, lit floors where people are awake, fins down the corners, and a crown of its own."""
+    e = {'slab': 5.0, 'round': 2.0, 'stepped': 4.0, 'needle': 2.6}[kind]; n = 16 if h < 120 else 24
+    tp = {'slab': 0.9, 'round': 0.82, 'stepped': 1.0, 'needle': 0.42}[kind]
+    if kind == 'stepped':
+        tiers = [(0.0, 0.5, 1.0), (0.5, 0.8, 0.74), (0.8, 1.0, 0.5)]
+    else:
+        tiers = [(0.0, 1.0, 1.0)]
+    for (f0, f1, k) in tiers:
+        ya, yb = y0 + h * f0, y0 + h * f1; wa, da = w / 2 * k, d / 2 * k; wb, db = (wa * (1 - (1 - tp) * (f1 - f0)), da * (1 - (1 - tp) * (f1 - f0))) if kind != 'stepped' else (wa, da)
+        _yloft(p, [(ya, x, wa, z, da, e), (yb, x, wb, z, db, e)], 'visor', n)
+        fl = 14.0 if h > 140 else 11.0; m = max(1, int((yb - ya) / fl))
+        for j in range(1, m + 1):
+            yy = ya + (yb - ya) * j / m; t = (yy - ya) / max(1, yb - ya); rx, rz = wa + (wb - wa) * t, da + (db - da) * t
+            _band(p, x, z, yy - 1.6, yy, rx, rz, e, 0.9, 'tint', n)
+            if j < m and r.random() < 0.38: _band(p, x, z, yy - fl * 0.62, yy - fl * 0.32, rx, rz, e, 0.4, 'lampwarm', n)
+        if kind in ('slab', 'stepped') and h > 90:
+            for (sx, sz) in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+                c = 0.72 ** (1 / e) ; _beam(p, (x + sx * wa * c, ya, z + sz * da * c), (x + sx * wb * c, yb, z + sz * db * c), 2.2, 'tint')
+    # the crown
+    yt = y0 + h; rx, rz = (w / 2 * tiers[-1][2] * (tp if kind != 'stepped' else 1), d / 2 * tiers[-1][2] * (tp if kind != 'stepped' else 1))
+    q = r.random()
+    if kind == 'needle' or q < 0.1:
+        _yloft(p, [(yt, x, rx, z, rz, e), (yt + h * 0.12, x, rx * 0.35, z, rz * 0.35, e), (yt + h * 0.2, x, 0.6, z, 0.6, 2)], 'tint', n)
+        add_cyl(p, x, z, yt + h * 0.2, yt + h * 0.32, 0.6, 'metal', 6, r2=0.1); add_cyl(p, x, z, yt + h * 0.32, yt + h * 0.32 + 1.2, 0.5, 'navred', 6)
+    elif q < 0.6:
+        _yloft(p, [(yt, x, rx * 1.03, z, rz * 1.03, e), (yt + 6, x, rx * 1.03, z, rz * 1.03, e)], 'tint', n)
+        add_cyl(p, x, z, yt + 6, yt + 7, min(rx, rz) * 0.7, 'paint', 24); _hring(p, x, yt + 7.2, z, min(rx, rz) * 0.62, 0.5, 'hazard', 24, 4)
+        for _ in range(3): bx, bz = x + r.uniform(-rx, rx) * 0.6, z + r.uniform(-rz, rz) * 0.6; add_box(p, bx - 4, yt + 6, bz - 4, bx + 4, yt + 10, bz + 4, 'metal', 0) if abs(bx - x) > rx * 0.55 or abs(bz - z) > rz * 0.55 else None
+    else:
+        _yloft(p, [(yt, x, rx, z, rz, e), (yt + 3, x, rx * 1.06, z, rz * 1.06, e), (yt + 4, x, rx * 0.9, z, rz * 0.9, e)], 'tint', n)
+        _yloft(p, [(yt + 4, x, rx * 0.9, z, rz * 0.9, e), (yt + 4 + h * 0.06, x, rx * 0.5, z, rz * 0.5, e)], 'visor', n)
+        _mast(p, x, yt + 4 + h * 0.06, z, h * 0.12)
+
 def vesper(p, lay, r):
-    """An ark, 5.2 km: a whole city on a keel. Towers packed along it round a great spire, parks under glass, tiers of lit decks down its sides, seven engines the size of stadiums."""
-    secs = [(-2600, 0, 70, 0, 340, 3.6), (-2300, 0, 130, 0, 660, 3.8), (0, 0, 150, 0, 760, 3.8), (1500, -8, 130, 0, 600, 3.4), (2300, -30, 70, 0, 240, 2.6), (2600, -46, 5, 0, 6, 2)]
-    add_loft(p, smooth_secs(secs, 6), 'tint', 128, axis='z')
-    add_box(p, -640, 110, -2150, 640, 134, 1400, 'paint', 0)     # the city's ground
-    # the spire, in stages, on the ship's centre, and a ring of buttresses
-    y = 134
-    for (w, h) in ((260, 240), (190, 220), (130, 200), (80, 180), (40, 150)):
-        _taper(p, -w, w, -200 - w, -200 + w, y, y + h, w * 0.14, w * 0.14, 'tint')
-        for sx in (-1, 1): _lit_bands(p, sx * w * 0.93, y + 10, y + h - 10, -200 - w * 0.8, -200 + w * 0.8, max(3, int(h / 24)), sx, 4, r)
-        add_box(p, -w * 1.04, y + h, -200 - w * 1.04, w * 1.04, y + h + 5, -200 + w * 1.04, 'metal', 0); y += h + 5
-    add_cyl(p, 0, -200, y, y + 150, 16, 'metal', 16, r2=0.8); add_cyl(p, 0, -200, y + 150, y + 153, 2, 'navred', 8)
-    for k in range(8):
-        a = k * math.pi / 4; _beam(p, (math.cos(a) * 420, 134, -200 + math.sin(a) * 420), (math.cos(a) * 170, 500, -200 + math.sin(a) * 170), 16, 'tint')
-    # the city around it
-    for _ in range(230):
-        x = r.uniform(-610, 610); z = r.uniform(-2100, 1350)
-        if math.hypot(x, z + 200) < 330 or (440 < x and -440 < z < -120) or any(math.hypot(x - a, z - b) < R_ + 40 for (a, b, R_) in ((-380, 900, 170), (340, -1500, 150), (-300, -1650, 120))): continue
-        h = r.uniform(60, 270) * (1.5 - abs(x) / 800) * (1.25 - abs(z + 300) / 3400); _tower(p, x, z, 134, h, r.uniform(36, 96), r.uniform(36, 110), r, h > 150)
-    # parks under glass
-    for (x, z, R) in ((-380, 900, 170), (340, -1500, 150), (-300, -1650, 120)):
-        add_cyl(p, x, z, 134, 136, R, 'leaf', 40)
-        for _ in range(26):
-            a = r.uniform(0, 6.28); q = r.uniform(0, R * 0.85); tx, tz = x + math.cos(a) * q, z + math.sin(a) * q; H_ = r.uniform(14, 34); add_cyl(p, tx, tz, 136, 136 + H_ * 0.6, 1.5, 'bark', 7); _sphere(p, tx, 136 + H_ * 0.75, tz, H_ * 0.34, 'leaf', 10, 6)
-        rows = 8; st = [(z - R * math.cos(math.pi * k / rows), 134, max(0.5, R * 0.62 * math.sin(math.pi * k / rows)), x, max(0.5, R * math.sin(math.pi * k / rows)), 2) for k in range(rows + 1)]
-        add_loft(p, smooth_secs(st, 2), 'glass', 64, axis='z')
-        for k in range(12): a = k * math.pi / 6; _beam(p, (x + math.cos(a) * R, 134, z + math.sin(a) * R), (x, 134 + R * 0.62, z), 2.4, 'metal')
-    # the sides: tiers of decks, promenades, lifeboats
-    for sx in (-1, 1):
-        for (y0, y1) in ((-90, -30), (-20, 40), (50, 104)): _lit_bands(p, sx * 757, y0, y1, -1900, 1100, 5, sx, 22, r)
-        for yy in (-96, -26, 44, 108): add_box(p, min(sx * 756, sx * 772), yy - 1.5, -2000, max(sx * 756, sx * 772), yy, 1200, 'metal', 0)
-        _pods(p, sx * 770, 112, -1900, 1100, 90, 7, sx)
-    # keel and engines
-    add_box(p, -44, -176, -2300, 44, -140, 1700, 'heatshield', 0)
-    for k in range(10): _beam(p, (-600, -60, -2100 + k * 380), (-30, -160, -2100 + k * 380), 12, 'metal'); _beam(p, (600, -60, -2100 + k * 380), (30, -160, -2100 + k * 380), 12, 'metal')
-    for (x, y, R) in ((-470, 0, 88), (-235, 10, 100), (0, 14, 110), (235, 10, 100), (470, 0, 88), (-350, -80, 56), (350, -80, 56)): _engine(p, x, y, -2730, -2590, R)
-    return (761, -4, -280, 1)
+    """An ark, 5.2 km: a whole city carried inside a hull. The city stands on a deck sunk within the bulwarks, laid out as cities are: a green boulevard
+    down the middle, avenues, blocks of glass towers rising towards a great spire, parks under domes. Down the flanks, decks of lit promenades; astern, seven drives."""
+    DY, EQ, RIM = 120.0, -10.0, 18.0
+    S = [(-2600, 520, 200), (-2400, 690, 280), (-1800, 760, 310), (-280, 772, 320), (900, 750, 305), (1700, 610, 260), (2250, 360, 190), (2520, 120, 110), (2640, 6, 50)]
+    zs_, hws, dps = [q[0] for q in S], [q[1] for q in S], [q[2] for q in S]
+    hw = lambda z: _pchip(zs_, hws, z); dp = lambda z: _pchip(zs_, dps, z)
+    rim_x = lambda z: hw(z) * 0.93; deck_x = lambda z: max(0.4, hw(z) * 0.93 - 12)
+    side_x = lambda z, y: hw(z) + (rim_x(z) - hw(z)) * ((y - EQ) / (DY + RIM - EQ)) ** 1.6      # the topsides fall in as they rise
+    def prof(z):
+        h, d = hw(z), dp(z); pts = [(-deck_x(z), DY), (-deck_x(z), DY + RIM), (-rim_x(z), DY + RIM)]
+        for k in range(1, 6): y = DY + RIM - (DY + RIM - EQ) * k / 6; pts.append((-side_x(z, y), y))
+        for k in range(25):
+            a = math.pi + math.pi * k / 24; q = _se(a, 2.6); pts.append((h * q[0], EQ + d * q[1]))
+        for k in range(5, 0, -1): y = DY + RIM - (DY + RIM - EQ) * k / 6; pts.append((side_x(z, y), y))
+        pts += [(rim_x(z), DY + RIM), (deck_x(z), DY + RIM), (deck_x(z), DY)]
+        return pts
+    stations = [-2600 + 5240 * (k / 150) ** 1.0 for k in range(151)]
+    bm = bmesh.new(); rings = [[bm.verts.new(P(x, y, z)) for (x, y) in prof(z)] for z in stations]
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(len(r0) - 1): bm.faces.new([r0[k], r0[k + 1], r1[k + 1], r1[k]])
+    bm.faces.new(rings[0]); bm.faces.new(rings[-1][::-1]); bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'tint')
+    # the city's ground, inside the bulwarks
+    bm = bmesh.new(); G = [[bm.verts.new(P(-deck_x(z) + 2 * deck_x(z) * j / 8, DY, z)) for j in range(9)] for z in stations]
+    for r0, r1 in zip(G, G[1:]):
+        for j in range(8): bm.faces.new([r0[j], r0[j + 1], r1[j + 1], r1[j]])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'concrete')
+    # the bulwark's cap and the lit promenades down each flank, each deck its own ledge
+    def ribbon(fx, y0, y1, z0, z1, mat, out=0.6, seg=60, gaps=0):
+        zz = [z0 + (z1 - z0) * k / seg for k in range(seg + 1)]
+        for k in range(seg):
+            if gaps and k % gaps == gaps - 1: continue
+            bm = bmesh.new(); V = [bm.verts.new(P(sx * (fx(z, y) + out), y, z)) for (z, y, sx) in ((zz[k], y0, SX), (zz[k + 1], y0, SX), (zz[k + 1], y1, SX), (zz[k], y1, SX))]
+            bm.faces.new(V); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.4); merge(p, bm, mat)
+    for SX in (-1, 1):
+        for (y0, ln) in ((-2, 2150), (26, 2250), (54, 2300), (82, 2250), (106, 2150)):
+            ribbon(side_x, y0, y0 + 5, -ln + 50, ln * 0.55 if y0 < 40 else ln * 0.6, 'lampwarm', 2.0, 90, 9)
+            ribbon(lambda z, y: side_x(z, y) + 2.4, y0 - 1.6, y0 - 0.4, -ln + 30, ln * 0.55 + 20 if y0 < 40 else ln * 0.6 + 20, 'paint', 0.4, 90)
+        _pods(p, SX * (side_x(-200, 0) + 6), -40, -1900, 1000, 70, 7, SX)
+        ribbon(side_x, 36, 112, -2150, 1350, 'visor', 1.2, 120)                 # a glass gallery the length of the city: the ark's own promenade
+        for z in range(-2100, 1400, 110):                                            # the frames that carry it
+            pts = [(SX * (side_x(z, y) + 2.6), y, z) for y in [EQ + (DY + RIM - EQ) * j / 10 for j in range(11)]]
+            for q0, q1 in zip(pts, pts[1:]): _beam(p, q0, q1, 4.0, 'tint')
+    for z0_, z1_ in ((-2560, 2600),):
+        pass
+    bm = bmesh.new(); cap = [[bm.verts.new(P(sx * x_, DY + RIM + 1.6, z)) for (sx, x_) in ((-1, rim_x(z) + 1), (-1, deck_x(z) - 1), (1, deck_x(z) - 1), (1, rim_x(z) + 1))] for z in stations]
+    for r0, r1 in zip(cap, cap[1:]):
+        for (i, j) in ((0, 1), (2, 3)): bm.faces.new([r0[i], r0[j], r1[j], r1[i]])
+    bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=1.6); bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'paint')
+    # the boulevard: two carriageways either side of a green median with its trees, a canal down the middle of it
+    ZB0, ZB1 = -2250, 2050
+    add_box(p, -56, DY, ZB0, 56, DY + 0.6, ZB1, 'rubber', 0); add_box(p, -22, DY + 0.6, ZB0, 22, DY + 1.4, ZB1, 'leaf', 0); add_box(p, -6, DY + 1.3, ZB0 + 20, 6, DY + 1.5, ZB1 - 20, 'glass', 0)
+    for z in range(ZB0 + 20, ZB1, 30):
+        if abs(z + 200) < 400: continue
+        for sx in (-1, 1): add_cyl(p, sx * 14, z, DY + 1.4, DY + 6, 0.6, 'bark', 6); _sphere(p, sx * 14, DY + 9, z, 4.2, 'leaf', 10, 5)
+    # the spire, on a round plaza: one smooth body, its floors standing out of it, light running up its seams, six flying buttresses, a halo near the top
+    SZ = -200.0
+    add_cyl(p, 0, SZ, DY, DY + 1.2, 380, 'stone', 72); _hring(p, 0, DY + 1.4, SZ, 330, 6, 'glass', 72, 6)
+    prof_ = [(DY, 230), (DY + 120, 205), (DY + 300, 160), (DY + 520, 112), (DY + 720, 74), (DY + 880, 44), (DY + 980, 22), (DY + 1050, 6)]
+    secs = [(y, 0, rad, SZ, rad, 2.3) for (y, rad) in (tuple(q) for q in smooth_secs(prof_, 6))]
+    _yloft(p, secs, 'visor', 48)
+    rad_at = lambda y: _pchip([q[0] for q in prof_], [q[1] for q in prof_], y)
+    y = DY + 24
+    while y < DY + 960:
+        R_ = rad_at(y); _band(p, 0, SZ, y - 2.4, y, R_, R_, 2.3, 1.6, 'tint', 48)
+        if r.random() < 0.5: _band(p, 0, SZ, y - 13, y - 7, R_, R_, 2.3, 0.2, 'lampwarm', 48)
+        y += 24 if y < DY + 600 else 30
+    for k in range(6):
+        a = k * math.pi / 3 + 0.26; c, s = math.cos(a), math.sin(a)
+        pts = [(c * rad_at(y) * 0.98, y, SZ + s * rad_at(y) * 0.98) for y in [DY + 20 + 900 * j / 30 for j in range(31)]]
+        for q0, q1 in zip(pts, pts[1:]): _beam(p, q0, q1, 3.2, 'tint')
+        _arc(p, [(c * 360, DY, SZ + s * 360), (c * 330, DY + 260, SZ + s * 330), (c * rad_at(DY + 420) * 0.98, DY + 420, SZ + s * rad_at(DY + 420) * 0.98)], 34, 14, 'tint', 18)
+        _arc(p, [(c * 352, DY + 2, SZ + s * 352), (c * 322, DY + 260, SZ + s * 322), (c * rad_at(DY + 420) * 0.9, DY + 412, SZ + s * rad_at(DY + 420) * 0.9)], 6, 3, 'lampwarm', 18)
+    _hring(p, 0, DY + 900, SZ, 120, 4, 'tint', 72, 8); _hring(p, 0, DY + 900, SZ, 120, 1.2, 'glow', 72, 6)
+    for k in range(6): a = k * math.pi / 3; _beam(p, (math.cos(a) * rad_at(DY + 890), DY + 890, SZ + math.sin(a) * rad_at(DY + 890)), (math.cos(a) * 118, DY + 900, SZ + math.sin(a) * 118), 3, 'tint')
+    add_cyl(p, 0, SZ, DY + 1050, DY + 1240, 3.4, 'metal', 12, r2=0.4); add_cyl(p, 0, SZ, DY + 1240, DY + 1243, 1.4, 'navred', 8)
+    # the city: blocks between avenues and cross streets, each built up with a podium and its towers, tallest round the spire
+    PARKS = ((-420, 1050, 190), (420, -1450, 170), (-400, -1700, 150))
+    zc_ = list(range(-2400, 2350, 250)); bands = [(70, 300), (330, 900)]
+    for z0, z1 in zip(zc_, zc_[1:]):
+        z0 += 16; z1 -= 16
+        for (bx0, bx1) in bands:
+            edge = min(deck_x(z0), deck_x(z1)) - 30; bx1 = min(bx1, edge)
+            if bx1 - bx0 < 60: continue
+            for sx in (-1, 1):
+                xa, xb = (bx0, bx1) if sx > 0 else (-bx1, -bx0); xm, zm = (xa + xb) / 2, (z0 + z1) / 2
+                if math.hypot(xm, zm - SZ) < 470 or any(math.hypot(xm - a, zm - b) < R_ + 140 for (a, b, R_) in PARKS): continue
+                # the podium
+                _yloft(p, [(DY, xm, (xb - xa) / 2 - 4, zm, (z1 - z0) / 2 - 4, 7), (DY + 14, xm, (xb - xa) / 2 - 4, zm, (z1 - z0) / 2 - 4, 7)], 'tint', 28)
+                _band(p, xm, zm, DY + 5, DY + 10, (xb - xa) / 2 - 4.5, (z1 - z0) / 2 - 4.5, 7, 0.3, 'lampwarm' if r.random() < 0.6 else 'visor', 28)
+                nx = 1 if xb - xa < 170 else 2; nz = 1 if r.random() < 0.4 else 2
+                for i in range(nx):
+                    for j in range(nz):
+                        cx = xa + (xb - xa) * (i + 0.5) / nx + r.uniform(-8, 8); cz = z0 + (z1 - z0) * (j + 0.5) / nz + r.uniform(-8, 8)
+                        lw, ld = (xb - xa) / nx * r.uniform(0.5, 0.74), (z1 - z0) / nz * r.uniform(0.5, 0.74)
+                        ds = math.hypot(cx, cz - SZ); h = (70 + 430 * math.exp(-ds / 950)) * r.uniform(0.6, 1.25) * (1 - 0.45 * (abs(cx) / 800) ** 2) * (0.7 - 0.45 * min(1, (cz - 1500) / 800) if cz > 1500 else 0.7 - 0.4 * min(1, (-1950 - cz) / 450) if cz < -1950 else 1)
+                        kind = r.choice(('slab', 'slab', 'round', 'stepped', 'stepped', 'slab', 'needle')) if h > 120 else r.choice(('slab', 'round'))
+                        _city_tower(p, cx, cz, DY + 14, h, min(lw, 140), min(ld, 140), r, kind)
+                        if nz == 2 and j == 0 and h > 160 and r.random() < 0.5:
+                            yb_ = DY + 14 + h * r.uniform(0.35, 0.6); add_box(p, cx - 6, yb_, cz + ld / 2 * 0.8, cx + 6, yb_ + 8, cz + (z1 - z0) / 2 - ld / 2 * 0.8 + 6, 'tint', 0); add_box(p, cx - 6.3, yb_ + 2.5, cz + ld / 2 * 0.8, cx + 6.3, yb_ + 5.5, cz + (z1 - z0) / 2 - ld / 2 * 0.8 + 6, 'lampwarm', 0)
+    # parks under glass domes: lawns, trees, a lake, the dome's ribs meeting at a crown ring
+    for (x, z, R) in PARKS:
+        add_cyl(p, x, z, DY, DY + 1.5, R, 'leaf', 48); add_cyl(p, x + R * 0.3, z - R * 0.2, DY + 1.5, DY + 1.7, R * 0.28, 'glass', 32)
+        for _ in range(40):
+            a = r.uniform(0, 6.28); q = R * math.sqrt(r.uniform(0.02, 0.8)); tx, tz = x + math.cos(a) * q, z + math.sin(a) * q
+            if math.hypot(tx - x - R * 0.3, tz - z + R * 0.2) < R * 0.32: continue
+            H_ = r.uniform(12, 26); add_cyl(p, tx, tz, DY + 1.5, DY + H_ * 0.6, 1.2, 'bark', 6); _sphere(p, tx, DY + H_ * 0.72, tz, H_ * 0.3, 'leaf', 12, 6)
+        st = [(DY + R * 0.7 * math.sin(math.pi / 2 * k / 12), x, max(0.5, R * math.cos(math.pi / 2 * k / 12)), z, max(0.5, R * math.cos(math.pi / 2 * k / 12)), 2) for k in range(13)]
+        _yloft(p, st, 'glass', 64, top=False)
+        _hring(p, x, DY + 1, z, R, 2.4, 'tint', 72, 6); _hring(p, x, DY + R * 0.7 - 1, z, R * 0.12, 1.6, 'tint', 24, 6)
+        for k in range(16):
+            a = k * math.pi / 8; pts = [(x + math.cos(a) * R * math.cos(math.pi / 2 * j / 10), DY + R * 0.7 * math.sin(math.pi / 2 * j / 10), z + math.sin(a) * R * math.cos(math.pi / 2 * j / 10)) for j in range(10)]
+            for q0, q1 in zip(pts, pts[1:]): _beam(p, q0, q1, 1.4, 'tint')
+    # the bow: the deck ends in a terrace over the prow, a beacon at the tip
+    add_cyl(p, 0, 2600, 40, 70, 3, 'metal', 12); add_cyl(p, 0, 2600, 70, 74, 2.2, 'navwhite', 12)
+    # under the hull: a keel, its bays lit, and the drives astern on their thrust frame
+    add_box(p, -36, EQ - dp(0) - 14, -2300, 36, EQ - dp(0) + 30, 1700, 'heatshield', 0)
+    for z in range(-2200, 1600, 160): add_box(p, -37, EQ - dp(0) - 6, z, 37, EQ - dp(0) - 2, z + 70, 'lampwarm', 0)
+    for (x, y, R) in ((0, -40, 112), (-240, -30, 98), (240, -30, 98), (-430, -10, 72), (430, -10, 72), (-140, -150, 58), (140, -150, 58)): _engine(p, x, y, -2740, -2600, R)
+    for k in range(9): a = k * math.pi / 8; _beam(p, (math.cos(a) * 480, -40 + math.sin(a) * 120, -2602), (math.cos(a) * 200, -40 + math.sin(a) * 60, -2602), 10, 'metal')
+    mx = round(side_x(-280, 0) - 1.0)
+    return (mx, -4, -280, 1)
 
 def tiller(p, lay, r):
     """A refinery, 4.2 km: a long open truss carrying ball tanks and cracking towers, flare stacks burning, ore arms folded along it, a blocky cab at the bow where people live, six engines."""
@@ -861,6 +1023,23 @@ def dress_decks(p, lay, name):
         across = pr['face'] in (0, 2); L, D = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
         place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
 
+def _look(obs):
+    """A partial build is for looking at: each piece from four sides, rendered here (workbench, a colour per material), into out/booth/."""
+    sc = bpy.context.scene; sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = 'MATERIAL'
+    sc.display.shading.show_cavity = True; sc.display.shading.show_shadows = True; sc.render.resolution_x, sc.render.resolution_y = 1600, 900
+    COL = {'tint': (0.8, 0.78, 0.74), 'visor': (0.1, 0.13, 0.17), 'lampwarm': (1, 0.85, 0.5), 'glass': (0.5, 0.7, 0.8), 'leaf': (0.25, 0.45, 0.2), 'paint': (0.3, 0.32, 0.35), 'metal': (0.55, 0.55, 0.56), 'concrete': (0.6, 0.6, 0.58), 'heatshield': (0.08, 0.08, 0.09), 'rubber': (0.05, 0.05, 0.05), 'stone': (0.7, 0.68, 0.62), 'glow': (0.5, 0.9, 1), 'hazard': (0.9, 0.7, 0.1), 'wood': (0.5, 0.33, 0.18), 'fabric': (0.4, 0.3, 0.3), 'screen': (0.2, 0.6, 0.8)}
+    for m in bpy.data.materials: m.diffuse_color = (*COL.get(m.name, (0.6, 0.5, 0.6)), 1)
+    cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam')); sc.collection.objects.link(cam); sc.camera = cam; cam.data.clip_end = 1e6; cam.data.lens = float(os.environ.get('LENS', 35))
+    for ob in obs:
+        for o in bpy.data.objects: o.hide_render = o.type == 'MESH' and o is not ob
+        bb = [ob.matrix_world @ mathutils.Vector(c) for c in ob.bound_box]; c = sum(bb, mathutils.Vector()) / 8; R = max((v - c).length for v in bb)
+        views = [(0.55, -0.75, 0.3), (-0.8, 0.5, 0.35), (0.05, -0.2, 1.0), (1.0, 0.05, 0.08)]
+        if os.environ.get('VIEW'): views = [tuple(float(q) for q in v.split(',')) for v in os.environ['VIEW'].split(';')]
+        for i, v in enumerate(views):
+            d = mathutils.Vector(v).normalized(); D = float(os.environ.get('DIST', 1.9)); tgt = c + mathutils.Vector(tuple(float(q) for q in os.environ.get('AT', '0,0,0').split(',')))
+            cam.location = tgt + d * R * D; cam.rotation_euler = (tgt - cam.location).to_track_quat('-Z', 'Y').to_euler()
+            sc.render.filepath = os.path.join(ROOT, 'out', 'booth', ob.name + '-' + str(i) + '.png'); bpy.ops.render.render(write_still=True); print('look', sc.render.filepath)
+
 CAPITALS = {'bastion': bastion, 'meridian': meridian, 'longshore': longshore, 'halcyon': halcyon, 'anvil': anvil, 'vesper': vesper, 'tiller': tiller, 'sable': sable}
 DECKS_OF = {'anvil': 'bastion', 'vesper': 'meridian', 'tiller': 'longshore', 'sable': 'halcyon'}      # (a ship of the same line has the same rooms: no more to download)
 DRESS = {'bastion': dress_bastion, 'meridian': dress_meridian, 'longshore': dress_longshore, 'halcyon': lambda p, r: None}
@@ -869,10 +1048,12 @@ def build_capital():
     for ob in list(bpy.data.objects): bpy.data.objects.remove(ob)
     decks = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'capital.json'))); hulls = []; rooms = []; docks = {}
     for name, fn in CAPITALS.items():
+        if ONLY and name not in ONLY: continue
         p = Part(); r = random.Random(name); lay = decks[DECKS_OF.get(name, name) + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
         if name in DECKS_OF: continue
         p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
+    if ONLY: _look(hulls + rooms); return
     json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
     for fname, group in (('capital.glb', hulls), ('capital-decks.glb', rooms)):
         bpy.ops.object.select_all(action='DESELECT')
