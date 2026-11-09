@@ -1,8 +1,10 @@
-// The law on the road, for you: lights, limits, which side. Cameras at the junctions see it; a fine comes straight off your credits and goes on your record, and doing it where people can see makes you hot.
+// The law on the road: lights, limits, which side. Everyone else keeps to it (gen/roadrules.js drives the traffic); YOU don't have to. Following it at
+// speed is near impossible and it isn't fun, so nothing you do on the road is an offence (the owner's call, 2026-11-09). The limit is still read, for the HUD.
+// `enforce: true` brings the cameras and fines back (kept for the tests and in case a mode ever wants them).
 import { townRedAhead, cityRedAhead, speedLimit, wrongSideTown } from '../gen/roadrules.js';
 const COOL = { red: 10, speed: 20, side: 15 }, BASE = { red: 120, speed: 40, side: 60 }, HEAT = { red: 0.4, speed: 0.2, side: 0.25 };
 export class RoadRules {
-  constructor({ planet, store, signalAt, say }) { this.planet = planet; this.store = store; this.signalAt = signalAt; this.say = say; this.last = {}; this.over = 0; this.side = 0; this.red = null; this.limit = null; this.tick = 0; }
+  constructor({ planet, store, signalAt, say, enforce = false }) { this.enforce = enforce; this.planet = planet; this.store = store; this.signalAt = signalAt; this.say = say; this.last = {}; this.over = 0; this.side = 0; this.red = null; this.limit = null; this.tick = 0; }
   // Each frame you're driving. Returns the limit here (for the HUD).
   step(dt, t, ride, town, city, mayhem, ctl = {}) {
     if (!ride || ride.air || (ride.v?.fly && ride.pos[1] > (city?.h ?? 0) + 6 && !ride.onRoad)) { this.over = 0; this.side = 0; this.red = null; this.limit = null; return null; }
@@ -19,6 +21,7 @@ export class RoadRules {
     return this.limit;
   }
   offence(kind, t, ride, mayhem, what, scale = 1) {
+    if (!this.enforce) return;
     if (t - (this.last[kind] ?? -1e9) < COOL[kind]) return; this.last[kind] = t;
     const P = this.store.player, fine = Math.round(BASE[kind] * scale);
     if (mayhem && mayhem.heat(t) > 3) return;      // (already wanted for worse: nobody's writing tickets)
