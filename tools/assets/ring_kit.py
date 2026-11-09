@@ -20,11 +20,16 @@ def _bar(p, a, b, w, mat='metal'):
 def _bend(x, y, s, Rf, W):
     a = s / Rf; rho = Rf - y; return (rho * math.sin(a), -rho * math.cos(a), W / 2 - x)
 
+PLANTS = {}
 class Ring:
     N = 12            # built in sections round the ring, each its own mesh, so what's behind you isn't drawn
     def __init__(R, lay):
         R.L = lay; R.Rf = lay['Rf']; R.W = lay['W']; R.C = lay['C']; R.parts = [Part() for _ in range(R.N)]
     def part(R, s): return R.parts[int((s % R.C) / R.C * R.N) % R.N]
+    def plant(R, sp, x, y, s, h, k=0, mirror_x=None):
+        """A spot for one of the planet's own plants (the game puts it there: js/render/rings.js), in a pot or bed the model has made for it."""
+        if mirror_x is not None: x = 2 * mirror_x - x
+        PLANTS.setdefault(R.L['key'], []).append([sp, round(x, 2), round(y, 2), round(s, 2), round(h, 2), k])
     def at(R, x, y, s): return _bend(x, y, s, R.Rf, R.W)
     def emit(R, tmp, s0, mirror_x=None):
         """Set a piece built straight (in flat coordinates) down whole on the curve at s0: as a rigid body, so nothing in it bends."""
@@ -70,6 +75,20 @@ class Ring:
             if prev: f = bm.faces.new([prev[0], prev[1], row[1], row[0]]); f.normal_update(); (f.normal_flip() if f.normal.dot(mathutils.Vector(P(*R.at(x, y + 1, s))) - mathutils.Vector(P(*R.at(x, y, s)))) < 0 else None)
             prev = row
         merge(R.part(pts[len(pts) // 2][1]), bm, mat)
+
+def _flower(tmp, x, y, s, h, col, r):
+    """A flower, as one grows: a stem, two leaves off it, a ring of petals round a heart, the head turned a little to the light."""
+    tilt = r.uniform(-0.25, 0.25); hx, hs = x + tilt * h * 0.3, s + r.uniform(-0.25, 0.25) * h * 0.3; top = y + h
+    _beam(tmp, (x, y, s), (hx, top, hs), 0.012, 'leaf')
+    for k in range(2):
+        a = r.uniform(0, 6.28) + k * 3.14; ly = y + h * (0.25 + 0.2 * k); c, sn = math.cos(a), math.sin(a)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x, ly, s), (x + c * 0.07 - sn * 0.025, ly + 0.05, s + sn * 0.07 + c * 0.025), (x + c * 0.15, ly + 0.07, s + sn * 0.15), (x + c * 0.07 + sn * 0.025, ly + 0.05, s + sn * 0.07 - c * 0.025))]; bm.faces.new(vs); bm.faces.new([bm.verts.new(v.co) for v in vs[::-1]]); merge(tmp, bm, 'leaf')
+    n = r.choice((5, 6, 8)); R_ = r.uniform(0.06, 0.1); a0 = r.uniform(0, 6.28)
+    for k in range(n):
+        a = a0 + 2 * math.pi * k / n; c, sn = math.cos(a), math.sin(a); w = math.pi / n * 0.85
+        tip = (hx + c * R_, top + R_ * 0.35, hs + sn * R_); l = (hx + math.cos(a - w) * R_ * 0.55, top + R_ * 0.12, hs + math.sin(a - w) * R_ * 0.55); rr = (hx + math.cos(a + w) * R_ * 0.55, top + R_ * 0.12, hs + math.sin(a + w) * R_ * 0.55)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((hx, top + 0.005, hs), rr, tip, l)]; bm.faces.new(vs); bm.faces.new([bm.verts.new(v.co) for v in vs[::-1]]); merge(tmp, bm, col)      # (a petal is seen from either side)
+    add_cyl(tmp, hx, hs, top, top + 0.018, R_ * 0.3, 'hazard' if col != 'hazard' else 'bark', 12)
 
 def _fur(builder, L, D, H, x, s, rot, r):
     """A piece of furniture from the props kit, its own frame turned (quarter turns) and centred at (x, s) on the flat."""
@@ -167,10 +186,10 @@ def _house(R, it, r):
                 add_box(tmp, x1 - 0.1, y0 - 0.2, zc - ww - 0.35, x1 + 0.95, y0 - 0.06, zc + ww + 0.35, 'stone', 0.01)       # a balcony and its rail
                 add_box(tmp, x1 + 0.88, y0 - 0.06, zc - ww - 0.3, x1 + 0.9, y0 + 0.86, zc + ww + 0.3, 'glass', 0); add_box(tmp, x1 + 0.86, y0 + 0.86, zc - ww - 0.33, x1 + 0.94, y0 + 0.92, zc + ww + 0.33, 'metal', 0)
                 for zz in (zc - ww - 0.3, zc + ww + 0.3): add_box(tmp, x1 + 0.86, y0 - 0.06, zz - 0.03, x1 + 0.94, y0 + 0.86, zz + 0.03, 'metal', 0)
-                if r.random() < 0.5: add_box(tmp, x1 + 0.3, y0 - 0.06, zc - ww - 0.2, x1 + 0.7, y0 + 0.25, zc - ww + 0.2, 'concrete', 0.01); add_blob(tmp, x1 + 0.5, y0 + 0.4, zc - ww, 0.28, 'leaf', r, 1)
+                if r.random() < 0.5: add_box(tmp, x1 + 0.3, y0 - 0.06, zc - ww - 0.2, x1 + 0.7, y0 + 0.25, zc - ww + 0.2, 'concrete', 0.01); add_box(tmp, x1 + 0.33, y0 + 0.2, zc - ww - 0.17, x1 + 0.67, y0 + 0.23, zc - ww + 0.17, 'soil', 0); R.plant('fern' if r.random() < 0.5 else 'shrub', x1 + 0.5, y0 + 0.23, zc - ww, r.uniform(0.5, 0.8), r.randint(0, 999), (R.W / 2) if it['side'] == 1 else None)
     # the roof: a garden in planters, a vent stack, a water tank on legs
     if it['roof'] == 0:
-        for q in range(max(1, int(w / 3))): zz = s0 + 1 + q * 3; add_box(tmp, x0 + 3, top, zz, x0 + 6, top + 0.5, zz + 1.6, 'concrete', 0.01); add_blob(tmp, x0 + 4.5, top + 0.75, zz + 0.8, 0.6, 'leaf', r, 1)
+        for q in range(max(1, int(w / 3))): zz = s0 + 1 + q * 3; add_box(tmp, x0 + 3, top, zz, x0 + 6, top + 0.5, zz + 1.6, 'concrete', 0.01); add_box(tmp, x0 + 3.1, top + 0.45, zz + 0.1, x0 + 5.9, top + 0.48, zz + 1.5, 'soil', 0); [R.plant('shrub', x0 + 3.7 + j * 0.8, top + 0.48, zz + 0.8, r.uniform(0.8, 1.4), r.randint(0, 999), (R.W / 2) if it['side'] == 1 else None) for j in range(3)]
     else:
         add_cyl(tmp, x0 + 3, s0 + w / 2, top, top + 1.8, 0.3, 'metal', 10); add_cyl(tmp, x0 + 6, s0 + w * 0.3, top + 1.0, top + 2.6, 0.9, 'corrugated', 16)
         for (a, b) in ((-0.6, -0.6), (0.6, -0.6), (0.6, 0.6), (-0.6, 0.6)): _beam(tmp, (x0 + 6 + a, top, s0 + w * 0.3 + b), (x0 + 6 + a, top + 1.0, s0 + w * 0.3 + b), 0.06, 'metal')
@@ -195,7 +214,7 @@ def _stall(R, it, r):
     add_box(tmp, x - 1.3, 0.85, s - 1.5, x + 1.3, 0.95, s + 1.5, 'wood', 0.01); add_box(tmp, x - 1.25, 0, s - 1.45, x + 1.25, 0.85, s + 1.45, 'plank', 0.01)
     for k in range(6):                      # a striped canopy
         z0 = s - 1.6 + k * 3.2 / 6; add_box(tmp, x - 1.5, 2.5 + 0.12 * (k % 2), z0, x + 1.5, 2.56 + 0.12 * (k % 2), z0 + 3.2 / 6, 'fabric' if k % 2 else col, 0.005)
-    for q in range(5): add_box(tmp, x - 1.0 + q * 0.42, 0.95, s - 1.2, x - 0.7 + q * 0.42, 1.2, s - 0.4, 'cardboard', 0.01); add_blob(tmp, x - 0.85 + q * 0.42, 1.28, s - 0.8, 0.13, r.choice(('leaf', 'neonamber', 'hazard')), r, 1)
+    for q in range(5): add_box(tmp, x - 1.0 + q * 0.42, 0.95, s - 1.2, x - 0.7 + q * 0.42, 1.2, s - 0.4, 'cardboard', 0.01); [_sphere(tmp, x - 0.9 + q * 0.42 + u * 0.12, 1.32, s - 0.85 + u * 0.07, 0.07, r.choice(('neonamber', 'hazard', 'navred', 'leaf')), 9, 6) for u in (0, 1)]
     R.emit(tmp, s)
 
 def _table(R, it, r):
@@ -206,8 +225,8 @@ def _table(R, it, r):
 
 def _fountain(R, it):
     tmp = Part(); x, s, rr = it['x'], it['s'], it['r']
-    add_cyl(tmp, x, s, 0, 0.6, rr, 'stone', 40); add_cyl(tmp, x, s, 0.6, 0.66, rr - 0.3, 'visor', 40)
-    add_cyl(tmp, x, s, 0.6, 1.8, 0.35, 'stone', 16); add_cyl(tmp, x, s, 1.8, 2.0, 1.2, 'stone', 24, r2=0.6); add_cyl(tmp, x, s, 2.0, 2.05, 1.1, 'visor', 24)
+    add_cyl(tmp, x, s, 0, 0.6, rr, 'stone', 40); add_cyl(tmp, x, s, 0.6, 0.62, rr - 0.3, 'mirror', 48)
+    add_cyl(tmp, x, s, 0.6, 1.8, 0.35, 'stone', 16); add_cyl(tmp, x, s, 1.8, 2.0, 1.2, 'stone', 24, r2=0.6); add_cyl(tmp, x, s, 2.0, 2.02, 1.1, 'mirror', 32)
     add_cyl(tmp, x, s, 2.0, 2.9, 0.18, 'stone', 12); add_cyl(tmp, x, s, 2.9, 3.0, 0.5, 'stone', 16, r2=0.3)
     R.emit(tmp, s)
 
@@ -230,7 +249,7 @@ def _canal(R, runs):
     """The canal: a coping and low wall each side, its walls down to the water, the water dark and still."""
     for (a, b) in runs:
         if b - a < 0.5: continue
-        R.revolve([(30.0, -0.9), (24.0, -0.9)], 'visor', a, b)
+        R.revolve([(30.0, -0.9), (24.0, -0.9)], 'mirror', a, b)
         R.revolve([(24.0, -1.7), (24.0, 0.0)][::-1] + [], 'stone', a, b) if False else None
         R.revolve([(24.15, 0.65), (24.15, -1.7)], 'stone', a, b); R.revolve([(29.85, -1.7), (29.85, 0.65)], 'stone', a, b)
         R.revolve([(23.85, 0.0), (23.85, 0.65), (24.15, 0.65)], 'stone', a, b); R.revolve([(29.85, 0.65), (30.15, 0.65), (30.15, 0.0)], 'stone', a, b)
@@ -266,7 +285,7 @@ def build_town(R, r):
                 y0, y1 = (gy, gy + 2.3) if door else (gy + 0.8, gy + 2.3)
                 add_box(tmp, min(x, x + sx * 0.1), y0 - (0 if door else 0.12), s - 0.82, max(x, x + sx * 0.1), y1 + 0.12, s + 0.82, 'wood' if (k // 6) % 2 else 'paint', 0)
                 add_box(tmp, min(x + sx * 0.05, x + sx * 0.14), y0, s - 0.7, max(x + sx * 0.05, x + sx * 0.14), y1, s + 0.7, 'lampwarm' if lit else 'visor', 0)
-                if r.random() < 0.15: add_box(tmp, min(x + sx * 0.9, x + sx * 1.4), gy, s - 0.3, max(x + sx * 0.9, x + sx * 1.4), gy + 0.45, s + 0.3, 'concrete', 0); add_blob(tmp, x + sx * 1.15, gy + 0.7, s, 0.32, 'leaf', r, 1)
+                if r.random() < 0.15: add_box(tmp, min(x + sx * 0.9, x + sx * 1.4), gy, s - 0.3, max(x + sx * 0.9, x + sx * 1.4), gy + 0.45, s + 0.3, 'concrete', 0); R.plant('fern', x + sx * 1.15, gy + 0.45, s, r.uniform(0.5, 0.75), r.randint(0, 999))
         R.emit(tmp, s)
     _shell(R, 7.0)
     for i in L['items']:
@@ -287,7 +306,7 @@ def build_garden(R, r):
     # low stone walls along the hull, beds in them
     for (x, sx) in ((0.0, 1), (W, -1)): R.revolve([(x, 0), (x, 1.2), (x + sx * 1.6, 1.2), (x + sx * 1.6, 0)][::(1 if sx > 0 else -1)], 'stone'); R.revolve([(x + sx * 0.2, 1.21), (x + sx * 1.4, 1.21)][::(1 if sx > 0 else -1)], 'soil')
     R.ribbon([tuple(q) for q in L['path']], 1.25, 0.03, 'concrete'); R.ribbon([tuple(q) for q in L['path']], 1.45, 0.015, 'stone')
-    R.ribbon([tuple(q) for q in L['stream']], 1.1, 0.02, 'visor'); R.ribbon([tuple(q) for q in L['stream']], 1.5, 0.01, 'rock')
+    R.ribbon([tuple(q) for q in L['stream']], 1.1, 0.02, 'mirror'); R.ribbon([tuple(q) for q in L['stream']], 1.5, 0.01, 'rock')
     _shell(R, 26.0, glazed=True, panel='metal')
     # under the glass: misting pipes along the vault
     for dx in (-14, 14):
@@ -299,8 +318,8 @@ def build_garden(R, r):
         elif t == 'lamp': _lamp(R, i)
         elif t == 'station': _station(R, i)
         elif t == 'pond':
-            tmp = Part(); x, s, rr = i['x'], i['s'], i['r']; add_cyl(tmp, x, s, -0.05, 0.25, rr + 0.6, 'stone', 64); add_cyl(tmp, x, s, 0.25, 0.27, rr, 'visor', 64)
-            for q in range(14): a = r.uniform(0, 6.28); d = r.uniform(3, rr - 1); add_cyl(tmp, x + math.cos(a) * d, s + math.sin(a) * d, 0.27, 0.29, r.uniform(0.3, 0.6), 'leaf', 10)
+            tmp = Part(); x, s, rr = i['x'], i['s'], i['r']; add_cyl(tmp, x, s, -0.05, 0.25, rr + 0.6, 'stone', 64); add_cyl(tmp, x, s, 0.25, 0.26, rr, 'mirror', 72)
+            for q in range(14): a = r.uniform(0, 6.28); d = r.uniform(3, rr - 1); add_cyl(tmp, x + math.cos(a) * d, s + math.sin(a) * d, 0.26, 0.275, r.uniform(0.3, 0.6), 'leaf', 20)
             R.emit(tmp, s)
         elif t == 'pavilion':
             tmp = Part(); x, s, rr = i['x'], i['s'], i['r']; add_cyl(tmp, x, s, 0, 0.5, rr, 'stone', 32)
@@ -313,7 +332,10 @@ def build_garden(R, r):
                 s0 = i['s0'] + k * (i['s1'] - i['s0']) / 5; tmp = Part(); xa, xb = i['x0'] + 2, i['x1'] - 2
                 for (a, b) in ((xa, W / 2 - 3), (W / 2 + 3, xb)):
                     add_box(tmp, a, 0, s0 + 0.4, b, 0.35, s0 + 4.6, 'stone', 0.02); add_box(tmp, a + 0.15, 0.35, s0 + 0.55, b - 0.15, 0.38, s0 + 4.45, 'soil', 0)
-                    for q in range(int((b - a) * 3)): add_blob(tmp, r.uniform(a + 0.3, b - 0.3), 0.55, r.uniform(s0 + 0.8, s0 + 4.2), r.uniform(0.12, 0.22), r.choice(flowers) if r.random() < 0.6 else 'leaf', r, 1)
+                    for q in range(int((b - a) * 3.2)):
+                        fx_, fs_ = r.uniform(a + 0.3, b - 0.3), r.uniform(s0 + 0.8, s0 + 4.2)
+                        if r.random() < 0.75: _flower(tmp, fx_, 0.38, fs_, r.uniform(0.22, 0.42), r.choice(flowers), r)
+                        else: R.plant('fern' if r.random() < 0.6 else 'shrub', fx_, 0.38, fs_, r.uniform(0.35, 0.6), r.randint(0, 999))
                 R.emit(tmp, s0 + 2.5)
         elif t == 'footbridge':
             tmp = Part(); x, s = i['x'], i['s']; add_box(tmp, x - 2.0, 0.15, s - 0.8, x + 2.0, 0.3, s + 0.8, 'plank', 0.01)
@@ -333,7 +355,7 @@ def build_farm(R, r):
             else:
                 R.revolve([(x + 0.45, 0.0), (x + 0.45, 0.25), (x - 0.45, 0.25), (x - 0.45, 0.0)], 'stone', i['s0'], i['s1'], step=4)
                 R.revolve([(x + 0.36, 0.26), (x + 0.2, 0.62), (x - 0.2, 0.62), (x - 0.36, 0.26)], 'leaf', i['s0'], i['s1'], step=2)
-            if k % 4 == 3: R.revolve([(x + 0.66, 0.01), (x + 0.54, 0.01)], 'visor', i['s0'], i['s1'], step=4)
+            if k % 4 == 3: R.revolve([(x + 0.66, 0.01), (x + 0.54, 0.01)], 'mirror', i['s0'], i['s1'], step=4)
     _shell(R, 6.0, panel='tint')
     # grow-lights along the vault: long bars in rows
     for dx in (-16, -9, 9, 16):
@@ -382,6 +404,7 @@ def build_rings():
         for k, q in enumerate(R.parts):
             ob = finish(q, f"ring_{lay['key']}_{k}"); ob['kind'] = 'ring_' + lay['key']; ob['dims'] = [1, 1, 1]; made.append(ob); tot += len(ob.data.polygons)
         print('ring', lay['key'], tot, 'faces')
+    if not ONLY: json.dump(PLANTS, open(os.path.join(ROOT, 'assets', 'ships', 'ring-plants.json'), 'w'))
     if ONLY: _look(made); return
     bpy.ops.object.select_all(action='DESELECT')
     for ob in made: ob.select_set(True)

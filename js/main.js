@@ -46,7 +46,8 @@ import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
 import { ringStructure, spinOf, wrapRing } from './world/rings.js';
 import { vesperStructure } from './world/vesper.js';
 import { vesperCity } from './gen/vesper.js';
-import { RingView, bendAt } from './render/rings.js';
+import { RingView, bendAt, plantGroup } from './render/rings.js';
+import { plantSet } from './gen/flora.js';
 import { TerrainStreamer, terrainTime, terrainWind, terrainFar } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
@@ -227,7 +228,7 @@ async function start(fresh) {
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
   propLib?.setLocal(localTones(planet));
   let trespassAt = null;
-  const rivers = new RiverView(planet); root.add(rivers.group);
+  const rivers = new RiverView(planet); root.add(rivers.group); ringView.waterBase = rivers.mat; capitalView.waterBase = rivers.mat;
   const rocks = new RockView(planet); root.add(rocks.group);
   const prints = new GroundMarks(planet); root.add(prints.group);
   const faunaView = new FaunaView(planet); root.add(faunaView.group);
@@ -420,8 +421,8 @@ async function start(fresh) {
     if (ctrl.mode !== 'walk' || ride || flight) return null;
     { const V = vesperLift(); if (V) return V; }
     { const ML = meridianLift(), here = ringHere(); let st = null, d = 9;
-      const stops = [ML && { label: 'Promenade — the Meridian\'s decks', at: [ML.at[0], ML.at[1] + 0.05, ML.at[2]], deck: true }, ...ringStructs.map(b => ({ label: `${b.label[0].toUpperCase() + b.label.slice(1)} — ${b.plan.rooms[0].label}`, at: ringStop(b), ring: b }))].filter(Boolean);
-      if (ML) { const q = Math.hypot(ML.at[0] - ctrl.pos[0], ML.at[2] - ctrl.pos[2]); if (q < 2.2 && Math.abs(ML.at[1] - ctrl.pos[1]) < 1.6) { st = stops[0]; d = q; } }
+      const stops = [ML && { label: 'Promenade — the Meridian\'s decks', at: [ML.at[0], ML.at[1] + 0.05, ML.at[2]], deck: true, face: ML.face }, ...ringStructs.map(b => ({ label: `${b.label[0].toUpperCase() + b.label.slice(1)} — ${b.plan.rooms[0].label}`, at: ringStop(b), ring: b, face: ringFace(b) }))].filter(Boolean);
+      if (ML) { const q = Math.hypot(ML.at[0] - ctrl.pos[0], ML.at[2] - ctrl.pos[2]); if (q < 2.4 && Math.abs(ML.at[1] - ctrl.pos[1]) < 1.6) { st = stops[0]; d = q; } }
       if (here) for (let k = 0; k < 6; k++) { const p = ringStop(here, k), q = Math.hypot(p[0] - ctrl.pos[0], p[2] - ctrl.pos[2]); if (q < 2.6 && q < d) { d = q; st = { ...stops.find(x => x.ring === here), label: `${here.label[0].toUpperCase() + here.label.slice(1)} — ${here.plan.rooms[k].label}` }; } }
       if (st) return { L: { b: { label: 'the spoke lift' }, stops: stops.map(x => x.ring && st.ring === x.ring ? st : x) }, st, d, spoke: true };
     }
@@ -441,6 +442,7 @@ async function start(fresh) {
     const q = L.stops[+pick.v];
     if (q.at) {         // up a spoke to the hub, where you weigh nothing, along it, and down another
       const rise = q.at[1] - ctrl.pos[1]; clock.advance(q.ring || q.deck ? 70 : Math.max(10, Math.abs(rise) / 8)); ctrl.pos = q.at.slice(); ctrl.vel = [0, 0, 0]; ctrl.grounded = false;
+      if (q.face !== undefined) { ctrl.facing = q.face; cam.yaw = q.face; }      // (out of the doors with the lift behind you)
       if (!q.ring && !q.deck) { ui.toast(`The lift ${rise > 0 ? 'climbs' : 'drops'} ${Math.round(Math.abs(rise))} m. <small>${esc(q.label)}</small>`, '', 4000); return; }
       ui.toast(q.deck ? 'Up the spoke, along the axle where you weigh nothing, and out into the Meridian\'s promenade.' : `The cab climbs the spoke and you get lighter, float a moment at the hub, then grow heavy again going down into <b>${esc(q.ring.label)}</b>.`, '', 6000);
       return;
@@ -905,24 +907,30 @@ async function start(fresh) {
   const meridian = fleet.find(C => C.model === 'meridian');
   const ringStructs = meridian ? RINGS.map((g, i) => { const f = meridian.yaw, b = ringStructure(homeS, g, [meridian.x + Math.cos(f) * (i - 1) * 140, meridian.y + 700, meridian.z - Math.sin(f) * (i - 1) * 140], f); world.addStructure(b, homeS); return b; }) : [];     // (side by side over the ship, so none is over another)
   const ringHere = (p = ctrl.pos) => { for (const b of ringStructs) { if (p[1] < b.base - 3 || p[1] > b.base + 40) continue; const [lx, lz] = world.toB(b, p[0], p[2]); if (lx > -1 && lx < b.w + 1 && lz > -2 && lz < b.d + 2) return b; } return null; };
-  const ringStop = (b, k = 0) => { const g = b.plan.ring, sk = (k + 0.5) * g.C / 6; return b2w(b, RING_W / 2, 0.05, sk - 4.2); };
+  const ringStop = (b, k = 0) => { const g = b.plan.ring, sk = (k + 0.5) * g.C / 6; return b2w(b, RING_W / 2, 0.05, sk - 4.4); };
+  const yawOf = ([dx, dz]) => Math.atan2(dx, dz), ringFace = b => yawOf(world.fromBVec(b, 0, -1));
   const ringBend = new THREE.Matrix4(), _rm = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
   function meridianLift() {     // the spoke lift's door in the Meridian's promenade, if its decks are standing
-    const b = meridian && placed.get(meridian.ship.id); return b ? { b, at: b2w(b, 2.7, b.plan.layout.deck, 48.25) } : null;
+    const b = meridian && placed.get(meridian.ship.id); return b ? { b, at: b2w(b, 3.3, b.plan.layout.deck, 48.25), face: yawOf(world.fromBVec(b, 1, 0)) } : null;
   }
   // ---- the Vesper's city deck (gen/vesper.js): streets you can walk, roofs you can land on, lifts up the towers, and one down to the docks
   const vesper = fleet.find(C => C.model === 'vesper'), vesperB = vesper ? vesperStructure(homeS, vesper) : null;
+  // the Vesper's trees are the planet's own: down the boulevard and in the parks under the domes
+  capitalView.onMesh = C => { if (C.model !== 'vesper') return; const V = vesperCity(), set = plantSet(planet).filter(sp => flora.kinds?.[sp]); if (!set.length) return;
+    const spots = V.trees.map(([x, z], i) => ({ sp: set[i % set.length], x, y: V.DY + 0.2, s: z, h: 9, k: i * 7919 })).concat(V.parkTrees.map(([x, z, h, k]) => ({ sp: set[k % set.length], x, y: V.DY + 1.5, s: z, h, k })));
+    const g = plantGroup(flora, spots, (it, q) => { q.identity(); return new THREE.Vector3(it.x, it.y, it.s); }); if (g) C.mesh.add(g); };
   if (vesperB) { world.owner.set(vesperB, homeS); world.loose.push({ b: vesperB, x: vesper.x, z: vesper.z, r: 2800 }); }
   const VC = vesper ? vesperCity() : null;
   function vesperLift() {
     if (!vesperB) return null; const p = ctrl.pos, near = (q, r = 2.4) => Math.hypot(q[0] - p[0], q[2] - p[2]) < r && Math.abs(q[1] - p[1]) < 1.8;
-    const db = placed.get(vesper.ship.id), dock = db && b2w(db, 2.7, db.plan.layout.deck, 48.25), plaza = vesperB.toWorld(VC.plaza[0], VC.DY, VC.plaza[1] - 2.6);
-    const down = [dock && { label: 'The docks — promenade', at: [dock[0], dock[1] + 0.05, dock[2]] }, { label: 'The city deck — the spire plaza', at: [plaza[0], plaza[1] + 0.05, plaza[2]] }].filter(Boolean);
+    const db = placed.get(vesper.ship.id), dock = db && b2w(db, 3.3, db.plan.layout.deck, 48.25), plaza = vesperB.toWorld(VC.plaza[0], VC.DY, VC.plaza[1] - 2.6);
+    const dir = (x, z) => { const a = vesperB.toWorld(0, 0, 0), b = vesperB.toWorld(x, 0, z); return yawOf([b[0] - a[0], b[2] - a[2]]); };
+    const down = [dock && { label: 'The docks — promenade', at: [dock[0], dock[1] + 0.05, dock[2]], face: yawOf(world.fromBVec(db, 1, 0)) }, { label: 'The city deck — the spire plaza', at: [plaza[0], plaza[1] + 0.05, plaza[2]], face: dir(0, -1) }].filter(Boolean);
     if (dock && near(dock, 2.2)) return { L: { b: { label: 'the city lift' }, stops: down }, st: down[0], d: 1 };
     if (near(plaza)) return { L: { b: { label: 'the city lift' }, stops: down }, st: down[down.length - 1], d: 1 };
     for (const Lf of VC.lifts) {
       const T = VC.towers[Lf.tower], st = vesperB.toWorld(...Lf.street), rf = vesperB.toWorld(...Lf.roof);
-      const stops = [{ label: 'The street', at: [st[0], st[1] + 0.05, st[2]] }, { label: `The roof — ${Math.round(T.top - VC.DY)} m up`, at: [rf[0], rf[1] + 0.05, rf[2]] }];
+      const stops = [{ label: 'The street', at: [st[0], st[1] + 0.05, st[2]], face: dir(0, -1) }, { label: `The roof — ${Math.round(T.top - VC.DY)} m up`, at: [rf[0], rf[1] + 0.05, rf[2]], face: dir(0, 1) }];
       if (near(st)) return { L: { b: { label: `tower ${T.id + 1}` }, stops }, st: stops[0], d: 1 };
       if (near(rf)) return { L: { b: { label: `tower ${T.id + 1}` }, stops }, st: stops[1], d: 1 };
     }
@@ -1680,6 +1688,7 @@ async function start(fresh) {
           ringPeople.push({ id: f.id, pos: [V.x, V.y, V.z], facing: fa, q: Q.clone(), pose: a.sit ? 'sit' : 'stand', moving: a.moving, age: f.age });
           if (ringPeople.length >= 70) break;
         } } }
+    window.__ringPeople = ringPeople;
     crowd.update(ringPeople.concat(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
@@ -1803,13 +1812,13 @@ async function start(fresh) {
     waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
     if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
-    renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3;     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
+    renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3 || !!ringHere();     // (in a ring everything's turning: a map a frame stale shakes everyone in it)     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
     // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
     rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, thrustView, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

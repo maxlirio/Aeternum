@@ -48,7 +48,7 @@ export function vesperCity() {
           towers.push(T);
           if (nz === 2 && j === 0 && h > 160 && rng.chance(0.5)) { const yb = T.y0 + h * rng.range(0.35, 0.6); bridges.push({ x: cx, z0: cz + ld / 2 * 0.8, z1: cz + (z1 - z0) / 2 - ld / 2 * 0.8 + 6, y: yb }); }
           // a pad roof has a lift up to it, its door at the foot of the block on the street
-          if (crown === 'pad' && h > 60) lifts.push({ tower: T.id, street: [cx, DY, zm - P.hz - 2.6], roof: [cx, T.top, cz - T.rz * 0.45] });
+          if (crown === 'pad' && h > 60) lifts.push({ tower: T.id, street: [cx, DY, zm - P.hz - 1.7], roof: [cx, T.top, cz - T.rz * 0.45] });
         }
       }
     }
@@ -58,7 +58,9 @@ export function vesperCity() {
   for (const z of zs) for (const dz of [-11, 11]) for (let x = 74; x < 900; x += 40) for (const sx of [-1, 1]) if (open(sx * x, z + dz)) lamps.push([sx * x, z + dz]);
   for (const ax of [315, 62]) for (const dx of [-10, 10]) for (let z = -2380; z < 2330; z += 40) for (const sx of [-1, 1]) { const x = sx * (ax + dx); if (Math.abs(x) > 52 && open(x, z) && !zs.some(q => Math.abs(z - q) < 18)) lamps.push([x, z]); }
   const trees = []; for (let z = -2230; z < 2050; z += 30) { if (Math.abs(z - SPIRE_Z) < 400) continue; for (const sx of [-1, 1]) trees.push([sx * 14, z]); }
+  // the parks' trees: scattered over the lawn, clear of the lake
+  const parkTrees = []; for (const [x, z, R] of PARKS) for (let k = 0; k < 60; k++) { const u = rng.range(-0.9, 0.9), v = rng.range(-0.9, 0.9), tx = x + u * R, tz = z + v * R; if (u * u + v * v > 0.81 || Math.sqrt((tx - x - R * 0.3) ** 2 + (tz - z + R * 0.2) ** 2) < R * 0.34) continue; parkTrees.push([+tx.toFixed(2), +tz.toFixed(2), +rng.range(10, 22).toFixed(1), rng.int(0, 1e6)]); }
   const deck = []; for (let z = -2600; z <= 2640; z += 10) deck.push([z, +deckHalf(z).toFixed(3)]);
-  cached = { DY, RIM, SPIRE_Z, deck, podiums, towers, bridges, lifts, trees, lamps, parks: PARKS, plaza: [40, SPIRE_Z + 430] };
+  cached = { DY, RIM, SPIRE_Z, deck, podiums, towers, bridges, lifts, trees, lamps, parkTrees, parks: PARKS, plaza: [40, SPIRE_Z + 430] };
   return cached;
 }

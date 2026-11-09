@@ -112,6 +112,7 @@ export class CapitalView {
     const base = this.lib.surface(slot === 'tint' ? 'tint-hull' : slot), plain = (col, rough, metal) => { const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...col), roughness: rough, metalness: metal, envMapIntensity: 1 }); return m; };
     if (slot === 'tint') return C.sleek ? new THREE.MeshPhysicalMaterial({ color: C.dark ? new THREE.Color(0.018, 0.02, 0.026) : new THREE.Color(0.78, 0.76, 0.72), roughness: 0.24, metalness: 0.2, clearcoat: C.dark ? 0.35 : 1, clearcoatRoughness: 0.05, envMapIntensity: C.dark ? 0.3 : 1 }) : plated(base, LIVERY[C.livery ?? C.colour % 3], Math.max(1, C.length / 1100));
     if (slot === 'visor') return facade(base);
+    if (slot === 'mirror' && this.waterBase) { const w = this.waterBase.clone(); w.normalMap = this.waterBase.normalMap.clone(); w.normalMap.needsUpdate = true; w.normalMap.repeat.set(0.16, 0.16); w.opacity = 0.9; return w; }     // (the Vesper's canal and lakes: the planet's own water)
     if (slot === 'metal') return plain([0.34, 0.33, 0.32], 0.42, 0.9);
     if (slot === 'heatshield') return plain([0.03, 0.03, 0.033], 0.85, 0.05);
     if (slot === 'paint') return plain([0.16, 0.17, 0.19], 0.6, 0.3);
@@ -142,7 +143,7 @@ export class CapitalView {
         for (const { g, slot } of this.models[C.model]) part(g, slot, C.mesh);
         // the spin rings turn on the axle, each at the rate that gives its floor a full weight (gen/rings.js)
         C.rings = []; for (let i = 0; this.models[C.model + '_ring' + i]; i++) { const r = new THREE.Group(); for (const { g, slot } of this.models[C.model + '_ring' + i]) part(g, slot, r); r.traverse(o => { if (o.isMesh && o.material.side !== THREE.FrontSide) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } }); C.mesh.add(r); C.rings.push(r); }     // (one-sided: from inside the ring you look out through its skin)
-        this.group.add(C.mesh); C.mesh.rotation.y = C.yaw;
+        this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; this.onMesh?.(C);
       }
       if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
       C.mesh.position.set(...toRender(C.x, C.y, C.z));

@@ -694,11 +694,11 @@ def vesper(p, lay, r):
     bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=1.6); bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'paint')
     # the boulevard: two carriageways either side of a green median with its trees, a canal down the middle of it
     ZB0, ZB1 = -2250, 2050
-    add_box(p, -56, DY, ZB0, 56, DY + 0.03, ZB1, 'rubber', 0); add_box(p, -22, DY, ZB0, 22, DY + 0.2, ZB1, 'leaf', 0); add_box(p, -6, DY + 0.18, ZB0 + 20, 6, DY + 0.22, ZB1 - 20, 'glass', 0)
+    add_box(p, -56, DY, ZB0, 56, DY + 0.03, ZB1, 'rubber', 0); add_box(p, -22, DY, ZB0, 22, DY + 0.2, ZB1, 'leaf', 0); add_box(p, -6, DY + 0.18, ZB0 + 20, 6, DY + 0.22, ZB1 - 20, 'mirror', 0)
     for x in (-56, -22, 22, 56): add_box(p, x - 0.3, DY, ZB0, x + 0.3, DY + 0.15, ZB1, 'stone', 0)
     for z in range(ZB0 + 20, ZB1, 30):
         if abs(z + 200) < 400: continue
-        for sx in (-1, 1): add_cyl(p, sx * 14, z, DY + 0.2, DY + 6, 0.6, 'bark', 6); _sphere(p, sx * 14, DY + 9, z, 4.2, 'leaf', 10, 5)
+        for sx in (-1, 1): add_cyl(p, sx * 14, z, DY + 0.19, DY + 0.24, 1.4, 'soil', 20)      # (a tree pit: the planet's own tree stands in it — js/main.js)
     # the spire, on a round plaza: one smooth body, its floors standing out of it, light running up its seams, six flying buttresses, a halo near the top
     SZ = -200.0
     add_cyl(p, 0, SZ, DY, DY + 0.1, 380, 'stone', 72); _hring(p, 0, DY + 0.1, SZ, 330, 0.6, 'glass', 72, 6)
@@ -739,7 +739,7 @@ def vesper(p, lay, r):
         add_box(p, B['x'] - 6, B['y'], B['z0'], B['x'] + 6, B['y'] + 8, B['z1'], 'tint', 0); add_box(p, B['x'] - 6.3, B['y'] + 2.5, B['z0'], B['x'] + 6.3, B['y'] + 5.5, B['z1'], 'lampwarm', 0)
     for Lf in V['lifts']:
         # the lift's door at the foot of the block, on the street: a frame, two leaves, the light that says it's there
-        x, _, z = Lf['street']; z += 2.6
+        x, _, z = Lf['street']; z += 1.7
         add_box(p, x - 2.0, DY, z - 0.4, x + 2.0, DY + 3.6, z, 'metal', 0); add_box(p, x - 1.4, DY, z - 0.46, x - 0.03, DY + 3.0, z - 0.4, 'paint', 0); add_box(p, x + 0.03, DY, z - 0.46, x + 1.4, DY + 3.0, z - 0.4, 'paint', 0)
         add_box(p, x - 1.4, DY + 3.15, z - 0.48, x + 1.4, DY + 3.45, z - 0.4, 'glow', 0)
     px_, pz_ = V['plaza']                                         # the plaza's lift, down to the docks
@@ -747,11 +747,8 @@ def vesper(p, lay, r):
     add_box(p, px_ - 1.8, DY + 4.2, pz_ - 1.8, px_ + 1.8, DY + 4.6, pz_ + 1.8, 'tint', 0); add_box(p, px_ - 1.5, DY + 0.2, pz_ - 1.5, px_ + 1.5, DY + 4.2, pz_ + 1.5, 'glass', 0); add_box(p, px_ - 1.7, DY + 4.3, pz_ - 1.85, px_ + 1.7, DY + 4.5, pz_ - 1.8, 'glow', 0)
     # parks under glass domes: lawns, trees, a lake, the dome's ribs meeting at a crown ring
     for (x, z, R) in PARKS:
-        add_cyl(p, x, z, DY, DY + 1.5, R, 'leaf', 48); add_cyl(p, x + R * 0.3, z - R * 0.2, DY + 1.5, DY + 1.7, R * 0.28, 'glass', 32)
-        for _ in range(40):
-            a = r.uniform(0, 6.28); q = R * math.sqrt(r.uniform(0.02, 0.8)); tx, tz = x + math.cos(a) * q, z + math.sin(a) * q
-            if math.hypot(tx - x - R * 0.3, tz - z + R * 0.2) < R * 0.32: continue
-            H_ = r.uniform(12, 26); add_cyl(p, tx, tz, DY + 1.5, DY + H_ * 0.6, 1.2, 'bark', 6); _sphere(p, tx, DY + H_ * 0.72, tz, H_ * 0.3, 'leaf', 12, 6)
+        add_cyl(p, x, z, DY, DY + 1.5, R, 'leaf', 96); add_cyl(p, x + R * 0.3, z - R * 0.2, DY + 1.5, DY + 1.56, R * 0.28, 'mirror', 64); add_cyl(p, x + R * 0.3, z - R * 0.2, DY + 1.45, DY + 1.62, R * 0.3, 'stone', 64, r2=R * 0.285)
+        # (its trees are the planet's own, put in by the game: js/gen/vesper.js parkTrees)
         st = [(DY + R * 0.7 * math.sin(math.pi / 2 * k / 12), x, max(0.5, R * math.cos(math.pi / 2 * k / 12)), z, max(0.5, R * math.cos(math.pi / 2 * k / 12)), 2) for k in range(13)]
         _yloft(p, st, 'glass', 64, top=False)
         _hring(p, x, DY + 1, z, R, 2.4, 'tint', 72, 6); _hring(p, x, DY + R * 0.7 - 1, z, R * 0.12, 1.6, 'tint', 24, 6)

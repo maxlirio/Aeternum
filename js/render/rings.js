@@ -30,7 +30,7 @@ function ringLit(base, g, U, inst = false) {
   return m;
 }
 const COL = { thatch: [0.76, 0.64, 0.3], corrugated: [0.6, 0.62, 0.6], render: [0.86, 0.8, 0.68], ceramic: [0.56, 0.7, 0.72], laminate: [0.78, 0.52, 0.46], plastic: [0.84, 0.68, 0.36], tint: [0.56, 0.64, 0.52], paint: [0.24, 0.27, 0.3], metal: [0.42, 0.43, 0.45], fabric: [0.78, 0.74, 0.66] };
-const FLOWER = { neonpink: [0.86, 0.36, 0.55], neonamber: [0.95, 0.66, 0.2], neonviolet: [0.5, 0.36, 0.8], neoncyan: [0.4, 0.75, 0.85], neongreen: [0.5, 0.8, 0.35], hazard: [0.95, 0.85, 0.3], navwhite: [0.95, 0.93, 0.9] };
+const FLOWER = { neonpink: [0.85, 0.12, 0.38], neonamber: [0.98, 0.5, 0.04], neonviolet: [0.38, 0.12, 0.8], neoncyan: [0.15, 0.55, 0.9], neongreen: [0.4, 0.75, 0.2], hazard: [1.0, 0.78, 0.08], navwhite: [0.95, 0.93, 0.9], navred: [0.8, 0.08, 0.06] };
 
 export class RingView {
   constructor(scene, lib, planet, flora) {
@@ -40,6 +40,7 @@ export class RingView {
   }
   load() {
     if (this.loading) return; this.loading = true;
+    fetch('./assets/ships/ring-plants.json').then(r => r.ok ? r.json() : {}).then(j => { this.plants = j; }).catch(() => { this.plants = {}; });
     gltfLoader().load('./assets/rings.glb', gltf => {
       gltf.scene.updateMatrixWorld(true); const M = {};
       gltf.scene.traverse(o => { if (!o.isMesh) return; let top = o; while (top.parent && top.parent !== gltf.scene) top = top.parent; const k = top.userData.kind; (M[k] ||= []).push({ g: bakedPart(o), slot: o.material.name }); });
@@ -54,6 +55,9 @@ export class RingView {
     if (slot === 'glass') return new THREE.MeshPhysicalMaterial({ color: 0xcfe4ee, roughness: 0.05, metalness: 0, transparent: true, opacity: g.kind === 'garden' ? 0.12 : 0.22, depthWrite: false, side: THREE.DoubleSide });
     if (slot === 'visor') return ringLit(new THREE.MeshStandardMaterial({ color: new THREE.Color(0.05, 0.09, 0.1), roughness: 0.08, metalness: 0.3, envMapIntensity: 0.45 }), g, U);
     if (slot === 'screen') return this.lib.surface('screen');
+    if (slot === 'mirror' && this.waterBase) {      // water: the same as the planet's rivers, its ripples running, the sky in it
+      const w = this.waterBase.clone(); w.normalMap = this.waterBase.normalMap.clone(); w.normalMap.needsUpdate = true; w.normalMap.repeat.set(0.16, 0.16); w.opacity = 0.9; (this.waters ||= []).push(w); return w;
+    }
     const c = COL[slot] || (g.kind === 'garden' && FLOWER[slot]) || (FLOWER[slot] && g.kind !== 'garden' ? null : null);
     return ringLit(c ? plain(c) : FLOWER[slot] ? plain(FLOWER[slot]) : this.lib.surface(slot), g, U);
   }
@@ -68,29 +72,15 @@ export class RingView {
       turn.visible = false;
     }
   }
-  // The planet's own trees, shrubs and ferns, standing up off the curved floor (up is toward the axle)
+  // The planet's own trees, shrubs and ferns, standing up off the curved floor (up is toward the axle); and in the pots and beds the model
+  // left room for (tools/assets/ring_kit.py writes where: assets/ships/ring-plants.json), more of the same
   trees(g, turn) {
-    const F = this.flora; if (!F?.kinds) return;
-    const set = plantSet(this.planet).filter(sp => F.kinds[sp]), L = ringLayout(g), by = {};
-    for (const it of L.items) {
-      if (it.t !== 'tree' && it.t !== 'shrub' && it.t !== 'fern') continue;
-      const sp = it.t === 'tree' ? set[it.k % set.length] : it.t; if (!sp || !F.kinds[sp]) continue; (by[sp] ||= []).push(it);
-    }
-    const U = { day: this.U.day, glass: { value: g.kind === 'garden' ? 1 : 0.4 } }, m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), c = new THREE.Color(), Z = new THREE.Vector3(0, 0, 1), Y = new THREE.Vector3(0, 1, 0);
-    for (const [sp, list] of Object.entries(by)) {
-      const K = F.kinds[sp], [Lx, Dz, H] = K.dims;
-      for (const P of K.prims) {
-        const im = new THREE.InstancedMesh(P.pr.geometry, ringLit(P.pr.material, g, U, true), list.length); im.frustumCulled = false;
-        if (P.leafy) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 3), 3);
-        list.forEach((it, i) => {
-          const a = it.s / g.Rf, rho = g.Rf, k = (it.k % 1000) / 1000, sc = it.h / H, sx = sc * (0.85 + 0.3 * k);
-          q.setFromAxisAngle(Z, a).multiply(q2.setFromAxisAngle(Y, k * 6.283));
-          m4.compose(new THREE.Vector3(rho * Math.sin(a), -rho * Math.cos(a) + 0, W / 2 - it.x), q, new THREE.Vector3(sx, sc, sx)).multiply(new THREE.Matrix4().makeTranslation(-Lx / 2, -0.05 / sc, -Dz / 2));
-          im.setMatrixAt(i, m4); if (P.leafy) { F.leafColour(sp, k, c); im.setColorAt(i, c); }
-        });
-        turn.add(im);
-      }
-    }
+    const set = plantSet(this.planet).filter(sp => this.flora?.kinds?.[sp]), L = ringLayout(g), spots = [];
+    for (const it of L.items) if (it.t === 'tree' || it.t === 'shrub' || it.t === 'fern') spots.push({ sp: it.t === 'tree' ? set[it.k % set.length] : it.t, x: it.x, y: 0, s: it.s, h: it.h, k: it.k });
+    for (const q of this.plants?.[g.key] || []) spots.push({ sp: q[0], x: q[1], y: q[2], s: q[3], h: q[4], k: q[5] });
+    const Z = new THREE.Vector3(0, 0, 1);
+    const grp = plantGroup(this.flora, spots, (it, q) => { const a = it.s / g.Rf, rho = g.Rf - it.y; q.setFromAxisAngle(Z, a); return new THREE.Vector3(rho * Math.sin(a), -rho * Math.cos(a), W / 2 - it.x); }, m => ringLit(m, g, { day: this.U.day, glass: { value: g.kind === 'garden' ? 1 : 0.4 } }, true));
+    if (grp) turn.add(grp);
   }
   // C: the Meridian (gen/capital.js fleet entry). day: 0 night .. 1 noon at home.
   // inside: the ring you're in (gen/rings.js key), or null outside, where only the glazed one shows anything through its skin
@@ -98,9 +88,10 @@ export class RingView {
     if (!C) return;
     const r = toRender(C.x, C.y, C.z), far = Math.hypot(r[0] - eye.x, r[1] - eye.y, r[2] - eye.z);
     if (far < 3500) this.load();
-    this.group.visible = far < 2600 && !!this.models;
+    if (far < 2600 && this.models && this.plants && !this.built) this.build(C);
+    this.group.visible = far < 2600 && this.built;
     if (!this.group.visible) return;
-    if (!this.built) this.build(C);
+    if (this.waters) { const k = (this.lastT === undefined ? 0 : t - this.lastT); for (const w of this.waters) w.normalMap.offset.y -= k * 0.05; } this.lastT = t;
     this.U.day.value = day;
     this.group.position.set(r[0], r[1], r[2]); this.group.rotation.set(0, C.yaw, 0);
     for (const { g, turn } of this.spin) { turn.rotation.z = ringTurn(g, t); turn.visible = inside ? inside === g.key : g.kind === 'garden' && far < 1800; }
@@ -121,4 +112,26 @@ export function bendAt(world, b, C, t, x, y, z, toRender, out) {
   const pr = toRender(...P), fr = toRender(x, y, z);
   out.makeTranslation(pr[0], pr[1], pr[2]).multiply(_E).multiply(_F).multiply(_T.makeTranslation(-fr[0], -fr[1], -fr[2]));
   return out;
+}
+
+// Plants of the planet's own kinds at a list of spots ({ sp, x, y, s, h, k } in some frame): place(spot, quaternion) → position, the
+// quaternion set to which way is up there. One instanced mesh per part of each kind. mat(m): the material each part is drawn with.
+export function plantGroup(F, spots, place, mat = m => m) {
+  if (!F?.kinds) return null; const by = {};
+  for (const it of spots) if (it.sp && F.kinds[it.sp]) (by[it.sp] ||= []).push(it);
+  const grp = new THREE.Group(), m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), q2 = new THREE.Quaternion(), c = new THREE.Color(), Y = new THREE.Vector3(0, 1, 0);
+  for (const [sp, list] of Object.entries(by)) {
+    const K = F.kinds[sp], [Lx, Dz, H] = K.dims;
+    for (const P of K.prims) {
+      const im = new THREE.InstancedMesh(P.pr.geometry, mat(P.pr.material), list.length); im.frustumCulled = false; im.castShadow = false;
+      if (P.leafy) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(list.length * 3), 3);
+      list.forEach((it, i) => {
+        const k = ((it.k ?? i * 7919) % 1000) / 1000, sc = it.h / H, sx = sc * (0.85 + 0.3 * k), pos = place(it, q); q.multiply(q2.setFromAxisAngle(Y, k * 6.283));
+        m4.compose(pos, q, new THREE.Vector3(sx, sc, sx)).multiply(new THREE.Matrix4().makeTranslation(-Lx / 2, -0.05 / sc, -Dz / 2));
+        im.setMatrixAt(i, m4); if (P.leafy) { F.leafColour(sp, k, c); im.setColorAt(i, c); }
+      });
+      grp.add(im);
+    }
+  }
+  return grp;
 }
