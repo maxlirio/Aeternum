@@ -43,6 +43,8 @@ import { CapitalView } from './render/capital.js';
 import { fleetOf, fleetContact } from './gen/capital.js';
 import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
 import { ringStructure, spinOf, wrapRing } from './world/rings.js';
+import { vesperStructure } from './world/vesper.js';
+import { vesperCity } from './gen/vesper.js';
 import { RingView, bendAt } from './render/rings.js';
 import { TerrainStreamer, terrainTime, terrainWind, terrainFar } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
@@ -415,6 +417,7 @@ async function start(fresh) {
   // ---- city lifts: every tall building's lift stops at its street door, its pads, skybridges and roof
   function liftNear() {
     if (ctrl.mode !== 'walk' || ride || flight) return null;
+    { const V = vesperLift(); if (V) return V; }
     { const ML = meridianLift(), here = ringHere(); let st = null, d = 9;
       const stops = [ML && { label: 'Promenade — the Meridian\'s decks', at: [ML.at[0], ML.at[1] + 0.05, ML.at[2]], deck: true }, ...ringStructs.map(b => ({ label: `${b.label[0].toUpperCase() + b.label.slice(1)} — ${b.plan.rooms[0].label}`, at: ringStop(b), ring: b }))].filter(Boolean);
       if (ML) { const q = Math.hypot(ML.at[0] - ctrl.pos[0], ML.at[2] - ctrl.pos[2]); if (q < 2.2 && Math.abs(ML.at[1] - ctrl.pos[1]) < 1.6) { st = stops[0]; d = q; } }
@@ -436,7 +439,8 @@ async function start(fresh) {
     if (!pick || pick.a !== 'go') return;
     const q = L.stops[+pick.v];
     if (q.at) {         // up a spoke to the hub, where you weigh nothing, along it, and down another
-      clock.advance(70); ctrl.pos = q.at.slice(); ctrl.vel = [0, 0, 0]; ctrl.grounded = false;
+      const rise = q.at[1] - ctrl.pos[1]; clock.advance(q.ring || q.deck ? 70 : Math.max(10, Math.abs(rise) / 8)); ctrl.pos = q.at.slice(); ctrl.vel = [0, 0, 0]; ctrl.grounded = false;
+      if (!q.ring && !q.deck) { ui.toast(`The lift ${rise > 0 ? 'climbs' : 'drops'} ${Math.round(Math.abs(rise))} m. <small>${esc(q.label)}</small>`, '', 4000); return; }
       ui.toast(q.deck ? 'Up the spoke, along the axle where you weigh nothing, and out into the Meridian\'s promenade.' : `The cab climbs the spoke and you get lighter, float a moment at the hub, then grow heavy again going down into <b>${esc(q.ring.label)}</b>.`, '', 6000);
       return;
     }
@@ -901,6 +905,24 @@ async function start(fresh) {
   const ringBend = new THREE.Matrix4(), _rm = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
   function meridianLift() {     // the spoke lift's door in the Meridian's promenade, if its decks are standing
     const b = meridian && placed.get(meridian.ship.id); return b ? { b, at: b2w(b, 2.7, b.plan.layout.deck, 48.25) } : null;
+  }
+  // ---- the Vesper's city deck (gen/vesper.js): streets you can walk, roofs you can land on, lifts up the towers, and one down to the docks
+  const vesper = fleet.find(C => C.model === 'vesper'), vesperB = vesper ? vesperStructure(homeS, vesper) : null;
+  if (vesperB) { world.owner.set(vesperB, homeS); world.loose.push({ b: vesperB, x: vesper.x, z: vesper.z, r: 2800 }); }
+  const VC = vesper ? vesperCity() : null;
+  function vesperLift() {
+    if (!vesperB) return null; const p = ctrl.pos, near = (q, r = 2.4) => Math.hypot(q[0] - p[0], q[2] - p[2]) < r && Math.abs(q[1] - p[1]) < 1.8;
+    const db = placed.get(vesper.ship.id), dock = db && b2w(db, 2.7, db.plan.layout.deck, 48.25), plaza = vesperB.toWorld(VC.plaza[0], VC.DY, VC.plaza[1] - 2.6);
+    const down = [dock && { label: 'The docks — promenade', at: [dock[0], dock[1] + 0.05, dock[2]] }, { label: 'The city deck — the spire plaza', at: [plaza[0], plaza[1] + 0.05, plaza[2]] }].filter(Boolean);
+    if (dock && near(dock, 2.2)) return { L: { b: { label: 'the city lift' }, stops: down }, st: down[0], d: 1 };
+    if (near(plaza)) return { L: { b: { label: 'the city lift' }, stops: down }, st: down[down.length - 1], d: 1 };
+    for (const Lf of VC.lifts) {
+      const T = VC.towers[Lf.tower], st = vesperB.toWorld(...Lf.street), rf = vesperB.toWorld(...Lf.roof);
+      const stops = [{ label: 'The street', at: [st[0], st[1] + 0.05, st[2]] }, { label: `The roof — ${Math.round(T.top - VC.DY)} m up`, at: [rf[0], rf[1] + 0.05, rf[2]] }];
+      if (near(st)) return { L: { b: { label: `tower ${T.id + 1}` }, stops }, st: stops[0], d: 1 };
+      if (near(rf)) return { L: { b: { label: `tower ${T.id + 1}` }, stops }, st: stops[1], d: 1 };
+    }
+    return null;
   }
   const nearRamp = () => {
     if (ctrl.mode !== 'walk') return null;
@@ -1708,7 +1730,7 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, capitalView, ringView, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

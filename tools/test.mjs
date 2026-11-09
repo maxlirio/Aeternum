@@ -1681,6 +1681,32 @@ suites.rings = async () => {
   }
 };
 
+suites.vesper = async () => {
+  const { vesperCity, DY } = await import('../js/gen/vesper.js'), { vesperStructure } = await import('../js/world/vesper.js'), { fleetOf, fleetContact } = await import('../js/gen/capital.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js');
+  const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => true), C = fleetOf(p, s).find(c => c.model === 'vesper'), V = vesperCity();
+  const b = vesperStructure(s, C); world.owner.set(b, s); world.loose.push({ b, x: C.x, z: C.z, r: 2800 });
+  const settle = (q, secs = 1) => { const c = new Controller(world, [q[0], q[1] + 0.6, q[2]]); for (let t = 0; t < secs; t += 1 / 60) c.step(1 / 60, { fwd: 0, right: 0, yaw: 0 }); return c; };
+  let bad = 0, roofsBad = 0;
+  for (const Lf of V.lifts) {
+    const st = b.toWorld(...Lf.street), rf = b.toWorld(...Lf.roof), a = settle(st), r = settle(rf);
+    if (!a.grounded || Math.abs(a.pos[1] - st[1]) > 0.05 || Math.hypot(a.pos[0] - st[0], a.pos[2] - st[2]) > 0.05) bad++;
+    if (!r.grounded || Math.abs(r.pos[1] - rf[1]) > 0.05) roofsBad++;
+  }
+  check(V.lifts.length > 30 && !bad, `${V.lifts.length} tower lifts, every street door on clear deck (${bad} not)`);
+  check(!roofsBad, `and every roof they reach is something to stand on (${roofsBad} not)`);
+  // walk the length of a cross street and across the city; and walk off a roof's edge: the rail holds you
+  { const T = V.towers[V.lifts[0].tower], rf = b.toWorld(...V.lifts[0].roof), c = settle(rf), yaw = Math.atan2(...(() => { const q = b.toWorld(T.x + 1, 0, T.z), o = b.toWorld(T.x, 0, T.z); return [q[0] - o[0], q[2] - o[2]]; })());
+    for (let t = 0; t < 30; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw, run: true });
+    check(c.grounded && Math.abs(c.pos[1] - rf[1]) < 0.05, `ran at the roof's edge ${Math.round(rf[1] - C.y - DY)} m up and stayed on it`); }
+  { const st = b.toWorld(...V.lifts[0].street), c = settle(st), o = b.toWorld(0, 0, 0), q = b.toWorld(1, 0, 0), yaw = Math.atan2(q[0] - o[0], q[2] - o[2]);
+    for (let t = 0; t < 20; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw, run: true });
+    check(c.grounded && Math.abs(c.pos[1] - (C.y + DY)) < 0.05 && Math.hypot(c.pos[0] - st[0], c.pos[2] - st[2]) > 60, `walked ${Math.round(Math.hypot(c.pos[0] - st[0], c.pos[2] - st[2]))} m down a street`); }
+  { const pl = b.toWorld(V.plaza[0], DY, V.plaza[1] - 2.6), c = settle(pl); check(c.grounded && Math.abs(c.pos[1] - pl[1]) < 0.05, 'the plaza lift stands on open deck'); }
+  // flying in: nothing solid in the air over the deck, and the deck is ground under a ship's feet
+  { const q = b.toWorld(V.plaza[0], DY + 30, V.plaza[1] + 40); check(!fleetContact([C], q[0], q[1], q[2], 4), 'the air over the city deck is open to fly into');
+    const g = world.groundAt(q[0], q[2], q[1]); check(Math.abs(g.h - (C.y + DY)) < 0.01, 'and the deck is ground to land on'); }
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

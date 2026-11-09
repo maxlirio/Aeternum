@@ -144,6 +144,18 @@ try {
     const L = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), M = O.meridianLift(); if (!M) return 'no decks'; O.ctrl.pos = [M.at[0], M.at[1] + 0.05, M.at[2]]; O.ctrl.vel = [0, 0, 0]; await wait(800); const lf = O.liftNear(); return lf ? lf.L.stops.map(q => q.label) : 'no lift here'; })()`);
     console.log('   lift', JSON.stringify(L));
   }
+  if (want('vesper')) {
+    await load('hour=' + (process.env.HOUR || 16) + '&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.vesper ? 1 : 0')); i++) await sleep(500);
+    const spots = [['street', 'street', 0, 0.06, 4], ['roof', 'roof', 0, -0.25, 6], ['roof2', 'roof', 2.4, 0.05, 5], ['plaza', 'plaza', 3.14, 0.12, 6]];
+    for (const [tag, where, turn, pitch, dist] of spots) {
+      const R = await ev(`(async () => { const O = ORBIS, b = O.vesperB, V = await import('./js/gen/vesper.js').then(m => m.vesperCity()), wait = ms => new Promise(r => setTimeout(r, ms)); O.setFlightForTest(null); O.ctrl.mode = 'walk';
+        const Lf = V.lifts.slice().sort((a, c) => V.towers[c.tower].h - V.towers[a.tower].h)[${tag === 'roof2' ? 3 : 0}], at = '${where}' === 'plaza' ? b.toWorld(V.plaza[0], V.DY, V.plaza[1] - 6) : b.toWorld(...Lf['${where}' === 'roof' ? 'roof' : 'street']);
+        O.ctrl.pos = [at[0], at[1] + 0.3, at[2]]; O.ctrl.vel = [0, 0, 0]; const o = b.toWorld(0, 0, 0), q = b.toWorld(0, 0, 1), yaw = Math.atan2(q[0] - o[0], q[2] - o[2]) + ${turn}; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; await wait(3000);
+        return { grounded: O.ctrl.grounded, y: +(O.ctrl.pos[1] - at[1]).toFixed(2), lift: O.liftNear()?.L?.stops?.map(s => s.label) }; })()`);
+      console.log('   vesper', tag, JSON.stringify(R)); await shot('vesper-' + tag);
+    }
+  }
   if (want('cabin')) {
     await load('hour=' + (process.env.HOUR || 14));
     const list = await ev(`ORBIS.getShips().filter(sh => !sh.fleet && !sh.flying).slice(0, 12).map(sh => [sh.id, sh.model])`);

@@ -606,7 +606,7 @@ def _arc(p, pts, w0, w1, mat, n=14):
         if prev is not None: _beam(p, tuple(prev), tuple(q), w0 + (w1 - w0) * (k - 0.5) / n, mat)
         prev = q
 
-def _city_tower(p, x, z, y0, h, w, d, r, kind):
+def _city_tower(p, x, z, y0, h, w, d, r, kind, crown=None):
     """One building of the ark's city, as a building is made: a glass body, its floor slabs standing out of the glass, lit floors where people are awake, fins down the corners, and a crown of its own."""
     e = {'slab': 5.0, 'round': 2.0, 'stepped': 4.0, 'needle': 2.6}[kind]; n = 16 if h < 120 else 24
     tp = {'slab': 0.9, 'round': 0.82, 'stepped': 1.0, 'needle': 0.42}[kind]
@@ -628,13 +628,16 @@ def _city_tower(p, x, z, y0, h, w, d, r, kind):
     # the crown
     yt = y0 + h; rx, rz = (w / 2 * tiers[-1][2] * (tp if kind != 'stepped' else 1), d / 2 * tiers[-1][2] * (tp if kind != 'stepped' else 1))
     q = r.random()
+    if crown: q = {'cone': 0.0, 'pad': 0.3, 'cap': 0.9}[crown]
     if kind == 'needle' or q < 0.1:
         _yloft(p, [(yt, x, rx, z, rz, e), (yt + h * 0.12, x, rx * 0.35, z, rz * 0.35, e), (yt + h * 0.2, x, 0.6, z, 0.6, 2)], 'tint', n)
         add_cyl(p, x, z, yt + h * 0.2, yt + h * 0.32, 0.6, 'metal', 6, r2=0.1); add_cyl(p, x, z, yt + h * 0.32, yt + h * 0.32 + 1.2, 0.5, 'navred', 6)
     elif q < 0.6:
+        # a pad you can land on and walk out over (js/gen/vesper.js): its deck, the circle painted on it, a glass rail round the edge, the lift's housing
         _yloft(p, [(yt, x, rx * 1.03, z, rz * 1.03, e), (yt + 6, x, rx * 1.03, z, rz * 1.03, e)], 'tint', n)
-        add_cyl(p, x, z, yt + 6, yt + 7, min(rx, rz) * 0.7, 'paint', 24); _hring(p, x, yt + 7.2, z, min(rx, rz) * 0.62, 0.5, 'hazard', 24, 4)
-        for _ in range(3): bx, bz = x + r.uniform(-rx, rx) * 0.6, z + r.uniform(-rz, rz) * 0.6; add_box(p, bx - 4, yt + 6, bz - 4, bx + 4, yt + 10, bz + 4, 'metal', 0) if abs(bx - x) > rx * 0.55 or abs(bz - z) > rz * 0.55 else None
+        add_cyl(p, x, z, yt + 6, yt + 6.03, min(rx, rz) * 0.62, 'paint', 32); _hring(p, x, yt + 6.05, z, min(rx, rz) * 0.55, 0.35, 'hazard', 32, 4)
+        _band(p, x, z, yt + 6, yt + 7.1, rx * 0.97, rz * 0.97, e, 0.06, 'glass', n); _band(p, x, z, yt + 7.1, yt + 7.2, rx * 0.97, rz * 0.97, e, 0.12, 'metal', n)
+        lz = z - rz * 0.45; add_box(p, x - 1.6, yt + 6, lz - 3.2, x + 1.6, yt + 9.2, lz - 0.4, 'tint', 0); add_box(p, x - 1.1, yt + 6, lz - 0.42, x + 1.1, yt + 8.6, lz - 0.36, 'metal', 0); add_box(p, x - 0.05, yt + 6.2, lz - 0.36, x + 0.05, yt + 8.4, lz - 0.34, 'glow', 0)
     else:
         _yloft(p, [(yt, x, rx, z, rz, e), (yt + 3, x, rx * 1.06, z, rz * 1.06, e), (yt + 4, x, rx * 0.9, z, rz * 0.9, e)], 'tint', n)
         _yloft(p, [(yt + 4, x, rx * 0.9, z, rz * 0.9, e), (yt + 4 + h * 0.06, x, rx * 0.5, z, rz * 0.5, e)], 'visor', n)
@@ -691,13 +694,14 @@ def vesper(p, lay, r):
     bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=1.6); bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'paint')
     # the boulevard: two carriageways either side of a green median with its trees, a canal down the middle of it
     ZB0, ZB1 = -2250, 2050
-    add_box(p, -56, DY, ZB0, 56, DY + 0.6, ZB1, 'rubber', 0); add_box(p, -22, DY + 0.6, ZB0, 22, DY + 1.4, ZB1, 'leaf', 0); add_box(p, -6, DY + 1.3, ZB0 + 20, 6, DY + 1.5, ZB1 - 20, 'glass', 0)
+    add_box(p, -56, DY, ZB0, 56, DY + 0.03, ZB1, 'rubber', 0); add_box(p, -22, DY, ZB0, 22, DY + 0.2, ZB1, 'leaf', 0); add_box(p, -6, DY + 0.18, ZB0 + 20, 6, DY + 0.22, ZB1 - 20, 'glass', 0)
+    for x in (-56, -22, 22, 56): add_box(p, x - 0.3, DY, ZB0, x + 0.3, DY + 0.15, ZB1, 'stone', 0)
     for z in range(ZB0 + 20, ZB1, 30):
         if abs(z + 200) < 400: continue
-        for sx in (-1, 1): add_cyl(p, sx * 14, z, DY + 1.4, DY + 6, 0.6, 'bark', 6); _sphere(p, sx * 14, DY + 9, z, 4.2, 'leaf', 10, 5)
+        for sx in (-1, 1): add_cyl(p, sx * 14, z, DY + 0.2, DY + 6, 0.6, 'bark', 6); _sphere(p, sx * 14, DY + 9, z, 4.2, 'leaf', 10, 5)
     # the spire, on a round plaza: one smooth body, its floors standing out of it, light running up its seams, six flying buttresses, a halo near the top
     SZ = -200.0
-    add_cyl(p, 0, SZ, DY, DY + 1.2, 380, 'stone', 72); _hring(p, 0, DY + 1.4, SZ, 330, 6, 'glass', 72, 6)
+    add_cyl(p, 0, SZ, DY, DY + 0.1, 380, 'stone', 72); _hring(p, 0, DY + 0.1, SZ, 330, 0.6, 'glass', 72, 6)
     prof_ = [(DY, 230), (DY + 120, 205), (DY + 300, 160), (DY + 520, 112), (DY + 720, 74), (DY + 880, 44), (DY + 980, 22), (DY + 1050, 6)]
     secs = [(y, 0, rad, SZ, rad, 2.3) for (y, rad) in (tuple(q) for q in smooth_secs(prof_, 6))]
     _yloft(p, secs, 'visor', 48)
@@ -716,30 +720,31 @@ def vesper(p, lay, r):
     _hring(p, 0, DY + 900, SZ, 120, 4, 'tint', 72, 8); _hring(p, 0, DY + 900, SZ, 120, 1.2, 'glow', 72, 6)
     for k in range(6): a = k * math.pi / 3; _beam(p, (math.cos(a) * rad_at(DY + 890), DY + 890, SZ + math.sin(a) * rad_at(DY + 890)), (math.cos(a) * 118, DY + 900, SZ + math.sin(a) * 118), 3, 'tint')
     add_cyl(p, 0, SZ, DY + 1050, DY + 1240, 3.4, 'metal', 12, r2=0.4); add_cyl(p, 0, SZ, DY + 1240, DY + 1243, 1.4, 'navred', 8)
-    # the city: blocks between avenues and cross streets, each built up with a podium and its towers, tallest round the spire
-    PARKS = ((-420, 1050, 190), (420, -1450, 170), (-400, -1700, 150))
-    zc_ = list(range(-2400, 2350, 250)); bands = [(70, 300), (330, 900)]
-    for z0, z1 in zip(zc_, zc_[1:]):
-        z0 += 16; z1 -= 16
-        for (bx0, bx1) in bands:
-            edge = min(deck_x(z0), deck_x(z1)) - 30; bx1 = min(bx1, edge)
-            if bx1 - bx0 < 60: continue
-            for sx in (-1, 1):
-                xa, xb = (bx0, bx1) if sx > 0 else (-bx1, -bx0); xm, zm = (xa + xb) / 2, (z0 + z1) / 2
-                if math.hypot(xm, zm - SZ) < 470 or any(math.hypot(xm - a, zm - b) < R_ + 140 for (a, b, R_) in PARKS): continue
-                # the podium
-                _yloft(p, [(DY, xm, (xb - xa) / 2 - 4, zm, (z1 - z0) / 2 - 4, 7), (DY + 14, xm, (xb - xa) / 2 - 4, zm, (z1 - z0) / 2 - 4, 7)], 'tint', 28)
-                _band(p, xm, zm, DY + 5, DY + 10, (xb - xa) / 2 - 4.5, (z1 - z0) / 2 - 4.5, 7, 0.3, 'lampwarm' if r.random() < 0.6 else 'visor', 28)
-                nx = 1 if xb - xa < 170 else 2; nz = 1 if r.random() < 0.4 else 2
-                for i in range(nx):
-                    for j in range(nz):
-                        cx = xa + (xb - xa) * (i + 0.5) / nx + r.uniform(-8, 8); cz = z0 + (z1 - z0) * (j + 0.5) / nz + r.uniform(-8, 8)
-                        lw, ld = (xb - xa) / nx * r.uniform(0.5, 0.74), (z1 - z0) / nz * r.uniform(0.5, 0.74)
-                        ds = math.hypot(cx, cz - SZ); h = (70 + 430 * math.exp(-ds / 950)) * r.uniform(0.6, 1.25) * (1 - 0.45 * (abs(cx) / 800) ** 2) * (0.7 - 0.45 * min(1, (cz - 1500) / 800) if cz > 1500 else 0.7 - 0.4 * min(1, (-1950 - cz) / 450) if cz < -1950 else 1)
-                        kind = r.choice(('slab', 'slab', 'round', 'stepped', 'stepped', 'slab', 'needle')) if h > 120 else r.choice(('slab', 'round'))
-                        _city_tower(p, cx, cz, DY + 14, h, min(lw, 140), min(ld, 140), r, kind)
-                        if nz == 2 and j == 0 and h > 160 and r.random() < 0.5:
-                            yb_ = DY + 14 + h * r.uniform(0.35, 0.6); add_box(p, cx - 6, yb_, cz + ld / 2 * 0.8, cx + 6, yb_ + 8, cz + (z1 - z0) / 2 - ld / 2 * 0.8 + 6, 'tint', 0); add_box(p, cx - 6.3, yb_ + 2.5, cz + ld / 2 * 0.8, cx + 6.3, yb_ + 5.5, cz + (z1 - z0) / 2 - ld / 2 * 0.8 + 6, 'lampwarm', 0)
+    # the city: blocks between avenues and cross streets, each built up with a podium and its towers, tallest round the spire. Laid out by
+    # js/gen/vesper.js (assets/ships/vesper.json) so the streets, roofs and lifts here are the ones the game walks
+    V = json.load(open(os.path.join(ROOT, 'assets', 'ships', 'vesper.json'))); PARKS = [tuple(q) for q in V['parks']]
+    for P_ in V['podiums']:
+        xm, zm, hx, hz = P_['xm'], P_['zm'], P_['hx'], P_['hz']
+        _yloft(p, [(DY, xm, hx, zm, hz, 7), (DY + 14, xm, hx, zm, hz, 7)], 'tint', 28)
+        _band(p, xm, zm, DY + 7, DY + 11, hx - 0.5, hz - 0.5, 7, 0.3, 'lampwarm' if P_['lit'] else 'visor', 28)
+        # at street level: shopfronts all round, an awning over them, a kerbed pavement out to the street
+        _band(p, xm, zm, DY + 0.15, DY + 4.6, hx, hz, 7, 0.25, 'visor', 28); _band(p, xm, zm, DY + 4.6, DY + 4.9, hx, hz, 7, 2.2, 'metal', 28)
+        _yloft(p, [(DY, xm, hx + 4.0, zm, hz + 4.0, 7), (DY + 0.14, xm, hx + 4.0, zm, hz + 4.0, 7)], 'stone', 28)
+    for T in V['towers']:
+        _city_tower(p, T['x'], T['z'], T['y0'], T['h'], T['w'], T['d'], random.Random(T['seed']), T['kind'], T['crown'])
+    for i, (x, z) in enumerate(V['lamps']):
+        add_cyl(p, x, z, DY, DY + 0.4, 0.2, 'paint', 8); add_cyl(p, x, z, DY + 0.4, DY + 4.8, 0.08, 'paint', 6, r2=0.06); add_box(p, x - 0.5, DY + 4.75, z - 0.12, x + 0.5, DY + 4.9, z + 0.12, 'paint', 0); add_box(p, x - 0.45, DY + 4.6, z - 0.1, x + 0.45, DY + 4.75, z + 0.1, 'lampwarm', 0)
+        if i % 2 == 0: add_box(p, x - 1.0, DY, z + 1.0, x + 1.0, DY + 0.45, z + 1.5, 'wood', 0)
+    for B in V['bridges']:
+        add_box(p, B['x'] - 6, B['y'], B['z0'], B['x'] + 6, B['y'] + 8, B['z1'], 'tint', 0); add_box(p, B['x'] - 6.3, B['y'] + 2.5, B['z0'], B['x'] + 6.3, B['y'] + 5.5, B['z1'], 'lampwarm', 0)
+    for Lf in V['lifts']:
+        # the lift's door at the foot of the block, on the street: a frame, two leaves, the light that says it's there
+        x, _, z = Lf['street']; z += 2.6
+        add_box(p, x - 2.0, DY, z - 0.4, x + 2.0, DY + 3.6, z, 'metal', 0); add_box(p, x - 1.4, DY, z - 0.46, x - 0.03, DY + 3.0, z - 0.4, 'paint', 0); add_box(p, x + 0.03, DY, z - 0.46, x + 1.4, DY + 3.0, z - 0.4, 'paint', 0)
+        add_box(p, x - 1.4, DY + 3.15, z - 0.48, x + 1.4, DY + 3.45, z - 0.4, 'glow', 0)
+    px_, pz_ = V['plaza']                                         # the plaza's lift, down to the docks
+    for (a_, b_) in ((-1.6, -1.6), (1.6, -1.6), (1.6, 1.6), (-1.6, 1.6)): add_box(p, px_ + a_ - 0.12, DY, pz_ + b_ - 0.12, px_ + a_ + 0.12, DY + 4.2, pz_ + b_ + 0.12, 'metal', 0)
+    add_box(p, px_ - 1.8, DY + 4.2, pz_ - 1.8, px_ + 1.8, DY + 4.6, pz_ + 1.8, 'tint', 0); add_box(p, px_ - 1.5, DY + 0.2, pz_ - 1.5, px_ + 1.5, DY + 4.2, pz_ + 1.5, 'glass', 0); add_box(p, px_ - 1.7, DY + 4.3, pz_ - 1.85, px_ + 1.7, DY + 4.5, pz_ - 1.8, 'glow', 0)
     # parks under glass domes: lawns, trees, a lake, the dome's ribs meeting at a crown ring
     for (x, z, R) in PARKS:
         add_cyl(p, x, z, DY, DY + 1.5, R, 'leaf', 48); add_cyl(p, x + R * 0.3, z - R * 0.2, DY + 1.5, DY + 1.7, R * 0.28, 'glass', 32)

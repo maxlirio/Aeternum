@@ -28,6 +28,27 @@ function plated(base, colour, k = 1) {
   m.customProgramCacheKey = () => 'plated-' + k;
   return m;
 }
+// Glass on the outside of a ship, close to: a curtain wall. Floors every 3.6 m, mullions every 1.5, each pane its own tint, rooms lit behind some.
+// From far off it settles to the plain dark glass it is (the lines would only shimmer).
+function facade(base) {
+  const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(0.06, 0.08, 0.11), roughness: 0.08, metalness: 0.5, envMapIntensity: 1.1 });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vShip; varying vec3 vShipN;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvShip = position; vShipN = normal;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vShip; varying vec3 vShipN;
+      float hf(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      { vec3 n = normalize(vShipN); float side = abs(n.y) < 0.6 ? 1.0 : 0.0; float u = abs(n.x) > abs(n.z) ? vShip.z : vShip.x;
+        float fl = vShip.y / 3.6, cl = u / 1.5; vec2 f = fract(vec2(cl, fl)); float dist = length(vViewPosition), fade = side * (1.0 - smoothstep(250.0, 900.0, dist));
+        float frame = max(1.0 - smoothstep(0.0, 0.035, min(f.x, 1.0 - f.x)), 1.0 - smoothstep(0.0, 0.06, min(f.y, 1.0 - f.y)));
+        float cell = hf(vec3(floor(cl), floor(fl), 7.0)), room = hf(vec3(floor(cl / 3.0), floor(fl), 3.0));
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * (0.85 + 0.3 * cell), fade);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.32, 0.33, 0.34), frame * fade);
+        totalEmissiveRadiance += vec3(1.0, 0.8, 0.55) * step(0.9, room) * (1.0 - frame) * fade * 0.28 * (0.3 + 0.7 * step(f.y, 0.85)); }`);
+  };
+  m.customProgramCacheKey = () => 'facade';
+  return m;
+}
 // Inside, the sun doesn't reach: rooms are lit by their own fittings, in pools under each (they stand on the same grid: tools/assets/capital_kit.py), with a wash of daylight in from the open dock. (No shadow map could stop the sun at this scale.)
 function roomLit(base, deckY, bay) {
   const m = base.clone();
@@ -90,6 +111,7 @@ export class CapitalView {
   partMaterial(slot, C) {
     const base = this.lib.surface(slot === 'tint' ? 'tint-hull' : slot), plain = (col, rough, metal) => { const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...col), roughness: rough, metalness: metal, envMapIntensity: 1 }); return m; };
     if (slot === 'tint') return C.sleek ? new THREE.MeshPhysicalMaterial({ color: C.dark ? new THREE.Color(0.018, 0.02, 0.026) : new THREE.Color(0.78, 0.76, 0.72), roughness: 0.24, metalness: 0.2, clearcoat: C.dark ? 0.35 : 1, clearcoatRoughness: 0.05, envMapIntensity: C.dark ? 0.3 : 1 }) : plated(base, LIVERY[C.livery ?? C.colour % 3], Math.max(1, C.length / 1100));
+    if (slot === 'visor') return facade(base);
     if (slot === 'metal') return plain([0.34, 0.33, 0.32], 0.42, 0.9);
     if (slot === 'heatshield') return plain([0.03, 0.03, 0.033], 0.85, 0.05);
     if (slot === 'paint') return plain([0.16, 0.17, 0.19], 0.6, 0.3);
