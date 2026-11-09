@@ -41,6 +41,9 @@ import { catchUp } from './sim/offline.js';
 import { whereAt } from './gen/schedule.js';
 import { CapitalView } from './render/capital.js';
 import { fleetOf, fleetContact } from './gen/capital.js';
+import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
+import { ringStructure, spinOf, wrapRing } from './world/rings.js';
+import { RingView, bendAt } from './render/rings.js';
 import { TerrainStreamer, terrainTime, terrainWind, terrainFar } from './render/terrain.js';
 import { SkySystem } from './render/sky.js';
 import { buildSettlementMesh, poolMaterial } from './render/settlement-mesh.js';
@@ -213,6 +216,7 @@ async function start(fresh) {
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const capitalView = new CapitalView(scene, propLib); setTimeout(() => capitalView.load(), 2500);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
+  const ringView = new RingView(scene, propLib, planet, flora);
   const grass = new GrassField(planet); root.add(grass.group);
   let town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView);
   root.add(town.group);
@@ -411,6 +415,12 @@ async function start(fresh) {
   // ---- city lifts: every tall building's lift stops at its street door, its pads, skybridges and roof
   function liftNear() {
     if (ctrl.mode !== 'walk' || ride || flight) return null;
+    { const ML = meridianLift(), here = ringHere(); let st = null, d = 9;
+      const stops = [ML && { label: 'Promenade — the Meridian\'s decks', at: [ML.at[0], ML.at[1] + 0.05, ML.at[2]], deck: true }, ...ringStructs.map(b => ({ label: `${b.label[0].toUpperCase() + b.label.slice(1)} — ${b.plan.rooms[0].label}`, at: ringStop(b), ring: b }))].filter(Boolean);
+      if (ML) { const q = Math.hypot(ML.at[0] - ctrl.pos[0], ML.at[2] - ctrl.pos[2]); if (q < 2.2 && Math.abs(ML.at[1] - ctrl.pos[1]) < 1.6) { st = stops[0]; d = q; } }
+      if (here) for (let k = 0; k < 6; k++) { const p = ringStop(here, k), q = Math.hypot(p[0] - ctrl.pos[0], p[2] - ctrl.pos[2]); if (q < 2.6 && q < d) { d = q; st = { ...stops.find(x => x.ring === here), label: `${here.label[0].toUpperCase() + here.label.slice(1)} — ${here.plan.rooms[k].label}` }; } }
+      if (st) return { L: { b: { label: 'the spoke lift' }, stops: stops.map(x => x.ring && st.ring === x.ring ? st : x) }, st, d, spoke: true };
+    }
     const c = cityView.city; if (Math.hypot(ctrl.pos[0] - c.cx, ctrl.pos[2] - c.cz) > c.R + 200) return null;
     const [u, v] = c.toLocal(ctrl.pos[0], ctrl.pos[2]), y = ctrl.pos[1] - c.h - CITY_CURB;
     let best = null, bd = 2.6;
@@ -424,7 +434,13 @@ async function start(fresh) {
     await modal(async () => { pick = await ui.choose({ title: `${L.b.label[0].toUpperCase() + L.b.label.slice(1)} — lift`, sub: `${L.stops.length} stops. You're at: ${st.label.toLowerCase()}.`,
       options: L.stops.map((q, i) => ({ a: 'go', v: String(i), label: q.label, disabled: q === st })) }); });
     if (!pick || pick.a !== 'go') return;
-    const q = L.stops[+pick.v], c = cityView.city, [x, z] = c.toWorld(q.u, q.v);
+    const q = L.stops[+pick.v];
+    if (q.at) {         // up a spoke to the hub, where you weigh nothing, along it, and down another
+      clock.advance(70); ctrl.pos = q.at.slice(); ctrl.vel = [0, 0, 0]; ctrl.grounded = false;
+      ui.toast(q.deck ? 'Up the spoke, along the axle where you weigh nothing, and out into the Meridian\'s promenade.' : `The cab climbs the spoke and you get lighter, float a moment at the hub, then grow heavy again going down into <b>${esc(q.ring.label)}</b>.`, '', 6000);
+      return;
+    }
+    const c = cityView.city, [x, z] = c.toWorld(q.u, q.v);
     const secs = Math.max(8, Math.abs(q.y - st.y) / 9); clock.advance(secs);
     ctrl.pos = [x, c.h + CITY_CURB + q.y + 0.05, z]; ctrl.vel = [0, 0, 0];
     ui.toast(`The lift ${q.y > st.y ? 'climbs' : 'drops'} ${Math.round(Math.abs(q.y - st.y))} m. <small>${q.label}</small>`, '', 3500);
@@ -876,6 +892,16 @@ async function start(fresh) {
   }
   syncShips();
   sched.add(TIER.NEAR, { update: syncShips });
+  // ---- the Meridian's spin rings (gen/rings.js). Each is walked as a flat strip laid out over the ship, its ends the same place; it's only
+  // drawn bent and turning (render/rings.js). In there, spin holds you to the floor (player/controller.js).
+  const meridian = fleet.find(C => C.model === 'meridian');
+  const ringStructs = meridian ? RINGS.map((g, i) => { const f = meridian.yaw, b = ringStructure(homeS, g, [meridian.x + Math.cos(f) * (i - 1) * 140, meridian.y + 700, meridian.z - Math.sin(f) * (i - 1) * 140], f); world.addStructure(b, homeS); return b; }) : [];     // (side by side over the ship, so none is over another)
+  const ringHere = (p = ctrl.pos) => { for (const b of ringStructs) { if (p[1] < b.base - 3 || p[1] > b.base + 40) continue; const [lx, lz] = world.toB(b, p[0], p[2]); if (lx > -1 && lx < b.w + 1 && lz > -2 && lz < b.d + 2) return b; } return null; };
+  const ringStop = (b, k = 0) => { const g = b.plan.ring, sk = (k + 0.5) * g.C / 6; return b2w(b, RING_W / 2, 0.05, sk - 4.2); };
+  const ringBend = new THREE.Matrix4(), _rm = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
+  function meridianLift() {     // the spoke lift's door in the Meridian's promenade, if its decks are standing
+    const b = meridian && placed.get(meridian.ship.id); return b ? { b, at: b2w(b, 2.7, b.plan.layout.deck, 48.25) } : null;
+  }
   const nearRamp = () => {
     if (ctrl.mode !== 'walk') return null;
     for (const [id, b] of placed) {
@@ -1353,7 +1379,9 @@ async function start(fresh) {
       } else {
         carsSolid();
         { const V = ctrl.where?.V; if (V && ctrl.grounded && (V.vx || V.vz)) { const [nx, nz] = world.resolve(ctrl.pos[0] + V.vx * dt, ctrl.pos[2] + V.vz * dt, ctrl.pos[1]); ctrl.pos = [nx, ctrl.pos[1], nz]; } }     // standing on something moving
+        { const rb = ringHere(); ctrl.spin = rb ? spinOf(world, rb) : null; }
         for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+        { const rb = ringHere(); if (rb) ctrl.pos = wrapRing(world, rb, ctrl.pos); }     // round the ring and back where you started
         const hard = mayhem?.afterStep(t, dt, ctrl);
         if (hard > 9) hurtPlayer(Math.min(120, (hard - 8.5) ** 2 * 0.9), 'a hard landing');
       }
@@ -1417,7 +1445,7 @@ async function start(fresh) {
     }
     const rp = toRender(...ctrl.pos);
     avatar.object.position.set(rp[0], rp[1] - (ctrl.grounded && !ctrl.where && ctrl.feel ? ctrl.feel.sink : 0), rp[2]);
-    avatar.object.rotation.y = ctrl.facing;
+    avatar.object.rotation.set(0, ctrl.facing, 0);
     if (ctrl.mode === 'seat') { // same placement as the crowd's sitters and sleepers (render/crowd.js)
       const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing);
       if (ctrl.seat.pose === 'lie') avatar.object.position.set(rp[0] + fx * 0.87, rp[1] + 0.14, rp[2] + fz * 0.87);
@@ -1437,7 +1465,8 @@ async function start(fresh) {
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
-    capitalView.update(fleet, toRender, camera.position);
+    capitalView.day.value = sky.state.day ?? 1; capitalView.update(fleet, toRender, camera.position, t);
+    ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
     if (flight) { const P = fleetContact(fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
     shipView.update(ships.filter(sh => !sh.fleet).map(sh => {
@@ -1540,7 +1569,17 @@ async function start(fresh) {
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
       const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
-    crowd.update(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) }))), dt);
+    // the people of the ring you're in, each standing up off its own bit of the curved floor
+    const ringPeople = []; { const rb = !flight ? ringHere() : null;
+      if (rb) { const g = rb.plan.ring, [, ps] = world.toB(rb, ctrl.pos[0], ctrl.pos[2]), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), V = new THREE.Vector3(), S = new THREE.Vector3();
+        for (const f of ringFolk(g)) {
+          const a = folkAt(g, f, t); let ds = (a.s - ps) % g.C; if (ds > g.C / 2) ds -= g.C; if (ds < -g.C / 2) ds += g.C; if (Math.abs(ds) > 170) continue;
+          const w = b2w(rb, a.x, a.sit ? 0.45 : 0, ps + ds), r0 = toRender(...w), fa = a.sit ? toWorldDir(rb, Math.atan2(-[0, 1, 0, -1][a.face], -[-1, 0, 1, 0][a.face])) : toWorldDir(rb, a.dir > 0 ? 0 : Math.PI);
+          bendAt(world, rb, meridian, t, w[0], w[1], w[2], toRender, M); V.set(...r0).applyMatrix4(M); M.decompose(S, Q, S); Q.multiply(new THREE.Quaternion().setFromAxisAngle(Y, fa));
+          ringPeople.push({ id: f.id, pos: [V.x, V.y, V.z], facing: fa, q: Q.clone(), pose: a.sit ? 'sit' : 'stand', moving: a.moving, age: f.age });
+          if (ringPeople.length >= 70) break;
+        } } }
+    crowd.update(ringPeople.concat(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security) })).concat(riders, peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
@@ -1553,6 +1592,12 @@ async function start(fresh) {
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
       else { rideCamY = null; cam.update(dt, ctrl.pos, toRender); }
     }
+    { const rb = !flight && !ride ? ringHere() : null;      // in a ring: you, and the eye on you, are where that bit of floor really is, turning with it
+      if (rb) {
+        bendAt(world, rb, meridian, t, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2], toRender, ringBend);
+        camera.updateMatrixWorld(); _rm.multiplyMatrices(ringBend, camera.matrixWorld).decompose(camera.position, camera.quaternion, _rs); camera.updateMatrixWorld();
+        avatar.object.updateMatrix(); _rm.multiplyMatrices(ringBend, avatar.object.matrix).decompose(avatar.object.position, avatar.object.quaternion, avatar.object.scale);
+      } }
     war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
     if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, homeCtx);
@@ -1599,6 +1644,7 @@ async function start(fresh) {
       const lp = toRender(...c); roomLight.position.set(lp[0], lp[1], lp[2]);
       roomLight.intensity = lightOn(store, loc.b.key, loc.k, loc.room.i) ? 6 + 10 * (1 - (sky.state.day ?? 1)) : 0;
     } else roomLight.intensity = 0;
+    if (!flight && !ride && ringHere()) { const up = _rp.set(0, 1, 0).transformDirection(ringBend); roomLight.position.copy(avatar.object.position).addScaledVector(up, 3.2); roomLight.intensity = 3 + 16 * (1 - (sky.state.day ?? 1)); }     // (in a ring, the street lamps and the windows light you)
     if (!paused) {
       const di = nearestDoor(), lad = nearLadder();
       const ua = forceHold === 0 && ctrl.mode === 'walk' && !lad ? usableAhead() : null;
@@ -1655,14 +1701,14 @@ async function start(fresh) {
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
     waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
-    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
+    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3;     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
     // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
     rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, capitalView, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, capitalView, ringView, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

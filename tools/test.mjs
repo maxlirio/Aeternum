@@ -1652,6 +1652,35 @@ suites.roadrules = async () => {
   console.log('  ' + townSignals(s).length + ' junctions with lights in ' + s.name);
 };
 
+suites.rings = async () => {
+  const R = await import('../js/gen/rings.js'), { ringStructure, spinOf, wrapRing } = await import('../js/world/rings.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js');
+  const p = makePlanet(uni(1), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => true);
+  for (const g of R.RINGS) {
+    check(Math.abs(R.pullAt(g, 0) - 9.81) < 0.01, `${g.key}: a full weight at the floor`); check(R.pullAt(g, 20) < R.pullAt(g, 0), `${g.key}: lighter up toward the axle`);
+    const L = R.ringLayout(g), L2 = JSON.stringify(R.ringLayout({ ...g })); check(L.C > 1200 && L.items.length > 300, `${g.key}: furnished all the way round`);
+    const b = ringStructure(s, g, [s.cx + 3000 + g.R * 3, s.h + 4500, s.cz], 0.7); world.addStructure(b, s);
+    // walking: the street (or path, or track) runs clear all the way round, and you keep your feet on it
+    const lane = g.kind === 'town' ? 19.6 : g.kind === 'farm' ? 23.6 : null;
+    if (g.kind === 'garden') { let blocked = 0; const P = L.pathAt; for (let z = 0.5; z < b.d; z += 1.5) { const lx = P(z), [x, zz] = s.toWorld(b.O[0] + b.ex[0] * lx + b.ez[0] * z, b.O[1] + b.ex[1] * lx + b.ez[1] * z), r = world.resolve(x, zz, b.base + 0.02); if (Math.hypot(r[0] - x, r[1] - zz) > 0.05) blocked++; } check(blocked === 0, `${g.key}: the path round is clear (${blocked} blocked)`); }
+    if (lane) { let blocked = 0; for (let z = 0.5; z < b.d; z += 1.5) { const w = world.fromBVec(b, lane, z), [x, zz] = [s.toWorld(b.O[0] + b.ex[0] * lane + b.ez[0] * z, b.O[1] + b.ex[1] * lane + b.ez[1] * z)][0]; const r = world.resolve(x, zz, b.base + 0.02); if (Math.hypot(r[0] - x, r[1] - zz) > 0.05) blocked++; } check(blocked === 0, `${g.key}: the way round is clear (${blocked} blocked)`); }
+    const at = (lx, lz, y = 0) => { const [x, z] = s.toWorld(b.O[0] + b.ex[0] * lx + b.ez[0] * lz, b.O[1] + b.ex[1] * lx + b.ez[1] * lz); return [x, b.base + y, z]; };
+    const c = new Controller(world, at(lane || 20, 30, 0.5)); c.spin = spinOf(world, b); const fz = world.fromBVec(b, 0, 1), yaw = Math.atan2(fz[0], fz[1]);
+    for (let i = 0; i < 60; i++) c.step(1 / 60, { fwd: 0, right: 0, yaw });
+    check(c.grounded && Math.abs(c.pos[1] - b.base) < 0.05, `${g.key}: dropped onto the floor and standing (${(c.pos[1] - b.base).toFixed(2)})`);
+    if (lane) {
+      for (let i = 0; i < 600; i++) c.step(1 / 60, { fwd: 1, right: 0, yaw, run: true });
+      const [lx, lz] = world.toB(b, c.pos[0], c.pos[2]); check(lz > 80 && Math.abs(lx - lane) < 0.5 && c.grounded, `${g.key}: ran ${lz.toFixed(0)} m along the ring`);
+    }
+    // a jump: up and down again, and the spin pushes you back against the turn while you're up (Coriolis)
+    { const c2 = new Controller(world, at(lane || 20, 200, 0)); c2.spin = spinOf(world, b); for (let i = 0; i < 20; i++) c2.step(1 / 60, { fwd: 0, right: 0, yaw }); const z0 = world.toB(b, c2.pos[0], c2.pos[2])[1]; c2.vel = [0, 6, 0]; c2.grounded = false; let top = 0, n = 0;
+      while (n++ < 400) { c2.step(1 / 60, { fwd: 0, right: 0, yaw }); top = Math.max(top, c2.pos[1] - b.base); if (c2.grounded && n > 10) break; }
+      const drift = world.toB(b, c2.pos[0], c2.pos[2])[1] - z0; check(top > 1.6 && top < 2.2 && c2.grounded, `${g.key}: a jump goes up ${top.toFixed(2)} m and comes down`); check(drift > 0.02, `${g.key}: and lands a little spinward (${drift.toFixed(2)} m)`); }
+    // round the end and you're at the start
+    { const q = wrapRing(world, b, at(20, b.d + 0.7)), [, lz] = world.toB(b, q[0], q[2]); check(Math.abs(lz - 0.7) < 0.01, `${g.key}: off the end, back at the start`); }
+    world.removeStructure(b);
+  }
+};
+
 const want = process.argv.slice(2);
 for (const [name, fn] of Object.entries(suites)) {
   if (want.length && !want.includes(name)) continue;

@@ -127,6 +127,33 @@ try {
       await ev(`(() => { const O = ORBIS; O.setFlightForTest(window.__f); O.ctrl.mode = 'pilot'; return 1; })()`);
     }
   }
+  if (want('rings')) {
+    await load('hour=' + (process.env.HOUR || 11) + '&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.meridian_ring0 ? 1 : 0')); i++) await sleep(500);
+    // in each ring: stand at a spoke's foot, look down the way, up the curve, across; report what the game says about where you are and what holds you down
+    const spots = JSON.parse(process.env.SPOTS || '[[0,0,-4,0,0.05,"street"],[0,0,-30,0,0.32,"up"],[0,0,-60,1.57,0.1,"across"],[1,2,-40,0,0.12,"glade"],[1,2,-40,3.14,0.25,"back"],[2,3,-60,0,0.12,"fields"],[0,1,-90,0,0.08,"canal"]]');
+    for (const [ri, k, ds, turn, pitch, tag] of spots) {
+      const R = await ev(`(async () => { const O = ORBIS, b = O.ringStructs[${ri}], g = b.plan.ring, wait = ms => new Promise(r => setTimeout(r, ms)); O.setFlightForTest(null); O.ctrl.mode = 'walk';
+        const sk = (${k} + 0.5) * g.C / 6 + ${ds}, lx = ${tag === 'canal' ? 17.5 : tag === 'street' ? 17 : 20}, p = [b.O[0] + b.ex[0] * lx + b.ez[0] * sk, b.O[1] + b.ex[1] * lx + b.ez[1] * sk], [x, z] = O.homeS.toWorld(p[0], p[1]); O.ctrl.pos = [x, b.base + 1.0, z]; O.ctrl.vel = [0, 0, 0];
+        const [fx, fz] = O.world.fromBVec(b, 0, 1), [ax, az] = O.world.fromBVec(b, 1, 0), yaw = Math.atan2(fx, fz) + ${turn}; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = ${pitch}; O.cam.dist = 3.2; await wait(2500);
+        return { here: O.ringHere()?.key, room: O.world.locate(...O.ctrl.pos)?.room?.label, y: +(O.ctrl.pos[1] - b.base).toFixed(2), grounded: O.ctrl.grounded, spin: O.ctrl.spin && +(O.ctrl.spin.w2 * O.ctrl.spin.R).toFixed(2), vis: O.ringView.group.visible, built: O.ringView.built }; })()`);
+      const perf = await ev(`new Promise(r => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else r({ ms: +((performance.now() - t0) / n).toFixed(1), tris: ORBIS.renderer.info.render.triangles, calls: ORBIS.renderer.info.render.calls }); }; requestAnimationFrame(f); })`);
+      console.log('   ring', tag, JSON.stringify(R), JSON.stringify(perf)); await sleep(1500); await shot('ring-' + tag);
+    }
+    // the lift: from the Meridian's promenade into the Commons
+    const L = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), M = O.meridianLift(); if (!M) return 'no decks'; O.ctrl.pos = [M.at[0], M.at[1] + 0.05, M.at[2]]; O.ctrl.vel = [0, 0, 0]; await wait(800); const lf = O.liftNear(); return lf ? lf.L.stops.map(q => q.label) : 'no lift here'; })()`);
+    console.log('   lift', JSON.stringify(L));
+  }
+  if (want('cabin')) {
+    await load('hour=' + (process.env.HOUR || 14));
+    const list = await ev(`ORBIS.getShips().filter(sh => !sh.fleet && !sh.flying).slice(0, 12).map(sh => [sh.id, sh.model])`);
+    const seen = new Set(); let n = 0;
+    for (const [id, model] of list) {
+      if (seen.has(model) || n >= 4) continue; seen.add(model); n++;
+      const r = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); O.syncShips(); const b = O.world.near ? null : null; const S = [...(O.world.loose || [])].map(q => q.b).concat([...O.world.grid.values()].flat()).find(q => q.key === '${id}'); if (!S) return 'not placed'; const L = S.plan.layout, [hx0, hz0, hx1, hz1] = L.hull, R = L.rooms[0], z = (R.rect[1] + R.rect[3]) / 2 - 1, u = S.O[0] + S.ex[0] * (hx0 + hx1) / 2 + S.ez[0] * z, v = S.O[1] + S.ex[1] * (hx0 + hx1) / 2 + S.ez[1] * z, T = O.world.townOf(S), [x, zz] = T.toWorld(u, v); O.ctrl.mode = 'walk'; O.ctrl.pos = [x, S.base + L.deck + 0.05, zz]; O.ctrl.vel = [0, 0, 0]; const [fx, fz] = O.world.fromBVec(S, 0, 1), yaw = Math.atan2(fx, fz); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.05; O.cam.dist = 2.4; await wait(2500); return { room: O.world.locate(...O.ctrl.pos)?.room?.label }; })()`);
+      console.log('   cabin', model, JSON.stringify(r)); await shot('cabin-' + model);
+    }
+  }
   if (want('town')) {
     await load('hour=' + (process.env.HOUR || 16));
     const walk = (x, z, yaw, pitch = 0.05, dist = 6) => ev(`(() => { const O = ORBIS, x = ${x}, z = ${z}, h = O.world.groundAt(x, z, 1e4).h; O.ctrl.mode = 'walk'; O.ctrl.pos = [x, h + 0.02, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = ${yaw}; O.cam.yaw = ${yaw}; O.cam.pitch = ${pitch}; O.cam.dist = ${dist}; return h; })()`);

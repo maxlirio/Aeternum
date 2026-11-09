@@ -47,9 +47,10 @@ export class CrowdView {
       this.gait.set(a.id, ph);
       const child = a.age < 16 ? 0.55 + a.age * 0.028 : 1;
       rig.root.position.set(a.pos[0], a.pos[1], a.pos[2]);
-      rig.root.rotation.y = a.facing;
+      rig.root.rotation.set(0, a.facing, 0);
       rig.root.scale.setScalar(L.scale * child);
       applyPose(rig, { mode: a.moving ? 'walk' : a.pose === 'lie' ? 'lie' : a.pose === 'sit' ? 'sit' : 'stand', phase: ph, blend: a.moving ? 1 : 0, k: 0 });
+      if (a.q) rig.root.quaternion.copy(a.q);      // (someone standing on a curved floor, in a spin ring: up is toward the axle)
       if (a.pose === 'lie' && !a.moving) { // lie centred on the anchor, on its back
         rig.root.position.x += Math.sin(a.facing) * 0.87 * child; rig.root.position.z += Math.cos(a.facing) * 0.87 * child; rig.root.position.y += 0.14;
       }

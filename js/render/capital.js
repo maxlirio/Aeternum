@@ -2,6 +2,7 @@
 // At this size a tile says nothing, so the hull gets its plating here: panels of many sizes, each its own tone, with dark seams, from the ship's own coordinates.
 import * as THREE from 'three';
 import { gltfLoader, bakedPart } from './gltf.js';
+import { RINGS, ringTurn } from '../gen/rings.js';
 
 const DECK = { anvil: [[0.2, 0.22, 0.25], [0.1, 0.11, 0.13]], vesper: [[0.6, 0.57, 0.5], [0.3, 0.28, 0.25]], tiller: [[0.46, 0.41, 0.26], [0.2, 0.2, 0.18]], sable: [[0.16, 0.17, 0.2], [0.07, 0.08, 0.1]], bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]] };
 const LIVERY = [[0.1, 0.11, 0.13], [0.62, 0.6, 0.55], [0.32, 0.12, 0.05]];   // gunmetal, ivory, oxide
@@ -35,9 +36,10 @@ function roomLit(base, deckY, bay) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRoom;')
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
       { bool hangar = vRoom.z < ${bay.toFixed(1)}; float per = hangar ? 7.0 : 3.5;
-        float rise = (vRoom.y - ${deckY.toFixed(1)}) / (hangar ? 7.2 : 3.1);
-        float row = 0.5 + 0.5 * cos((vRoom.z - per * 0.5) * 6.2832 / per), acr = 0.5 + 0.5 * cos((vRoom.x - 17.0) * 6.2832 / 10.0);
-        float pool = pow(row, hangar ? 1.2 : 1.6) * pow(acr, 1.3);
+        float rise = (vRoom.y - ${deckY.toFixed(1)}) / (hangar ? 7.2 : 4.2);
+        // the hangar's lights hang in rows; the rooms' run the length of the ceiling in three troughs
+        float row = hangar ? 0.5 + 0.5 * cos((vRoom.z - per * 0.5) * 6.2832 / per) : 0.82 + 0.18 * cos((vRoom.z - 1.75) * 6.2832 / 3.5), acr = 0.5 + 0.5 * cos((vRoom.x - 17.0) * 6.2832 / (hangar ? 10.0 : 9.0));
+        float pool = pow(row, hangar ? 1.2 : 1.0) * pow(acr, hangar ? 1.3 : 0.8);
         // near a fitting the light is bright and tight; the room between is filled by what bounces. Floors and low walls get the most, the top of a wall the least.
         float fall = mix(1.0, 0.55, smoothstep(0.1, 0.95, rise));
         float wall = smoothstep(0.0, 2.4, min(vRoom.x - 2.0, 32.0 - vRoom.x));
@@ -50,8 +52,31 @@ function roomLit(base, deckY, bay) {
   m.customProgramCacheKey = () => 'room-' + deckY + '-' + bay + '-' + base.uuid;
   return m;
 }
+const ACCENT = { bastion: [1.0, 0.42, 0.18], anvil: [1.0, 0.3, 0.15], meridian: [1.0, 0.78, 0.4], vesper: [0.95, 0.85, 0.55], halcyon: [0.55, 0.85, 1.0], sable: [0.6, 0.4, 1.0], longshore: [1.0, 0.7, 0.2], tiller: [0.9, 0.85, 0.3] };
+const CARPET = { bastion: [0.1, 0.11, 0.13], anvil: [0.09, 0.09, 0.1], meridian: [0.32, 0.1, 0.09], vesper: [0.12, 0.2, 0.17], halcyon: [0.14, 0.17, 0.26], sable: [0.08, 0.07, 0.1], longshore: [0.18, 0.16, 0.12], tiller: [0.2, 0.17, 0.12] };
+// A window out of the ship: what you'd see through it, by the way you're looking — the sky over the haze, cloud tops far below, the light of the hour.
+function skyview(day) {
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDay = day;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvW = (modelMatrix * vec4(position, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+      varying vec3 vW; uniform float uDay;
+      float hs(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(hs(i), hs(i + vec2(1, 0)), f.x), mix(hs(i + vec2(0, 1)), hs(i + vec2(1, 1)), f.x), f.y); }`)
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', `vec3 d = normalize(vW - cameraPosition); float e = d.y;
+        vec3 zen = mix(vec3(0.02, 0.03, 0.08), vec3(0.12, 0.3, 0.68), uDay), hor = mix(vec3(0.08, 0.08, 0.14), vec3(0.62, 0.74, 0.88), uDay);
+        vec3 c = mix(hor, zen, pow(smoothstep(-0.01, 0.35, e), 0.6));
+        if (e < 0.0) { vec2 q = d.xz / max(0.09, -e) * 1.4; float cl = vn(q) * 0.55 + vn(q * 2.7) * 0.3 + vn(q * 7.1) * 0.15; vec3 sea = mix(vec3(0.03, 0.04, 0.07), vec3(0.3, 0.42, 0.58), uDay), top = mix(vec3(0.12, 0.13, 0.17), vec3(0.95, 0.96, 0.98), uDay);
+          c = mix(sea, top, smoothstep(0.42, 0.62, cl)); c = mix(c, hor, 1.0 - smoothstep(-0.12, -0.0, e) * 0.0 - smoothstep(-0.12, -0.005, -e - 0.0) ); c = mix(mix(sea, top, smoothstep(0.42, 0.62, cl)), hor, smoothstep(-0.16, -0.02, e)); }
+        c += (1.0 - uDay) * step(0.995, hs(floor(d.xy * 400.0 + d.z * 31.0))) * smoothstep(0.0, 0.2, e);
+        vec4 diffuseColor = vec4(c, 1.0);`);
+  };
+  m.customProgramCacheKey = () => 'skyview';
+  return m;
+}
 export class CapitalView {
-  constructor(scene, lib) { this.group = new THREE.Group(); this.group.name = 'fleet'; scene.add(this.group); this.lib = lib; this.models = {}; this.loading = false; }
+  constructor(scene, lib) { this.group = new THREE.Group(); this.group.name = 'fleet'; scene.add(this.group); this.lib = lib; this.models = {}; this.loading = false; this.day = { value: 1 }; }
   load() {
     if (this.loading) return; this.loading = true; this.fetch('./assets/capital.glb');
   }
@@ -81,17 +106,28 @@ export class CapitalView {
     if (slot === 'rubber') return plain([0.035, 0.036, 0.04], 0.85, 0);
     if (slot === 'soil') return plain([0.5, 0.36, 0.05], 0.5, 0.15);       // (crane yellow: no room is made of soil, so the slot's free in here)
     if (slot === 'lampwarm') return new THREE.MeshStandardMaterial({ color: 0x20201c, emissive: 0xfff2dc, emissiveIntensity: 3.2, roughness: 0.4 });
+    if (slot === 'glow') return new THREE.MeshBasicMaterial({ color: new THREE.Color(...(ACCENT[C.model] || [0.4, 0.85, 1])) });           // the ship's own colour, in its strips and its plot
+    if (slot === 'fabric') return plain(CARPET[C.model] || [0.3, 0.12, 0.1], 0.95, 0);
+    if (slot === 'ceramic') return plain([0.82, 0.84, 0.82], 0.25, 0.05);
+    if (slot === 'mirror') return skyview(this.day);
     return this.lib.surface(slot);
   }
-  update(fleet, toRender, cam) {
+  update(fleet, toRender, cam, t = 0) {
     for (const C of fleet) {
       if (!this.models[C.model]) continue;
-      if (!C.mesh) { C.mesh = new THREE.Group(); for (const { g, slot } of this.models[C.model]) { const m = new THREE.Mesh(g, this.partMaterial(slot, C)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.mesh.add(m); } this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; }
+      if (!C.mesh) {
+        C.mesh = new THREE.Group(); const part = (g, slot, to) => { const m = new THREE.Mesh(g, this.partMaterial(slot, C)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; to.add(m); };
+        for (const { g, slot } of this.models[C.model]) part(g, slot, C.mesh);
+        // the spin rings turn on the axle, each at the rate that gives its floor a full weight (gen/rings.js)
+        C.rings = []; for (let i = 0; this.models[C.model + '_ring' + i]; i++) { const r = new THREE.Group(); for (const { g, slot } of this.models[C.model + '_ring' + i]) part(g, slot, r); r.traverse(o => { if (o.isMesh && o.material.side !== THREE.FrontSide) { o.material = o.material.clone(); o.material.side = THREE.FrontSide; } }); C.mesh.add(r); C.rings.push(r); }     // (one-sided: from inside the ring you look out through its skin)
+        this.group.add(C.mesh); C.mesh.rotation.y = C.yaw;
+      }
+      if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
       C.mesh.position.set(...toRender(C.x, C.y, C.z));
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if (!this.loadingDecks && far < 5000) { this.loadingDecks = true; this.fetch('./assets/capital-decks.glb'); }
-      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen)/.test(slot), m = new THREE.Mesh(g, glows ? b : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
+      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
       if (C.decks) { C.decks.visible = far < 1100; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
     }
   }

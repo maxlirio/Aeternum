@@ -18,13 +18,14 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings'))
 DO_CITY = 'city' in argv
 DO_ITEMS = 'items' in argv
 DO_COMMON = 'common' in argv
 DO_FAMILY = 'family' in argv
 DO_CAPITAL = 'capital' in argv
+DO_RINGS = 'rings' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -1437,11 +1438,33 @@ def ship_interior(p, lay):
     """Deck, walls, partitions with hatches, windscreen, lights and furniture: exactly the layout."""
     hx0, hz0, hx1, hz1 = lay['hull']; deck = lay['deck']; ceil = lay['ceiling']; xc = (hx0 + hx1) / 2
     d0 = lay['doors'][0]; dx0, dx1 = d0['x'] - d0['width'] / 2, d0['x'] + d0['width'] / 2; dtop = deck + d0.get('height', 2.15)
-    T = 0.1
-    add_box(p, hx0, deck - 0.2, hz0, hx1, deck, hz1, 'metal', 0.01)                               # deck plate
-    add_box(p, hx0, ceil, hz0, hx1, ceil + 0.12, hz1, 'paint', 0.01)                              # ceiling
-    for z in range(int(hz0) + 1, int(hz1), 2): add_box(p, xc - 0.6, ceil - 0.025, z, xc + 0.6, ceil, z + 0.12, 'glow', 0)   # light strips
-    add_box(p, hx0, deck, hz0, hx0 + T, ceil, hz1, 'paint', 0.01); add_box(p, hx1 - T, deck, hz0, hx1, ceil, hz1, 'paint', 0.01)   # side walls
+    T = 0.1; hz_ = ceil - 0.42; hw_ = 0.42
+    # the deck: tread plates on a dark sub-deck, each its own piece, a runner down the middle
+    add_box(p, hx0, deck - 0.2, hz0, hx1, deck - 0.02, hz1, 'rubber', 0)
+    nx = max(2, int((hx1 - hx0) / 1.25)); nz = max(2, int((hz1 - hz0) / 0.9))
+    for i in range(nx):
+        for j in range(nz): add_box(p, hx0 + (hx1 - hx0) * i / nx + 0.006, deck - 0.02, hz0 + (hz1 - hz0) * j / nz + 0.006, hx0 + (hx1 - hx0) * (i + 1) / nx - 0.006, deck, hz0 + (hz1 - hz0) * (j + 1) / nz - 0.006, 'metal', 0)
+    add_box(p, xc - 0.42, deck, hz0 + 0.1, xc + 0.42, deck + 0.008, hz1 - 0.1, 'heatshield', 0)
+    # the ceiling: panels, and a trough of light down the middle of it
+    add_box(p, hx0 + hw_, ceil, hz0, hx1 - hw_, ceil + 0.06, hz1, 'laminate', 0); add_box(p, hx0, ceil + 0.06, hz0, hx1, ceil + 0.12, hz1, 'paint', 0)
+    add_box(p, xc - 0.26, ceil - 0.015, hz0 + 0.15, xc + 0.26, ceil + 0.01, hz1 - 0.15, 'lampwarm', 0)
+    for x in (xc - 0.3, xc + 0.26): add_box(p, x, ceil - 0.08, hz0 + 0.15, x + 0.04, ceil, hz1 - 0.15, 'metal', 0)
+    # the walls: a dark lower panel, a light upper one, the corner to the ceiling cut across (a haunch), lit along its foot; the ship's colour low down
+    for (x, sx) in ((hx0, 1), (hx1, -1)):
+        a, b = (x, x + T) if sx > 0 else (x - T, x)
+        add_box(p, a, deck, hz0, b, deck + 1.0, hz1, 'paint', 0); add_box(p, a, deck + 1.0, hz0, b, hz_, hz1, 'laminate', 0)
+        add_box(p, min(x, x + sx * (T + 0.02)), deck + 0.98, hz0, max(x, x + sx * (T + 0.02)), deck + 1.02, hz1, 'metal', 0)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x + sx * T, hz_, hz0), (x + sx * T, hz_, hz1), (x + sx * hw_, ceil + 0.01, hz1), (x + sx * hw_, ceil + 0.01, hz0))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.03); merge(p, bm, 'laminate')
+        add_box(p, min(x + sx * T, x + sx * (T + 0.05)), hz_ - 0.06, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.05)), hz_, hz1 - 0.1, 'lampwarm', 0)
+        add_box(p, min(x + sx * T, x + sx * (T + 0.03)), deck + 0.1, hz0 + 0.1, max(x + sx * T, x + sx * (T + 0.03)), deck + 0.13, hz1 - 0.1, 'glow', 0)
+    # frames: a rib up each wall, along the haunch and across the ceiling, every 1.2 m
+    z = hz0 + 0.7
+    while z < hz1 - 0.4:
+        for (x, sx) in ((hx0, 1), (hx1, -1)):
+            add_box(p, min(x + sx * T, x + sx * (T + 0.07)), deck + 0.15, z - 0.06, max(x + sx * T, x + sx * (T + 0.07)), hz_, z + 0.06, 'metal', 0)
+            _beam(p, (x + sx * (T + 0.04), hz_, z), (x + sx * (hw_ + 0.02), ceil - 0.03, z), 0.1, 'metal')
+        add_box(p, hx0 + hw_, ceil - 0.07, z - 0.06, hx1 - hw_, ceil, z + 0.06, 'paint', 0)
+        z += 1.2
     wy0, wy1, wx0, wx1 = deck + 1.05, deck + 2.35, max(hx0 + 0.45, xc - 3.2), min(hx1 - 0.45, xc + 3.2)                         # forward bulkhead around the windscreen:
     add_box(p, hx0, deck, hz1 - T, hx1, wy0, hz1, 'paint', 0.01); add_box(p, hx0, wy1, hz1 - T, hx1, ceil, hz1, 'paint', 0.01)
     add_box(p, hx0, wy0, hz1 - T, wx0, wy1, hz1, 'paint', 0.01); add_box(p, wx1, wy0, hz1 - T, hx1, wy1, hz1, 'paint', 0.01)
@@ -1455,9 +1478,6 @@ def ship_interior(p, lay):
         add_box(p, hx0, deck, z - T / 2, a0, ceil, z + T / 2, 'paint', 0.01); add_box(p, a1, deck, z - T / 2, hx1, ceil, z + T / 2, 'paint', 0.01)
         add_box(p, a0, deck + 2.1, z - T / 2, a1, ceil, z + T / 2, 'paint', 0.01)
         for x in (a0 - 0.05, a1): add_box(p, x, deck, z - 0.08, x + 0.05, deck + 2.1, z + 0.08, 'metal', 0.005)
-    for x0 in (hx0 + T, hx1 - T - 0.04):                                                           # wall ribs
-        for z in range(int(hz0) + 1, int(hz1)):
-            add_box(p, x0, deck, z, x0 + 0.04, ceil, z + 0.08, 'metal', 0.004)
     B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine,
          'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'),
          'desk': desk, 'cabinet': cabinet,
@@ -2283,9 +2303,12 @@ SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *S
 if 'foliage' in argv:
     for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')): save_rgba(name, draw_twig(kind, 11 if kind == 'leaf' else 12))
 elif DO_TEX: build_textures()
-if DO_CAPITAL:
+if DO_CAPITAL or DO_RINGS:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capital_kit.py')).read())
-    build_capital()
+if DO_CAPITAL: build_capital()
+if DO_RINGS:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ring_kit.py')).read())
+    build_rings()
 if DO_PROPS: build_props()
 if DO_CITY or DO_ITEMS or DO_COMMON or DO_FAMILY:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'city_kit.py')).read())

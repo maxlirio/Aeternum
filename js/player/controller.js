@@ -87,7 +87,13 @@ export class Controller {
       if (ml > 0.01 && this.grabWall()) return;
       this.vel[1] = JUMP; this.grounded = false;
     }
-    this.vel[1] -= GRAVITY * dt;
+    if (this.spin) {
+      // in a spin ring (gen/rings.js): what holds you down is the floor turning under you. It pulls less the higher you are (nearer the axle),
+      // and moving makes it lean: go with the turn and you're pressed down harder, rise and you drift against it (Coriolis).
+      const S = this.spin, g = S.w2 * (S.R - (y - S.base)), vs = this.vel[0] * S.sdir[0] + this.vel[2] * S.sdir[1];
+      this.vel[1] -= (g + 2 * S.omega * vs) * dt;
+      const as = 2 * S.omega * this.vel[1] * dt; this.vel[0] += S.sdir[0] * as; this.vel[2] += S.sdir[1] * as;
+    } else this.vel[1] -= GRAVITY * dt;
 
     // horizontal move + wall resolution
     const g0 = w.groundAt(x, z, y);

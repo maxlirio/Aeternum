@@ -247,6 +247,35 @@ def _torus(p, R, r_, z, mat, n=72):
         for j in range(m): bm.faces.new([rings[i][j], rings[(i + 1) % n][j], rings[(i + 1) % n][(j + 1) % m], rings[i][(j + 1) % m]])
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, mat)
 
+RING_PARTS = {}
+def _ringshell(p, R, rz, glazed=False, n=192, m=28):
+    """A habitat tube round the axle: its section a squared ellipse 40 m deep and 64 wide. The side toward the axle carries its windows
+    (all of it, in the greenhouse ring); lit window bands along its flanks, frames round it every few degrees."""
+    bm = bmesh.new(); Q = [_se(2 * math.pi * j / m, 3.0) for j in range(m)]
+    rings = [[bm.verts.new(P((R + 20 * q[1]) * math.cos(2 * math.pi * i / n), (R + 20 * q[1]) * math.sin(2 * math.pi * i / n), rz + 32 * q[0])) for q in Q] for i in range(n)]
+    hull, glass = [], []
+    for i in range(n):
+        for j in range(m):
+            f = bm.faces.new([rings[i][j], rings[(i + 1) % n][j], rings[(i + 1) % n][(j + 1) % m], rings[i][(j + 1) % m]])
+            qm = (Q[j][1] + Q[(j + 1) % m][1]) / 2; (glass if (qm < -0.55 if not glazed else qm < 0.1) else hull).append(f)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    for f in bm.faces:
+        f.normal_update(); c = f.calc_center_median(); x, y = c.x, -c.y * 0; rr = math.hypot(c.x, c.z); ctr = mathutils.Vector((c.x / rr * R, c.y, c.z / rr * R)) if False else None
+    g2 = bm.copy(); [g2.faces.remove(f) for f in [f for f in g2.faces if f.index in {x.index for x in hull}]] if False else None
+    keep_glass = {f.index for f in glass}
+    bm2 = bm.copy(); bmesh.ops.delete(bm2, geom=[f for f in bm2.faces if f.index not in keep_glass], context='FACES'); merge(p, bm2, 'visor')
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.index in keep_glass], context='FACES'); merge(p, bm, 'tint')
+    for k in range(48):              # frames round the tube
+        a = 2 * math.pi * k / 48; c, s_ = math.cos(a), math.sin(a)
+        pts = [((R + 20.6 * q[1]) * c, (R + 20.6 * q[1]) * s_, rz + 32.6 * q[0]) for q in (_se(2 * math.pi * j / 24, 3.0) for j in range(25))]
+        for q0, q1 in zip(pts, pts[1:]): _beam(p, q0, q1, 1.4, 'heatshield')
+    for sz in (-1, 1):               # lit bands down each flank, where the flats in the hull look out
+        for k in range(144):
+            a = 2 * math.pi * k / 144; c, s_ = math.cos(a), math.sin(a)
+            if (k * 7) % 5 < 4:
+                bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in (((R + 4) * c, (R + 4) * s_, rz + sz * 31.4), ((R + 4) * math.cos(a + 0.03), (R + 4) * math.sin(a + 0.03), rz + sz * 31.4), ((R - 2) * math.cos(a + 0.03), (R - 2) * math.sin(a + 0.03), rz + sz * 31.6), ((R - 2) * c, (R - 2) * s_, rz + sz * 31.6))]
+                bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.4); merge(p, bm, 'lampwarm')
+
 def meridian(p, lay, r):
     """A colony liner: a long spine, three spin rings where people live, a great glass atrium at the bow, a sail of radiators aft."""
     # spine, in sections with service collars
@@ -261,17 +290,18 @@ def meridian(p, lay, r):
         for (z0, R0), (z1, R1) in zip(prof, prof[1:]): _beam(p, (math.cos(a) * R0, math.sin(a) * R0, z0), (math.cos(a) * R1, math.sin(a) * R1, z1), 0.6, 'metal')
     for (zh, Rh) in ((590, 60.8), (610, 56.8), (626, 49), (640, 37)): _shell(p, 0, 0, [(zh, Rh - 0.1), (zh + 0.5, Rh - 0.1), (zh + 0.5, Rh + 0.4), (zh, Rh + 0.4), (zh, Rh - 0.1)], 'metal', n=96)
     _windows(p, 58.6, -30, 30, 450, 560, 46, 7, sx=1, r=r, lit=0.8); _windows(p, -58.6, -30, 30, 450, 560, 46, 7, sx=-1, r=r, lit=0.8)
-    # three spin rings on spokes
-    for (rz, R) in ((-170, 210), (60, 240), (260, 190)):
-        _torus(p, R, 16, rz, 'tint'); _torus(p, R - 15.5, 2.8, rz, 'heatshield'); _torus(p, R + 15.5, 1.6, rz, 'paint', 60)
-        for k in range(110):
-            a = 2 * math.pi * k / 110
-            if r.random() < 0.72:
-                c, s = math.cos(a), math.sin(a); add_box(p, c * (R + 16.2) - 2.6, s * (R + 16.2) - 2.6, rz - 9, c * (R + 16.8) + 2.6, s * (R + 16.8) + 2.6, rz - 8.4 + r.uniform(0, 17), 'lampwarm', 0)
+    # three spin rings on spokes, each its own piece because each turns: a habitat tube of squared section (people live in it: js/gen/rings.js), its hub, six spokes with lifts in them
+    RING_PARTS['meridian'] = []
+    for i, (rz, R) in enumerate(((60, 240), (260, 190), (-170, 210))):
+        q = Part(); RING_PARTS['meridian'].append(q); glazed = i == 1
+        _ringshell(q, R, rz, glazed)
+        add_cyl(q, 0, 0, rz - 8, rz + 8, 44, 'metal', 40, axis='z'); add_cyl(q, 0, 0, rz - 9, rz - 8, 46, 'heatshield', 40, axis='z'); add_cyl(q, 0, 0, rz + 8, rz + 9, 46, 'heatshield', 40, axis='z')
         for k in range(6):
-            a = k * math.pi / 3 + 0.26; c, s = math.cos(a), math.sin(a)
-            add_cyl(p, 0, 0, rz - 6, rz + 6, 42, 'metal', 28, axis='z')
-            _beam(p, (c * 38, s * 38, rz), (c * (R - 14), s * (R - 14), rz), 7.2, 'tint'); _beam(p, (c * 38, s * 38, rz + 5), (c * (R - 14), s * (R - 14), rz + 5), 1.2, 'metal')
+            a = (k + 0.5) * math.pi / 3 - math.pi / 2; c, s = math.cos(a), math.sin(a)     # (spoke k comes down to the floor at s = (k + 0.5) C / 6: see gen/rings.js)
+            _beam(q, (c * 44, s * 44, rz), (c * (R - 17), s * (R - 17), rz), 9, 'tint')
+            for d in (-6.5, 6.5): _beam(q, (c * 44, s * 44, rz + d), (c * (R - 17), s * (R - 17), rz + d), 1.4, 'metal')
+            for t in range(1, 9):
+                u = 44 + (R - 61) * t / 9; add_cyl(q, 0, 0, 0, 0, 0, 'metal') if False else _beam(q, (c * u - s * 5.2, s * u + c * 5.2, rz), (c * u + s * 5.2, s * u - c * 5.2, rz), 1.0, 'metal')
     # radiators: a broad dark sail each side, aft, edge-on to the sun
     for s in (-1, 1):
         for k in range(3):
@@ -454,15 +484,6 @@ def dress_meridian(p, r):
     _pipes(p, r, 41, -14, -420, 340, 4, 8, 0.9); _pipes(p, r, -41, -14, -420, 340, 4, 8, 0.9)
     for (x, z) in ((-44, -100), (-44, 150), (44, 150), (0, 300)):
         _lighter(p, x, 34, z, 2.2)
-    # the rings: truss round the inside, solar panels between spokes, docking arms, more windows in bands
-    for (rz, R) in ((-170, 210), (60, 240), (260, 190)):
-        n = 96
-        for k in range(n):
-            a = 2 * math.pi * k / n; c, s_ = math.cos(a), math.sin(a); a2 = a + 2 * math.pi / n; c2, s2 = math.cos(a2), math.sin(a2)
-            _beam(p, (c * (R - 19), s_ * (R - 19), rz - 6), (c2 * (R - 19), s2 * (R - 19), rz + 6) if k % 2 else (c2 * (R - 19), s2 * (R - 19), rz - 6), 0.5, 'metal')
-            if k % 3 == 0: add_box(p, c * (R + 16.3) - 3, s_ * (R + 16.3) - 3, rz + 11, c * (R + 16.9) + 3, s_ * (R + 16.9) + 3, rz + 14.5, 'heatshield', 0)
-            for q in (-13.5, -11, 11, 13.5):
-                if r.random() < 0.55: add_box(p, c * (R + 8) - 1.3, s_ * (R + 8) - 1.3, rz + q, c * (R + 9) + 1.3, s_ * (R + 9) + 1.3, rz + q + 0.7, 'lampwarm', 0)
     # solar sails on the aft ring's spokes
     for k in range(3):
         a = k * 2.094 + 0.8; c, s_ = math.cos(a), math.sin(a)
@@ -844,7 +865,7 @@ def dress_decks(p, lay, name):
     add_box(p, dx0 - 0.6, dtop, hz0 + 0.12, dx1 + 0.6, dtop + 0.5, hz0 + 0.5, 'hazard', 0)
     for R in lay['rooms']:
         x0, z0, x1, z1 = R['rect']; hangar = R['purpose'] == 'hold'; tall = hangar or R['purpose'] == 'lobby'; floor_, wall_, trim = ROOM_LOOK.get(R['purpose'], ('concrete', 'tint', 'metal'))
-        roof = ceil if tall else deck + 3.1; per = 7.0 if hangar else 3.5
+        roof = ceil if tall else deck + 4.2; per = 7.0 if hangar else 3.5
         # floor plates, each its own piece, a gap all round
         size = 3.0 if hangar else 1.2 if floor_ in ('stone', 'concrete') else 0
         if size:
@@ -922,20 +943,37 @@ def dress_decks(p, lay, name):
                 for j in range(int((z1 - z0) / 6)): add_cyl(p, xc + i * 3.5, z0 + 3 + j * 6, deck, deck + 0.012, 0.09, 'metal', 8)
         else:
             if not tall:
-                # a lowered ceiling: tiles in a grid, fittings on the same grid as the light they throw
-                nx = int((x1 - x0) / 1.2) | 1; nz = int((z1 - z0) / 1.2)
-                for i in range(nx):
-                    for j in range(nz): add_box(p, x0 + i * (x1 - x0) / nx + 0.004, roof, z0 + j * (z1 - z0) / nz + 0.004, x0 + (i + 1) * (x1 - x0) / nx - 0.004, roof + 0.03, z0 + (j + 1) * (z1 - z0) / nz - 0.004, 'paint' if R['purpose'] == 'office' else 'laminate' if wall_ == 'laminate' else 'tint', 0)
-                add_box(p, x0, roof + 0.03, z0, x1, roof + 0.05, z1, 'rubber', 0)
+                # a ship's room, not an office: frames every 3.5 m (a pilaster up each wall, a haunch leaning in, a beam across), so the room's section is a
+                # flattened hexagon; between the frames the ceiling is coffered, with three light troughs running its length and a lit strip along each wall
+                H = roof - deck; hz = H - 1.0; zf = z0 + 1.75
+                while zf < z1 - 0.5:
+                    for (x, sx) in ((x0, 1), (x1, -1)):
+                        add_box(p, min(x, x + sx * 0.32), deck, zf - 0.25, max(x, x + sx * 0.32), deck + hz, zf + 0.25, 'paint', 0)
+                        add_box(p, min(x + sx * 0.32, x + sx * 0.36), deck + 0.4, zf - 0.27, max(x + sx * 0.32, x + sx * 0.36), deck + hz - 0.2, zf + 0.27, 'metal', 0)
+                        bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x + sx * 0.32, deck + hz, zf - 0.25), (x + sx * 0.32, deck + hz, zf + 0.25), (x + sx * 1.4, roof, zf + 0.25), (x + sx * 1.4, roof, zf - 0.25))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.3); merge(p, bm, 'paint')
+                    add_box(p, x0 + 1.3, roof - 0.34, zf - 0.22, x1 - 1.3, roof, zf + 0.22, 'paint', 0); add_box(p, x0 + 1.3, roof - 0.37, zf - 0.08, x1 - 1.3, roof - 0.34, zf + 0.08, 'metal', 0)
+                    zf += 3.5
+                # the haunch between frames: a sloped panel either side, the lit strip at its foot
+                for (x, sx) in ((x0, 1), (x1, -1)):
+                    bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((x + sx * 0.05, deck + hz, z0 + 0.1), (x + sx * 0.05, deck + hz, z1 - 0.1), (x + sx * 1.35, roof + 0.02, z1 - 0.1), (x + sx * 1.35, roof + 0.02, z0 + 0.1))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.04); merge(p, bm, wall_)
+                    add_box(p, min(x, x + sx * 0.14), deck + hz - 0.12, z0 + 0.1, max(x, x + sx * 0.14), deck + hz - 0.04, z1 - 0.1, 'lampwarm', 0)
+                    add_box(p, min(x, x + sx * 0.2), deck + hz - 0.2, z0 + 0.1, max(x, x + sx * 0.2), deck + hz - 0.12, z1 - 0.1, 'metal', 0)
+                    add_box(p, min(x, x + sx * 0.1), deck + 0.14, z0 + 0.1, max(x, x + sx * 0.1), deck + 0.17, z1 - 0.1, 'glow', 0)        # the ship's colour, low along the wall
+                # the coffers: panels between the beams, a trough of light down each third of the room
+                add_box(p, x0 + 1.3, roof + 0.02, z0, x1 - 1.3, roof + 0.06, z1, 'tint' if wall_ != 'laminate' else 'laminate', 0)
+                for x in (xc - 9, xc, xc + 9):
+                    add_box(p, x - 0.42, roof - 0.16, z0 + 0.2, x - 0.36, roof + 0.02, z1 - 0.2, 'metal', 0); add_box(p, x + 0.36, roof - 0.16, z0 + 0.2, x + 0.42, roof + 0.02, z1 - 0.2, 'metal', 0)
+                    add_box(p, x - 0.36, roof - 0.02, z0 + 0.2, x + 0.36, roof + 0.02, z1 - 0.2, 'lampwarm', 0)
+                add_box(p, x0, roof + 0.06, z0, x1, roof + 0.09, z1, 'rubber', 0)
                 add_box(p, x0, roof, z0 - 0.08, x1, ceil, z0 + 0.08, 'rubber', 0); add_box(p, x0, roof, z1 - 0.08, x1, ceil, z1 + 0.08, 'rubber', 0)
-                k = int(z0 / 3.5)
-                while k * 3.5 + 1.75 < z1:
-                    zf = k * 3.5 + 1.75
-                    if zf > z0 + 0.6:
-                        for x in (xc - 10, xc, xc + 10): add_box(p, x - 0.3, roof - 0.02, zf - 0.9, x + 0.3, roof, zf + 0.9, 'lampwarm', 0)
-                    k += 1
-                # a conduit at the corner of wall and ceiling, a pair of pipes on the working decks
-                for x in (x0 + 0.16, x1 - 0.16): add_cyl(p, x, roof - 0.14, z0 + 0.2, z1 - 0.2, 0.05, 'metal', 8, axis='z')
+                # services in the haunch: a pipe and a cable tray run the length of it
+                for (x, sx) in ((x0, 1), (x1, -1)):
+                    add_cyl(p, x + sx * 0.7, roof - 0.42, z0 + 0.2, z1 - 0.2, 0.07, 'metal', 8, axis='z'); add_box(p, min(x + sx * 0.9, x + sx * 1.15), roof - 0.62, z0 + 0.2, max(x + sx * 0.9, x + sx * 1.15), roof - 0.58, z1 - 0.2, 'metal', 0)
+                # a runner down the clear way: carpet where people live, anti-slip and lines where they work
+                soft = R['purpose'] in ('living', 'bedroom', 'lobby')
+                add_box(p, xc - 2.6, deck, z0 + 0.3, xc + 2.6, deck + 0.012, z1 - 0.3, 'fabric' if soft else 'rubber', 0)
+                if not soft:
+                    for x in (xc - 2.75, xc + 2.6): add_box(p, x, deck, z0 + 0.3, x + 0.15, deck + 0.014, z1 - 0.3, 'hazard', 0)
             else:
                 # a tall hall: columns, a balcony round it at the upper level, a great light down the middle
                 zz = z0 + 2
@@ -953,28 +991,102 @@ def dress_decks(p, lay, name):
                     k += 1
             # what the room is for, on its walls
             pz = R['purpose']
+            def viewport(x, sx, za, zb, y0, y1):
+                """A window out of the ship: a deep frame, the pane (it shows the sky: render/capital.js), a sill."""
+                a_, b_ = (x, x + sx * 0.06) if sx > 0 else (x - sx * -0.06 - 0.06 + 0.0, x)
+                add_box(p, min(x, x + sx * 0.04), y0, za, max(x, x + sx * 0.04), y1, zb, 'mirror', 0)
+                for (q0, q1, r0, r1) in ((y0 - 0.12, y0, za - 0.12, zb + 0.12), (y1, y1 + 0.12, za - 0.12, zb + 0.12), (y0, y1, za - 0.12, za), (y0, y1, zb, zb + 0.12)):
+                    add_box(p, min(x, x + sx * 0.22), q0, r0, max(x, x + sx * 0.22), q1, r1, 'metal', 0)
+                add_box(p, min(x, x + sx * 0.32), y0 - 0.16, za - 0.1, max(x, x + sx * 0.32), y0 - 0.1, zb + 0.1, 'wood' if pz in ('living', 'lobby', 'bedroom') else 'metal', 0)
+                add_box(p, min(x, x + sx * 0.08), (y0 + y1) / 2 - 0.03, za, max(x, x + sx * 0.08), (y0 + y1) / 2 + 0.03, zb, 'metal', 0)
+            if pz == 'lobby' and tall:
+                # the hall's windows: tall ones between the columns under the balcony, and again above it; a skylight of coffers over the middle
+                zq = z0 + 2
+                while zq + 3.5 < z1:
+                    for x, sx in ((x0 + 0.06, 1), (x1 - 0.06, -1)):
+                        if name == 'meridian' and sx > 0 and zq < 48.25 < zq + 3.5: continue          # (the spoke lift's door is in this bay)
+                        viewport(x, sx, zq + 0.45, zq + 3.05, deck + 0.8, deck + 3.3); viewport(x, sx, zq + 0.45, zq + 3.05, by + 1.4, ceil - 0.8)
+                    zq += 3.5
+                for i in range(4):
+                    for j in range(int((z1 - z0 - 2) / 3)):
+                        xa = xc - 6 + i * 3; za = z0 + 1 + j * 3; add_box(p, xa + 0.1, ceil - 0.05, za + 0.1, xa + 2.9, ceil - 0.02, za + 2.9, 'lampwarm', 0); add_box(p, xa, ceil - 0.35, za, xa + 3, ceil - 0.05, za + 0.1, 'paint', 0); add_box(p, xa, ceil - 0.35, za, xa + 0.1, ceil - 0.05, za + 3, 'paint', 0)
             if pz == 'office':
-                # a bridge: the whole far wall is displays, a chart table's light, a dark room
+                # a bridge: the far wall one long raked window over everything, the stations' screens, a chart table with the plot standing over it, rings of light overhead
                 if R['i'] == len(lay['rooms']) - 1:
-                    for i in range(7):
-                        x = x0 + 1 + i * (x1 - x0 - 2) / 7; add_box(p, x + 0.05, deck + 1.0, z1 - 0.2, x + (x1 - x0 - 2) / 7 - 0.05, deck + 2.7, z1 - 0.13, 'screen', 0); add_box(p, x, deck + 0.95, z1 - 0.21, x + (x1 - x0 - 2) / 7, deck + 1.0, z1 - 0.12, 'metal', 0)
+                    n = 6; wspan = (x1 - x0 - 2.0) / n
+                    for i in range(n):
+                        xa = x0 + 1 + i * wspan; bm = bmesh.new(); vs = [bm.verts.new(P(*q)) for q in ((xa + 0.1, deck + 0.9, z1 - 0.2), (xa + wspan - 0.1, deck + 0.9, z1 - 0.2), (xa + wspan - 0.1, roof - 0.3, z1 - 0.9), (xa + 0.1, roof - 0.3, z1 - 0.9))]; bm.faces.new(vs); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=0.04); merge(p, bm, 'mirror')
+                        _beam(p, (xa, deck + 0.9, z1 - 0.15), (xa, roof - 0.3, z1 - 0.85), 0.2, 'paint')
+                    _beam(p, (x1 - 1, deck + 0.9, z1 - 0.15), (x1 - 1, roof - 0.3, z1 - 0.85), 0.2, 'paint')
+                    add_box(p, x0 + 0.5, deck, z1 - 0.6, x1 - 0.5, deck + 0.9, z1 - 0.1, 'paint', 0); add_box(p, x0 + 0.5, deck + 0.9, z1 - 0.7, x1 - 0.5, deck + 0.95, z1 - 0.1, 'metal', 0)
+                    for i in range(14): xa = x0 + 1.2 + i * (x1 - x0 - 2.4) / 14; add_box(p, xa, deck + 0.95, z1 - 0.62, xa + 0.9, deck + 0.97, z1 - 0.25, 'screen', 0)
+                    cz = z0 + 3.0
+                    # the plot over the chart table: the table's top a screen, the ships in it standing up off it as thin lines of light, a ring round its edge
+                    add_box(p, xc - 1.42, deck + 0.76, cz - 0.52, xc + 1.42, deck + 0.775, cz + 0.52, 'screen', 0)
+                    for (a_, b_, c_, d_) in ((-1.45, -1.42, -0.55, 0.55), (1.42, 1.45, -0.55, 0.55), (-1.45, 1.45, -0.55, -0.52), (-1.45, 1.45, 0.52, 0.55)): add_box(p, xc + a_, deck + 0.77, cz + c_, xc + b_, deck + 0.79, cz + d_, 'glow', 0)
+                    for q in range(11): px_, pz_ = xc + ((q * 0.37) % 1 - 0.5) * 2.4, cz + ((q * 0.61) % 1 - 0.5) * 0.8; hh = 0.08 + (q % 4) * 0.07; add_box(p, px_ - 0.003, deck + 0.78, pz_ - 0.003, px_ + 0.003, deck + 0.78 + hh, pz_ + 0.003, 'glow', 0); add_box(p, px_ - 0.015, deck + 0.78 + hh, pz_ - 0.01, px_ + 0.015, deck + 0.79 + hh, pz_ + 0.01, 'glow', 0)
+                    for rr in (2.4, 3.4): add_cyl(p, xc, cz, roof - 0.6, roof - 0.52, rr, 'lampwarm', 48); add_cyl(p, xc, cz, roof - 0.52, roof - 0.45, rr + 0.08, 'metal', 48)
+                    for (x, sx) in ((x0 + 0.08, 1), (x1 - 0.08, -1)):
+                        for q in range(3): zq = z0 + 1.0 + q * 3.5; add_box(p, min(x, x + sx * 0.06), deck + 1.1, zq, max(x, x + sx * 0.06), deck + 2.4, zq + 2.6, 'screen', 0); add_box(p, min(x, x + sx * 0.04), deck + 1.04, zq - 0.06, max(x, x + sx * 0.04), deck + 2.46, zq + 2.66, 'metal', 0)
             elif pz == 'storage':
+                # an armoury: cages of racks, rifles stood in them, red light low on the walls
                 zw = z0 + 0.7
                 while zw < z1 - 1.2:
                     for x, sx in ((x0 + 0.08, 1), (x1 - 0.08, -1)):
                         for yy in (1.0, 1.7, 2.4): add_box(p, min(x, x + sx * 0.3), deck + yy, zw, max(x, x + sx * 0.3), deck + yy + 0.05, zw + 1.0, 'metal', 0)
+                        for q in range(5): zq = zw + 0.12 + q * 0.18; add_box(p, min(x + sx * 0.08, x + sx * 0.14), deck + 1.05, zq, max(x + sx * 0.08, x + sx * 0.14), deck + 1.95, zq + 0.05, 'heatshield', 0); add_box(p, min(x + sx * 0.06, x + sx * 0.22), deck + 1.35, zq - 0.01, max(x + sx * 0.06, x + sx * 0.22), deck + 1.5, zq + 0.06, 'heatshield', 0)
+                        add_box(p, min(x, x + sx * 0.06), deck + 0.3, zw, max(x, x + sx * 0.06), deck + 0.34, zw + 1.0, 'navred', 0)
                     zw += 1.6
-            elif pz in ('living', 'bedroom'):
-                zw = z0 + 1.2
-                while zw < z1 - 1:
-                    for x, sx in ((x0 + 0.08, 1), (x1 - 0.08, -1)):
-                        a, b = (x, x + 0.05) if sx > 0 else (x - 0.05, x); add_box(p, a, deck + 1.2, zw, b, deck + 2.3, zw + 1.6, 'visor', 0); add_box(p, a, deck + 1.14, zw - 0.06, b, deck + 1.2, zw + 1.66, 'wood', 0); add_box(p, a, deck + 2.3, zw - 0.06, b, deck + 2.36, zw + 1.66, 'wood', 0)      # a window in the side of the ship
+                for x in (xc - 3.2, xc + 3.2):
+                    add_box(p, x - 0.03, deck, z0 + 0.6, x + 0.03, deck + 2.6, z1 - 0.6, 'metal', 0) if False else None
+                    zq = z0 + 0.6
+                    while zq < z1 - 0.6: add_box(p, x - 0.025, deck, zq, x + 0.025, deck + 2.6, zq + 0.05, 'metal', 0); zq += 0.6
+                    for yy in (0.1, 1.3, 2.55): add_box(p, x - 0.03, deck + yy, z0 + 0.6, x + 0.03, deck + yy + 0.05, z1 - 0.6, 'metal', 0)
+            elif pz in ('living', 'bedroom', 'lobby') and not tall or pz == 'living':
+                # windows out of the ship down both sides, tall where people sit, a band of wood under them
+                zw = z0 + 1.75 + 0.3
+                while zw + 2.9 < z1:
+                    for x, sx in ((x0 + 0.06, 1), (x1 - 0.06, -1)):
+                        viewport(x, sx, zw, zw + 2.9, deck + (0.7 if pz == 'living' else 1.1), deck + (2.9 if pz == 'living' else 2.4))
                     zw += 3.5
+                for x, sx in ((x0 + 0.04, 1), (x1 - 0.04, -1)): add_box(p, min(x, x + sx * 0.05), deck + 0.14, z0 + 0.1, max(x, x + sx * 0.05), deck + 0.6, z1 - 0.1, 'wood', 0)
+                if pz == 'living':
+                    # pendant lights over the seating, and a bar across the far end with its shelves of bottles lit from below
+                    for zq in range(int(z0 + 3), int(z1 - 1), 4):
+                        for x in (xc - 6.4, xc + 6.4, xc - 11, xc + 11): add_cyl(p, x, zq + 1.6, roof - 1.1, roof, 0.01, 'metal', 4); add_cyl(p, x, zq + 1.6, roof - 1.45, roof - 1.1, 0.32, 'lampwarm', 20, r2=0.12)
+                    bx0, bx1 = xc + 3.5, x1 - 2.5
+                    add_box(p, bx0, deck, z1 - 1.4, bx1, deck + 1.05, z1 - 0.8, 'wood', 0); add_box(p, bx0 - 0.05, deck + 1.05, z1 - 1.5, bx1 + 0.05, deck + 1.1, z1 - 0.75, 'stone', 0)
+                    for yy in (1.4, 1.9, 2.4):
+                        add_box(p, bx0, deck + yy, z1 - 0.35, bx1, deck + yy + 0.03, z1 - 0.1, 'glass', 0); add_box(p, bx0, deck + yy - 0.03, z1 - 0.14, bx1, deck + yy, z1 - 0.1, 'neonamber', 0)
+                        q = bx0 + 0.15
+                        while q < bx1 - 0.15: add_cyl(p, q, z1 - 0.22, deck + yy + 0.03, deck + yy + 0.3, 0.035, 'glass' if int(q * 7) % 3 else 'visor', 8); q += 0.17
+            elif pz == 'kitchen':
+                # a mess: a galley along the wall, tiled behind the counters, a hood over them; lights hung low over each table
+                for x, sx in ((x0 + 0.06, 1), (x1 - 0.06, -1)):
+                    add_box(p, min(x, x + sx * 0.03), deck + 0.95, z0 + 0.4, max(x, x + sx * 0.03), deck + 1.9, z1 - 0.4, 'ceramic', 0)
+                    add_box(p, min(x, x + sx * 0.9), deck + 2.4, z0 + 0.6, max(x, x + sx * 0.9), deck + 2.7, z1 - 0.6, 'metal', 0)
+                for zq in [z for z in [z0 + 2.2 + 4.2 * k for k in range(4)] if z < z1 - 1]:
+                    for off in (5.4, 10):
+                        for sgn in (-1, 1): x = xc + sgn * off; add_cyl(p, x, zq, roof - 1.6, roof, 0.01, 'metal', 4); add_cyl(p, x, zq, roof - 1.85, roof - 1.6, 0.26, 'paint', 16, r2=0.06); add_cyl(p, x, zq, roof - 1.86, roof - 1.85, 0.24, 'lampwarm', 16)
+                add_box(p, xc - 1.5, deck + 2.0, z1 - 0.2, xc + 1.5, deck + 2.9, z1 - 0.14, 'screen', 0)
             elif pz == 'shopfloor-workshop':
                 zw = z0 + 1
                 while zw < z1 - 1:
                     for x, sx in ((x0 + 0.08, 1), (x1 - 0.08, -1)): add_box(p, min(x, x + sx * 0.05), deck + 1.1, zw, max(x, x + sx * 0.05), deck + 2.5, zw + 2.2, 'heatshield', 0)
                     zw += 3.5
+                # a gantry crane on rails down the room
+                for x in (x0 + 1.6, x1 - 1.6): add_box(p, x - 0.15, roof - 0.9, z0 + 0.3, x + 0.15, roof - 0.6, z1 - 0.3, 'soil', 0)
+                zc_ = (z0 + z1) / 2; add_box(p, x0 + 1.4, roof - 1.3, zc_ - 0.3, x1 - 1.4, roof - 0.9, zc_ + 0.3, 'soil', 0); add_box(p, xc + 3 - 0.5, roof - 1.7, zc_ - 0.4, xc + 3 + 0.5, roof - 1.3, zc_ + 0.4, 'heatshield', 0); add_cyl(p, xc + 3, zc_, roof - 2.6, roof - 1.7, 0.02, 'metal', 6); add_box(p, xc + 2.85, roof - 2.8, zc_ - 0.15, xc + 3.15, roof - 2.6, zc_ + 0.15, 'hazard', 0)
+                for (x_, w_) in ((xc - 2.75, 0.15), (xc + 2.6, 0.15)): add_box(p, x_, deck, z0 + 0.3, x_ + w_, deck + 0.014, z1 - 0.3, 'hazard', 0)
+            if pz == 'bedroom':
+                # each bunk its own reading light, a curtain half drawn across the bay
+                for pr in [q for q in lay['props'] if q['room'] == R['i'] and q['kind'] == 'bed']:
+                    cx_, cz_ = (pr['x0'] + pr['x1']) / 2, (pr['z0'] + pr['z1']) / 2; add_box(p, cx_ - 0.15, deck + 1.55, cz_ - 0.1, cx_ + 0.15, deck + 1.65, cz_ + 0.1, 'lampwarm', 0)
+                for pr in [q for q in lay['props'] if q['room'] == R['i'] and q['kind'] == 'partition']:
+                    xin = pr['x1'] if pr['x0'] < xc else pr['x0']; zq = pr['z1']
+                    add_box(p, xin - 0.02 - (0.9 if xin > xc else 0), deck + 2.25, zq + 0.02, xin + 0.02 + (0 if xin > xc else 0.9) - 0.0, deck + 2.3, zq + 3.25, 'metal', 0) if False else None
+                    add_box(p, xin - 0.015, deck + 2.25, zq + 0.1, xin + 0.015, deck + 2.28, zq + 3.2, 'metal', 0)
+                    for q in range(3): add_box(p, xin - 0.03, deck + 0.35, zq + 0.12 + q * 0.17, xin + 0.03, deck + 2.25, zq + 0.26 + q * 0.17, 'fabric', 0)
     # stairs up to the balconies: strings, treads, risers, rails; the balconies and the landing they reach
     for S in lay.get('stairs', []):
         by, foot, top = S['by'], S['foot'], S['top']; n = int((by - deck) / 0.18)
@@ -1017,8 +1129,27 @@ def dress_decks(p, lay, name):
         add_box(p, hx0, deck, z - 0.08, a0, ceil, z + 0.08, 'tint', 0); add_box(p, a1, deck, z - 0.08, hx1, ceil, z + 0.08, 'tint', 0); add_box(p, a0, top, z - 0.08, a1, ceil, z + 0.08, 'tint', 0)
         for (x0_, x1_, y0_, y1_) in ((a0 - 0.14, a0, deck, top + 0.14), (a1, a1 + 0.14, deck, top + 0.14), (a0, a1, top, top + 0.14)): add_box(p, x0_, y0_, z - 0.13, x1_, y1_, z + 0.13, 'metal', 0)
         for s in (-1, 1): add_box(p, a1 + 0.3, deck + 1.3, z + s * 0.08 - (0.012 if s < 0 else 0), a1 + 1.0, deck + 1.75, z + s * 0.08 + (0.012 if s > 0 else 0), 'screen', 0)
+    # the Meridian's spoke lift, in the promenade wall: up to the hub and down into the rings (js/gen/rings.js)
+    if name == 'meridian':
+        x, z = hx0 + 0.02, 48.25
+        add_box(p, x, deck, z - 1.5, x + 0.3, deck + 3.1, z - 1.2, 'metal', 0); add_box(p, x, deck, z + 1.2, x + 0.3, deck + 3.1, z + 1.5, 'metal', 0); add_box(p, x, deck + 2.8, z - 1.2, x + 0.3, deck + 3.1, z + 1.2, 'metal', 0)
+        add_box(p, x + 0.05, deck, z - 1.2, x + 0.12, deck + 2.8, z - 0.02, 'paint', 0); add_box(p, x + 0.05, deck, z + 0.02, x + 0.12, deck + 2.8, z + 1.2, 'paint', 0)
+        add_box(p, x + 0.12, deck + 1.0, z - 0.02, x + 0.14, deck + 2.4, z + 0.02, 'glow', 0); add_box(p, x + 0.1, deck + 3.2, z - 0.9, x + 0.16, deck + 3.6, z + 0.9, 'screen', 0)
+        add_box(p, x + 0.1, deck + 1.2, z + 1.7, x + 0.18, deck + 1.45, z + 1.85, 'lampwarm', 0)
+        for k in range(12): add_box(p, x + 0.3, deck, z - 1.5 + k * 0.25, x + 1.6, deck + 0.004, z - 1.4 + k * 0.25, 'hazard', 0)
     # the furniture the layout says is here
-    B = {'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine, 'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'), 'desk': desk, 'cabinet': cabinet, 'rack': lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 'chair': chair, 'console': console, 'partition': _partition}
+    def pillar(q, L, D, H, r):
+        """A frame column: a plinth, the shaft with a lit channel up its face, a capital spreading into the girder."""
+        add_box(q, -0.04, 0, -0.04, L + 0.04, 0.25, D + 0.04, 'metal', 0); add_box(q, 0, 0.25, 0, L, H - 0.6, D, 'paint', 0)
+        add_box(q, L / 2 - 0.05, 0.6, -0.01, L / 2 + 0.05, H - 1.2, 0.0, 'glow', 0); add_box(q, L / 2 - 0.05, 0.6, D, L / 2 + 0.05, H - 1.2, D + 0.01, 'glow', 0)
+        bm = bmesh.new(); vs = [bm.verts.new(P(*v)) for v in ((0, H - 0.6, 0), (L, H - 0.6, 0), (L, H - 0.6, D), (0, H - 0.6, D), (-0.25, H, -0.25), (L + 0.25, H, -0.25), (L + 0.25, H, D + 0.25), (-0.25, H, D + 0.25))]
+        for f_ in ((0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)): bm.faces.new([vs[i] for i in f_])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(q, bm, 'paint')
+    for R in lay['rooms']:
+        if R['purpose'] in ('hold', 'lobby'): continue
+        x0, z0, x1, z1 = R['rect']; roof_ = deck + 4.2
+        for x in (xc - 3.45, xc + 3.45): add_box(p, x - 0.25, roof_ - 0.55, z0 + 0.1, x + 0.25, roof_, z1 - 0.1, 'paint', 0); add_box(p, x - 0.27, roof_ - 0.58, z0 + 0.1, x + 0.27, roof_ - 0.55, z1 - 0.1, 'metal', 0)
+    B = {'pillar': pillar, 'bed': bed, 'counter': counter, 'locker': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'locker'), 'crate': crate, 'table': table, 'machine': machine, 'bench': bench, 'sofa': sofa, 'armchair': armchair, 'tvstand': tvstand, 'planter': planter, 'fridge': lambda q, L, D, H, r: cabinet(q, L, D, H, r, 'fridge'), 'desk': desk, 'cabinet': cabinet, 'rack': lambda q, L, D, H, r: shelf(q, L, D, H, r, 'rack'), 'chair': chair, 'console': console, 'partition': _partition}
     for pr in lay['props']:
         across = pr['face'] in (0, 2); L, D = (pr['x1'] - pr['x0'], pr['z1'] - pr['z0']) if across else (pr['z1'] - pr['z0'], pr['x1'] - pr['x0'])
         place_in(p, B[pr['kind']], L, D, pr['h'], pr, deck)
@@ -1035,6 +1166,12 @@ def _look(obs):
         bb = [ob.matrix_world @ mathutils.Vector(c) for c in ob.bound_box]; c = sum(bb, mathutils.Vector()) / 8; R = max((v - c).length for v in bb)
         views = [(0.55, -0.75, 0.3), (-0.8, 0.5, 0.35), (0.05, -0.2, 1.0), (1.0, 0.05, 0.08)]
         if os.environ.get('VIEW'): views = [tuple(float(q) for q in v.split(',')) for v in os.environ['VIEW'].split(';')]
+        if os.environ.get('CAM'):
+            for i, q in enumerate(os.environ['CAM'].split('|')):
+                a, b = [mathutils.Vector(P(*[float(t) for t in u.split(',')])) for u in q.split(';')]
+                cam.location = a; cam.rotation_euler = (b - a).to_track_quat('-Z', 'Y').to_euler()
+                sc.render.filepath = os.path.join(ROOT, 'out', 'booth', ob.name + '-c' + str(i) + '.png'); bpy.ops.render.render(write_still=True); print('look', sc.render.filepath)
+            continue
         for i, v in enumerate(views):
             d = mathutils.Vector(v).normalized(); D = float(os.environ.get('DIST', 1.9)); tgt = c + mathutils.Vector(tuple(float(q) for q in os.environ.get('AT', '0,0,0').split(',')))
             cam.location = tgt + d * R * D; cam.rotation_euler = (tgt - cam.location).to_track_quat('-Z', 'Y').to_euler()
@@ -1051,6 +1188,7 @@ def build_capital():
         if ONLY and name not in ONLY: continue
         p = Part(); r = random.Random(name); lay = decks[DECKS_OF.get(name, name) + '_decks']; mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
+        for i, q in enumerate(RING_PARTS.pop(name, [])): o2 = finish(q, f'{name}_ring{i}'); o2['kind'] = f'{name}_ring{i}'; o2['dims'] = [1, 1, 1]; hulls.append(o2); print('ring part', o2.name, len(o2.data.polygons), 'faces')
         if name in DECKS_OF: continue
         p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
     if ONLY: _look(hulls + rooms); return
