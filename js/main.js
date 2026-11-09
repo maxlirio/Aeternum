@@ -992,7 +992,7 @@ async function start(fresh) {
     const L = flight.L, H = L.H ?? L.ceiling + 1, at = C.ship.at, lay = LAYOUTS[C.ship.model], mouth = lay.doors[0], hole = mouth.height ?? 6.6;
     if (L.W > mouth.width - 2 || L.D > 40 || H > hole - 0.2) { ui.toast(`The ${esc(flight.ship.name)} won't fit through the ${esc(C.name)}'s bay doors.`, 'warn', 4000); return; }
     const fx = Math.sin(at.facing), fz = Math.cos(at.facing), D = C.deckD, R0 = lay.rooms[0], zl = Math.max(R0.rect[1] + L.D / 2 + 8, (R0.rect[1] + R0.rect[3]) / 2 - 2);
-    const deckY = at.c[1] + lay.deck, yIn = deckY + Math.min(0.9, (hole - H) / 2);      // (through the middle of the doors, not the ceiling over them)
+    const deckY = at.c[1] + lay.deck, yIn = deckY + Math.min(0.45, (hole - H) / 2);      // (through the middle of the doors, not the ceiling over them)
     const P = (z, y = yIn) => [at.c[0] + fx * (z - D / 2), y, at.c[2] + fz * (z - D / 2)];
     // the way: from where you are, on round onto the bay's line a long way out, down it, in through the doors, to the spot to set down
     const here = flight.pos.slice(), sp = Math.max(8, flight.airspeed), dir = sp > 9 ? flight.vel.map(v => v / flight.airspeed) : flight.fwd;

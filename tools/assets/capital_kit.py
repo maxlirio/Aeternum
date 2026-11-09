@@ -893,21 +893,21 @@ def dress_decks(p, lay, name):
             while zz < z1:
                 for x in (x0, x1): _ibeam(p, (x + (0.2 if x == x0 else -0.2), deck, zz), (x + (0.2 if x == x0 else -0.2), ceil, zz), 0.5, 0.4)
                 # a truss across: top and bottom chords and the diagonals between them
-                _ibeam(p, (x0, ceil - 0.25, zz), (x1, ceil - 0.25, zz), 0.4, 0.3); _ibeam(p, (x0, ceil - 1.5, zz), (x1, ceil - 1.5, zz), 0.3, 0.26)
+                _ibeam(p, (x0, ceil - 0.2, zz), (x1, ceil - 0.2, zz), 0.36, 0.3); _ibeam(p, (x0, ceil - 0.5, zz), (x1, ceil - 0.5, zz), 0.26, 0.26)      # (a shallow truss: everything overhead stays above the bay doors' 6.6 m, so whatever comes in under them clears it)
                 n = 12
                 for k in range(n):
-                    a = x0 + (x1 - x0) * k / n; b = x0 + (x1 - x0) * (k + 1) / n; _beam(p, (a, ceil - 1.5 if k % 2 else ceil - 0.25, zz), (b, ceil - 0.25 if k % 2 else ceil - 1.5, zz), 0.1, 'metal')
+                    a = x0 + (x1 - x0) * k / n; b = x0 + (x1 - x0) * (k + 1) / n; _beam(p, (a, ceil - 0.5 if k % 2 else ceil - 0.2, zz), (b, ceil - 0.2 if k % 2 else ceil - 0.5, zz), 0.08, 'metal')
                 zz += 7
             for x in (xc - 10, xc, xc + 10):
                 add_box(p, x - 0.08, ceil - 0.3, z0, x + 0.08, ceil - 0.06, z1, 'metal', 0)     # stringers
             zz = z0 + 7
             while zz < z1:
-                for x in (xc - 10, xc, xc + 10): _fitting(p, x, ceil - 1.65, zz, 2.6, 0.5); _beam(p, (x, ceil - 1.5, zz), (x, ceil - 1.65, zz), 0.05, 'metal')
+                for x in (xc - 10, xc, xc + 10): _fitting(p, x, ceil - 0.52, zz, 2.6, 0.5)
                 zz += 7
             # services along the roof: fat ducts on hangers, pipe runs, a cable tray
             for (dxx, R_) in ((-13, 0.42), (13, 0.42)):
-                add_cyl(p, xc + dxx, ceil - 0.72, z0 + 1, z1 - 1, R_, 'metal', 16, axis='z'); zb = z0 + 3
-                while zb < z1 - 1: add_cyl(p, xc + dxx, ceil - 0.72, zb, zb + 0.09, R_ * 1.07, 'paint', 16, axis='z'); zb += 3
+                add_cyl(p, xc + dxx, ceil - 0.36, z0 + 1, z1 - 1, R_ * 0.7, 'metal', 16, axis='z'); zb = z0 + 3
+                while zb < z1 - 1: add_cyl(p, xc + dxx, ceil - 0.36, zb, zb + 0.09, R_ * 0.75, 'paint', 16, axis='z'); zb += 3
             for x, y_, R_, m in ((x0 + 0.34, deck + 5.4, 0.1, 'metal'), (x0 + 0.34, deck + 5.15, 0.07, 'hazard'), (x1 - 0.34, deck + 5.4, 0.1, 'metal'), (x1 - 0.34, deck + 5.15, 0.07, 'paint')): add_cyl(p, x, y_, z0 + 0.4, z1 - 0.4, R_, m, 10, axis='z')
             # a gallery down each wall with a real rail, and a stair up to it at the back
             cy_ = deck + 4.5
@@ -920,9 +920,10 @@ def dress_decks(p, lay, name):
                 while zb < z1 - 1:
                     _beam(p, (min(a, b) if inner > xc else max(a, b), cy_ - 1.2, zb), (inner, cy_ - 0.1, zb), 0.1, 'metal'); zb += 7      # brackets
             # an overhead crane on rails under the roof
-            for zc_ in (z0 + 14, z0 + 28):
-                _ibeam(p, (x0 + 0.5, ceil - 2.05, zc_), (x1 - 0.5, ceil - 2.05, zc_), 0.5, 0.36, 'soil'); _ibeam(p, (x0 + 0.5, ceil - 2.05, zc_ + 1.4), (x1 - 0.5, ceil - 2.05, zc_ + 1.4), 0.5, 0.36, 'soil')
-                tx = xc + (4 if zc_ < z0 + 20 else -6); add_box(p, tx - 1, ceil - 2.8, zc_ - 0.3, tx + 1, ceil - 2.28, zc_ + 1.7, 'heatshield', 0); add_cyl(p, tx, zc_ + 0.7, ceil - 3.5, ceil - 2.8, 0.025, 'metal', 6); add_box(p, tx - 0.18, ceil - 3.76, zc_ + 0.5, tx + 0.18, ceil - 3.5, zc_ + 0.9, 'hazard', 0)
+            # the overhead crane, parked against the back wall where nothing flies in, its hook drawn right up
+            for zc_ in (z1 - 4.5,):
+                for dz_ in (0, 1.4): _ibeam(p, (x0 + 0.5, ceil - 0.62, zc_ + dz_), (x1 - 0.5, ceil - 0.62, zc_ + dz_), 0.24, 0.36, 'soil')
+                tx = xc + 4; add_box(p, tx - 1, ceil - 1.1, zc_ - 0.3, tx + 1, ceil - 0.74, zc_ + 1.7, 'heatshield', 0); add_cyl(p, tx, zc_ + 0.7, ceil - 1.5, ceil - 1.1, 0.025, 'metal', 6); add_box(p, tx - 0.18, ceil - 1.72, zc_ + 0.5, tx + 0.18, ceil - 1.5, zc_ + 0.9, 'hazard', 0)
             # work stations on the walls: tool boards, hose reels, status screens, a fire point
             zw = z0 + 5.2
             while zw < z1 - 2:

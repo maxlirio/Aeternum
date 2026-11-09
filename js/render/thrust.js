@@ -74,7 +74,7 @@ export class ThrustView {
     let main = nozzles(M.hullPrims, L, new THREE.Vector3(0, 0, -1)), lift = nozzles(M.hullPrims, L, new THREE.Vector3(0, -1, 0));
     if (!main.length) main = [{ p: new THREE.Vector3(L.W / 2, (L.deck + L.ceiling) / 2, 0.1), r: Math.min(L.W, L.ceiling) * 0.16, dir: new THREE.Vector3(0, 0, -1) }];
     const zmin = Math.min(...main.map(q => q.p.z)); main = main.filter(q => q.p.z < Math.min(L.D * 0.5, zmin + Math.max(2, L.D * 0.12)));     // (only the drives at the stern: not every vent down the sides)
-    if (!lift.length) lift = [[0.28, 0.25], [0.72, 0.25], [0.28, 0.75], [0.72, 0.75]].map(([u, v]) => ({ p: new THREE.Vector3(L.W * u, Math.max(0.5, M.gear?.[0]?.bot ?? 0.6), L.D * v), r: Math.min(L.W, L.D) * 0.06, dir: new THREE.Vector3(0, -1, 0) }));
+    if (!lift.length) lift = [[0.28, 0.25], [0.72, 0.25], [0.28, 0.75], [0.72, 0.75]].map(([u, v]) => ({ p: new THREE.Vector3(L.W * u, Math.max(0.5, M.gear?.[0]?.top ?? 0.6), L.D * v), r: Math.min(L.W, L.D) * 0.06, dir: new THREE.Vector3(0, -1, 0) }));
     return this.info[model] = { main: main.slice(0, 8), lift: lift.slice(0, 6), L };
   }
   jet(holder, q) {
@@ -108,7 +108,7 @@ export class ThrustView {
       }
       // the gear comes down, and when the hull settles onto it the bays vent steam
       const gear = this.ships.gearOf?.(s.id) ?? 0, moving = Math.abs(gear - (E.gear ?? gear)) > 1e-4; E.gear = gear;
-      if (moving) for (const G of this.ships.models[s.model]?.gear || []) if (Math.random() < dt * 8) { const w = at(new THREE.Vector3(G.x, G.bot, G.z)); fx.put(fx.dark, w[0], w[1] - 0.1, w[2], (Math.random() - 0.5) * 1.5, -0.8 - Math.random(), (Math.random() - 0.5) * 1.5, 0.9 + Math.random() * 0.6, 0.3, 1.1, 0.92, 0.93, 0.95, 0.42, 1.2, -0.5); }
+      if (moving) for (const G of this.ships.models[s.model]?.gear || []) if (Math.random() < dt * 8) { const w = at(new THREE.Vector3(G.ax, G.top, G.z)); fx.put(fx.dark, w[0], w[1] - 0.1, w[2], (Math.random() - 0.5) * 1.5, -0.8 - Math.random(), (Math.random() - 0.5) * 1.5, 0.9 + Math.random() * 0.6, 0.3, 1.1, 0.92, 0.93, 0.95, 0.42, 1.2, -0.5); }
       if (s.landed && !E.wasDown) for (const G of this.ships.models[s.model]?.gear || []) { const w = at(new THREE.Vector3(G.x, 0, G.z)); for (let k = 0; k < 14; k++) { const a = Math.random() * 6.283, sp = 1.5 + Math.random() * 3; fx.put(fx.dark, w[0], w[1] + 0.3, w[2], Math.cos(a) * sp, 0.6 + Math.random() * 1.4, Math.sin(a) * sp, 1.4 + Math.random() * 1.6, 0.5, 1.6, 0.94, 0.95, 0.97, 0.5, 1.4, -0.6); } }
       E.wasDown = !!s.landed;
       // a damaged engine: smoke, then fire, out of its nozzle

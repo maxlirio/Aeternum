@@ -202,6 +202,19 @@ try {
       console.log('   vesper', tag, JSON.stringify(R)); await shot('vesper-' + tag);
     }
   }
+  if (want('survey')) {
+    await load('hour=' + (process.env.HOUR || 14));
+    const go = async (tag, js) => { const r = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); O.setFlightForTest?.(null); O.ctrl.mode = 'walk'; ${js}; await wait(3500); return 1; })()`).catch(e => String(e).slice(0, 200)); console.log('   survey', tag, r); await shot('survey-' + tag); };
+    // inside a building in town, the hab's ground floor
+    await go('inside', `const s = O.homeS, b = s.buildings.find(q => q.type === 'store') || s.buildings[0], [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * 3, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * 3); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const yaw = Math.atan2(b.ez[0], b.ez[1]); O.ctrl.facing = yaw; O.cam.yaw = yaw + 0.3; O.cam.pitch = 0.1; O.cam.dist = 2.5`);
+    // a parked car up close
+    await go('car', `const V = O.getVehicles().find(v => !v.city && v.pos) ; const [x, y, z] = V.pos; O.ctrl.pos = [x + 3.5, O.world.groundAt(x + 3.5, z + 2, 1e4).h + 0.05, z + 2]; O.ctrl.vel = [0, 0, 0]; const yaw = Math.atan2(x - O.ctrl.pos[0], z - O.ctrl.pos[2]); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.15; O.cam.dist = 3`);
+    // the megacity at street level
+    await go('city', `const c = O.cityView.city, [x, z] = c.toWorld(40, 60); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = 0.4; O.cam.yaw = 0.4; O.cam.pitch = 0.12; O.cam.dist = 4`);
+    await go('city2', `O.ctrl.facing = 2.2; O.cam.yaw = 2.2; O.cam.pitch = 0.3; O.cam.dist = 4`);
+    // animals
+    await go('fauna', `const F = O.fauna; F.spawnTest?.(O.ctrl.pos[0] + 6, O.ctrl.pos[2] + 4); const s = O.homeS; const x = s.cx + 900, z = s.cz + 300; O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; F.spawnTest?.(x + 5, z + 5); O.ctrl.facing = 0.8; O.cam.yaw = 0.8; O.cam.pitch = 0.1; O.cam.dist = 3`);
+  }
   if (want('cabin')) {
     await load('hour=' + (process.env.HOUR || 14));
     const list = await ev(`ORBIS.getShips().filter(sh => !sh.fleet && !sh.flying).slice(0, 12).map(sh => [sh.id, sh.model])`);
