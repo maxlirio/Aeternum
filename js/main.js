@@ -1231,9 +1231,10 @@ async function start(fresh) {
     ctrl.mode = 'walk'; ctrl.seatAt(b2w(b, a.x, a.y, a.z), toWorldDir(b, a.facing), 'sit', b2w(b, a.x, b.plan.layout.deck, a.z - 0.8));
    
   }
+  let bootJoin = false;
   if (player.piloting) { // you were flying when you left: you're still at the helm
     const sh = shipById(player.piloting);
-    if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; joinWar(); }
+    if (sh?.flying && sh.at) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); } flight = new Flight(world, planet, sh, sh.at.c, sh.at.facing); flight.onGround = false; ctrl.mode = 'pilot'; cam.dist = 30; bootJoin = true; }     // (into the air war once it's there: it's set up further on)
   }
 
   // ---- people: the one in front of you, and talking to them (sim/processes/talk.js)
@@ -1487,15 +1488,16 @@ async function start(fresh) {
     for (const b of nearBuildingsOf(p, R * 1.6)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });     // (what was hit is marked: render keeps it scorched)
   }
   function nearBuildingsOf(p, r) { const out = []; for (const b of s.buildings || []) { const [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2); if (Math.hypot(x - p[0], z - p[2]) < r + Math.max(b.w, b.d) / 2) out.push(b); } return out; }
-  const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);
+  const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);      // (the land itself, loaded or not: the line can be a long way off)
   let aloft = false;      // (flying more than 300 m up: set each frame)
-  const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)      // (the land itself, loaded or not: the line can be a long way off)
+  const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)
   const infantry = new Infantry({ ground: landY, hooks: { hitPlayer: (d, by) => hurtPlayer(d, by) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
   const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
   let myCraft = null, raid = null, firing = false;
   function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
   function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
+  if (bootJoin && flight) joinWar();
   renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0 && flight && document.pointerLockElement) firing = true; });
   addEventListener('mouseup', () => { firing = false; });
   // Somewhere open to come down near (x, z) from height y: the ground (or a roof, a deck) with

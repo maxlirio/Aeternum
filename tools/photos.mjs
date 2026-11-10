@@ -243,6 +243,15 @@ try {
     for (const [k, ms] of [[1, 300], [2, 700], [3, 700], [4, 900], [5, 1500]]) { await sleep(ms); await shot('ftlc-arrive-' + k).catch(() => {}); }
     console.log('   arrived', await ev(`JSON.stringify({ planet: ORBIS.planet.name, flying: !!ORBIS.getFlight(), alt: Math.round(ORBIS.getFlight()?.pos[1] || 0) })`));
   }
+  if (want('reloadfly')) {
+    // you were flying when you left: load that save again (it used to break before the air war was set up)
+    await load('hour=11&fly=runabout0');
+    console.log('   saved', await ev(`(async () => { const f = ORBIS.getFlight(); f.pos[1] += 800; await new Promise(r => setTimeout(r, 1500)); await ORBIS.save(); return JSON.stringify({ piloting: ORBIS.store.player.piloting }); })()`));
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&auto=continue&seed=${SEED}&hour=11` });
+    let t = ''; for (let i = 0; i < 200; i++) { await sleep(500); t = await ev('document.title').catch(() => ''); if (t === 'READY' || t.startsWith('ERROR')) break; }
+    console.log('   reloaded', t, await ev(`JSON.stringify({ flying: !!ORBIS.getFlight?.(), broke: document.body.innerText.includes('Something broke') })`).catch(e => String(e).slice(0, 200)));
+    await shot('reloadfly');
+  }
   if (want('fast')) {
     // flying very fast: low, high, and in the black; frames as it goes, and per-frame figures (how far the ship jumps on screen, frame times)
     for (const [tag, alt, v] of (process.env.RUNS ? JSON.parse(process.env.RUNS) : [['low', 400, 900], ['mid', 9000, 4000], ['high', 30000, 12000], ['space', 60000, 30000]])) {
