@@ -229,7 +229,7 @@ async function start(fresh) {
   const origin = [0, 0, 0];
   const toRender = (x, y, z) => [x - origin[0], y - origin[1], z - origin[2]];
   curveTheGround(globeOf(planet).R);
-  await loadSurfaces(renderer.capabilities.getMaxAnisotropy()); await loadGround();
+  await loadSurfaces(renderer.capabilities.getMaxAnisotropy()); await loadGround().catch(e => console.warn("ground pictures unavailable: the plain ground stands in", e));
   materials();
   ui.loading('Weathering the surface…', 0.05);
   await tick();

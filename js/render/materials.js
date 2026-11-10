@@ -20,12 +20,24 @@ export async function loadSurfaces(anisotropy = 8) {
 // Same order as gen/land.js: 11 soft grounds, then plain rock and the 4 other rocks.
 export const GROUND_LAYERS = ['grass', 'dirt', 'litter', 'sand', 'cracked', 'moss', 'peat', 'ash', 'heath', 'gravel', 'snow', 'rock', 'sandstone', 'basalt', 'granite', 'pale'];
 let GROUND = null;
+// one ground picture, decoded: a bad or half-fetched file (a deploy caught midway, a broken cache entry, the network dropping) is fetched again
+// fresh, and if it still won't decode the layer is its plain mean colour (or a flat normal) rather than the game failing to start
+async function groundImage(k, suffix, size) {
+  const opt = { colorSpaceConversion: 'none', premultiplyAlpha: 'none', resizeWidth: size, resizeHeight: size, resizeQuality: 'high' };
+  for (let n = 0; n < 3; n++) {
+    try { const r = await fetch(BASE + k + suffix, n ? { cache: 'reload' } : {}); if (!r.ok) throw new Error(r.status); const b = await r.blob(); if (!/^image\//.test(b.type) && b.type) throw new Error(b.type); return await createImageBitmap(b, opt); }
+    catch (e) { console.warn('ground picture', k + suffix, 'try', n + 1, e.message || e); }
+  }
+  const c = new OffscreenCanvas(4, 4), x = c.getContext('2d'), m = SURF[k]?.mean || [0.5, 0.5, 0.5];
+  x.fillStyle = suffix.startsWith('_n') ? 'rgb(128,128,255)' : `rgb(${m.map(v => Math.round(Math.min(1, Math.pow(v, 1 / 2.2)) * 255)).join(',')})`; x.fillRect(0, 0, 4, 4);
+  return createImageBitmap(c, opt);
+}
 export async function loadGround() {
   if (!SURF || GROUND_LAYERS.some(k => !SURF[k]?.mean)) return null;
   const read = async (suffix, size) => {
     const c = new OffscreenCanvas(size, size), x = c.getContext('2d', { willReadFrequently: true }), data = new Uint8Array(size * size * 4 * GROUND_LAYERS.length);
     await Promise.all(GROUND_LAYERS.map(async (k, i) => {
-      const bmp = await createImageBitmap(await (await fetch(BASE + k + suffix)).blob(), { colorSpaceConversion: 'none', premultiplyAlpha: 'none', resizeWidth: size, resizeHeight: size, resizeQuality: 'high' });
+      const bmp = await groundImage(k, suffix, size);
       GROUND_LAYERS._bmp = GROUND_LAYERS._bmp || {}; (GROUND_LAYERS._bmp[suffix] = GROUND_LAYERS._bmp[suffix] || [])[i] = bmp;
     }));
     GROUND_LAYERS._bmp[suffix].forEach((bmp, i) => { x.clearRect(0, 0, size, size); x.drawImage(bmp, 0, 0); data.set(x.getImageData(0, 0, size, size).data, i * size * size * 4); bmp.close(); });
