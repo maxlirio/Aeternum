@@ -2,7 +2,7 @@
 // (the same gun model the player carries, render/weapons.js), aiming when he fires; their tracers; the sandbag walls, steel
 // hedgehogs and coils of wire of the two lines; the objectives' flags, in the colour of whoever holds them.
 import * as THREE from 'three';
-import { buildRig, applyPose } from '../player/avatar.js';
+import { buildRig, applyPose, holdLong } from '../player/avatar.js';
 import { armParts } from './weapons.js';
 import { townSurface } from './materials.js';
 
@@ -16,7 +16,6 @@ export class InfantryView {
     this.root = root; this.scene = scene; this.planet = planet; this.toRender = toRender; this.group = new THREE.Group(); this.group.name = 'infantry'; scene.add(this.group);
     const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 });
     this.rig = buildRig({ suit: white, pad: white, skin: white, hair: white, accent: white });
-    this.socket = new THREE.Group(); this.socket.position.set(0, -0.4, 0.02); this.socket.rotation.x = Math.PI / 2; this.rig.armR.lower.add(this.socket);
     this.meshes = this.rig.parts.map(({ mesh, kind }) => { const im = new THREE.InstancedMesh(mesh.geometry, white, MAX); im.count = 0; im.castShadow = true; im.frustumCulled = false; im.userData.kind = kind; this.group.add(im); return im; });
     this.guns = armParts(planet, 'carbine').map(p => { const im = new THREE.InstancedMesh(p.geometry, p.material, MAX); im.count = 0; im.castShadow = true; im.frustumCulled = false; this.group.add(im); return im; });
     // tracers: short bright streaks along each shot
@@ -63,12 +62,10 @@ export class InfantryView {
     for (let i = 0; i < n; i++) {
       const M = I.men[i], L = SIDES[M.side], h = hashId(M.id); let ph = this.gait.get(M.id) || 0; if (M.moving) ph += dt * 6.2; this.gait.set(M.id, ph);
       rig.root.position.set(...this.toRender(...M.pos)); rig.root.rotation.set(0, M.facing, 0); rig.root.scale.setScalar(0.95 + (h % 10) / 100);
-      applyPose(rig, { mode: M.hp <= 0 ? 'lie' : 'walk', phase: ph, blend: M.moving ? 1 : 0, k: M.moving ? 0.8 : 0 });
-      if (M.hp > 0) { const a = M.moving ? 0.35 : 0.35 + 0.65 * M.aim;       // the carbine at the ready running, up to the shoulder to fire
-        rig.armR.upper.rotation.set(-0.5 - 0.95 * a, 0, -0.1); rig.armR.lower.rotation.x = -0.9 + 0.8 * a; rig.armL.upper.rotation.set(-0.7 - 0.45 * a, 0, 0.55); rig.armL.lower.rotation.set(-1.1 + 0.35 * a, 0, 0); if (!M.moving && M.aim > 0.5) rig.torso.rotation.y = -0.15; }
+      soldierPose(rig, M, ph);
       rig.root.updateMatrixWorld(true);
       for (const im of this.meshes) { const part = rig.parts[this.meshes.indexOf(im)]; im.setMatrixAt(i, part.mesh.matrixWorld); im.setColorAt(i, this.col.setHex(im.userData.kind === 'skin' ? SKIN[h % SKIN.length] : L[im.userData.kind])); }
-      this.m.copy(this.socket.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0);
+      this.m.copy(rig.gunSock.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0);
       for (const im of this.guns) im.setMatrixAt(i, this.m);
     }
     for (const im of this.meshes.concat(this.guns)) { im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
@@ -81,6 +78,15 @@ export class InfantryView {
     for (const Fl of this.flags) { const p = Fl.O.prog, c = this.col.copy(FLAG.none).lerp(p > 0 ? FLAG.ours : FLAG.theirs, Math.abs(p)); Fl.cloth.material.color.copy(c); Fl.mark.material.color.copy(c);
       const a = Fl.cloth.geometry.attributes.position; for (let i = 0; i < a.count; i++) { const x = Fl.base[3 * i]; a.setZ(i, Math.sin(x * 1.6 - t * 5 + Fl.O.id) * 0.26 * x / 3.6); } a.needsUpdate = true; }
   }
+}
+
+// a soldier's pose: walking or running with the carbine at the ready, up to the shoulder to fire, or down
+export function soldierPose(rig, M, ph) {
+  applyPose(rig, { mode: M.hp <= 0 ? 'lie' : 'walk', phase: ph, blend: M.moving ? 1 : 0, k: M.moving ? 0.8 : 0 });
+  if (M.hp <= 0) { if (rig.gunSock) rig.gunSock.visible = false; return; }
+  const a = M.moving ? 0.25 : 0.3 + 0.7 * M.aim;      // at the ready running (muzzle down, across the body), up into the shoulder to fire
+  holdLong(rig, a);
+  rig.torso.rotation.y = -0.22 * a; rig.torso.rotation.x = 0.06 + (M.moving ? 0.12 : 0.04 * a);
 }
 const hashId = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function mergeGeo(list) {

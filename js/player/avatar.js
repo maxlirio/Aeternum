@@ -82,6 +82,25 @@ export function applyPose(rig, st) {
   }
 }
 
+// A long gun held in both hands, in the chest's frame along the line of fire (a: 0 at the ready, muzzle down across the body, 1 up into the shoulder):
+// the grip by the right hip rising to the shoulder, the hands put on it by reaching (two-bone IK). The gun's group is rig.gunSock.
+export function holdLong(rig, a) {
+  const G = rig.gunSock || (rig.gunSock = (() => { const g = new THREE.Group(); rig.torso.add(g); return g; })()); G.visible = true;
+  G.position.set(-0.11 + 0.03 * a, 0.2 + 0.2 * a, 0.2 + 0.04 * a); G.rotation.set(0.55 * (1 - a), 0.22 * a - 0.25 * (1 - a), 0); G.updateMatrix();
+  const grip = new THREE.Vector3(0, -0.02, 0).applyMatrix4(G.matrix), fore = new THREE.Vector3(0, -0.04, 0.36).applyMatrix4(G.matrix);
+  reach(rig.armR, grip, new THREE.Vector3(-1, -0.6, -0.4)); reach(rig.armL, fore, new THREE.Vector3(1, -1, -0.3));
+}
+// an arm (render/avatar.js limb: upper at the shoulder, bone down its -y; lower at the elbow) put so its hand is at T, its elbow bent toward `pole`; all in the arm's parent's frame
+const _d = new THREE.Vector3(), _u = new THREE.Vector3(), _ax = new THREE.Vector3(), _e = new THREE.Vector3(), _q = new THREE.Quaternion(), DOWN = new THREE.Vector3(0, -1, 0), L1 = 0.31, L2 = 0.335;
+function reach(arm, T, pole) {
+  const S = arm.upper.position; _d.subVectors(T, S); const d = Math.min(_d.length(), (L1 + L2) * 0.985); _d.normalize();
+  const al = Math.acos(Math.max(-1, Math.min(1, (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d))));
+  _ax.crossVectors(_d, pole).normalize(); if (_ax.lengthSq() < 1e-6) _ax.set(1, 0, 0);
+  _u.copy(_d).applyAxisAngle(_ax, al);         // (the upper arm swung off the line to the target, toward the pole)
+  arm.upper.quaternion.setFromUnitVectors(DOWN, _u);
+  _e.copy(S).addScaledVector(_u, L1); const low = new THREE.Vector3().copy(S).addScaledVector(_d, d).sub(_e).normalize();
+  _q.setFromUnitVectors(DOWN, low); arm.lower.quaternion.copy(arm.upper.quaternion).invert().multiply(_q);
+}
 export function createPlaceholderAvatar() {
   const mats = {
     suit: new THREE.MeshStandardMaterial({ color: 0x46505a, roughness: 0.75 }),
@@ -113,26 +132,27 @@ export function createPlaceholderAvatar() {
     // the weapon (item id) in the right hand, or nothing
     setHeld(id) {
       if (held.userData.id === id) return;
-      held.clear(); held.userData.id = id; const W = id && WEAPONS[id]; aim = !!W?.ranged; twoHands = !!W?.two;
+      held.clear(); rig.gunSock?.clear(); held.userData.id = id; const W = id && WEAPONS[id]; aim = !!W?.ranged; twoHands = !!W?.two;
       // Every model has its grip at its origin, so it goes straight into the hand socket. (A real skeleton's hand bone takes this same group.)
       if (id && this.planet && WEAPONS[id] && id !== 'fists') {
         const g = armObject(this.planet, id);
-        if (aim) { g.rotation.x = Math.PI / 2; g.position.set(0, -0.02, 0); }     // a gun along the arm's line of fire
-        else g.rotation.x = -0.25;                                               // a blade out from the fist
-        held.add(g);
+        if (aim && twoHands) { holdLong(rig, 1); rig.gunSock.clear(); rig.gunSock.add(g); }      // a long gun: in both hands, along the line of fire
+        else { if (aim) { g.rotation.x = Math.PI / 2; g.position.set(0, -0.02, 0); } else g.rotation.x = -0.25; held.add(g); }     // a pistol along the arm; a blade out from the fist
       }
     },
     punch() { swing = 1; },
     update(dt, speed, grounded, climb = null, pose = null) {   // pose: 'sit' | 'lie' while seated
       if (onWall) { onWall = false; rig.hips.quaternion.identity(); rig.root.quaternion.identity(); }
+      if (rig.gunSock) rig.gunSock.visible = !pose && !climb;      // (a long gun's slung while you sit, swim or climb)
       if (pose === 'swim') { phase += dt * (speed > 0.15 ? 5 : 1.6); applyPose(rig, { mode: 'swim', phase, blend: 0, k: speed }); return; }
       if (pose) { blend = 0; applyPose(rig, { mode: pose, phase, blend: 0, k: 0 }); return; }
       blend += ((speed > 0.15 ? 1 : 0) - blend) * Math.min(1, dt * 8);
       phase += dt * (climb ? (climb.moving ? 4 : 0) : speed > 0.15 ? 2.2 + speed * 1.15 : 0);
       applyPose(rig, { mode: climb ? 'climb' : grounded ? 'walk' : 'air', phase, blend, k: Math.min(1, Math.max(0, speed - 3) / 3), lean: climb?.lean ?? 0 });
       if (!climb) {
-        if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }
-        if (twoHands) { rig.armL.upper.rotation.set(-1.15, 0, 0.55); rig.armL.lower.rotation.set(-0.75, 0, 0); if (!aim) { rig.armR.upper.rotation.set(-0.9, 0, -0.1); rig.armR.lower.rotation.x = -0.6; } }          // a gun is held out in front
+        if (aim && twoHands) holdLong(rig, speed > 3 ? 0.35 : 1);
+        else if (aim) { rig.armR.upper.rotation.set(-1.45, 0, -0.1); rig.armR.lower.rotation.x = -0.1; }
+        if (twoHands && !aim) { rig.armL.upper.rotation.set(-1.15, 0, 0.55); rig.armL.lower.rotation.set(-0.75, 0, 0); if (!aim) { rig.armR.upper.rotation.set(-0.9, 0, -0.1); rig.armR.lower.rotation.x = -0.6; } }          // a gun is held out in front
         if (swing > 0) {                                                                                     // a strike: the arm drives forward and back
           const k = Math.sin(swing * Math.PI); rig.armR.upper.rotation.x = -0.4 - 1.2 * k; rig.armR.lower.rotation.x = -1.2 + 1.1 * k; rig.torso.rotation.y = -0.35 * k;
           swing = Math.max(0, swing - dt * 4);

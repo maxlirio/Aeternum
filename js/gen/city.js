@@ -19,6 +19,7 @@ import { Simplex2, clamp, smoothstep } from '../core/noise.js';
 import { rawHeight } from './terrain.js';
 import { placeName } from './names.js';
 import { cultureOf } from './culture.js';
+import { formsOf } from './forms.js';
 
 export const PITCH = 150;                  // street-line spacing (m)
 export const FALL = 700;                   // graded falloff beyond the rim (m)
@@ -67,7 +68,9 @@ export function getCity(planet) {
   };
   c.industryAngle = c.portAngle + rng.range(1.6, 2.6);
   for (let k = 0; k < 4; k++) { const a = c.portAngle + 0.9 + k * 1.45 + rng.range(-0.3, 0.3), d = R * rng.range(0.38, 0.62); c.cores.push([Math.cos(a) * d, Math.sin(a) * d, rng.range(0.55, 0.85)]); }
-  c.culture = cultureOf(planet);
+  // its towers take the shape the world builds in (gen/forms.js): a world of domes and orbs raises round towers, one of ziggurats and pagodas steps them back and back
+  { const C = cultureOf(planet), F = formsOf(planet).main.kind, round = { onion: 0.55, dome: 0.7, cap: 0.6, cone: 0.55, orb: 0.75, twist: 0.65, horn: 0.4, shell: 0.5 }[F] || 0, steps = { ziggurat: 2.4, pagoda: 2, spire: 1.6, stack: 1.5, onion: 1.2 }[F] || 1;
+    c.culture = { ...C, round: Math.max(C.round, round), steps: C.steps * steps, form: F }; }
   c.toWorld = (u, v) => [c.cx + u * c.cos - v * c.sin, c.cz + u * c.sin + v * c.cos];
   c.toLocal = (x, z) => { const dx = x - c.cx, dz = z - c.cz; return [dx * c.cos + dz * c.sin, -dx * c.sin + dz * c.cos]; };
   c.noise = { a: new Simplex2(derive(seed, 'districts-a')), b: new Simplex2(derive(seed, 'districts-b')), rim: new Simplex2(derive(seed, 'rim')) };

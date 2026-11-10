@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>soldiers</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<style>body{margin:0;background:#9fb4c8}</style></head><body><script type="module">
+// The infantry's poses (render/infantry.js soldierPose) with the carbine in hand: running, at the ready, aiming; ?view=side
+import * as THREE from 'three';
+import { buildRig } from '../js/player/avatar.js';
+import { soldierPose } from '../js/render/infantry.js';
+import { armObject } from '../js/render/weapons.js';
+import { makePlanet } from '../js/gen/planet.js';
+import { HOMEWORLD } from '../js/core/address.js';
+import { seedFromHex } from '../js/core/hash.js';
+import { loadSurfaces } from '../js/render/materials.js';
+await loadSurfaces();
+const q = new URLSearchParams(location.search), planet = makePlanet(seedFromHex('00c0ffee00b0a7e5'), HOMEWORLD);
+const R = new THREE.WebGLRenderer({ antialias: true }); R.setSize(innerWidth, innerHeight); R.shadowMap.enabled = true; document.body.append(R.domElement);
+const S = new THREE.Scene(); S.background = new THREE.Color(0x9fb4c8); const C = new THREE.PerspectiveCamera(30, innerWidth / innerHeight, 0.1, 100);
+S.add(new THREE.HemisphereLight(0xdfe8f0, 0x6a5a48, 1.3)); const sun = new THREE.DirectionalLight(0xfff2dd, 2.4); sun.position.set(3, 6, 4); S.add(sun);
+S.add(new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a8a78 })));
+const mat = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
+[[{ moving: true, aim: 0, hp: 100 }, 1.3], [{ moving: false, aim: 0, hp: 100 }, 0], [{ moving: false, aim: 1, hp: 100 }, 0]].forEach(([M, ph], i) => {
+  const rig = buildRig({ suit: mat(0x4a5236), pad: mat(0x2a2c22), skin: mat(0xc9967a), hair: mat(0x3a4030), accent: mat(0x9aa070) });
+  rig.root.position.set((i - 1) * 1.4, 0, 0); soldierPose(rig, M, ph); rig.gunSock.add(armObject(planet, 'carbine')); S.add(rig.root);
+});
+const side = q.get('view') === 'side';
+C.position.set(side ? 6 : 1.5, 1.4, side ? 0.5 : 6); C.lookAt(0, 1.0, 0);
+R.render(S, C); document.title = 'READY';
+</script></body></html>

@@ -533,6 +533,18 @@ suites.infantry = async () => {
   const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 30, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
+suites.stars = async () => {
+  // the stars near home (gen/stars.js) the holo map shows and FTL goes to: the same from the same seed, home where it should be, every world real
+  const { starChart, worldPreview, jumpOf, addressOf } = await import('../js/gen/stars.js');
+  const U = uni(5), A = starChart(U), B = starChart(uni(5).slice());
+  check(JSON.stringify(A.map(s => [s.name, s.pos, s.bodies.length])) === JSON.stringify(B.map(s => [s.name, s.pos, s.bodies.length])), 'the same chart from the same seed');
+  check(A[0].home && A[0].bodies.length > 3 && addressOf(0, 3).key === HOMEWORLD.key, 'home is system 0, and its fourth world is the home world');
+  const names = new Set(A.map(s => s.name)); check(names.size === A.length, 'every star its own name');
+  let n = 0, kinds = new Set(); for (const S of A) for (const W of S.bodies) { const v = worldPreview(U, S.n, W.n); n++; kinds.add(v.arch); check(v.name && v.builds, `${S.name} ${W.n} has a name and a way of building`); }
+  check(kinds.size >= 5, `the worlds are of many kinds (${kinds.size} of ${n})`);
+  const far = Math.max(...A.map(S => jumpOf(A, { system: 0, body: 3 }, { system: S.n, body: 0 }).ly)); check(far > 10 && far < 40, `the farthest star is ${far.toFixed(1)} ly`);
+  console.log(`  ${A.length} stars, ${n} worlds, ${kinds.size} kinds`);
+};
 suites.voyages = async () => {
   // the great ships' runs (gen/voyages.js): on station, out, over the far town, home again, and back exactly where they stood
   const { voyageAt, VOYAGES } = await import('../js/gen/voyages.js');

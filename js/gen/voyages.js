@@ -1,10 +1,11 @@
 // The great ships don't only stand over the city (gen/capital.js puts them on station). The freighters, Longshore and Tiller,
-// make cargo runs to other towns and back; the Anvil goes out on patrol round the country. Pure in time: where each is at t,
+// make cargo runs to other towns and back, the Halcyon carries passengers on the same kind of run; the Anvil and the Bastion's
+// carrier group go out on patrol round the country. Pure in time: where each is at t,
 // on a cycle of standing on station, the run out, a stay over the far town (or the patrol's far point), and the run home.
 // While it's away its decks can't be boarded and it can't be docked with; a run due while you're aboard is put off (`skip`).
 import { hashStr } from '../core/hash.js';
 
-export const VOYAGES = { longshore: { P: 1900, stay: 950, kind: 'run' }, tiller: { P: 2300, stay: 1150, kind: 'run' }, anvil: { P: 2600, stay: 1300, kind: 'patrol', R: 14000 } };
+export const VOYAGES = { longshore: { P: 1900, stay: 950, kind: 'run' }, tiller: { P: 2300, stay: 1150, kind: 'run' }, anvil: { P: 2600, stay: 1300, kind: 'patrol', R: 14000 }, halcyon: { P: 2100, stay: 1200, kind: 'run' }, bastion: { P: 3000, stay: 1700, kind: 'patrol', R: 11000 } };      // (the Vesper and the Meridian are where people live: they stay)
 const ease = f => f * f * (3 - 2 * f);
 const turn = (a, b, f) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * f;
 // C: the ship (gen/capital.js fleetOf); home: where it stands on station { x, y, z, yaw }; dests: towns it runs to [{ x, z, name }];

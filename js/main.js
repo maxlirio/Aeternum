@@ -22,6 +22,8 @@ import { cultureOf } from './gen/culture.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address, regionOf } from './gen/settlement.js';
 import { voyageAt, VOYAGES } from './gen/voyages.js';
+import { openHoloMap, ftlEffect } from './ui/holomap.js';
+import { starChart, jumpOf, addressOf } from './gen/stars.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { occupation } from './gen/population.js';
@@ -150,10 +152,13 @@ async function boot() {
     choice = await ui.title({ hasSave: has && !!store.player, summary });
   }
   if (choice === 'restore') return restoreFlow();
+  if (choice === 'arrive') { const H = ftlHandoff(); if (H && (!has || !store.player)) { store.create(H.universe, EPOCH, Date.now()); store.meta.nextCharacter = 1; return start({ fresh: true }); } return start(null); }     // (out of FTL: a world you've been to, or a new one in the same universe)
   if (choice === 'new' || !has || !store.player) return start(newUniverse());
   return start(null);
 }
 
+// what an FTL jump carries across (ui/holomap.js, main.js ftlJump): who you are, what you have, the ship you're flying
+function ftlHandoff() { try { const H = JSON.parse(localStorage.getItem('orbis-ftl') || 'null'); return H && Date.now() - H.at < 20 * 60000 ? H : null; } catch { return null; } }
 function newUniverse() {
   const fixed = params.get('seed');
   const words = fixed ? null : crypto.getRandomValues(new Uint32Array(2));
@@ -486,6 +491,7 @@ async function start(fresh) {
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
     if (flight && docking) return;
+    if (flight && inSpace) { holoFlow(); return; }        // (out of the air: the navigation screen, and the stars)
     if (flight && !flight.onGround) { const dt_ = dockTarget(); if (dt_) { startDock(dt_.C); return; } }
     if (flight) { setDown(); return; }
     const rp = nearRamp();
@@ -905,7 +911,8 @@ async function start(fresh) {
   // structure in the collision world, like a building; a flying one is a Flight.
   let flyAs = null;      // (?fly=<model>: whichever ship you take is that model)
   const fleet = fleetOf(planet, homeS);
-  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.filter(C => !C.away).map(C => C.ship)); /* (a great ship away on a run has no decks here to walk: gen/voyages.js) */ if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
+  const visitorShip = () => { const V = store.getDelta('visitor/ship'); return V ? { ...V, ...(store.getDelta(shipKey(V.id)) || {}) } : null; };      // (a ship you flew in from another world: its record lives in this world's save)
+  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.filter(C => !C.away).map(C => C.ship), visitorShip() ? [visitorShip()] : []); /* (a great ship away on a run has no decks here to walk: gen/voyages.js) */ if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
   let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
   cam.onMouse = () => !!flight;      // (in a ship the mouse is for the guns — click to fire — not for steering or looking round: the view is straight ahead, the ship flies on the arrow keys)
@@ -1046,13 +1053,52 @@ async function start(fresh) {
       if (v.away && !C.away) {      // about to put out: not with you aboard, nor while you're in its bay
         const aboard = world.locate(...ctrl.pos)?.b?.key === C.ship.id || (flight && Math.hypot(flight.pos[0] - C.x, flight.pos[1] - C.y, flight.pos[2] - C.z) < C.length * 0.6);
         if (aboard) { sk.add(v.k); continue; }
-        if (Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) < 12000) ui.toast(v.dest.name === 'patrol' ? `The <b>${esc(C.name)}</b> leaves station on patrol.` : `The <b>${esc(C.name)}</b> puts out with cargo for ${esc(v.dest.name)}.`, '', 6000);
+        if (Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) < 12000) ui.toast(v.dest.name === 'patrol' ? `The <b>${esc(C.name)}</b> leaves station on patrol.` : `The <b>${esc(C.name)}</b> puts out ${C.model === 'halcyon' ? 'with passengers' : 'with cargo'} for ${esc(v.dest.name)}.`, '', 6000);
       }
       if (!v.away && C.away && Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) < 25000) ui.toast(`The <b>${esc(C.name)}</b> is back on station.`, '', 5000);
       if (v.away !== !!C.away) changed = true;
       C.away = v.away; C.x = v.x; C.y = v.y; C.z = v.z; C.yaw = v.yaw;
     }
     voyBoot = false; if (changed) syncShips();
+  }
+  // ---- interstellar travel: the holo map (ui/holomap.js), the jump, and coming out of it over another world
+  const HERE = { system: WORLD.parts[2][1], body: WORLD.parts[3][1] };
+  const dropDelta = k => { const d = store.getDelta(k); if (d) store.patchDelta(k, Object.fromEntries(Object.keys(d).map(x => [x, undefined]))); };
+  async function holoFlow() {
+    let pick = null; await modal(async () => { pick = await openHoloMap(U, HERE); });
+    if (pick) await ftlJump(pick);
+  }
+  async function ftlJump(to) {
+    const chart = starChart(U), J = jumpOf(chart, HERE, to), dest = chart[to.system], sh = flight.ship;
+    paused = true; keys.clear();
+    ui.toast(`<b>FTL.</b> ${to.system === HERE.system ? 'In-system jump' : J.ly.toFixed(1) + ' light years'} to ${esc(dest.name)}.`, '', 4000);
+    const P = player, carry = { name: P.name, given: P.given, family: P.family, age: P.age, credits: P.credits, inventory: P.inventory, weapon: P.weapon, skills: P.skills, hp: P.hp, fatigue: P.fatigue, hunger: P.hunger, soldier: P.soldier ? { ...P.soldier, world: WORLD.key } : null, worlds: [...new Set([...(P.worlds || []), WORLD.key])] };
+    localStorage.setItem('orbis-ftl', JSON.stringify({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } }));
+    if (sh.id === visitorShip()?.id) { dropDelta('visitor/ship'); dropDelta(shipKey(sh.id)); flight = null; player.piloting = null; ctrl.mode = 'walk'; }     // (you take it with you: it's not parked here any more)
+    else await save();
+    if (flight) { player.piloting = null; store.patchDelta(shipKey(sh.id), { flying: undefined, away: true }); }
+    store.touchPlayer(); await store.flush();
+    await ftlEffect(J.secs);
+    const q = new URLSearchParams(); for (const k of ['seed', 'hour', 'store']) if (params.has(k)) q.set(k, params.get(k));
+    if (!(to.system === 0 && to.body === 3)) { q.set('planet', to.body); q.set('system', to.system); }
+    q.set('auto', 'arrive'); location.href = location.pathname + '?' + q.toString();
+  }
+  // out of FTL: high over this world's first town, in the ship you came in
+  async function arrival() {
+    const H = ftlHandoff(); if (!H || H.to.system !== HERE.system || H.to.body !== HERE.body) return; localStorage.removeItem('orbis-ftl');
+    const C = H.player; for (const k of ['name', 'given', 'family', 'age', 'credits', 'inventory', 'weapon', 'skills', 'hp', 'fatigue', 'hunger', 'worlds']) if (C[k] !== undefined) player[k] = C[k];
+    player.soldier = C.soldier && C.soldier.world === WORLD.key ? C.soldier : player.soldier?.world === WORLD.key ? player.soldier : (C.soldier ? null : player.soldier);     // (enlistment is with a nation of the world you enlisted on)
+    let sh = shipById(H.ship.id);
+    if (!sh) { const V = { id: 'ship:visitor:' + H.ship.id.replace(/[^\w]/g, '').slice(-12), model: H.ship.model, name: H.ship.name, colour: H.ship.colour, owner: 'you:' + player.id, ownerName: 'you', from: H.from, flying: true };
+      if (visitorShip() && visitorShip().id !== V.id) { const old = visitorShip(); dropDelta(shipKey(old.id)); }
+      store.patchDelta('visitor/ship', V); store.patchDelta(shipKey(V.id), { flying: true }); ships = allShips(clock.now()); sh = shipById(V.id); }
+    else store.patchDelta(shipKey(sh.id), { flying: true, away: undefined });
+    const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
+    const a = 1.1, x = homeS.cx + Math.sin(a) * 9000, z = homeS.cz + Math.cos(a) * 9000, y = altRef + 52000, f = Math.atan2(homeS.cx - x, homeS.cz - z);
+    flight = new Flight(world, planet, sh, [x, y, z], f); flight.onGround = false; flight.vel = [Math.sin(f) * 120, -40, Math.cos(f) * 120]; flight.throttle = 0.3;
+    ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; ctrl.pos = [x, y, z]; joinWar(); player.piloting = sh.id; store.touchPlayer();
+    ftlEffect(1.4, true);
+    ui.toast(`<b>Out of FTL</b> over <b>${esc(planet.name)}</b>${H.to.system !== 0 || H.fromName ? `, from ${esc(H.fromName)}` : ''}. ${esc(townSociety(planet, homeS)?.nation?.name || 'Its people')} have a town below.`, '', 10000);
   }
   function soldierKill() { const S = player.soldier; S.kills = (S.kills || 0) + 1; const pay = 120 + 40 * S.rank; player.credits = (player.credits ?? 0) + pay; if (S.kills % 5 === 0 && S.rank < RANKS.length - 1) { S.rank++; ui.toast(`Promoted: <b>${RANKS[S.rank]}</b>.`, '', 7000); } store.touchPlayer(); ui.toast(`Kill confirmed. <b>${pay} cr</b>.`, '', 3000); }
   function endDeployment() {
@@ -1586,7 +1632,7 @@ async function start(fresh) {
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
   if (fresh) {
     const par = player.family.parents.map(id => pop.byId.get(id));
-    ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
+    if (params.get('auto') !== 'arrive') ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
   }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
@@ -2000,8 +2046,9 @@ async function start(fresh) {
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
+  if (params.get('auto') === 'arrive') arrival();
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
 
