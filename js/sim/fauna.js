@@ -12,7 +12,8 @@ const NEAR = 300, DROP = 380, REMEMBER = 3 * 86400;
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
 export class FaunaSim {
-  constructor(planet, { isDead = () => false, markDead = () => {}, onStruck = () => {} } = {}) {
+  constructor(planet, { isDead = () => false, markDead = () => {}, onStruck = () => {}, resolve = null } = {}) {
+    this.resolve = resolve;      // (out of whatever's solid: a building, a wall, a parked car, a trunk; main.js gives it the world's collision)
     Object.assign(this, { planet, isDead, markDead, onStruck, herds: new Map(), animals: [], cell: null, test: false, lastCheck: 0, time: 0 });
   }
   clear() { this.herds.clear(); this.animals.length = 0; this.test = true; }
@@ -89,6 +90,7 @@ export class FaunaSim {
     const aligned = Math.max(0.15, Math.cos(angDiff(want, A.facing)));
     A.speed += (A.wantSpeed * aligned - A.speed) * Math.min(1, dt * (A.state === 'flee' ? 3 : 1.6));
     A.x += Math.sin(A.facing) * A.speed * dt; A.z += Math.cos(A.facing) * A.speed * dt;
+    if (this.resolve && A.speed > 0.01) { const [rx, rz] = this.resolve(A.x, A.z, A.y ?? A.gh ?? 0, Math.max(0.25, A.sp.size * 0.3)); A.x = rx; A.z = rz; }
     A.hgt = (A.hgt || 0) - dt; if (A.hgt <= 0) { A.hgt = A.speed > 3 ? 0.07 : 0.15; const f = R * 0.45, h0 = surfaceHeight(this.planet, A.x, A.z), hf = surfaceHeight(this.planet, A.x + Math.sin(A.facing) * f, A.z + Math.cos(A.facing) * f), hb = surfaceHeight(this.planet, A.x - Math.sin(A.facing) * f, A.z - Math.cos(A.facing) * f); A.gh = h0; A.wantPitch = Math.atan2(hb - hf, 2 * f); }
     A.y += (A.gh - A.y) * Math.min(1, dt * 7); A.pitch += ((A.wantPitch || 0) - A.pitch) * Math.min(1, dt * 4);
   }

@@ -182,6 +182,22 @@ try {
       console.log('   dock', C, JSON.stringify(R)); await shot('dock-' + C);
     }
   }
+  if (want('bodies')) {
+    // nobody walks through anything: sample everyone on foot near you, count who's inside something solid or inside someone else
+    for (const where of (process.env.WHERE || 'town,city').split(',')) for (const off of ['nojostle', '']) {
+      await load('hour=12' + (off ? '&' + off : ''));
+      if (where === 'city') console.log('   to the city', await ev(`(async () => { const O = ORBIS, C = O.city, [x, z] = O.world.resolve(C.cx + 40, C.cz + 40, 0, 0.4); O.ctrl.pos = [x, O.world.groundAt(x, z, 400).h + 0.1, z]; O.ctrl.vel = [0, 0, 0]; await new Promise(r => setTimeout(r, 4000)); return JSON.stringify({ at: O.ctrl.pos.map(Math.round), walkers: (window.__walkers || []).length }); })()`));
+      const R = await ev(`(async () => { const O = ORBIS, w = O.world, wait = ms => new Promise(r => setTimeout(r, ms)); await wait(3000); let n = 0, solid = 0, pair = 0, t0 = performance.now(), frames = 0; const ex = [];
+        for (let i = 0; i < 60; i++) { await wait(150); const L = O.getAgents().concat(window.__walkers || []).filter(a => a.moving && a.pose !== 'lie');
+          for (const a of L) { n++; const q = w.resolve(a.pos[0], a.pos[2], a.pos[1] + 0.05, 0.18, 1.7, true); if (Math.hypot(q[0] - a.pos[0], q[1] - a.pos[2]) > 0.02) { solid++; if (ex.length < 4) ex.push([String(a.id).slice(0, 18), a.pos.map(v => +v.toFixed(1))]); } }
+          for (let x = 0; x < L.length; x++) for (let y = x + 1; y < L.length; y++) if (Math.abs(L[x].pos[1] - L[y].pos[1]) < 1 && Math.hypot(L[x].pos[0] - L[y].pos[0], L[x].pos[2] - L[y].pos[2]) < 0.36) pair++; }
+        return { samples: n, insideSolid: solid, overlappingPairs: pair, ex }; })()`);
+      console.log('   bodies', where, off || 'jostle', JSON.stringify(R));
+      if (!off) console.log('   walk into someone', await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), c = O.ctrl; const L = O.getAgents().concat(window.__walkers || []).filter(a => a.pose !== 'lie' && Math.abs(a.pos[1] - c.pos[1]) < 3).sort((a, b) => Math.hypot(a.pos[0] - c.pos[0], a.pos[2] - c.pos[2]) - Math.hypot(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2])); const a = L[0]; if (!a) return 'nobody';
+        let min = 99; for (let i = 0; i < 40; i++) { const b = O.getAgents().concat(window.__walkers || []).find(q => q.id === a.id); if (!b) break; const d = Math.hypot(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2]); if (i === 0) { c.pos = [b.pos[0] - 2.5, b.pos[1] + 0.05, b.pos[2]]; c.vel = [0, 0, 0]; } O.cam.yaw = Math.atan2(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2]); c.facing = O.cam.yaw; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(60); if (i > 2) min = Math.min(min, d); }
+        dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); return JSON.stringify({ who: String(a.id).slice(0, 20), minGap: +min.toFixed(2) }); })()`));
+    }
+  }
   if (want('dockpit')) {
     // docking seen from the pilot's seat: on the bay's line, at the doors, inside, and down
     await load('hour=15&fly=runabout0');
@@ -250,8 +266,10 @@ try {
     if (process.env.FULL) await ev(`(() => { Storage.prototype.setItem = function () { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }; return 1; })()`);     // (as on the live origin, whose storage the other sites have filled)
     await ev(`(() => { document.querySelector('.holo [data-a=jump]').click(); return 1; })()`);
     for (const ms of [500, 1200, 1300]) { await sleep(ms); await shot('ftlc-jump-' + ms).catch(() => console.log('   (navigating)')); }
-    let t = ''; for (let i = 0; i < 300; i++) { await sleep(400); t = await ev(`location.search.includes('arrive') ? document.title : 'jumping'`).catch(() => 'nav'); if (t === 'READY' || t.startsWith('ERROR')) break; if (i === 40) console.log('   still', t); }
-    console.log('   after', t);
+    let t = '', n = 0; const t0 = Date.now(); for (let i = 0; i < 300; i++) { await sleep(400); t = await ev(`location.search.includes('arrive') ? document.title : 'jumping'`).catch(() => 'nav'); if (t === 'READY' || t.startsWith('ERROR')) break; if (i === 40) console.log('   still', t); if (i % 4 === 2 && n < 8) await shot('ftlc-load-' + n++).catch(() => {}); }
+    console.log('   after', t, ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+    for (let i = 0; i < 80 && !(await ev('window.__ftlDone ? 1 : 0').catch(() => 0)); i++) { await sleep(250); if (i % 8 === 4 && n < 12) await shot('ftlc-load-' + n++).catch(() => {}); }
+    console.log('   out of the tunnel', ((Date.now() - t0) / 1000).toFixed(1) + ' s');
     for (const [k, ms] of [[1, 300], [2, 700], [3, 700], [4, 900], [5, 1500]]) { await sleep(ms); await shot('ftlc-arrive-' + k).catch(() => {}); }
     console.log('   arrived', await ev(`JSON.stringify({ planet: ORBIS.planet.name, flying: !!ORBIS.getFlight(), alt: Math.round(ORBIS.getFlight()?.pos[1] || 0) })`));
   }

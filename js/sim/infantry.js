@@ -10,7 +10,7 @@ const R_OBJ = 26, CAP_T = 14, PER_SIDE = 18, RANGE = 180, SPAN = 460;
 const rnd = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 export class Infantry {
   // ground(x, z) → height; hooks: hitPlayer(dmg, by), event(e)
-  constructor({ ground, hooks = {} }) { this.ground = ground; this.hooks = hooks; this.F = null; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.events = []; this.t = 0; this.n = 0; this.reinf = 0; }
+  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.events = []; this.t = 0; this.n = 0; this.reinf = 0; }
   // the line along front F: where everything stands. (a: across the border, + toward the enemy; s: along it)
   setup(F) {
     this.F = F; this.men = []; this.shots = []; const ux = Math.sin(F.dir), uz = Math.cos(F.dir), px = -uz, pz = ux, r = rnd(Math.round(F.x * 7 + F.z * 13));
@@ -60,7 +60,11 @@ export class Infantry {
         if (!M.goal) M.goal = this.nextCover(M, want);
         const g = M.goal.pos, dx = g[0] - M.pos[0], dz = g[2] - M.pos[2], d = Math.hypot(dx, dz);
         if (d < 1.2) { M.state = 'hold'; M.dwell = tgt ? 6 + Math.random() * 10 : 1.5 + Math.random() * 2; M.moving = false; }
-        else { const sp = (tgt && td < 60 ? 4.6 : 3.4) * dt; M.pos = [M.pos[0] + dx / d * Math.min(sp, d), 0, M.pos[2] + dz / d * Math.min(sp, d)]; M.pos[1] = this.ground(M.pos[0], M.pos[2]); M.facing = Math.atan2(dx, dz); M.moving = true; }
+        else { const sp = (tgt && td < 60 ? 4.6 : 3.4) * dt; M.pos = [M.pos[0] + dx / d * Math.min(sp, d), 0, M.pos[2] + dz / d * Math.min(sp, d)]; M.facing = Math.atan2(dx, dz); M.moving = true;
+          // a body: apart from the men round it, and out of whatever's solid (sandbags and walls are its cover, not something to walk through)
+          for (const N of this.men) if (N !== M && N.hp > 0) { const ox = M.pos[0] - N.pos[0], oz = M.pos[2] - N.pos[2], od = Math.hypot(ox, oz); if (od < 0.62 && od > 1e-4) { M.pos[0] += ox / od * (0.62 - od); M.pos[2] += oz / od * (0.62 - od); } }
+          if (this.resolve) { const [rx, rz] = this.resolve(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2])); M.pos[0] = rx; M.pos[2] = rz; }
+          M.pos[1] = this.ground(M.pos[0], M.pos[2]); }
       } else if (M.state === 'hold') {
         M.dwell -= dt; if (M.dwell <= 0 && !(tgt && td < 50)) { if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = this.near(M.pos, want.pos) < R_OBJ * 0.6 ? null : this.nextCover(M, want); M.state = M.goal ? 'move' : 'hold'; M.dwell = 4; }
       }

@@ -98,7 +98,7 @@ export class Controller {
     // horizontal move + wall resolution
     const g0 = w.groundAt(x, z, y);
     let nx = x + this.vel[0] * dt, nz = z + this.vel[2] * dt;
-    [nx, nz] = w.resolve(nx, nz, y);
+    [nx, nz] = w.resolve(nx, nz, y, undefined, undefined, false, true);
     let g1 = w.groundAt(nx, nz, y + 1.2);         // (look a little higher: a steep slope rises fast)
     const run = Math.hypot(nx - x, nz - z);
     // raw terrain too steep to walk: scramble up it slowly, or not at all when exhausted
@@ -119,7 +119,7 @@ export class Controller {
       if (over > 0) {
         const going = Math.hypot(nx - x, nz - z), up = going > 1e-5 ? ((nx - x) * gx + (nz - z) * gz) / going / gr : 0, slip = F.loose * Math.min(2.6, 0.7 + over * 7);
         if (up > 0) { const k = 1 - 0.55 * up * F.loose; nx = x + (nx - x) * k; nz = z + (nz - z) * k; }
-        [nx, nz] = w.resolve(nx - gx / gr * slip * dt, nz - gz / gr * slip * dt, y);
+        [nx, nz] = w.resolve(nx - gx / gr * slip * dt, nz - gz / gr * slip * dt, y, undefined, undefined, false, true);
         g1 = w.groundAt(nx, nz, y + 1.2); this.sliding = slip;
       } else this.sliding = 0;
     } else this.sliding = 0;

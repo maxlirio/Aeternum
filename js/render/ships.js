@@ -5,7 +5,7 @@ import { share } from './share.js';
 import * as THREE from 'three';
 import { shipPlan, LAYOUTS } from '../gen/ships.js';
 // Liveries: deep paints, because a ship in full sun is bright already. Oxblood, signal orange, navy, ivory, gunmetal, forest, teal.
-const LIVERY = [[0.3, 0.045, 0.04], [0.62, 0.22, 0.035], [0.035, 0.09, 0.22], [0.5, 0.48, 0.42], [0.055, 0.06, 0.07], [0.05, 0.16, 0.09], [0.03, 0.2, 0.22]];
+export const LIVERY = [[0.3, 0.045, 0.04], [0.62, 0.22, 0.035], [0.035, 0.09, 0.22], [0.5, 0.48, 0.42], [0.055, 0.06, 0.07], [0.05, 0.16, 0.09], [0.03, 0.2, 0.22]];
 
 const MAX = 10;
 // Where each landing leg meets the hull: at each of the four points the ship stands on (player/flight.js feet), look straight up for the lowest

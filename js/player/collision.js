@@ -196,7 +196,7 @@ export class CollisionWorld {
   }
 
   // Push a vertical capsule (radius r, height h) out of walls and furniture.
-  resolve(x, z, yFeet, r = 0.32, h = 1.75) {
+  resolve(x, z, yFeet, r = 0.32, h = 1.75, ownDoors = false, you = false) {     // (ownDoors: someone with the keys, whose doors open for them, sim/jostle.js; you: the player, who's also kept out of the people about, this.bodies)
     if (yFeet > SPACE) return [x, z];
     const C = this.city;
     { const held = railHold(this.planet, x, z, yFeet, r); if (held) { x = held[0]; z = held[1]; } }
@@ -225,13 +225,18 @@ export class CollisionWorld {
         const fx = V.fx, fz = V.fz, lu = dx * fx + dz * fz, lv = dx * fz - dz * fx, pu = V.hl + r - Math.abs(lu), pv = V.hw + r - Math.abs(lv); if (pu <= 0 || pv <= 0) continue;
         if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true;
       }
+      // people (and soldiers) standing or walking: you can't go through them any more than through a wall (set each frame by main.js)
+      if (you && this.bodies) for (const P of this.bodies) {
+        if (yFeet + h < P[1] || yFeet > P[1] + 1.6) continue; const dx = x - P[0], dz = z - P[2], d = Math.hypot(dx, dz), Rr = r + 0.26; if (d >= Rr) continue;
+        const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = P[0] + ux * Rr; z = P[2] + uz * Rr; moved = true;
+      }
       for (const b of this.near(x, z)) {
         let [lx, lz] = this.toB(b, x, z);
         if (!this.inside(b, lx, lz, r + 0.5)) continue;
         const c = this.colliders(b), ly = yFeet - this.baseOf(b);
         const test = (box, isDoor) => {
           if (ly + h <= box[4] || ly + 0.3 >= box[5]) return;
-          if (isDoor && this.passable(b, box[6])) return;
+          if (isDoor && (ownDoors || this.passable(b, box[6]))) return;
           const nx = Math.max(box[0], Math.min(lx, box[2])), nz = Math.max(box[1], Math.min(lz, box[3]));
           let dx = lx - nx, dz = lz - nz;
           const d2 = dx * dx + dz * dz;

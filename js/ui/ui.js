@@ -50,6 +50,7 @@ export class UI {
     });
   }
   loading(text, frac) {
+    if (this.hush) return;      // (coming out of FTL: the tunnel's showing, not a progress bar)
     if (!this.current?.classList.contains('loading')) this.panel(`<p class="ltext"></p><div class="progress"><b></b></div>`, 'loading');
     $('.ltext', this.current).textContent = text;
     $('.progress b', this.current).style.width = Math.round(frac * 100) + '%';
