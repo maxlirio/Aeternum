@@ -235,6 +235,7 @@ try {
     await sleep(1500); console.log('   map open', await ev(`!!document.querySelector('.holo')`)); await shot('ftlc-map');
     await ev(`(() => { document.querySelector('.holo [data-a=open]').click(); return 1; })()`); await sleep(700);
     console.log('   world picked', await ev(`(() => { const cv = document.querySelector('.holo canvas'), r = cv.getBoundingClientRect(); for (let y = 0; y < r.height; y += 3) for (let x = 0; x < r.width; x += 3) { cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + x, clientY: r.top + y })); const b = document.querySelector('.holo [data-a=jump]'); if (b && !b.disabled) return document.querySelector('.holo h2').textContent; } return null; })()`));
+    if (process.env.FULL) await ev(`(() => { Storage.prototype.setItem = function () { throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); }; return 1; })()`);     // (as on the live origin, whose storage the other sites have filled)
     await ev(`(() => { document.querySelector('.holo [data-a=jump]').click(); return 1; })()`);
     for (const ms of [500, 1200, 1300]) { await sleep(ms); await shot('ftlc-jump-' + ms).catch(() => console.log('   (navigating)')); }
     let t = ''; for (let i = 0; i < 300; i++) { await sleep(400); t = await ev(`location.search.includes('arrive') ? document.title : 'jumping'`).catch(() => 'nav'); if (t === 'READY' || t.startsWith('ERROR')) break; if (i === 40) console.log('   still', t); }

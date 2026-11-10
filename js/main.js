@@ -158,7 +158,16 @@ async function boot() {
 }
 
 // what an FTL jump carries across (ui/holomap.js, main.js ftlJump): who you are, what you have, the ship you're flying
-function ftlHandoff() { try { const H = JSON.parse(localStorage.getItem('orbis-ftl') || 'null'); return H && Date.now() - H.at < 20 * 60000 ? H : null; } catch { return null; } }
+// the FTL handoff from the world you left: in this tab's session storage, else local storage, else (both full: the origin's local storage is
+// shared with every other site on it) carried in the URL itself
+function ftlStash(H) { const j = JSON.stringify(H); for (const S of ['sessionStorage', 'localStorage']) { try { window[S].setItem('orbis-ftl', j); return ''; } catch { } } return '#ftl=' + encodeURIComponent(j); }
+function ftlHandoff() {
+  const ok = H => H && Date.now() - H.at < 20 * 60000 ? H : null, m = location.hash.match(/^#ftl=(.*)$/);
+  if (m) { try { return ok(JSON.parse(decodeURIComponent(m[1]))); } catch { } }
+  for (const S of ['sessionStorage', 'localStorage']) { try { const H = ok(JSON.parse(window[S].getItem('orbis-ftl') || 'null')); if (H) return H; } catch { } }
+  return null;
+}
+function ftlClear() { for (const S of ['sessionStorage', 'localStorage']) { try { window[S].removeItem('orbis-ftl'); } catch { } } if (location.hash.startsWith('#ftl=')) history.replaceState(null, '', location.pathname + location.search); }
 function newUniverse() {
   const fixed = params.get('seed');
   const words = fixed ? null : crypto.getRandomValues(new Uint32Array(2));
@@ -1072,7 +1081,7 @@ async function start(fresh) {
     const chart = starChart(U), J = jumpOf(chart, HERE, to), dest = chart[to.system], sh = flight.ship;
     try {
       const P = player, carry = { name: P.name, given: P.given, family: P.family, age: P.age, credits: P.credits, inventory: P.inventory, weapon: P.weapon, skills: P.skills, hp: P.hp, fatigue: P.fatigue, hunger: P.hunger, soldier: P.soldier ? { ...P.soldier, world: WORLD.key } : null, worlds: [...new Set([...(P.worlds || []), WORLD.key])] };
-      localStorage.setItem('orbis-ftl', JSON.stringify({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } }));
+      var hand = ftlStash({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } });
     } catch (e) { console.error('FTL', e); ui.toast(`The FTL drive won't spool: ${esc(e.message || e)}.`, 'bad', 6000); return; }
     // the jump starts the moment you engage it; what's left behind is saved while the stars stretch (and can't hold you here if the save is slow or fails)
     paused = true; keys.clear();
@@ -1087,11 +1096,11 @@ async function start(fresh) {
     await Promise.race([Promise.all([effect, saving]), new Promise(r => setTimeout(r, J.secs * 1000 + 5000))]);
     const q = new URLSearchParams(); for (const k of ['seed', 'hour', 'store']) if (params.has(k)) q.set(k, params.get(k));
     if (!(to.system === 0 && to.body === 3)) { q.set('planet', to.body); q.set('system', to.system); }
-    q.set('auto', 'arrive'); location.href = location.pathname + '?' + q.toString();
+    q.set('auto', 'arrive'); location.href = location.pathname + '?' + q.toString() + hand;
   }
   // out of FTL: high over this world's first town, in the ship you came in
   async function arrival() {
-    const H = ftlHandoff(); if (!H || H.to.system !== HERE.system || H.to.body !== HERE.body) return; localStorage.removeItem('orbis-ftl');
+    const H = ftlHandoff(); if (!H || H.to.system !== HERE.system || H.to.body !== HERE.body) return; ftlClear();
     const C = H.player; for (const k of ['name', 'given', 'family', 'age', 'credits', 'inventory', 'weapon', 'skills', 'hp', 'fatigue', 'hunger', 'worlds']) if (C[k] !== undefined) player[k] = C[k];
     player.soldier = C.soldier && C.soldier.world === WORLD.key ? C.soldier : player.soldier?.world === WORLD.key ? player.soldier : (C.soldier ? null : player.soldier);     // (enlistment is with a nation of the world you enlisted on)
     let sh = shipById(H.ship.id);
