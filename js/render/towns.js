@@ -31,7 +31,7 @@ export class TownStreamer {
       const s = getSettlement(this.planet, rx + a, rz + b); if (!s || s === this.home || this.shells.has(s.key)) continue;
       const d = dist(s); if (d < wd) { wd = d; want = s; }
     }
-    if (want) this.shell(want);
+    if (want && !(this.speed > 1500)) this.shell(want);     // (going faster than that, a town's streets and blocks would be built and gone again in a few seconds: a stall for nothing)
     for (const [k, Q] of this.shells) if (dist(Q.s) > FAR_OUT && !this.full.has(k)) { this.group.remove(Q.group); free(Q.group); this.shells.delete(k); }
     // near: the closest town you're coming to
     let near = null, nd = Infinity;

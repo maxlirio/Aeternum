@@ -243,6 +243,36 @@ try {
     for (const [k, ms] of [[1, 300], [2, 700], [3, 700], [4, 900], [5, 1500]]) { await sleep(ms); await shot('ftlc-arrive-' + k).catch(() => {}); }
     console.log('   arrived', await ev(`JSON.stringify({ planet: ORBIS.planet.name, flying: !!ORBIS.getFlight(), alt: Math.round(ORBIS.getFlight()?.pos[1] || 0) })`));
   }
+  if (want('fast')) {
+    // flying very fast: low, high, and in the black; frames as it goes, and per-frame figures (how far the ship jumps on screen, frame times)
+    for (const [tag, alt, v] of (process.env.RUNS ? JSON.parse(process.env.RUNS) : [['low', 400, 900], ['mid', 9000, 4000], ['high', 30000, 12000], ['space', 60000, 30000]])) {
+      await load('hour=11&fly=' + (process.env.MODEL || 'interceptor') + (process.env.Q ? '&' + process.env.Q : ''));     // (a fresh ship each time: a long run can meet someone's missile)
+      console.log('  ', tag, await ev(`(async () => { const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'), wait = ms => new Promise(q => setTimeout(q, ms));
+        const sh = [], ft = []; let last = performance.now();
+        for (let i = 0; i < 60; i++) { const g = Math.max(O.world.groundAt(f.pos[0], f.pos[2], 1e4).h, O.planet.seaLevel); f.pos[1] = g + ${alt}; f.vel = [Math.sin(f.facing) * ${v}, 0, Math.cos(f.facing) * ${v}]; f.throttle = 1; f.q = F.fromEuler(f.facing, 0, 0); f.w = [0, 0, 0]; f.syncEuler();
+          await new Promise(r => requestAnimationFrame(r)); const n = performance.now(); ft.push(n - last); last = n;
+          { const p = O.avatar.object.position.clone(); p.project(O.camera); sh.push([p.x, p.y, p.z]); } }
+        const d = sh.slice(1).map((p, i) => Math.hypot(p[0] - sh[i][0], p[1] - sh[i][1])); const slow = ft.map((v, i) => [i, v | 0]).filter(q => q[1] > 100); ft.sort((a, b) => a - b);
+        return JSON.stringify({ frameMed: ft[30]|0, frameMax: ft[59]|0, screenJumpMax: d.length ? +Math.max(...d).toFixed(3) : 'n/a', screenSpread: sh.length ? [Math.min(...sh.map(p => p[1])).toFixed(2), Math.max(...sh.map(p => p[1])).toFixed(2)] : 'n/a', alt: Math.round(f.pos[1]), slow }); })()`));
+      if (process.env.PROF) { await send('Profiler.enable'); await send('Profiler.start');
+        await ev(`(async () => { const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'); for (let i = 0; i < 80; i++) { const g = Math.max(O.world.groundAt(f.pos[0], f.pos[2], 1e4).h, O.planet.seaLevel); f.pos[1] = g + ${alt}; f.vel = [Math.sin(f.facing) * ${v}, 0, Math.cos(f.facing) * ${v}]; f.q = F.fromEuler(f.facing, 0, 0); f.w = [0, 0, 0]; f.syncEuler(); await new Promise(r => requestAnimationFrame(r)); } return 1; })()`);
+        const P = (await send('Profiler.stop')).result.profile, self = new Map(), dts = P.timeDeltas, cnt = new Map();
+        P.samples.forEach((id, i) => cnt.set(id, (cnt.get(id) || 0) + (dts[i] || 0)));
+        console.log('   threads', await ev(`JSON.stringify({ pool: ORBIS.terrain.pool?.length || 0, inflight: ORBIS.terrain.inflight?.size, tiles: ORBIS.terrain.count, queue: ORBIS.terrain.queue.length })`));
+        { const par = new Map(), byId = new Map(P.nodes.map(n => [n.id, n])); for (const n of P.nodes) for (const c of n.children || []) par.set(c, n.id);
+          const inc = new Map(); for (const n of P.nodes) { const t = cnt.get(n.id) || 0; if (!t) continue; const seen = new Set(); for (let id = n.id; id != null; id = par.get(id)) { const c = byId.get(id).callFrame, k = (c.functionName || '(anon)') + ' ' + c.url.split('/').slice(-2).join('/') + ':' + c.lineNumber; if (seen.has(k)) continue; seen.add(k); inc.set(k, (inc.get(k) || 0) + t); } }
+          for (const want of (process.env.CALLERS || 'surfaceHeight,surfaceAt').split(',')) { const by = new Map(); for (const n of P.nodes) { if (n.callFrame.functionName !== want) continue; const pid = par.get(n.id), pc = pid != null && byId.get(pid).callFrame; if (!pc) continue; const tot = (function sum(id) { const x = byId.get(id); return (cnt.get(id) || 0) + (x.children || []).reduce((a, c) => a + sum(c), 0); })(n.id); const k = pc.functionName + ' ' + pc.url.split('/').slice(-2).join('/') + ':' + pc.lineNumber; by.set(k, (by.get(k) || 0) + tot); } console.log('   callers of', want, [...by].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => (v / 1000 | 0) + 'ms ' + k).join(' | ')); }
+          { let t = 0, best = [0, 0, 0], st = -1, t0 = 0; const idle = id => /^\((idle|program|garbage collector)\)$/.test(byId.get(id).callFrame.functionName);
+            P.samples.forEach((id, i) => { t += P.timeDeltas[i] || 0; if (!idle(id)) { if (st < 0) { st = i; t0 = t; } if (t - t0 > best[2]) best = [st, i, t - t0]; } else st = -1; });
+            const w = new Map(); for (let i = best[0]; i <= best[1]; i++) { const seen = new Set(); for (let id = P.samples[i]; id != null; id = par.get(id)) { const c = byId.get(id).callFrame, k = (c.functionName || '(anon)') + ' ' + c.url.split('/').slice(-2).join('/') + ':' + c.lineNumber; if (seen.has(k)) continue; seen.add(k); w.set(k, (w.get(k) || 0) + (P.timeDeltas[i] || 0)); } }
+            console.log('   longest busy stretch', (best[2] / 1000 | 0) + ' ms:', [...w].filter(([k]) => !k.includes('three.module') && !/^\(|safeFrame|frame js/.test(k)).sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, v]) => (v / 1000 | 0) + ' ' + k).join(' | ')); }
+          console.log('   inclusive', inc.size, P.nodes.length); [...inc].filter(([k]) => !k.includes('three.module') && !k.startsWith('(')).sort((a, b) => b[1] - a[1]).slice(0, 30).forEach(([k, v]) => console.log('     ', (v / 1000 | 0) + ' ms', k)); }
+        for (const n of P.nodes) { const c = n.callFrame, k = (c.functionName || '(anon)') + ' ' + c.url.split('/').slice(-2).join('/') + ':' + c.lineNumber; self.set(k, (self.get(k) || 0) + (cnt.get(n.id) || 0)); }
+        const tot = [...self.values()].reduce((a, b) => a + b, 0); console.log('   profile', tag, (tot / 1000 | 0) + ' ms'); [...self].sort((a, b) => b[1] - a[1]).slice(0, 22).forEach(([k, v]) => console.log('     ', (v / 1000 | 0) + ' ms', k)); }
+      await shot('fast-' + tag + '-a'); await sleep(400); await shot('fast-' + tag + '-b');
+      console.log('   after', tag, await ev(`JSON.stringify({ flying: !!ORBIS.getFlight(), toasts: [...document.querySelectorAll('.toast')].map(e => e.textContent).slice(-8) })`));
+    }
+  }
   if (want('cockpits')) {
     // what the pilot sees: each ship flown, the view from the seat, level and in daylight
     for (const M of (process.env.MODELS || 'shuttle,freighter,courier,patrol,yacht,runabout0,racer0,dropship0,gunship0,explorer0,hauler0,ferry0,arrow0,manta0,wraith0,miner0,interceptor,striker,needle,warden,shade').split(',')) {

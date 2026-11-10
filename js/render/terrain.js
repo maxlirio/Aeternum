@@ -246,21 +246,45 @@ export class TerrainStreamer {
     this.cache = null; this.pre = new Map(); this.asked = new Map();      // (far tiles kept between visits: world/gencache.js)
   }
   useCache(c) { this.cache = c; }
+  // tiles built on background threads (gen/chunk-worker.js): the frame only turns what comes back into meshes. Without them (or if one
+  // fails) the tiles are built here, as before; the first ground at boot, and a crater's, always are.
+  useWorkers(n = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 4) - 2))) {
+    if (typeof Worker === 'undefined') return;
+    try {
+      this.pool = []; this.inflight = new Map();
+      for (let q = 0; q < n; q++) { const w = new Worker(new URL('../gen/chunk-worker.js', import.meta.url), { type: 'module' }); w.job = null; w.crN = -1;
+        w.onmessage = ({ data }) => this.landed(w, data); w.onerror = e => { console.warn('terrain thread', e.message); this.dropWorkers(); }; this.pool.push(w); }
+    } catch (e) { console.warn('no terrain threads', e); this.dropWorkers(); }
+  }
+  dropWorkers() { for (const w of this.pool || []) w.terminate(); for (const [k, J] of this.inflight || []) this.queue.unshift(J); this.pool = null; this.inflight = null; }
+  send(w, J) {
+    const P = this.planet, cr = P.craters?.length || 0; w.job = J; this.inflight.set(J.k, J);
+    w.postMessage({ universe: P.universeSeed, address: P.address.key, craters: w.crN !== cr ? (P.craters || []) : null, l: J.l, i: J.i, j: J.j }); w.crN = cr;
+  }
+  landed(w, d) {
+    const J = w.job; w.job = null; if (!J || !this.inflight) return; this.inflight.delete(J.k);
+    if (this.tiles.has(J.k)) return;
+    if (J.stale) { if (this.desired.has(J.k)) this.queue.unshift(J); return; }     // (a crater fell on it while it was being built)
+    if (J.l >= FAR_KEEP && this.cache) this.cache.put('chunk', J.k, d);
+    if (!this.desired.has(J.k)) return;
+    this.tiles.set(J.k, { mesh: this.buildTile(J.l, J.i, J.j, false, d), lod: J.l, i: J.i, j: J.j });
+  }
   key(l, i, j) { return l + ':' + i + ':' + j; }
 
-  // Recompute the wanted leaf set around (px, pz).
-  plan(px, pz) {
+  // Recompute the wanted leaf set around (px, pz), from agl metres up (the detail goes with the true distance: high up, nothing near is near),
+  // built nearest-first along the way from here to where you'll be in a moment (lx, lz): at speed, what's behind is already gone
+  plan(px, pz, agl = 0, lx = px, lz = pz) {
     const want = new Set(), queue = [];
     const S = CHUNK * 2 ** MAX_LOD;
     const visit = (l, i, j) => {
       const size = CHUNK * 2 ** l, x0 = i * size, z0 = j * size;
       const dx = Math.max(x0 - px, 0, px - (x0 + size)), dz = Math.max(z0 - pz, 0, pz - (z0 + size));
-      const dist = Math.hypot(dx, dz);
+      const dist = Math.hypot(dx, dz), d3 = Math.hypot(dist, agl);
       if (dist > VIEW) return;
-      if (l > 0 && dist < size * SPLIT) { for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) visit(l - 1, i * 2 + a, j * 2 + b); return; }
+      if (l > 0 && d3 < size * SPLIT) { for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) visit(l - 1, i * 2 + a, j * 2 + b); return; }
       const k = this.key(l, i, j);
       want.add(k);
-      if (!this.tiles.has(k)) { queue.push({ k, l, i, j, dist }); if (l >= FAR_KEEP && this.cache && !this.asked.has(k)) { this.asked.set(k, performance.now()); this.cache.get('chunk', k).then(d => { if (d && !this.tiles.has(k)) this.pre.set(k, d); this.asked.set(k, -1); }); } }
+      if (!this.tiles.has(k)) { let dq = Infinity; for (const f of [0, 0.33, 0.67, 1]) { const qx = px + (lx - px) * f, qz = pz + (lz - pz) * f; dq = Math.min(dq, Math.hypot(Math.max(x0 - qx, 0, qx - (x0 + size)), Math.max(z0 - qz, 0, qz - (z0 + size)))); } queue.push({ k, l, i, j, dist: dq }); if (l >= FAR_KEEP && this.cache && !this.asked.has(k)) { this.asked.set(k, performance.now()); this.cache.get('chunk', k).then(d => { if (d && !this.tiles.has(k)) this.pre.set(k, d); this.asked.set(k, -1); }); } }
     };
     const r0 = Math.floor((px - VIEW) / S), r1 = Math.floor((px + VIEW) / S), c0 = Math.floor((pz - VIEW) / S), c1 = Math.floor((pz + VIEW) / S);
     for (let i = r0; i <= r1; i++) for (let j = c0; j <= c1; j++) visit(MAX_LOD, i, j);
@@ -268,35 +292,36 @@ export class TerrainStreamer {
     this.desired = want; this.queue = queue;
   }
 
-  update(px, pz, budgetMs = 6) {
-    const cell = Math.floor(px / 32) + ',' + Math.floor(pz / 32);
-    if (cell !== this.lastSplit) { this.plan(px, pz); this.lastSplit = cell; }
+  update(px, pz, budgetMs = 6, agl = 0, vx = 0, vz = 0) {
+    const lead = Math.min(1.5, 6000 / (Math.hypot(vx, vz) || 1)), lx = px + vx * lead, lz = pz + vz * lead;
+    const cell = Math.floor(px / 32) + ',' + Math.floor(pz / 32) + ',' + Math.floor(Math.log2(1 + Math.max(0, agl) / 50) * 4);
+    if (cell !== this.lastSplit) { this.plan(px, pz, Math.max(0, agl), lx, lz); this.lastSplit = cell; }
     const t0 = performance.now();
     while (this.queue.length && performance.now() - t0 < budgetMs) {
       const q = this.queue.shift();
       if (this.tiles.has(q.k) || !this.desired.has(q.k)) continue;
       const ask = this.asked.get(q.k); if (ask > 0 && performance.now() - ask < 1500) { this.queue.push(q); if (this.queue.every(x => this.asked.get(x.k) > 0)) break; continue; }     // (a far tile that may be on disk waits a moment for it)
+      if (this.pool && !this.pre.has(q.k)) { if (this.inflight.has(q.k)) continue; const w = this.pool.find(w => !w.job); if (!w) { this.queue.unshift(q); break; } this.send(w, q); continue; }
       this.tiles.set(q.k, { mesh: this.buildTile(q.l, q.i, q.j), lod: q.l, i: q.i, j: q.j });
     }
-    // retire stale tiles whose area is fully covered by ready desired tiles
+    // retire stale tiles whose area is fully covered by ready desired tiles; one still waiting sits a little under the new ones round it
+    // (the same ground at two levels of detail, at the same height, would fight over every pixel: the land flickers)
+    const miss = []; for (const k of this.desired) if (!this.tiles.has(k)) { const [l, i, j] = k.split(':'), s1 = CHUNK * 2 ** +l; miss.push(+i * s1, +j * s1, s1); }
     for (const [k, t] of this.tiles) {
-      if (this.desired.has(k)) continue;
-      if (this.covered(t)) { this.parent.remove(t.mesh); t.mesh.geometry.dispose(); this.tiles.delete(k); }
+      if (this.desired.has(k)) { if (t.sunk) { t.mesh.position.y = 0; t.mesh.updateMatrix(); t.sunk = false; } continue; }
+      if (this.covered(t, miss)) { this.parent.remove(t.mesh); t.mesh.geometry.dispose(); this.tiles.delete(k); }
+      else if (!t.sunk) { t.mesh.position.y = -Math.min(20, 1.5 + CHUNK * 2 ** t.lod * 0.002); t.mesh.updateMatrix(); t.sunk = true; }
     }
   }
-  covered(t) {
-    for (const k of this.desired) {
-      if (this.tiles.has(k)) continue;
-      const [l, i, j] = k.split(':').map(Number);
-      const s1 = CHUNK * 2 ** l, s0 = CHUNK * 2 ** t.lod;
-      const ax = i * s1, az = j * s1, bx = t.i * s0, bz = t.j * s0;
-      if (ax < bx + s0 && ax + s1 > bx && az < bz + s0 && az + s1 > bz) return false;
-    }
+  covered(t, miss) {
+    const s0 = CHUNK * 2 ** t.lod, bx = t.i * s0, bz = t.j * s0;
+    for (let n = 0; n < miss.length; n += 3) { const ax = miss[n], az = miss[n + 1], s1 = miss[n + 2]; if (ax < bx + s0 && ax + s1 > bx && az < bz + s0 && az + s1 > bz) return false; }
     return true;
   }
-  buildTile(l, i, j, fresh = false) {
-    const k = this.key(l, i, j); let d = !fresh && this.pre.get(k); this.pre.delete(k);
+  buildTile(l, i, j, fresh = false, given = null) {
+    const k = this.key(l, i, j); let d = given || (!fresh && this.pre.get(k)); this.pre.delete(k);
     if (!d) { d = chunkData(this.planet, l, i, j); if (l >= FAR_KEEP && this.cache) this.cache.put('chunk', k, d); }
+    if (!given && this.inflight?.has(k)) this.inflight.get(k).stale = true;     // (built here meanwhile: what the thread brings back is spare)
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(d.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(d.nrm, 3));
@@ -315,10 +340,11 @@ export class TerrainStreamer {
     this.parent.add(mesh);
     return mesh;
   }
-  get pending() { return this.queue.length; }
+  get pending() { return this.queue.length + (this.inflight?.size || 0); }
   get count() { return this.tiles.size; }
   // The ground changed under (x, z) within r (a crater): rebuild the tiles over it, in place.
   refresh(x, z, r) {
+    for (const J of this.inflight?.values() || []) { const s = CHUNK * 2 ** J.l, x0 = J.i * s, z0 = J.j * s; if (!(x + r < x0 || x - r > x0 + s || z + r < z0 || z - r > z0 + s)) J.stale = true; }
     for (const [k, t] of this.tiles) { const s = CHUNK * 2 ** t.lod, x0 = t.i * s, z0 = t.j * s; if (x + r < x0 || x - r > x0 + s || z + r < z0 || z - r > z0 + s) continue;
       const mesh = this.buildTile(t.lod, t.i, t.j, true); this.parent.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = mesh; }
   }

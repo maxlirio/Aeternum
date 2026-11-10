@@ -3,6 +3,7 @@
 // Buildings are axis-aligned in their own frame, so every test is circle-vs-AABB in
 // building-local coordinates. No three.js here.
 import { surfaceHeight } from '../gen/surface.js';
+import { rawHeight } from '../gen/terrain.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { settlementNear } from '../gen/settlement.js';
 import { PLINTH } from '../core/units.js';
@@ -134,6 +135,9 @@ export class CollisionWorld {
   // Highest walkable surface at (x, z) no higher than yFeet + STEP.
   groundAt(x, z, yFeet) {
     if (yFeet > SPACE) return { h: this.planet.seaLevel, where: null };
+    // well clear of anything built (the megacity's towers and anything standing up there aside), the land's own shape answers: asking for the towns, rivers and roads under
+    // a ship going over at thousands of metres a second would have every one of them worked out as it passes
+    { const c = this.city; if (!(c && Math.abs(x - c.cx) < c.R + 1500 && Math.abs(z - c.cz) < c.R + 1500)) { const raw = rawHeight(this.planet, x, z); if (yFeet - raw > 2500 && !this.near(x, z).length) return { h: raw, where: null }; } }     // (a ring's floor, a great ship's deck: those are asked about as usual)
     let best = surfaceHeight(this.planet, x, z), where = null;
     { const d = deckAt(this.planet, x, z); if (d !== null && d <= yFeet + STEP && d > best) { best = d; where = { bridge: true }; } }
     // the roof of a standing car; the deck of a watchtower

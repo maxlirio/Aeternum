@@ -3,6 +3,7 @@
 // gunfire, and a big one you hurt may come for you. Away from you they stop existing and start again from home, unless
 // you killed them: that's remembered. Pure logic: reads the ground, knows nothing of meshes.
 import { herdInTile, HERD_TILE } from '../gen/fauna.js';
+import { rawHeight } from '../gen/terrain.js';
 import { surfaceAt, surfaceHeight } from '../gen/surface.js';
 import { rocksNear } from '../gen/rocks.js';
 import { floraNear } from '../gen/flora.js';
@@ -45,7 +46,7 @@ export class FaunaSim {
   }
   update(dt, px, pz, py) {
     this.time += dt;
-    if (!this.test && (!this.cell || Math.hypot(px - this.cell[0], pz - this.cell[1]) > 40)) { this.cell = [px, pz]; this.wake(px, pz); }
+    if (!this.test && (!this.cell || Math.hypot(px - this.cell[0], pz - this.cell[1]) > 40) && !(py - rawHeight(this.planet, px, pz) > 1500)) { this.cell = [px, pz]; this.wake(px, pz); }     // (from high up nothing's woken: they're too small to see, and a ship going over fast would wake every herd under it)
     for (const G of this.herds.values()) {
       G.alarm = Math.max(0, G.alarm - dt);
       G.t -= dt; if (G.t <= 0) { G.t = 18 + Math.random() * 30; const a = Math.random() * 6.283, d = 12 + Math.random() * 34, x = G.H.x + (G.cx - G.H.x) * 0.6 + Math.cos(a) * d, z = G.H.z + (G.cz - G.H.z) * 0.6 + Math.sin(a) * d; G.tx = x; G.tz = z; }

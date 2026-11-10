@@ -99,6 +99,7 @@ import { PAINTS_VEHICLE } from './render/props.js';
 import { FaunaSim } from './sim/fauna.js';
 import { FaunaView } from './render/fauna.js';
 import { CityView } from './render/city.js';
+import { rawHeight } from './gen/terrain.js';
 import { surfaceHeight } from './gen/surface.js';
 import { CityTrafficView } from './render/citytraffic.js';
 import { CityInteriors } from './render/cityreal.js';
@@ -337,6 +338,7 @@ async function start(fresh) {
     await tick();
     if (i > 400) break;
   }
+  if (!params.has('syncterrain')) terrain.useWorkers();     // (from here the ground is built off the frame: flying fast, it keeps up without stalling)
 
   // ---- processes
   const near = () => { // NEAR tier, 1 Hz
@@ -1485,7 +1487,9 @@ async function start(fresh) {
     for (const b of nearBuildingsOf(p, R * 1.6)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });     // (what was hit is marked: render keeps it scorched)
   }
   function nearBuildingsOf(p, r) { const out = []; for (const b of s.buildings || []) { const [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2); if (Math.hypot(x - p[0], z - p[2]) < r + Math.max(b.w, b.d) / 2) out.push(b); } return out; }
-  const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);      // (the land itself, loaded or not: the line can be a long way off)
+  const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);
+  let aloft = false;      // (flying more than 300 m up: set each frame)
+  const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)      // (the land itself, loaded or not: the line can be a long way off)
   const infantry = new Infantry({ ground: landY, hooks: { hitPlayer: (d, by) => hurtPlayer(d, by) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
   const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
@@ -1771,7 +1775,7 @@ async function start(fresh) {
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
     avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
-    pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]);
+    if (!aloft) pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]);     // (from a ship well up, the things only seen from close by wait)
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
@@ -1895,7 +1899,7 @@ async function start(fresh) {
           if (ringPeople.length >= 70) break;
         } } }
     window.__ringPeople = ringPeople;
-    crowd.update(ringPeople.concat(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security), crew: pop.gangOf?.(a.person.id)?.colour || null })).concat(riders, peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length)).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
+    crowd.update(ringPeople.concat(agents.map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security), crew: pop.gangOf?.(a.person.id)?.colour || null })).concat(riders, (aloft ? [] : peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length))).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id).map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
@@ -1943,7 +1947,7 @@ async function start(fresh) {
         else if (e.type === 'home') ui.toast(`The <b>${esc(C.name)}</b> is back on station.`, '', 4000); } }
     if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, homeCtx);
-    if (!inSpace && !cloudW) terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
+    if (!inSpace && !cloudW) { const v = flight ? flight.vel : ride?.vel || [0, 0, 0]; terrain.update(ctrl.pos[0], ctrl.pos[2], 5, flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, v[0] || 0, v[2] || 0); }
     if (!inSpace) cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     homeTown.town.group.visible = Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 7000;   // (the town is a speck from the city)
     { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked).map(v => { const r = townRedAhead(s, v.pos[0], v.pos[2], Math.sin(v.facing), Math.cos(v.facing), clock.now()); return r ? { ...v, stop: Math.max(0, r.d) } : v; }) : []); }
@@ -1959,12 +1963,15 @@ async function start(fresh) {
     if (!inSpace) cityRooms.update(ctrl.pos);
     vesperStreets?.update(flight ? flight.pos : ctrl.pos);
     if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, homeS, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } if (!inSpace) siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));
-    if (!inSpace) flora.update(ctrl.pos[0], ctrl.pos[2]);
-    if (!inSpace) rocks.update(ctrl.pos[0], ctrl.pos[2]);
+    { const agl = flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, v = flight ? flight.vel : ride?.vel, spd = v ? Math.hypot(v[0] || 0, v[2] || 0) : 0;
+      aloft = agl > 300; sea.rough = agl > 1500;
+      towns.speed = spd;
+      if (!inSpace) flora.update(ctrl.pos[0], ctrl.pos[2], agl, spd);
+      if (!inSpace) rocks.update(ctrl.pos[0], ctrl.pos[2], agl, spd); }
     if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
     if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
     if (!inSpace) { fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]); }
-    if (!inSpace) { outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt); harbour?.update(ctrl.pos[0], ctrl.pos[2], clock.now(), dt); }
+    if (!inSpace) { { const v = flight ? flight.vel : ride?.vel; outposts.update(ctrl.pos[0], ctrl.pos[2], flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, v ? Math.hypot(v[0] || 0, v[2] || 0) : 0); } rivers.update(ctrl.pos[0], ctrl.pos[2], dt); harbour?.update(ctrl.pos[0], ctrl.pos[2], clock.now(), dt); }
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind, cam.yaw + (cam.cur != null && cam.cur < 1 ? 0 : 0)); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
@@ -2054,7 +2061,7 @@ async function start(fresh) {
       ui.debug(`${fps} fps · ${info.calls} calls · ${(info.triangles / 1e3).toFixed(0)}k tris · tiles ${terrain.count} (+${terrain.pending}) · pos ${camW.map(v => v.toFixed(0)).join(',')} · jobs ${store.jobs.length} · deltas ${store.deltas.size}`);
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
-    waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
+    waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if ((flight ? rawHeight : surfaceHeight)(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
     if (!params.has('norefl') && !cloudW) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3 || !!ringHere();     // (in a ring everything's turning: a map a frame stale shakes everyone in it)     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)

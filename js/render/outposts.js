@@ -61,7 +61,9 @@ export class OutpostView {
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.rot);
     for (const [im, q] of this.where.get(it) || []) { M.compose(new THREE.Vector3(it.x, it.y, it.z), Q, off ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(it.s || 1, 1, 1)); im.setMatrixAt(q, M); im.instanceMatrix.needsUpdate = true; }
   }
-  update(x, z) {
+  update(x, z, agl = 0, spd = 0) {
+    if (agl > R * 1.5) return;     // (sites are things you see from near them: from higher up they wait till you come down)
+    if (spd > 120) { const now = performance.now(); if (now - (this.fastAt || 0) < 400) return; this.fastAt = now; }
     if (this.at && Math.hypot(this.at[0] - x, this.at[1] - z) < 120) return; this.at = [x, z];
     this.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.name === 'lanes') o.geometry.dispose(); }); this.group.clear();
     const by = new Map(); let n = 0; this.where.clear();

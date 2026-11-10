@@ -93,8 +93,10 @@ export class RockView {
     S = { geo, mat, list: [], im: null, hi }; this.sets.set(k, S);
     return S;
   }
-  update(x, z) {
+  update(x, z, agl = 0, spd = 0) {
     if (!this.ok) return;
+    if (agl > FAR) return;     // (from higher than they reach, there's nothing of them to see: they wait till you come down)
+    if (spd > 120) { const now = performance.now(); if (now - (this.fastAt || 0) < 250) return; this.fastAt = now; }     // (going this fast they blur past: four times a second is plenty)
     const moved = !this.at || Math.hypot(x - this.at[0], z - this.at[1]) > 24;
     if (this.queue.length && this.queueAt && Math.hypot(x - this.queueAt[0], z - this.queueAt[1]) > 120) this.queue.length = 0;
     if (moved && !this.queue.length) {

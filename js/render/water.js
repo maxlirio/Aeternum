@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { baked } from './materials.js';
 import { surfaceHeight } from '../gen/surface.js';
+import { rawHeight } from '../gen/terrain.js';
 
 // Gerstner waves: direction (radians, relative to the wind), wavelength (m), steepness
 const WAVES = [[0.0, 38, 0.55], [0.55, 21, 0.45], [-0.7, 13, 0.42], [1.4, 7.5, 0.35], [-1.9, 4.2, 0.3]];
@@ -105,10 +106,11 @@ export function makeSea(planet) {
     if (!hNext) return;
     const t0 = performance.now();
     while (hRow < HM && performance.now() - t0 < budgetMs) {
-      for (let i = 0; i < HM; i++) hNext.data[hRow * HM + i] = surfaceHeight(planet, hNext.x + (i + 0.5) / HM * HSPAN - HSPAN / 2, hNext.z + (hRow + 0.5) / HM * HSPAN - HSPAN / 2);
+      const H = hNext.rough ? rawHeight : surfaceHeight;     // (from high up, the land's own shape: the full ground would have every town and road under a fast ship worked out)
+      for (let i = 0; i < HM; i++) hNext.data[hRow * HM + i] = H(planet, hNext.x + (i + 0.5) / HM * HSPAN - HSPAN / 2, hNext.z + (hRow + 0.5) / HM * HSPAN - HSPAN / 2);
       hRow++;
     }
-    if (hRow >= HM) { hdata.set(hNext.data); htex.needsUpdate = true; hAt = [hNext.x, hNext.z]; hNext = null; }
+    if (hRow >= HM) { hdata.set(hNext.data); htex.needsUpdate = true; hAt = [hNext.x, hNext.z]; hAt.rough = hNext.rough; hNext = null; }
   };
   sea.update = (dt, camera, origin, wind) => {
     u.uTime.value += dt; u.uOff.value.set(origin[0], origin[2]);
@@ -118,7 +120,7 @@ export function makeSea(planet) {
     const S = 16;                                         // snap so the grid doesn't swim
     sea.position.set(Math.round(camera.position.x / S) * S, planet.seaLevel, Math.round(camera.position.z / S) * S); u.uCtr.value.set(sea.position.x, sea.position.z);
     const wx = camera.position.x + origin[0], wz = camera.position.z + origin[2];
-    if (!hNext && (!hAt || Math.hypot(wx - hAt[0], wz - hAt[1]) > HSPAN / 3)) { hNext = { x: wx, z: wz, data: new Float32Array(HM * HM) }; hRow = 0; }
+    if (!hNext && (!hAt || Math.hypot(wx - hAt[0], wz - hAt[1]) > HSPAN / 3 || (hAt.rough && !sea.rough))) { hNext = { x: wx, z: wz, data: new Float32Array(HM * HM), rough: !!sea.rough }; hRow = 0; }     // (come down, and it's baked again properly)
     bakeRows(hAt ? 3 : 40);
     u.uHOrigin.value.set(hAt ? hAt[0] - origin[0] : 1e9, hAt ? hAt[1] - origin[2] : 1e9);
   };

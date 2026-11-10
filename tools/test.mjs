@@ -530,7 +530,7 @@ suites.infantry = async () => {
   check(!bad, `no soldier's position goes bad (${bad})`); check(far < 900, `everyone stays on the line (furthest ${Math.round(far)} m)`);
   check(n.down > 10, `men fall (${n.down})`); check(n.taken + n.lost > 0, `objectives change hands (${n.taken} taken, ${n.lost} lost)`);
   check(I.men.filter(m => m.side === 'ours' && m.hp > 0).length > 4 && I.men.filter(m => m.side === 'theirs' && m.hp > 0).length > 4, 'both sides still in it after ten minutes');
-  const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 30, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');
+  const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 2, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');     // (from close: from further off, now and then someone else is standing in the way after ten minutes of it)
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
 suites.stars = async () => {
