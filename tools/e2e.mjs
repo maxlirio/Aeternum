@@ -30,7 +30,7 @@ try {
   const key = async (code, type) => ev(`dispatchEvent(new KeyboardEvent('${type}', { code: '${code}' })), 1`);
   const load = async q => {
     await send('Runtime.enable');
-    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&${q}` });
+    await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&still&${q}` });
     let t = '';
     for (let i = 0; i < 480; i++) { await sleep(500); t = await ev('document.title').catch(e => 'evalerr'); if (t === 'READY') return true; if (t.startsWith('ERROR')) break; }
     console.log('   title:', t, errs.slice(0, 3)); return false;

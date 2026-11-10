@@ -5,6 +5,7 @@
 // plan's real walls, and shellOf() gives it only what stands outside them, so the swap doesn't show.
 import * as THREE from 'three';
 import { designById, designPlan } from '../gen/housegen.js';
+import { formIntoParts, formSurface } from './forms.js';
 
 export class Parts {
   constructor() { this.by = new Map(); }
@@ -40,6 +41,7 @@ const shutters = (P, D, x, z, n, y, w, h, out) => { if (D.shutters && w < 1.6 &&
 const swapped = P => ({ face: (m, pts) => P.face(m, pts.map(([x, y, z]) => [z, y, x]).reverse()), box: (m, cx, y0, cz, w, h, d) => P.box(m, cz, y0, cx, d, h, w) });
 function roofOf(P0, D) {
   const P = D.ridgeZ ? swapped(P0) : P0, w = D.ridgeZ ? D.d : D.w, d = D.ridgeZ ? D.w : D.d, { h: y, over, pitch, roof, wall, trim } = D, hw = w / 2, hd = d / 2, rise = hd * pitch;
+  if (D.form) { P.box(roof, 0, y - 0.02, 0, w + 0.1, 0.12, d + 0.1); return y + 0.1; }       // (its form stands on it: outside())
   if (D.shape === 'flat') {
     P.box(roof, 0, y, 0, w + 0.3, 0.2, d + 0.3);
     for (const s of [-1, 1]) { P.box(roof, 0, y + 0.2, s * (hd + 0.07), w + 0.3, 0.35, 0.16); P.box(roof, s * (hw + 0.07), y + 0.2, 0, 0.16, 0.35, d + 0.3); }
@@ -107,6 +109,8 @@ function outside(P, D, plan) {
   const { w, d, h, floors, storey, wall, base, trim } = D, hw = w / 2, hd = d / 2, dr = plan.doors[plan.entrance], doorX = dr.x - hw, dw = dr.width, dh = dr.height, tr = hard(trim);
   P.box(base, 0, -5.4, 0, w + 0.2, 5.38, d + 0.2);       // the footing, its top just under the floor
   const top = roofOf(P, D);
+  if (D.form) { const F = D.form, natural = /sandstone|adobe|limestone|rock|thatch|slate|concrete|facade/.test(F.roof), c = F.colour.map(v => +Math.min(1.2, v * F.tone * 1.15).toFixed(2));
+    formIntoParts(P, F, D.h, { x: dr.x, w: dr.width }, { roof: natural ? F.roof : `form:${F.roof}:${c.join(',')}`, wall, trim: 'plank', dark: 'rubber', glass: 'visor', metal: 'metal' }); }
   // A wall stands on something and ends at something: a base course (broken at the door), corner boards, pipes off the gutters to the ground.
   { const bt = 0.42, front = [[-hw - 0.05, doorX - dw / 2 - 0.1], [doorX + dw / 2 + 0.1, hw + 0.05]]; for (const [a, b] of front) if (b - a > 0.05) P.box(base, (a + b) / 2, 0, -hd - 0.025, b - a, bt, 0.05);
     P.box(base, 0, 0, hd + 0.025, w + 0.1, bt, 0.05); for (const s of [-1, 1]) P.box(base, s * (hw + 0.025), 0, 0, 0.05, bt, d); P.box(tr, 0, bt, hd + 0.03, w + 0.08, 0.04, 0.03); for (const s of [-1, 1]) P.box(tr, s * (hw + 0.03), bt, 0, 0.03, 0.04, d);
@@ -130,12 +134,12 @@ function outside(P, D, plan) {
   if (D.hanging) { const x = doorX + dw / 2 + 0.8; P.box('metal', x + 0.3, 3.15, -hd - 0.45, 0.05, 0.05, 0.95); P.box('plank', x + 0.3, 2.25, -hd - 0.62, 0.06, 0.85, 0.8); P.box('tint', x + 0.3, 2.42, -hd - 0.62, 0.08, 0.5, 0.56); for (const s of [-0.3, 0.3]) P.box('metal', x + 0.3, 3.08, -hd - 0.62 + s, 0.02, 0.08, 0.02); }
   if (D.badge) { const y = Math.min(dh + 0.35, storey - 0.85); P.box('render', doorX, y, -hd - 0.1, 0.9, 0.7, 0.05); P.box('leaf', doorX, y + 0.27, -hd - 0.13, 0.5, 0.16, 0.03); P.box('leaf', doorX, y + 0.1, -hd - 0.13, 0.16, 0.5, 0.03); }
   if (D.portico) { const pw = Math.min(w - 1, dw + 5), py = Math.min(storey - 0.3, 3.9); P.box(tr, doorX, py, -hd - 1.3, pw + 0.5, 0.3, 2.6); for (let i = 0; i < 4; i++) { const x = doorX - pw / 2 + i * pw / 3; P.box('limestone', x, -1.5, -hd - 2.3, 0.34, py + 1.5, 0.34); } }
-  if (D.bell) { const x = w * 0.28; P.box(wall, x, top - 0.6, 0, 1, 1.2, 1); P.box(tr, x, top + 0.6, 0, 1.2, 0.08, 1.2); for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.box(tr, x + sx * 0.45, top + 0.68, sz * 0.45, 0.09, 0.8, 0.09); P.box('metal', x, top + 0.86, 0, 0.32, 0.4, 0.32); P.box(tr, x, top + 1.48, 0, 1.3, 0.1, 1.3); }
-  if (D.spire) { const sw = Math.min(3.4, w * 0.36), sy = top - 0.5, sh = D.storey * 1.1, z = -hd + sw / 2; P.box(wall, 0, D.h, z, sw, sy - D.h + sh, sw); const a = sy + sh, b = a + sw * 1.5, q = sw / 2 + 0.12;
+  if (D.bell && !D.form) { const x = w * 0.28; P.box(wall, x, top - 0.6, 0, 1, 1.2, 1); P.box(tr, x, top + 0.6, 0, 1.2, 0.08, 1.2); for (const sx of [-1, 1]) for (const sz of [-1, 1]) P.box(tr, x + sx * 0.45, top + 0.68, sz * 0.45, 0.09, 0.8, 0.09); P.box('metal', x, top + 0.86, 0, 0.32, 0.4, 0.32); P.box(tr, x, top + 1.48, 0, 1.3, 0.1, 1.3); }
+  if (D.spire && !D.form) { const sw = Math.min(3.4, w * 0.36), sy = top - 0.5, sh = D.storey * 1.1, z = -hd + sw / 2; P.box(wall, 0, D.h, z, sw, sy - D.h + sh, sw); const a = sy + sh, b = a + sw * 1.5, q = sw / 2 + 0.12;
     P.face(D.roof, [[-q, a, z - q], [0, b, z], [q, a, z - q]]); P.face(D.roof, [[q, a, z + q], [0, b, z], [-q, a, z + q]]); P.face(D.roof, [[q, a, z - q], [0, b, z], [q, a, z + q]]); P.face(D.roof, [[-q, a, z + q], [0, b, z], [-q, a, z - q]]); }
   if (D.stacks) { const n = 2 + Math.round(D.pitch * 3) % 2; for (let i = 0; i < n; i++) { const x = -hw * 0.6 + i * 2.6, z = d * 0.28, H = top - h + 8 + i * 2.2; roundBox(P, 'brick', x, h - 0.2, z, 0.85, 0.55, H); P.box('metal', x, h + H - 0.2, z, 1.05, 0.25, 1.05); } }
   if (D.cab) { const y = top - 0.55 + 0.2, W = w + 1.2, Dd = d + 1.2, Hc = 2.6; P.box(wall, 0, y, 0, w, 0.25, d); for (const s of [-1, 1]) { P.box('visor', 0, y + 0.25, s * Dd / 2, W, Hc, 0.05); P.box('visor', s * W / 2, y + 0.25, 0, 0.05, Hc, Dd); for (const q of [-1, 1]) P.box('metal', s * W / 2, y + 0.25, q * Dd / 2, 0.12, Hc, 0.12); } P.box(hard(trim), 0, y + 0.25 + Hc, 0, W + 0.5, 0.2, Dd + 0.5); P.box('metal', W * 0.25, y + 0.45 + Hc, 0, 0.1, 2.4, 0.1); }
-  if (D.dome) { const R = Math.min(w, d) * 0.38, y = top - 0.5; P.box(wall, 0, y, 0, R * 2.1, 0.5, R * 2.1); domeOn(P, 'hull', 0, y + 0.5, 0, R); P.box('visor', 0, y + 0.5 + R * 0.25, -R * 0.9, R * 0.3, R * 0.75, R * 0.2); }
+  if (D.dome && !D.form) { const R = Math.min(w, d) * 0.38, y = top - 0.5; P.box(wall, 0, y, 0, R * 2.1, 0.5, R * 2.1); domeOn(P, 'hull', 0, y + 0.5, 0, R); P.box('visor', 0, y + 0.5 + R * 0.25, -R * 0.9, R * 0.3, R * 0.75, R * 0.2); }
   if (D.flue) { P.box('brick', -hw * 0.5, h - 0.2, d * 0.22, 1.2, top - h + 2.6, 1.2); P.box('metal', -hw * 0.5, top + 2.4, d * 0.22, 0.7, 0.9, 0.7); }
   if (D.balconies) for (const wl of plan.walls) if (wl.exterior && wl.side === 'front' && wl.k > 0) for (const o of wl.openings) if (o.kind === 'window') { const x = (o.a + o.b) / 2 - hw, W = o.b - o.a + 0.6, y = wl.y0; P.box('concrete', x, y - 0.12, -hd - 0.6, W, 0.12, 1.2); P.box(tr, x, y + 0.9, -hd - 1.18, W, 0.05, 0.05); for (let i = 0; i <= 3; i++) P.box(tr, x - W / 2 + i * W / 3, y, -hd - 1.18, 0.04, 0.9, 0.04); }
 }
@@ -177,6 +181,6 @@ export function buildingParts(planet, k, surface) {
   let m = made.get(planet); if (!m) made.set(planet, m = new Map());
   if (m.has(k)) return m.get(k);
   const geo = k === 'gb_step' ? stepGeometry() : (() => { const D = designById(planet, k); return D ? houseGeometry(D, designPlan(planet, D)) : null; })(); if (!geo) return null;
-  const parts = geo.map(p => ({ geometry: p.geometry, material: p.surface === 'winlit' ? winlit : surface(p.surface, p.tinted), matrix: new THREE.Matrix4(), tinted: p.tinted, cast: p.surface !== 'winlit' }));
+  const parts = geo.map(p => ({ geometry: p.geometry, material: p.surface === 'winlit' ? winlit : formSurface(surface, p.surface, p.tinted), matrix: new THREE.Matrix4(), tinted: p.tinted, cast: p.surface !== 'winlit' }));
   m.set(k, parts); return parts;
 }

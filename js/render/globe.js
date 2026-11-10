@@ -81,10 +81,19 @@ export class GlobeView {
     this.scale = new THREE.Vector3(this.G.R, this.G.R, this.G.R); this.baking = false; this.bakingSharp = false; this.sharp = []; this.done = 0;
   }
   // The coarse pictures straight away, on the way up; the sharp one (minutes of a whole core) only once you're high enough to see it.
+  // The pictures, kept between visits (world/gencache.js): what's been baked before comes straight back, sharpest first.
+  async fromCache(cache) {
+    this.cache = cache; if (!cache) return;
+    for (const n of [1024, 384]) { const got = await Promise.all(this.G.faces.map((_, f) => cache.get('globe', f + ':' + n)));
+      if (got.every(Boolean)) { got.forEach((d, f) => this.picture(f, n, d)); this.baking = true; if (n === 1024) { this.bakingSharp = true; this.finished = true; } return; } }
+  }
+  picture(face, n, data) {
+    if (n <= (this.sharp[face] || 0)) return; this.sharp[face] = n; const T = new THREE.DataTexture(data, n, n); T.colorSpace = THREE.NoColorSpace; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearMipmapLinearFilter; T.generateMipmaps = true; T.anisotropy = 4; T.needsUpdate = true; this.mats[face].uniforms.map.value.dispose(); this.mats[face].uniforms.map.value = T; this.done++;
+  }
   bake(sizes = [96, 384], last = false) {
     try {
       const w = new Worker(new URL('../gen/globe-bake.js', import.meta.url), { type: 'module' });
-      w.onmessage = ({ data }) => { if (data.done) { w.terminate(); if (last) this.finished = true; return; } if (data.n <= (this.sharp[data.face] || 0)) return; this.sharp[data.face] = data.n; const T = new THREE.DataTexture(data.data, data.n, data.n); T.colorSpace = THREE.NoColorSpace; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearMipmapLinearFilter; T.generateMipmaps = true; T.anisotropy = 4; T.needsUpdate = true; this.mats[data.face].uniforms.map.value.dispose(); this.mats[data.face].uniforms.map.value = T; this.done++; };
+      w.onmessage = ({ data }) => { if (data.done) { w.terminate(); if (last) this.finished = true; return; } if (data.n >= 384) this.cache?.put('globe', data.face + ':' + data.n, data.data); if (data.n <= (this.sharp[data.face] || 0)) return; this.sharp[data.face] = data.n; const T = new THREE.DataTexture(data.data, data.n, data.n); T.colorSpace = THREE.NoColorSpace; T.magFilter = THREE.LinearFilter; T.minFilter = THREE.LinearMipmapLinearFilter; T.generateMipmaps = true; T.anisotropy = 4; T.needsUpdate = true; this.mats[data.face].uniforms.map.value.dispose(); this.mats[data.face].uniforms.map.value = T; this.done++; };
       w.onerror = e => console.warn('globe picture', e.message);
       w.postMessage({ universe: this.planet.universeSeed, address: this.planet.address.key, sizes });
     } catch (e) { console.warn('no globe picture', e); }

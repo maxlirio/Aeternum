@@ -122,6 +122,12 @@ export function townFacade(type) {
   return facades.get(name);
 }
 
+// any baked surface, vertex-coloured, for the shapes a world gives its buildings (render/forms.js); glass that isn't a lit window
+const surfs = new Map();
+export function townSurface(name) {
+  if (!surfs.has(name)) surfs.set(name, name === 'glass' ? Object.assign(new THREE.MeshStandardMaterial({ color: 0x1c2630, roughness: 0.08, metalness: 0.85, envMapIntensity: 1.3 }), { userData: { lit: false } }) : std(name, 3, { vertexColors: true, ...(name === 'metal' || name === 'hull' ? { metalness: 0.7 } : {}) }, name));
+  return surfs.get(name);
+}
 let M = null;
 export function materials() {
   if (M) return M;

@@ -9,6 +9,7 @@ import { derive } from '../core/hash.js';
 import { cultureOf } from './culture.js';
 import { buildingPlan, refurnished } from './building.js';
 import { fitOut } from './fitout.js';
+import { formFor } from './forms.js';
 
 // [walls by weight, roofs by weight, roof shapes by weight, pitch range, storey range, floors, trim]
 const TASTE = {
@@ -70,13 +71,14 @@ export function designsFor(planet, fam) {
     const w = floors > 1 ? Math.max(w0, 9.2) : w0, d = floors > 1 ? Math.max(d0, 8.2) : d0;
     let roof = r.weighted(entries(T.roof)); const shape = r.weighted(entries(T.shape));
     if (F.noThatch && roof === 'thatch') roof = 'slate';
-    const x = F.extra || {}, tall = x.tallWindows;
+    const x = F.extra || {}, tall = x.tallWindows, form = formFor(planet, `gb_${fam}_${i}`, F.type, w, d, floors);      // (the shape this world gives it: gen/forms.js)
     out.push({
       id: `gb_${fam}_${i}`, fam, type: F.type, access: F.access, hours: F.hours || null, roomArea: F.roomArea || 0, rooms: F.rooms || null, bigDoor: F.bigDoor || null, ...x,
       w: +w.toFixed(2), d: +d.toFixed(2), floors, storey: +storey.toFixed(2), h: +(floors * storey).toFixed(2),
       shape: x.vaulted ? 'vault' : x.flat ? 'flat' : x.ridgeZ || x.pitched ? 'gable' : shape, pitch: +r.range(...(F.pitch || T.pitch)).toFixed(2), over: +r.range(0.15, 0.55).toFixed(2), wall: r.weighted(entries(T.wall)), roof, trim: r.pick(T.trim), base: r.pick(['concrete', 'rock', 'limestone']),
       winW: +r.range(0.8, tall ? 1.2 : 1.35).toFixed(2), winH: +(tall ? r.range(2, Math.max(2.1, storey - 1.6)) : r.range(1, 1.5)).toFixed(2), sill: +r.range(0.85, 1.1).toFixed(2), winGap: +r.range(2.2, 3.2).toFixed(2), mullions: r.int(0, 2),
-      porch: !x.portico && !x.awning && r.chance(0.45), chimney: shape !== 'flat' && r.chance(0.7), chimneyAt: +r.range(-0.35, 0.35).toFixed(2), shutters: r.chance(0.3), band: floors > 1 && r.chance(0.6), corner: r.chance(0.3),
+      ...(form ? { form, shape: 'flat' } : {}),
+      porch: !x.portico && !x.awning && r.chance(0.45), chimney: !form && shape !== 'flat' && r.chance(0.7), chimneyAt: +r.range(-0.35, 0.35).toFixed(2), shutters: r.chance(0.3), band: floors > 1 && r.chance(0.6), corner: r.chance(0.3),
     });
   }
   m.set(fam, out); return out;

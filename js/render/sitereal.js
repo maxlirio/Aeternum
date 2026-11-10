@@ -9,6 +9,7 @@ import { buildBuilding } from './building-mesh.js';
 import { PropView } from './props.js';
 import { kitTint } from './city.js';
 import { shellOf } from './housegen.js';
+import { formSurface } from './forms.js';
 import { sitesNear } from '../gen/outposts.js';
 import { siteReal } from '../world/sitereal.js';
 import { doorState } from '../world/doors.js';
@@ -35,7 +36,7 @@ export class SiteInteriors {
     const shell = new THREE.Group(); shell.position.set(it.x - rec.worldO[0], 0, it.z - rec.worldO[1]); shell.rotation.y = it.rot; g.add(shell);
     const col = new THREE.Color(), parts = [];
     for (const p of shellOf(D, rec.plan)) {
-      const im = new THREE.InstancedMesh(share(p.geometry), this.lib.wornSurface(p.surface, p.tinted), 1); im.setMatrixAt(0, new THREE.Matrix4());
+      const im = new THREE.InstancedMesh(share(p.geometry), formSurface(this.lib.wornSurface, p.surface, p.tinted), 1); im.setMatrixAt(0, new THREE.Matrix4());
       if (p.tinted) im.setColorAt(0, col.setRGB(...kitTint(p.tinted, it.k, it.x, it.z)));
       im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true; shell.add(im); parts.push(p.geometry);
     }

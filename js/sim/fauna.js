@@ -27,7 +27,7 @@ export class FaunaSim {
     }
     this.herds.set(H.id, { H, list, cx: H.x, cz: H.z, tx: H.x, tz: H.z, t: 10, alarm: 0 });
   }
-  spawnTest(sp, x, z, n, facing) { const H = { id: 'test' + this.herds.size, sp, x, z, n: n, seed: 7 }; this.spawnHerd(H, true); const A = this.animals[this.animals.length - 1]; A.x = x; A.z = z; A.y = surfaceHeight(this.planet, x, z); A.gh = A.y; A.facing = facing; return A; }
+  spawnTest(sp, x, z, n, facing) { const H = { id: 'test' + this.herds.size, sp, x, z, n: n, seed: 7 }; this.spawnHerd(H, true); const A = this.animals[this.animals.length - 1]; A.x = x; A.z = z; A.y = surfaceHeight(this.planet, x, z); A.gh = A.y; if (sp.plan === 'jelly') A.y += 2.5 + sp.size;      /* (a jelly never touches the ground) */ A.facing = facing; return A; }
   // which herds should be awake around (x, z)
   wake(x, z) {
     const ti = Math.floor(x / HERD_TILE), tj = Math.floor(z / HERD_TILE), want = new Set();
@@ -97,7 +97,8 @@ export class FaunaSim {
     const R = 30 + (A.seed % 40); A.ang += dt * (9 + A.seed % 3) / R; const x = (G?.cx ?? A.x) + Math.cos(A.ang) * R, z = (G?.cz ?? A.z) + Math.sin(A.ang) * R;
     A.hgt = (A.hgt || 0) - dt; if (A.hgt <= 0) { A.hgt = 0.6; A.gh = surfaceHeight(this.planet, A.x, A.z); }
     const want = Math.atan2(x - A.x, z - A.z), v = A.sp.plan === 'jelly' ? 2 + (A.seed % 2) : 10 + (A.seed % 4); A.facing += angDiff(want, A.facing) * Math.min(1, dt * 1.6); A.x += Math.sin(A.facing) * v * dt; A.z += Math.cos(A.facing) * v * dt; A.speed = v; A.bank = angDiff(want, A.facing);
-    const floor = this.planet.genome?.noGround ? Math.max(A.base ?? A.gh, A.gh) : Math.max(A.gh, 0), wy = floor + (A.sp.plan === 'jelly' ? 8 + (A.seed % 14) : 45 + (A.seed % 35)) + Math.sin(this.time * 0.2 + A.seed) * 6;      // (a jelly drifts low; on a cloud world everything keeps above its deck, not the abyss) A.y += (wy - A.y) * Math.min(1, dt * 0.5);
+    const floor = this.planet.genome?.noGround ? Math.max(A.base ?? A.gh, A.gh) : Math.max(A.gh, 0), wy = floor + (A.sp.plan === 'jelly' ? 8 + (A.seed % 14) : 45 + (A.seed % 35)) + Math.sin(this.time * 0.2 + A.seed) * 6;
+    A.y += (wy - A.y) * Math.min(1, dt * 0.5);      // (a jelly drifts low; on a cloud world everything keeps above its deck, not the abyss)
     if (A.falling !== undefined) { A.falling += dt * 9.8; A.y -= A.falling * dt; if (A.y <= A.gh) { A.y = A.gh; A.state = 'down'; A.t = 0; } }
   }
   // Harm. True if it died of it.

@@ -4,7 +4,7 @@
 // clearing it loses nothing but time. Keys carry the planet and the generator's version, so a new generator never reads old data.
 import { GEN_VERSION } from './store.js';
 
-const DB = 'orbis-gen', STORE = 'cells';
+const DB = 'orbis-gen', STORE = 'cells', BIG = new Set(['chunk', 'globe']);      // (big things go straight to disk, not held in memory too)
 export class GenCache {
   constructor(planet) { this.prefix = `${planet.address.key}|${planet.seed.join(':')}|v${GEN_VERSION}|`; this.mem = new Map(); this.db = null; this.ready = this.open(); this.hits = 0; this.puts = 0; }
   async open() {
@@ -16,14 +16,15 @@ export class GenCache {
   }
   key(kind, k) { return this.prefix + kind + '|' + k; }
   async get(kind, k) {
-    const K = this.key(kind, k); if (this.mem.has(K)) { this.hits++; return this.mem.get(K); }
+    const K = this.key(kind, k), big = BIG.has(kind); if (!big && this.mem.has(K)) { this.hits++; return this.mem.get(K); }
     await this.ready; if (!this.db) return undefined;
     const v = await new Promise(ok => { try { const r = this.db.transaction(STORE).objectStore(STORE).get(K); r.onsuccess = () => ok(r.result); r.onerror = () => ok(undefined); } catch { ok(undefined); } });
-    if (v !== undefined) { this.hits++; this.mem.set(K, v); if (this.mem.size > 400) this.mem.delete(this.mem.keys().next().value); }
+    if (v !== undefined && big) this.hits++;
+    else if (v !== undefined) { this.hits++; this.mem.set(K, v); if (this.mem.size > 400) this.mem.delete(this.mem.keys().next().value); }
     return v;
   }
   async put(kind, k, v) {
-    const K = this.key(kind, k); this.mem.set(K, v); if (this.mem.size > 400) this.mem.delete(this.mem.keys().next().value); this.puts++;
+    const K = this.key(kind, k); if (!BIG.has(kind)) { this.mem.set(K, v); if (this.mem.size > 400) this.mem.delete(this.mem.keys().next().value); } this.puts++;
     await this.ready; if (!this.db) return;
     try { this.db.transaction(STORE, 'readwrite').objectStore(STORE).put(v, K); } catch (e) { /* (full or blocked: it's only a cache) */ }
   }

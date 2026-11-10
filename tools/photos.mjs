@@ -205,6 +205,17 @@ try {
       await go('street', `const b = s.buildings[Math.floor(s.buildings.length / 3)], [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 - b.ez[0] * 6, b.O[1] + b.ex[1] * b.w / 2 - b.ez[1] * 6); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const a = Math.atan2(b.ez[0], b.ez[1]) + 0.5; O.ctrl.facing = a; O.cam.yaw = a; O.cam.pitch = 0.08; O.cam.dist = 5`, 4000);
     }
   }
+  if (want('towns')) {
+    // each world's towns as its people shape them (gen/forms.js): low over the roofs, and down a street
+    for (const N of (process.env.PLANETS || '0,1,2').split(',')) {
+      await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0&planet=' + N);
+      console.log('   world', N, await ev(`(async () => { const F = await import('./js/gen/forms.js'), W = F.formsOf(ORBIS.planet); return W.main.kind + ' ' + W.main.roof + ' / ' + W.second.kind; })()`));
+      const go = async (tag, js, wait = 3500) => { await ev(`(async () => { const O = ORBIS, s = O.homeS, wait = ms => new Promise(r => setTimeout(r, ms)); ${js}; await wait(${wait}); return 1; })()`); await shot('town' + N + '-' + tag); };
+      await go('low', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const r = s.roads[0], u = (r.a[0] + r.b[0]) / 2, v = (r.a[1] + r.b[1]) / 2, [x, z] = s.toWorld(u, v); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const yaw = 0.7; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.42; O.cam.dist = 140`, 7000);
+      if (process.env.CITY) await go('city', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const c = O.city, a = 0.8, x = c.cx + Math.sin(a) * (c.R * 0.55), z = c.cz + Math.cos(a) * (c.R * 0.55); O.ctrl.pos = [x, c.h + 0.5, z]; O.ctrl.vel = [0, 0, 0]; const yaw = a + Math.PI; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.32; O.cam.dist = 220`, 9000);
+      await go('street', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const r = s.roads.slice().sort((p, q) => Math.hypot(q.b[0] - q.a[0], q.b[1] - q.a[1]) - Math.hypot(p.b[0] - p.a[0], p.b[1] - p.a[1]))[0], u = r.a[0] + (r.b[0] - r.a[0]) * 0.3, v = r.a[1] + (r.b[1] - r.a[1]) * 0.3, du = r.b[0] - r.a[0], dv = r.b[1] - r.a[1], [x, z] = s.toWorld(u, v), dx = du * s.cos - dv * s.sin, dz = du * s.sin + dv * s.cos; O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const yaw = Math.atan2(dx, dz) + 0.25; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.12; O.cam.dist = 4`, 6000);
+    }
+  }
   if (want('harbour')) {
     // a town built out over the sea: seen from the water, its piles and quay, boats coming and going
     await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0&planet=' + (process.env.PLANET || 18));
@@ -215,6 +226,19 @@ try {
         const x = T.cx + Math.sin(a) * (T.R + ${d}), z = T.cz + Math.cos(a) * (T.R + ${d}), yaw = Math.atan2(T.cx - x, T.cz - z);
         for (let i = 0; i < 50; i++) { f.pos = [x, T.h + ${up}, z]; f.vel = [0, 0, 0]; f.vtol = true; f.facing = yaw; f.q = F.fromEuler(yaw, -0.08, 0); f.w = [0, 0, 0]; f.syncEuler(); O.cam.dist = 24; await wait(100); } return 1; })()`);
       await shot('harbour-' + tag);
+    }
+  }
+  if (want('line')) {
+    // the war on foot (sim/infantry.js): report for duty on the line, watch the squads go at it
+    for (const N of (process.env.PLANETS || '4').split(',')) {
+      await load('hour=' + (process.env.HOUR || 14) + '&planet=' + N);
+      const ok = await ev(`(async () => { const O = ORBIS, F = await import('./js/sim/front.js'), soc = O.townSociety(); if (!soc || !F.frontsOf(O.planet, soc.nation).length) return 0; O.store.player.soldier = { nation: soc.nation.id, rank: 0, kills: 0 }; try { await O.deployFoot(); } catch (e) { return 'ERR ' + e.message + ' ' + e.stack.slice(0, 300); } return 1; })()`); console.log('   deploy', ok, await ev(`(async () => { const O = ORBIS, F = await import('./js/sim/front.js'), soc = O.townSociety(), f = F.frontsOf(O.planet, soc.nation)[0], x = f.x - Math.sin(f.dir) * 340, z = f.z - Math.cos(f.dir) * 340; return JSON.stringify({ f: [Math.round(f.x), Math.round(f.z)], g: O.world.groundAt(x, z, 1e5).h, sea: O.planet.seaLevel, soldier: O.store.player.soldier, duty: O.store.player.footDuty }); })()`));
+      if (!ok) { console.log('   world', N, 'no front'); continue; }
+      for (const [tag, secs, js] of [['line-rally', 6, 'O.cam.pitch = 0.12; O.cam.dist = 5'], ['line-fight', 50, 'O.cam.pitch = 0.06; O.cam.dist = 3.4'], ['line-high', 4, 'O.cam.pitch = 0.42; O.cam.dist = 70']]) {
+        await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(q => setTimeout(q, ms)), I = O.infantry; for (let i = 0; i < ${secs} * 10; i++) { await wait(100); } if (I.F && '${tag}' === 'line-fight') { const M = I.men.find(m => m.side === 'ours' && m.hp > 0 && m.state === 'hold') || I.men.find(m => m.side === 'ours' && m.hp > 0), ux = Math.sin(I.F.dir), uz = Math.cos(I.F.dir), x = M ? M.pos[0] - ux * 6 + uz * 2 : I.F.x - ux * 110, z = M ? M.pos[2] - uz * 6 - ux * 2 : I.F.z - uz * 110; O.ctrl.pos = [x, O.world.groundAt(x, z, 1e5).h + 0.1, z]; await wait(2500); } O.ctrl.facing = I.F ? I.F.dir : 0; O.cam.yaw = O.ctrl.facing; ${'${js}'}; O.ctrl.vel = [0, 0, 0]; O.store.player.hp = 100; await wait(1200); return 1; })()`.replace('${js}', js));
+        const st = await ev(`(() => { const I = ORBIS.infantry, O = ORBIS, B = O.front.F; return { pos: O.ctrl.pos.map(Math.round), front: B ? [Math.round(B.x), Math.round(B.z), Math.round(Math.hypot(O.ctrl.pos[0] - B.x, O.ctrl.pos[2] - B.z))] : null, duty: O.store.player.footDuty, toast: document.querySelector('.toasts')?.textContent.slice(-300), mode: O.ctrl.mode, fl: !!O.getFlight(), ride: !!O.getRide(), at: !!I.F, men: I.men.length, ours: I.men.filter(m => m.side === 'ours' && m.hp > 0).length, theirs: I.men.filter(m => m.side === 'theirs' && m.hp > 0).length, down: I.men.filter(m => m.hp <= 0).length, obj: I.obj.map(o => o.owner + ':' + o.prog.toFixed(2)), shots: I.shots.length }; })()`);
+        console.log('   ', tag, JSON.stringify(st)); await shot(tag + N);
+      }
     }
   }
   if (want('war')) {

@@ -9,7 +9,7 @@ import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { materials } from './materials.js';
-import { buildBuilding, facadeOf } from './building-mesh.js';
+import { buildBuilding, facadeOf, emitForm, formOfBuilding } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
 import { surfaceHeight } from '../gen/surface.js';
 
@@ -121,6 +121,7 @@ export function buildBlocks(planet, s) {
     const plan = buildingPlan(planet, s, b), { mat, col } = facadeOf(b, M);
     mb.setFrame(...buildingFrame(s, b));
     mb.box({ default: mat, py: M.concrete }, 0.25, -0.5, 0.25, b.w - 0.25, plan.F * plan.H - 0.1, b.d - 0.25, col, new Set(['ny']));
+    const F = formOfBuilding(planet, b, plan); if (F) { const dr = plan.doors[plan.entrance]; emitForm(mb, F, plan.F * plan.H - 0.1, { x: dr.x, w: dr.width }, 0.4, mat, col); }
   }
   return mb.build();
 }
@@ -146,7 +147,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const plan = buildingPlan(planet, s, b);
     const cu = (b.rect[0] + b.rect[2]) / 2, cv = (b.rect[1] + b.rect[3]) / 2;
     const frame = buildingFrame(s, b);
-    buildBuilding(cellFor(cu, cv), plan, b, frame);
+    buildBuilding(cellFor(cu, cv), plan, b, frame, planet);
     const lad = ladderOf(planet, s, b);
     if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
     for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame });

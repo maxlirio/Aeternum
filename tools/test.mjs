@@ -519,6 +519,35 @@ suites.life = async () => {
   check(stable, 'nothing appears on a week\'s board mid-week');
 };
 
+suites.infantry = async () => {
+  // the war on foot (sim/infantry.js), ten minutes of it on rolling ground: men fall, the objectives change hands, nobody wanders off the line, nothing goes NaN
+  const { Infantry } = await import('../js/sim/infantry.js');
+  const ground = (x, z) => 20 + Math.sin(x / 90) * 2 + Math.cos(z / 70) * 2; let hits = 0;
+  const I = new Infantry({ ground, hooks: { hitPlayer: () => hits++ } }); I.setup({ x: 500, z: -300, dir: 0.4, a: { name: 'A' }, b: { name: 'B' } });
+  const n = { down: 0, taken: 0, lost: 0 }; let far = 0, bad = 0;
+  for (let k = 0; k < 6000; k++) { I.step(0.1, { pos: [300, ground(300, -300), -300], side: 'ours', alive: true }); for (const e of I.drain()) if (n[e.type] !== undefined) n[e.type]++;
+    for (const M of I.men) { if (!Number.isFinite(M.pos[0] + M.pos[1] + M.pos[2])) bad++; far = Math.max(far, Math.hypot(M.pos[0] - 500, M.pos[2] + 300)); } }
+  check(!bad, `no soldier's position goes bad (${bad})`); check(far < 900, `everyone stays on the line (furthest ${Math.round(far)} m)`);
+  check(n.down > 10, `men fall (${n.down})`); check(n.taken + n.lost > 0, `objectives change hands (${n.taken} taken, ${n.lost} lost)`);
+  check(I.men.filter(m => m.side === 'ours' && m.hp > 0).length > 4 && I.men.filter(m => m.side === 'theirs' && m.hp > 0).length > 4, 'both sides still in it after ten minutes');
+  const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 30, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');
+  console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
+};
+suites.voyages = async () => {
+  // the great ships' runs (gen/voyages.js): on station, out, over the far town, home again, and back exactly where they stood
+  const { voyageAt, VOYAGES } = await import('../js/gen/voyages.js');
+  const home = { x: 1000, y: 3000, z: -2000, yaw: 0.7 }, dests = [{ x: 15000, z: 4000, name: 'Far' }, { x: -9000, z: 12000, name: 'Other' }], ground = () => 50;
+  for (const model of Object.keys(VOYAGES)) {
+    const C = { model }; let st = 0, out = 0, there = 0, back = 0, far = 0, jump = 0, prev = null;
+    for (let t = 0; t < VOYAGES[model].P * 2; t += 5) { const v = voyageAt(C, home, dests, ground, t); ({ station: () => st++, out: () => out++, there: () => there++, back: () => back++ })[v.phase](); far = Math.max(far, Math.hypot(v.x - home.x, v.z - home.z));
+      if (!v.away) check(v.x === home.x && v.z === home.z && v.yaw === home.yaw, `${model} on station where it stands`);
+      if (prev) jump = Math.max(jump, Math.hypot(v.x - prev.x, v.y - prev.y, v.z - prev.z)); prev = v; }
+    check(st && out && there && back, `${model} goes through every phase (${st}/${out}/${there}/${back})`);
+    check(far > 8000, `${model} goes ${Math.round(far)} m out`);
+    check(jump < 1200, `${model} moves smoothly (largest 5 s step ${Math.round(jump)} m)`);
+    const k = voyageAt(C, home, dests, ground, VOYAGES[model].P * 0.75 - (11 % 1)).k, sk = new Set([k]), v = voyageAt(C, home, dests, ground, VOYAGES[model].P * 0.75, sk); check(!v.away || v.k !== k, `${model} stays when its run is put off`);
+  }
+};
 suites.climb = async () => {
   const { riverAt: climbRiver } = await import('../js/gen/rivers.js'), { groundFeel: climbFeel } = await import('../js/gen/land.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
@@ -530,7 +559,8 @@ suites.climb = async () => {
   const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false);
   const run = (c, input, secs) => { for (let t = 0; t < secs; t += 1 / 120) c.step(1 / 120, { fwd: 0, right: 0, run: false, jump: false, yaw: c.facing, ...input }); };
   // ladders: one per non-house building that has a clear spot; up onto the roof and back down
-  const ls = laddersIn(p, s), cands = s.buildings.filter(b => b.type !== 'house').length;
+  const { formCloses } = await import('../js/gen/forms.js');
+  const ls = laddersIn(p, s), cands = s.buildings.filter(b => b.type !== 'house' && !formCloses(p, b.key, b.type)).length;     // (a roof its world's form closes over has no ladder up to it)
   check(ls.length >= 0.8 * cands, `${ls.length}/${cands} buildings have a fire ladder`);
   let up = 0, down = 0;
   for (const l of ls.slice(0, 12)) {

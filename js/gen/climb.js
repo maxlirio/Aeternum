@@ -5,6 +5,7 @@
 // only this. Pure and cached like plans.
 import { buildingPlan } from './building.js';
 import { buildingToWorld } from './place.js';
+import { formCloses } from './forms.js';
 
 const cache = new Map();
 const OUT = 0.42;                 // ladder centreline, out from the wall face (m)
@@ -12,7 +13,7 @@ const OUT = 0.42;                 // ladder centreline, out from the wall face (
 export function ladderOf(planet, s, b) {
   const ck = planet.universeSeed.join(':') + '|' + b.key;
   if (cache.has(ck)) return cache.get(ck);
-  cache.set(ck, b.type === 'house' ? null : place(planet, s, b));
+  cache.set(ck, b.type === 'house' || (planet.genome && formCloses(planet, b.key, b.type)) ? null : place(planet, s, b));     // (no ladder up to a roof its form closes over)
   return cache.get(ck);
 }
 export function laddersIn(planet, s) { return s.buildings.map(b => ladderOf(planet, s, b)).filter(Boolean); }

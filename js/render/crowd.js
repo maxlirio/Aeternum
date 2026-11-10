@@ -41,7 +41,8 @@ export class CrowdView {
   update(agents, dt) {
     const n = Math.min(MAX, agents.length), rig = this.rig;
     for (let i = 0; i < n; i++) {
-      const a = agents[i], L = a.uniform ? { ...this.look(a.id), suit: 0x1f2a3c, pad: 0x14181e, accent: 0xd9b53a } : this.look(a.id);
+      // a uniform; a gang's colours (gen/gangs.js) on its members: the jacket in them, dark below, the trim bright
+      const a = agents[i], L = a.uniform ? { ...this.look(a.id), suit: 0x1f2a3c, pad: 0x14181e, accent: 0xd9b53a } : a.crew ? { ...this.look(a.id), suit: this.color.setRGB(...a.crew.map(v => v * 0.8)).getHex(), pad: 0x121316, accent: this.color.setRGB(...a.crew.map(v => Math.min(1, v * 1.3 + 0.1))).getHex() } : this.look(a.id);
       let ph = this.gait.get(a.id) || 0;
       if (a.moving) ph += dt * (2.2 + 1.3 * 1.15);
       this.gait.set(a.id, ph);

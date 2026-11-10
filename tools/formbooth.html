@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>forms</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+<style>body{margin:0;background:#9fb4c8}</style></head><body><script type="module">
+// Every building form (gen/forms.js, render/forms.js) on the same box, for looking at them close. ?kind=onion&view=near
+import * as THREE from 'three';
+import { drawForm } from '../js/render/forms.js';
+const q = new URLSearchParams(location.search), kinds = (q.get('kinds') || 'gable,onion,dome,cap,cone,pagoda,ziggurat,spire,orb,shell,stack,twist,horn').split(','), W = +(q.get('w') || 12), D = +(q.get('d') || 9), FL = +(q.get('floors') || 2);
+const R = new THREE.WebGLRenderer({ antialias: true }); R.setSize(innerWidth, innerHeight); R.shadowMap.enabled = true; document.body.append(R.domElement);
+const S = new THREE.Scene(); S.background = new THREE.Color(0x9fb4c8); const C = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.5, 2000);
+S.add(new THREE.HemisphereLight(0xdfe8f0, 0x6a5a48, 1.2)); const sun = new THREE.DirectionalLight(0xfff2dd, 2.6); sun.position.set(60, 90, -50); sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -150, right: 150, top: 150, bottom: -150, far: 400 }); sun.shadow.mapSize.set(4096, 4096); S.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x7a7a62, roughness: 1 })); ground.receiveShadow = true; S.add(ground);
+const col = { roof: 0x2f7f86, wall: 0xd8cbb0, trim: 0x8a6a48, dark: 0x2a2420, glass: 0x1b2836, metal: 0xb0a070 };
+const mats = Object.fromEntries(Object.entries(col).map(([k, c]) => [k, new THREE.MeshStandardMaterial({ color: c, roughness: k === 'glass' ? 0.1 : 0.7, metalness: k === 'metal' || k === 'glass' ? 0.7 : 0 })]));
+const cols = Math.ceil(Math.sqrt(kinds.length)), gap = 40;
+kinds.forEach((k, i) => {
+  const g = new THREE.Group(); g.position.set((i % cols) * gap - (cols - 1) * gap / 2, 0, Math.floor(i / cols) * gap - (cols - 1) * gap / 2); S.add(g);
+  const top = FL * 3, body = new THREE.Mesh(new THREE.BoxGeometry(W, top, D).translate(W / 2, top / 2, D / 2), mats.wall); body.castShadow = body.receiveShadow = true; g.add(body);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.1).translate(W * 0.4, 1.1, -0.04), mats.dark); g.add(door);
+  for (let f = 0; f < FL; f++) for (let x = 1.5; x < W - 1; x += 2.6) { const wi = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.3, 0.05).translate(x, f * 3 + 1.1, -0.03), mats.glass); if (!(f === 0 && Math.abs(x - W * 0.4) < 1.4)) g.add(wi); }
+  const F = { kind: k, w: W, d: D, floors: FL, seed: 1234 + i * 77, fat: 1, tall: 1, j: 1, jt: 1, tiers: 3, lobes: 7, flare: 0.7, twist: 0.8, turrets: true, ribs: true, closed: true };
+  const by = drawForm(F, top, { x: W * 0.4, w: 1.2 }, 1);
+  for (const [s, b] of Object.entries(by)) { if (!b.pos.length) continue; const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2)); const me = new THREE.Mesh(geo, mats[s]); me.castShadow = me.receiveShadow = true; g.add(me); }
+  window.tris = (window.tris || 0) + Object.values(by).reduce((a, b) => a + b.pos.length / 9, 0);
+});
+const one = kinds.length === 1, view = q.get('view') || 'front';
+if (one) { const yaw = view === 'back' ? Math.PI * 0.8 : view === 'side' ? 1.9 : -0.5, dist = +(q.get('dist') || 34); C.position.set(W / 2 + Math.sin(yaw) * dist, +(q.get('cy') || 7), D / 2 - Math.cos(yaw) * dist); C.lookAt(W / 2, +(q.get('ly') || 8), D / 2); }
+else { C.position.set(0, 110, -230); C.lookAt(0, 0, -10); }
+R.render(S, C); document.title = 'READY ' + Math.round(window.tris);
+</script></body></html>

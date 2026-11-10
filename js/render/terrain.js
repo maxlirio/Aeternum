@@ -234,6 +234,7 @@ function proceduralTerrainMaterial() {
   return m;
 }
 
+const FAR_KEEP = 3;        // tiles this coarse and coarser are kept on disk
 export class TerrainStreamer {
   constructor(planet, parent) {
     this.planet = planet; this.parent = parent;
@@ -242,7 +243,9 @@ export class TerrainStreamer {
     this.desired = new Set();
     this.queue = [];
     this.lastSplit = null;
+    this.cache = null; this.pre = new Map(); this.asked = new Map();      // (far tiles kept between visits: world/gencache.js)
   }
+  useCache(c) { this.cache = c; }
   key(l, i, j) { return l + ':' + i + ':' + j; }
 
   // Recompute the wanted leaf set around (px, pz).
@@ -257,7 +260,7 @@ export class TerrainStreamer {
       if (l > 0 && dist < size * SPLIT) { for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]]) visit(l - 1, i * 2 + a, j * 2 + b); return; }
       const k = this.key(l, i, j);
       want.add(k);
-      if (!this.tiles.has(k)) queue.push({ k, l, i, j, dist });
+      if (!this.tiles.has(k)) { queue.push({ k, l, i, j, dist }); if (l >= FAR_KEEP && this.cache && !this.asked.has(k)) { this.asked.set(k, performance.now()); this.cache.get('chunk', k).then(d => { if (d && !this.tiles.has(k)) this.pre.set(k, d); this.asked.set(k, -1); }); } }
     };
     const r0 = Math.floor((px - VIEW) / S), r1 = Math.floor((px + VIEW) / S), c0 = Math.floor((pz - VIEW) / S), c1 = Math.floor((pz + VIEW) / S);
     for (let i = r0; i <= r1; i++) for (let j = c0; j <= c1; j++) visit(MAX_LOD, i, j);
@@ -272,6 +275,7 @@ export class TerrainStreamer {
     while (this.queue.length && performance.now() - t0 < budgetMs) {
       const q = this.queue.shift();
       if (this.tiles.has(q.k) || !this.desired.has(q.k)) continue;
+      const ask = this.asked.get(q.k); if (ask > 0 && performance.now() - ask < 1500) { this.queue.push(q); if (this.queue.every(x => this.asked.get(x.k) > 0)) break; continue; }     // (a far tile that may be on disk waits a moment for it)
       this.tiles.set(q.k, { mesh: this.buildTile(q.l, q.i, q.j), lod: q.l, i: q.i, j: q.j });
     }
     // retire stale tiles whose area is fully covered by ready desired tiles
@@ -290,8 +294,9 @@ export class TerrainStreamer {
     }
     return true;
   }
-  buildTile(l, i, j) {
-    const d = chunkData(this.planet, l, i, j);
+  buildTile(l, i, j, fresh = false) {
+    const k = this.key(l, i, j); let d = !fresh && this.pre.get(k); this.pre.delete(k);
+    if (!d) { d = chunkData(this.planet, l, i, j); if (l >= FAR_KEEP && this.cache) this.cache.put('chunk', k, d); }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(d.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(d.nrm, 3));
@@ -315,6 +320,6 @@ export class TerrainStreamer {
   // The ground changed under (x, z) within r (a crater): rebuild the tiles over it, in place.
   refresh(x, z, r) {
     for (const [k, t] of this.tiles) { const s = CHUNK * 2 ** t.lod, x0 = t.i * s, z0 = t.j * s; if (x + r < x0 || x - r > x0 + s || z + r < z0 || z - r > z0 + s) continue;
-      const mesh = this.buildTile(t.lod, t.i, t.j); this.parent.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = mesh; }
+      const mesh = this.buildTile(t.lod, t.i, t.j, true); this.parent.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = mesh; }
   }
 }

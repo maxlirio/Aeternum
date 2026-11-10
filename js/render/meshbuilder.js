@@ -26,6 +26,12 @@ export class MeshBuilder {
     g.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
 
+  // Raw triangles in local space (render/forms.js): positions, normals, UVs as flat arrays; one colour
+  tris(mat, pos, nor, uv, color = [1, 1, 1]) {
+    const g = this.g(mat), base = g.p.length / 3, n = pos.length / 3;
+    for (let i = 0; i < n; i++) { g.p.push(...this.tp(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2])); g.n.push(...this.tn(nor[3 * i], nor[3 * i + 1], nor[3 * i + 2])); g.uv.push(uv[2 * i], uv[2 * i + 1]); g.c.push(...color); g.lit.push(0); }
+    for (let i = 0; i < n; i++) g.idx.push(base + i);
+  }
   // Axis-aligned box in local space. skip: set of faces to omit ('px','nx','py','ny','pz','nz').
   // mat is a material, or { px, nx, py, ny, pz, nz, default } for per-face materials.
   box(mat, x0, y0, z0, x1, y1, z1, color, skip) {

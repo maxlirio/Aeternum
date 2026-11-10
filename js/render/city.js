@@ -10,6 +10,8 @@ import { share } from './share.js';
 import * as THREE from 'three';
 import { materials } from './materials.js';
 import { weather } from './grime.js';
+import { formsOf } from '../gen/forms.js';
+import { drawForm } from './forms.js';
 import { getCity, cityBlock, cityExtent, blockRect, lineAt, lineWidth, lineKind, PITCH, CURB, STYLES, STYLE, blockExists, bridgesOf, liftsOf } from '../gen/city.js';
 
 const SECTOR = 4;                       // blocks per sector edge
@@ -185,6 +187,21 @@ function crownGeometries() {
   g.vault = new THREE.CylinderGeometry(0.5, 0.5, 1, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2).translate(0, 0, 0);
   return g;
 }
+// the world's own crowns (gen/forms.js): its main form and its second drawn on a 30 m roof, in one geometry each with the slots as
+// vertex colours, scaled to the unit footprint; height kept in proportion (CROWN_H)
+const FORM_TOP = { onion: 1, dome: 1, cap: 1, cone: 1, pagoda: 1, spire: 1, orb: 1, shell: 1, twist: 1, horn: 1, ziggurat: 1, stack: 1, gable: 1 };
+function formCrowns(planet, g, H) {
+  const W = formsOf(planet);
+  for (const [k, S] of [['form0', W.main], ['form1', W.second]]) {
+    if (!FORM_TOP[S.kind]) continue;
+    const by = drawForm({ ...S, w: 30, d: 30, floors: 1, seed: 7 + k.length, j: 1, jt: 1, tone: 1 }, 0, { x: 15, w: 2 }, 0.3), pos = [], nor = [], col = [], roof = S.colour.map(v => Math.min(1, v * 1.15));
+    const C = { roof, wall: [0.78, 0.76, 0.72], trim: [0.5, 0.42, 0.34], dark: [0.16, 0.15, 0.14], glass: [0.1, 0.13, 0.17], metal: [0.85, 0.72, 0.42] };
+    let top = 1; for (const B of Object.values(by)) for (let i = 1; i < B.pos.length; i += 3) top = Math.max(top, B.pos[i]);
+    for (const [slot, B] of Object.entries(by)) for (let i = 0; i < B.pos.length; i += 3) { pos.push(B.pos[i] / 30 - 0.5, B.pos[i + 1] / top, B.pos[i + 2] / 30 - 0.5); nor.push(B.nor[i] * top / 30, B.nor[i + 1], B.nor[i + 2] * top / 30); col.push(...(C[slot] || C.wall)); }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); geo.normalizeNormals();
+    g[k] = geo; H[k] = top / 30;
+  }
+}
 const CROWN_H = { spire: 0.35, pyramid: 0.12, dome: 0.5, ring: 0.18, antenna: 0.3, pad: 1, crown: 0.08, blade: 0.2, vault: 0.5 };
 
 export class CityView {
@@ -195,7 +212,8 @@ export class CityView {
     this.box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
     this.shapes = { round: new THREE.CylinderGeometry(0.5, 0.5, 1, 40, 1).translate(0, 0.5, 0),
       oct: (() => { const g = new THREE.CylinderGeometry(0.5 / Math.cos(Math.PI / 8), 0.5 / Math.cos(Math.PI / 8), 1, 8, 1).rotateY(Math.PI / 8).translate(0, 0.5, 0).toNonIndexed(); g.computeVertexNormals(); return g; })() };
-    this.crowns = crownGeometries();
+    this.crowns = crownGeometries(); this.crownH = { ...CROWN_H }; formCrowns(planet, this.crowns, this.crownH);
+    this.formMat = weather(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.25 }), { dirt: 0.4, ground: false });
     this.crownMat = weather(new THREE.MeshStandardMaterial({ color: 0x8a9096, roughness: 0.35, metalness: 0.8 }), { dirt: 0.5, ground: false });
     this.capMat = weather(new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.75, metalness: 0.2 }), { dirt: 0.8, ground: false });
     this.bridgeGlass = new THREE.MeshStandardMaterial({ color: 0x9fc4d8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.35, depthWrite: false });
@@ -257,9 +275,11 @@ export class CityView {
       for (const bd of B.buildings) {
         const seed = parseInt(bd.id.replace(/\D/g, '').slice(-6), 10) % 997 / 997 + (i * 31 + j * 17) % 13;
         for (const t of bd.tiers) (t.shape ? (shaped[t.shape] ||= []) : tiers).push([t.r, base + t.y0, t.y1 - t.y0, bd.style, seed, bd.enter && t === bd.tiers[0] ? bd.id : null, bd.floor, bd.bay]);
-        if (bd.crown) {
-          const t = bd.tiers.at(-1), w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
-          (crowns[bd.crown] ||= []).push([t.r, base + t.y1, s * CROWN_H[bd.crown] * (bd.crown === 'antenna' ? 3 : 1) + (bd.crown === 'spire' ? s * 0.6 : 0), bd.crown === 'vault' ? [w, d] : [s, s]]);
+        // most towers wear their world's own crown (its forms, gen/forms.js) in place of the generic ones; the rest keep theirs
+        const tt = bd.tiers.at(-1), ws = Math.min(tt.r[2] - tt.r[0], tt.r[3] - tt.r[1]), own = bd.crown !== 'vault' && bd.crown !== 'pad' && ws > 8 && ws < 70 && (seed % 1) < (bd.crown ? 0.75 : 0.35) ? (((seed * 7) % 1) < 0.7 ? 'form0' : 'form1') : null, kind = own && this.crowns[own] ? own : bd.crown;
+        if (kind) {
+          const t = tt, w = t.r[2] - t.r[0], d = t.r[3] - t.r[1], s = Math.min(w, d);
+          (crowns[kind] ||= []).push([t.r, base + t.y1, s * this.crownH[kind] * (kind === 'antenna' ? 3 : 1) + (kind === 'spire' ? s * 0.6 : 0), kind === 'vault' ? [w, d] : [s, s]]);
         }
         if (bd.top > 120) {   // aircraft-warning lights: the crown's tip, else the roof's four corners
           const t = bd.tiers.at(-1), sz = Math.min(t.r[2] - t.r[0], t.r[3] - t.r[1]);
@@ -297,7 +317,7 @@ export class CityView {
     }
     this.stats.tiers += tiers.length;
     for (const [kind, list] of Object.entries(crowns)) {
-      const cm = new THREE.InstancedMesh(share(this.crowns[kind]), this.crownMat, list.length);
+      const cm = new THREE.InstancedMesh(share(this.crowns[kind]), kind.startsWith('form') ? this.formMat : this.crownMat, list.length);
       list.forEach(([r, y, h, [sw, sd]], q) => { M.makeScale(sw, Math.max(1, h), sd); M.setPosition((r[0] + r[2]) / 2, y, (r[1] + r[3]) / 2); cm.setMatrixAt(q, M); });
       cm.computeBoundingSphere(); sec.group.add(cm);
     }

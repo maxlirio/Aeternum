@@ -1,7 +1,9 @@
 // Turns a building plan (gen/building.js) into geometry in a MeshBuilder.
 // Static parts only: shell, slabs, walls with real openings, glass, stairs, fittings,
 // furniture. Door leaves are dynamic and live in render/doors.js.
-import { materials, WINDOW_TYPES, townFacade } from './materials.js';
+import { materials, WINDOW_TYPES, townFacade, townSurface } from './materials.js';
+import { formFor } from '../gen/forms.js';
+import { drawForm } from './forms.js';
 import { subFrame } from './meshbuilder.js';
 import { SLAB_T, EXT_T } from '../gen/building.js';
 import { Rng } from '../core/prng.js';
@@ -28,7 +30,14 @@ export function facadeOf(b, M) {
   return { mat: own || (corr ? M.corrugated : M.panels), col: own ? col.map(v => 0.72 + 0.28 * v) : col };
 }
 
-export function buildBuilding(mb, plan, b, frame) {
+// a building's form (gen/forms.js) into a mesh builder: roof in the world's roof stuff and colour, walls in its own facade
+export function emitForm(mb, F, top, door, lod, facade, fcol) {
+  const by = drawForm(F, top, door, lod), c = F.colour.map(v => Math.min(1.2, v * F.tone * 1.15)), natural = /sandstone|adobe|limestone|rock|thatch|slate|concrete|facade/.test(F.roof);
+  const slot = { roof: [townSurface(F.roof), natural ? fcol.map(v => v * 0.9 + 0.08) : c], wall: [facade, fcol], trim: [townSurface('wood'), [0.62, 0.5, 0.4]], dark: [townSurface('wood'), [0.22, 0.19, 0.17]], glass: [townSurface('glass'), [1, 1, 1]], metal: [townSurface('metal'), [0.86, 0.74, 0.46]] };
+  for (const [k, B] of Object.entries(by)) if (B.pos.length) { const [m, col] = slot[k] || slot.wall; mb.tris(m, B.pos, B.nor, B.uv, col); }
+}
+export const formOfBuilding = (planet, b, plan) => planet ? formFor(planet, b.key, b.type, plan.w, plan.d, plan.F) : null;
+export function buildBuilding(mb, plan, b, frame, planet = null) {
   // a designed building (gen/housegen.js) wears its design's materials; what stands outside its walls (roof, porch, footing) comes from render/housegen.js
   const skin = b.skin, M = skin ? { ...materials(), trim: skin.trim, darkTrim: skin.trim, ...(skin.floor ? { tiles: skin.floor } : {}) } : materials();
   mb.setFrame(...frame);
@@ -68,8 +77,9 @@ export function buildBuilding(mb, plan, b, frame) {
     mb.box(M.trim, -0.04, y - 0.1, 0, 0.0, y + 0.02, d, WHITE);
     mb.box(M.trim, w, y - 0.1, 0, w + 0.04, y + 0.02, d, WHITE);
   }
-  const par = 0.7;
-  if (!skin) {
+  const par = 0.7, form = !skin && formOfBuilding(planet, b, plan);
+  if (form) { const dr = plan.doors[plan.entrance]; emitForm(mb, form, top, { x: dr.x, w: dr.width }, 1, facade, fcol); exteriorDetail(mb, M, plan, b, rng, facade, fcol, true); }
+  else if (!skin) {
   mb.box({ default: facade, py: M.trim }, 0, top, 0, w, top + par, EXT_T, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, 0, top, d - EXT_T, w, top + par, d, fcol, new Set(['ny']));
   mb.box({ default: facade, py: M.trim }, 0, top, EXT_T, EXT_T, top + par, d - EXT_T, fcol, new Set(['ny']));
@@ -195,7 +205,7 @@ function roomDecor(mb, M, plan, b, rng) {
 // The things that make a box read as a lived-in building: downpipes at the corners,
 // balconies on flats, air-conditioning boxes under windows, kitchen extract vents, a
 // stair housing on tall roofs, solar panels on houses. All drawn, none collides.
-function exteriorDetail(mb, M, plan, b, rng, facade, fcol) {
+function exteriorDetail(mb, M, plan, b, rng, facade, fcol, noRoof = false) {
   const { w, d, F, H } = plan, top = F * H;
   // a box standing proud of an exterior face: a along the wall, y up, out from the face
   const onFace = (side, a0, a1, y0, y1, o0, o1, m, c = WHITE) => {
@@ -250,13 +260,13 @@ function exteriorDetail(mb, M, plan, b, rng, facade, fcol) {
       onFace(wl.side, a - 0.17, a + 0.17, y + 0.15, y + 0.19, 0, 0.18, M.trim);
     }
   }
-  if (b.type === 'hab' && F > 1) {                       // stair and lift housing on the roof
+  if (b.type === 'hab' && F > 1 && !noRoof) {                       // stair and lift housing on the roof
     const x0 = 1.2, z0 = d - 4.2;
     mb.box({ default: facade, py: M.concrete }, x0, top, z0, x0 + 3, top + 2.7, z0 + 3, fcol);
     mb.box(M.darkTrim, x0 + 1.0, top, z0 - 0.04, x0 + 2.0, top + 2.1, z0, WHITE);
     mb.box(M.trim, x0 - 0.1, top + 2.7, z0 - 0.1, x0 + 3.1, top + 2.82, z0 + 3.1, WHITE);
   }
-  if (b.type === 'house') {                              // a row of tilted solar panels
+  if (b.type === 'house' && !noRoof) {                              // a row of tilted solar panels
     const n = Math.max(2, Math.floor((w - 2) / 1.2));
     for (let i = 0; i < n; i++) {
       const x0 = 1 + i * 1.15, x1 = x0 + 1.05, z0 = d * 0.35, z1 = z0 + 1.7, y = top + 0.25;
