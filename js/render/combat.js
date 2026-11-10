@@ -10,7 +10,11 @@ export class CombatView {
     this.trails = line(4000, 0xd8d8d8, 0.55);
     const sphere = new THREE.SphereGeometry(1, 12, 8), cap = 400;
     this.fire = new THREE.InstancedMesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }), cap);
-    this.smoke = new THREE.InstancedMesh(sphere, new THREE.MeshStandardMaterial({ color: 0x2c2a28, transparent: true, opacity: 0.55, depthWrite: false, roughness: 1 }), cap);
+    // smoke: soft, ragged billboards facing you, not shaded balls
+    const sc = document.createElement('canvas'); sc.width = sc.height = 128; { const g = sc.getContext('2d'); for (let k = 0; k < 22; k++) { const x = 64 + (Math.random() - 0.5) * 50, y = 64 + (Math.random() - 0.5) * 50, r = 14 + Math.random() * 26, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,0.42)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); } }
+    const smokeMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), color: 0x45413d, transparent: true, opacity: 0.85, depthWrite: false });
+    smokeMat.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); float sc = length(instanceMatrix[0].xyz); mvPosition.xy += position.xy * sc * 2.2; gl_Position = projectionMatrix * mvPosition;`); };
+    this.smoke = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smokeMat, cap);
     this.mis = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 2.6, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0xff9040, emissiveIntensity: 0.4 }), 200);
     for (const m of [this.fire, this.smoke, this.mis]) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
     this.light = new THREE.PointLight(0xffa050, 0, 600, 2); this.group.add(this.light);

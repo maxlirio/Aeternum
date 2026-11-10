@@ -17,7 +17,7 @@ export function makeSea(planet) {
   const u = {
     uTime: { value: 0 }, uOff: { value: new THREE.Vector2() }, uAmp: { value: 0.4 }, uWindDir: { value: 0 },
     uHeight: { value: null }, uHOrigin: { value: new THREE.Vector2() }, uHSpan: { value: HSPAN }, uSea: { value: planet.seaLevel },
-    uRefl: { value: null }, uReflMat: { value: new THREE.Matrix4() }, uReflOn: { value: 0 },
+    uRefl: { value: null }, uReflMat: { value: new THREE.Matrix4() }, uReflOn: { value: 0 }, uCtr: { value: new THREE.Vector2() },
   };
   // the planet's own water (gen/genome.js): blue on most worlds, green, amber, violet, milky or ink on some
   const seaC = planet.climate.sea, V = c => `vec3(${c.map(v => v.toFixed(4)).join(', ')})`, SW = seaC ? { shallow: seaC.shallow.map(v => v * 0.85), mid: seaC.shallow.map((v, i) => (v * 0.3 + seaC.deep[i] * 0.7)), deep: seaC.deep.map(v => v * 0.4) } : { shallow: [0.06, 0.22, 0.2], mid: [0.012, 0.075, 0.09], deep: [0.004, 0.02, 0.035] };
@@ -49,7 +49,7 @@ export function makeSea(planet) {
       .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvSeaXZ = (modelMatrix * vec4(transformed, 1.0)).xz; vRefl = uReflMat * modelMatrix * vec4(position, 1.0);');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
       uniform float uTime; uniform vec2 uOff; uniform sampler2D uHeight; uniform vec2 uHOrigin; uniform float uHSpan; uniform float uSea;
-      uniform sampler2D uRefl; uniform float uReflOn; varying vec4 vRefl;
+      uniform sampler2D uRefl; uniform float uReflOn; varying vec4 vRefl; uniform vec2 uCtr;
       varying vec2 vSeaXZ; varying float vCrest; float waterFoam;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec2 huv = (vSeaXZ - uHOrigin) / uHSpan + 0.5;
@@ -73,6 +73,7 @@ export function makeSea(planet) {
           outgoingLight = mix(outgoingLight, refl, clamp(fres, 0.0, 1.0) * (1.0 - waterFoam) * 0.92);
           diffuseColor.a = max(diffuseColor.a, fres);
         }
+        diffuseColor.a *= 1.0 - smoothstep(${(R * 0.55).toFixed(1)}, ${(R * 0.93).toFixed(1)}, length(vSeaXZ - uCtr));      // (the waves give way to the far sea before their square edge: render/water.js far ring)
         #include <opaque_fragment>`)
       .replace('#include <normal_fragment_maps>', `
         vec2 wp = vSeaXZ + uOff;
@@ -92,6 +93,9 @@ export function makeSea(planet) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(new Array((N + 1) ** 2 * 2).fill(0), 2)); g.setIndex(I);
   g.computeVertexNormals();
   const sea = new THREE.Mesh(g, m); sea.frustumCulled = false; sea.renderOrder = 1;
+  // beyond the waves: the open sea to the horizon, calm at this distance, so from high up the water never ends at an edge
+  { const far = new THREE.Mesh(new THREE.RingGeometry(R * 0.55, 160000, 160, 1).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: new THREE.Color(...SW.mid.map(v => v * 0.8)), roughness: 0.12, metalness: 0.1, envMapIntensity: 0.9, fog: false }));      // (no fog: the near water has none either, or the two would meet in a line)
+    far.position.y = -0.08; far.frustumCulled = false; far.renderOrder = 0.5; far.receiveShadow = false; sea.add(far); }
   sea.position.y = planet.seaLevel;
   // the ground under the water, around the camera (rebuilt when you've moved a third of its span)
   const hdata = new Float32Array(HM * HM), htex = new THREE.DataTexture(hdata, HM, HM, THREE.RedFormat, THREE.FloatType);
@@ -112,7 +116,7 @@ export function makeSea(planet) {
     u.uAmp.value += (0.06 + ws * 0.035 - u.uAmp.value) * Math.min(1, dt * 0.2);   // ~0.1 m on a still day, ~0.5 m in a gale
     if (wind) u.uWindDir.value = Math.atan2(wind[1], wind[0]);
     const S = 16;                                         // snap so the grid doesn't swim
-    sea.position.set(Math.round(camera.position.x / S) * S, planet.seaLevel, Math.round(camera.position.z / S) * S);
+    sea.position.set(Math.round(camera.position.x / S) * S, planet.seaLevel, Math.round(camera.position.z / S) * S); u.uCtr.value.set(sea.position.x, sea.position.z);
     const wx = camera.position.x + origin[0], wz = camera.position.z + origin[2];
     if (!hNext && (!hAt || Math.hypot(wx - hAt[0], wz - hAt[1]) > HSPAN / 3)) { hNext = { x: wx, z: wz, data: new Float32Array(HM * HM) }; hRow = 0; }
     bakeRows(hAt ? 3 : 40);

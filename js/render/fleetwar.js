@@ -49,7 +49,7 @@ export class FleetWarView {
     i = 0; let fl = 0; for (const M of FW.missiles) { if (i >= N_MSL || M.t < 0) continue; const p = toRender(...M.p), dir = M.phase === 'slide' ? new THREE.Vector3(...M.out) : new THREE.Vector3(...M.v).normalize();
       const sc = Math.max(1.6, far(p) * 0.0012);      // (ship-launched: big, and never smaller than a few pixels)
       q.setFromUnitVectors(this.up, dir); m.compose(v.set(...p), q, s.set(sc, sc, sc)); this.msl.setMatrixAt(i, m); this.nose.setMatrixAt(i, m);
-      if (M.phase === 'burn') { m.compose(v.set(...p), q, s.set(sc * 1.4, sc * 1.4, sc * (1.4 + Math.random() * 0.8))); this.flame.setMatrixAt(fl++, m); const back = [M.p[0] - dir.x * 6, M.p[1] - dir.y * 6, M.p[2] - dir.z * 6]; this.fx.smoke(back, 3.2, [0, 0], 0.12, 0.45); }
+      if (M.phase === 'burn') { m.compose(v.set(...p), q, s.set(sc * 1.4, sc * 1.4, sc * (1.4 + Math.random() * 0.8))); this.flame.setMatrixAt(fl++, m); const back = [M.p[0] - dir.x * 6, M.p[1] - dir.y * 6, M.p[2] - dir.z * 6]; this.fx.smoke(back, 4.5, [0, 0], 0.55, 0.26); }
       else if (M.t > 1.1) this.fx.sparks(M.p, 2, 4);     // (about to light)
       i++; }
     this.msl.count = this.nose.count = i; this.flame.count = fl; this.msl.instanceMatrix.needsUpdate = this.nose.instanceMatrix.needsUpdate = this.flame.instanceMatrix.needsUpdate = true;
