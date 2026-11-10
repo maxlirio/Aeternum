@@ -13,6 +13,12 @@ const STUFF = {
   brutalist: { stone: ['concrete', 'concrete', 'brick'], frame: ['metal', 'concrete'], roof: ['concrete', 'corrugated'] },
   garden: { stone: ['limestone', 'render', 'rock'], frame: ['plank', 'paint'], roof: ['rooftile', 'thatch'] },
   foundry: { stone: ['brick', 'concrete', 'rock'], frame: ['metal', 'corrugated'], roof: ['corrugated', 'slate'] },
+  adobe: { stone: ['adobe', 'render', 'rock'], frame: ['plank', 'adobe'], roof: ['adobe', 'thatch'] },
+  carved: { stone: ['rock', 'limestone', 'rock'], frame: ['plank', 'metal'], roof: ['rock', 'limestone'] },
+  stilt: { stone: ['plank', 'rock'], frame: ['plank', 'paint'], roof: ['thatch', 'corrugated'] },
+  dome: { stone: ['concrete', 'hull'], frame: ['metal', 'hull'], roof: ['hull', 'concrete'] },
+  grown: { stone: ['render', 'adobe'], frame: ['plank', 'paint'], roof: ['thatch', 'render'] },
+  spire: { stone: ['limestone', 'rock', 'brick'], frame: ['metal', 'plank'], roof: ['slate', 'rooftile'] },
   neon: { stone: ['concrete', 'hull'], frame: ['metal', 'paint'], roof: ['corrugated', 'metal'] },
 };
 // [designs per planet, solid? (footprint from the design's r), what shapes it can take]

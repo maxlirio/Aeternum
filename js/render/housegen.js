@@ -51,6 +51,21 @@ function roofOf(P0, D) {
     for (const s of [-1, 1]) { P.box('metal', 0, y + 0.55, s * (hd + 0.07), w + 0.36, 0.03, 0.22); P.box('metal', s * (hw + 0.07), y + 0.55, 0, 0.22, 0.03, d + 0.36); }
     return y + 0.58;
   }
+  if (D.shape === 'dome') {        // a dome over the whole house: a squared-off bowl, its foot a little past the walls, a ring of coping round it
+    const X = hw + 0.18, Z = hd + 0.18, R = Math.max(1.2, Math.min(hw, hd) * pitch * 1.5), N = 14, pt = (u, v) => { const r = Math.min(1, Math.sqrt(Math.sqrt(u ** 4 + v ** 4))); return [u * X, y + R * Math.sqrt(Math.max(0, 1 - r * r)), v * Z]; };
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) { const u0 = -1 + 2 * i / N, u1 = -1 + 2 * (i + 1) / N, v0 = -1 + 2 * j / N, v1 = -1 + 2 * (j + 1) / N; P.face(roof, [pt(u0, v0), pt(u0, v1), pt(u1, v1), pt(u1, v0)]); }
+    P.box(hard(trim), 0, y - 0.05, -Z, 2 * X + 0.1, 0.16, 0.14); P.box(hard(trim), 0, y - 0.05, Z, 2 * X + 0.1, 0.16, 0.14); P.box(hard(trim), -X, y - 0.05, 0, 0.14, 0.16, 2 * Z); P.box(hard(trim), X, y - 0.05, 0, 0.14, 0.16, 2 * Z);
+    roundBox(P, hard(trim), 0, y + R - 0.05, 0, 0.18, 0.18, 0.5, 10);
+    return y + R;
+  }
+  if (D.shape === 'spire') {       // a needle of a roof: four steep faces to a point, a finial on it, lucarnes part way up
+    const X = hw + over * 0.5, Z = hd + over * 0.5, top = y + Math.max(hw, hd) * pitch * 2, yy = y - 0.1;
+    P.face(roof, [[-X, yy, -Z], [0, top, 0], [X, yy, -Z]]); P.face(roof, [[X, yy, Z], [0, top, 0], [-X, yy, Z]]); P.face(roof, [[X, yy, -Z], [0, top, 0], [X, yy, Z]]); P.face(roof, [[-X, yy, Z], [0, top, 0], [-X, yy, -Z]]);
+    P.face(roof, [[-X, yy, -Z], [X, yy, -Z], [X, yy, Z], [-X, yy, Z]]);
+    roundBox(P, 'metal', 0, top - 0.2, 0, 0.06, 0.06, 1.6, 8); roundBox(P, 'metal', 0, top + 0.6, 0, 0.16, 0.16, 0.16, 10);
+    for (const s of [-1, 1]) { const zz = s * Z * 0.5, yb = yy + (top - yy) * 0.5 * 0.5; P.box(roof, 0, yb, zz, 0.7, 0.8, 0.5); }
+    return top;
+  }
   if (D.shape === 'hip') {
     const X = hw + over, Z = hd + over, yy = y - over * pitch, top = y + rise, r = Math.max(0, (w - d) / 2);
     P.face(roof, [[-X, yy, -Z], [-r, top, 0], [r, top, 0], [X, yy, -Z]]); P.face(roof, [[X, yy, Z], [r, top, 0], [-r, top, 0], [-X, yy, Z]]);

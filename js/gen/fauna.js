@@ -174,12 +174,12 @@ export function rigOf(S) {
 // Herds: at most one to a square of 380 m, kept to the land it likes. Where it's "home" is all that's fixed; once you're near, sim/fauna.js lets it wander from there.
 export const HERD_TILE = 380;
 export function herdInTile(planet, ti, tj) {
-  const r = k => hashInts(planet.universeSeed[0] ^ 0xfa07, [ti, tj, k]) / 4294967296, x = (ti + 0.1 + 0.8 * r(1)) * HERD_TILE, z = (tj + 0.1 + 0.8 * r(2)) * HERD_TILE;
+  const r = k => hashInts(planet.seed[0] ^ 0xfa07, [ti, tj, k]) / 4294967296, x = (ti + 0.1 + 0.8 * r(1)) * HERD_TILE, z = (tj + 0.1 + 0.8 * r(2)) * HERD_TILE;
   let land = null, bw = 0; for (const { c, w } of landAt(planet, x, z)) if (w > bw) { bw = w; land = c; }
   const sps = speciesOf(planet); let tot = 0; const W = sps.map(S => { const v = S.K.lands[land.kind] || 0; tot += v; return v; });
   if (r(3) > Math.min(0.85, tot * 0.32)) return null;
   const s = surfaceAt(planet, x, z); if (s.h < planet.seaLevel + 2 || s.town > 0.02) return null;
   let q = r(4) * tot, sp = null; for (let i = 0; i < sps.length; i++) { q -= W[i]; if (q < 0) { sp = sps[i]; break; } } sp = sp || sps[0];
   const n = sp.K.flock[0] + Math.floor(r(5) * (sp.K.flock[1] - sp.K.flock[0] + 1));
-  return { id: `h${ti},${tj}`, sp, x, z, n, seed: hashInts(planet.universeSeed[1], [ti, tj]) };
+  return { id: `h${ti},${tj}`, sp, x, z, n, seed: hashInts(planet.seed[1], [ti, tj]) };
 }

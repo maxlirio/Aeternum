@@ -19,7 +19,9 @@ export function makeSea(planet) {
     uHeight: { value: null }, uHOrigin: { value: new THREE.Vector2() }, uHSpan: { value: HSPAN }, uSea: { value: planet.seaLevel },
     uRefl: { value: null }, uReflMat: { value: new THREE.Matrix4() }, uReflOn: { value: 0 },
   };
-  const m = new THREE.MeshStandardMaterial({ color: 0x06222e, roughness: 0.04, metalness: 0.0, transparent: true, envMapIntensity: 0.25, ...(b ? { normalMap: b.normalMap } : {}) });
+  // the planet's own water (gen/genome.js): blue on most worlds, green, amber, violet, milky or ink on some
+  const seaC = planet.climate.sea, V = c => `vec3(${c.map(v => v.toFixed(4)).join(', ')})`, SW = seaC ? { shallow: seaC.shallow.map(v => v * 0.85), mid: seaC.shallow.map((v, i) => (v * 0.3 + seaC.deep[i] * 0.7)), deep: seaC.deep.map(v => v * 0.4) } : { shallow: [0.06, 0.22, 0.2], mid: [0.012, 0.075, 0.09], deep: [0.004, 0.02, 0.035] };
+  const m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...SW.mid.map(v => v * 0.9)), roughness: 0.04, metalness: 0.0, transparent: true, envMapIntensity: 0.25, ...(b ? { normalMap: b.normalMap } : {}) });
   m.normalScale.set(0.16, 0.16);
   const waveGLSL = WAVES.map(([d, L, q], i) => `wave(p, ${d.toFixed(3)} + uWindDir, ${L.toFixed(2)}, ${q.toFixed(3)}, ${(1 / (i + 1.4)).toFixed(3)}, disp, tan, bit);`).join('\n          ');
   m.onBeforeCompile = sh => {
@@ -53,7 +55,7 @@ export function makeSea(planet) {
         vec2 huv = (vSeaXZ - uHOrigin) / uHSpan + 0.5;
         float ground = (huv.x > 0.0 && huv.x < 1.0 && huv.y > 0.0 && huv.y < 1.0) ? texture2D(uHeight, huv).r : uSea - 60.0;
         float depth = max(0.0, uSea - ground);
-        vec3 shallow = vec3(0.06, 0.22, 0.2), mid = vec3(0.012, 0.075, 0.09), deep = vec3(0.004, 0.02, 0.035);
+        vec3 shallow = ${V(SW.shallow)}, mid = ${V(SW.mid)}, deep = ${V(SW.deep)};
         diffuseColor.rgb = mix(shallow, mid, smoothstep(0.5, 4.0, depth));
         diffuseColor.rgb = mix(diffuseColor.rgb, deep, smoothstep(4.0, 30.0, depth));
         float foam = smoothstep(1.35, 1.8, vCrest) * 0.35 + (1.0 - smoothstep(0.0, 0.5, depth)) * step(0.02, depth) * (0.55 + 0.45 * sin(uTime * 1.3 + vSeaXZ.x * 0.4 + vSeaXZ.y * 0.3));

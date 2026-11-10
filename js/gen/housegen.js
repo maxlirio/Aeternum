@@ -17,6 +17,12 @@ const TASTE = {
   brutalist: { wall: { concrete: 7, brick: 2 }, roof: { concrete: 6, corrugated: 2 }, shape: { flat: 8, gable: 1 }, pitch: [0.15, 0.3], storey: [2.7, 3.0], floors: [1, 2, 2], trim: ['metal'] },
   garden: { wall: { render: 4, plank: 3, rock: 1, adobe: 4 }, roof: { rooftile: 5, thatch: 3 }, shape: { hip: 4, gable: 4 }, pitch: [0.3, 0.7], storey: [2.7, 3.2], floors: [1, 1, 2], trim: ['paint', 'plank'] },
   foundry: { wall: { corrugated: 5, brick: 4, concrete: 1, rust: 2 }, roof: { corrugated: 6, slate: 2, rust: 3 }, shape: { gable: 7, flat: 1 }, pitch: [0.2, 0.5], storey: [2.6, 2.9], floors: [1, 1, 2], trim: ['metal', 'limestone'] },
+  adobe: { wall: { adobe: 6, render: 3 }, roof: { adobe: 4, render: 2 }, shape: { flat: 5, dome: 3 }, pitch: [0.45, 0.7], storey: [2.6, 3.0], floors: [1, 1, 2], trim: ['plank', 'adobe'] },
+  carved: { wall: { rock: 5, limestone: 3 }, roof: { rock: 4, limestone: 2 }, shape: { flat: 6, dome: 1 }, pitch: [0.3, 0.5], storey: [2.7, 3.2], floors: [1, 2, 2], trim: ['limestone', 'plank'] },
+  stilt: { wall: { plank: 6, render: 1 }, roof: { thatch: 4, rooftile: 2, corrugated: 2 }, shape: { gable: 5, hip: 3 }, pitch: [0.6, 1.0], storey: [2.6, 2.9], floors: [1, 1, 2], trim: ['plank', 'paint'] },
+  dome: { wall: { concrete: 3, hull: 3, render: 2 }, roof: { hull: 3, concrete: 3, render: 2 }, shape: { dome: 8, flat: 1 }, pitch: [0.55, 0.85], storey: [2.6, 2.9], floors: [1, 1], trim: ['metal', 'hull'] },
+  grown: { wall: { render: 3, adobe: 3, plank: 1 }, roof: { render: 3, thatch: 2 }, shape: { dome: 5, vault: 3 }, pitch: [0.5, 0.8], storey: [2.7, 3.2], floors: [1, 1, 2], trim: ['plank', 'paint'] },
+  spire: { wall: { limestone: 4, rock: 3, brick: 2 }, roof: { slate: 6, rooftile: 1 }, shape: { spire: 6, gable: 2 }, pitch: [1.5, 2.6], storey: [2.8, 3.3], floors: [1, 2, 2], trim: ['limestone', 'metal'] },
   neon: { wall: { corrugated: 4, concrete: 4, hull: 2 }, roof: { corrugated: 4, concrete: 3 }, shape: { flat: 5, gable: 3 }, pitch: [0.14, 0.3], storey: [2.5, 2.8], floors: [1, 2, 3], trim: ['metal', 'paint'] },
 };
 const OPEN = null, DAY = [8, 18];

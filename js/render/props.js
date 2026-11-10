@@ -46,6 +46,7 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
       m.onBeforeCompile = sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '')); };   // (lit as a mass: a leaf's back is as bright as its front)     // (coverage: a leaf has a soft edge, not stair-steps)
     }
     else if (name === 'mirror') m = new THREE.MeshStandardMaterial({ color: 0xdfe6ea, roughness: 0.02, metalness: 1, envMapIntensity: 1.4 });
+    else if (name === 'crystal') m = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.06, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.8, emissive: 0x111111, sheen: 0.4 });      // (a world's crystal: hard and glassy, its colour the instance's)
     else if (name.startsWith('nav')) m = new THREE.MeshStandardMaterial({ color: 0x111111, emissive: { navred: 0xff2a1a, navgreen: 0x1aff4a, navwhite: 0xfff4e0 }[name], emissiveIntensity: 3 });
     else if (name === 'visor') m = new THREE.MeshStandardMaterial({ color: 0x1a2c38, roughness: 0.05, metalness: 0.75, envMapIntensity: 2.6 });
     else if (name === 'glow') m = new THREE.MeshStandardMaterial({ color: 0x0a1820, emissive: 0x6fd0ff, emissiveIntensity: 2.2, roughness: 0.3 });

@@ -23,9 +23,10 @@ export class SkySystem {
     const u = this.sky.material.uniforms, A = planet.atmosphere;
     u.turbidity.value = A.turbidity; u.rayleigh.value = A.rayleigh; u.mieCoefficient.value = A.mie; u.mieDirectionalG.value = 0.8;
     this.sky.material.uniforms.uFade = { value: 1 };
+    const tint = A.tint || [1, 1, 1]; this.sky.material.uniforms.uTint = { value: new THREE.Vector3(...tint) };     // (each world's air has its own colour: gen/genome.js)
     this.sky.material.uniforms.uHigh = { value: 0 }; this.sky.material.uniforms.uDip = { value: 0 }; this.sky.material.uniforms.uLit = { value: 1 };
     // Seen from high up you look down past the horizon, where this sky model is at its brightest. Up there the air is a thin band: pale at the planet's edge, deep blue above it.
-    this.sky.material.fragmentShader = 'uniform float uFade, uHigh, uDip, uLit;\n' + this.sky.material.fragmentShader.replace('#include <tonemapping_fragment>', `
+    this.sky.material.fragmentShader = 'uniform float uFade, uHigh, uDip, uLit; uniform vec3 uTint;\n' + this.sky.material.fragmentShader.replace('#include <tonemapping_fragment>', `
       { vec3 vd = normalize(vWorldPosition - cameraPosition); float a = clamp((vd.y + uDip) / (uDip + 0.3), 0.0, 1.0);
         vec3 thin = mix(vec3(0.5, 0.66, 0.95), mix(vec3(0.1, 0.22, 0.56), vec3(0.015, 0.035, 0.11), a), pow(a, 0.4)) * uLit;
         // Even from the ground this sky model is washed out overhead. Real skies deepen quickly going up from the haze at the horizon; the sun's glow is left alone.
@@ -33,7 +34,7 @@ export class SkySystem {
         vec3 deep = sat * mix(1.0, 0.56, smoothstep(0.03, 0.7, up));
         // This model's glow towards the sun has no ceiling and floods half the sky. Only near the sun itself is it allowed to be that bright, and less so the higher you are (less air to scatter it).
         { float glow = pow(max(dot(vd, vSunDirection), 0.0), 90.0), cap = mix(1.5, 0.62, uHigh) + 14.0 * glow, L = dot(deep, vec3(0.3, 0.59, 0.11)); if (L > cap) deep *= cap / L; }
-        gl_FragColor.rgb = mix(deep, thin, uHigh) * uFade; }
+        gl_FragColor.rgb = mix(deep * uTint, thin * mix(vec3(1.0), uTint, 0.6), uHigh) * uFade; }
       #include <tonemapping_fragment>`);
     scene.add(this.sky);
 
@@ -60,6 +61,21 @@ export class SkySystem {
     this.stars = new THREE.Points(sg, this.starMat); this.stars.renderOrder = -1;
     { const below = new THREE.Points(sg, this.starMat); below.scale.y = -1; below.renderOrder = -1; below.rotation.y = 1.7; this.stars.add(below); }     // (from the ground the land's in the way of these)
     scene.add(this.stars);
+    // this world's moons and its ring, if it has them (gen/genome.js), turning with the sky
+    this.heaven = new THREE.Group(); this.heaven.renderOrder = -1; scene.add(this.heaven);
+    const GS = planet.genome?.sky;
+    for (const M of GS?.moons || []) {
+      const D = 38000, r = D * M.size * 0.0087, g = new THREE.SphereGeometry(r, 48, 32), m = new THREE.MeshStandardMaterial({ color: new THREE.Color(...M.col), roughness: 1, metalness: 0, fog: false, emissive: new THREE.Color(...M.col).multiplyScalar(0.02) });
+      const mesh = new THREE.Mesh(g, m), ce = Math.cos(M.el); mesh.position.set(ce * Math.sin(M.az) * D, Math.sin(M.el) * D, ce * Math.cos(M.az) * D); mesh.renderOrder = -1; this.heaven.add(mesh);
+    }
+    if (GS?.ring) {      // a ring round the planet, seen from beneath as an arch across the sky: bands of dust and ice, the planet's shadow on it at night
+      const R = GS.ring, c = document.createElement('canvas'); c.width = 512; c.height = 4; const g2 = c.getContext('2d');
+      for (let x = 0; x < 512; x++) { const u = x / 511, band = 0.5 + 0.5 * Math.sin(u * R.bands * 6.28 + Math.sin(u * 37) * 0.8), a = Math.min(1, Math.sin(u * Math.PI) * 1.6) * (0.25 + 0.6 * band); g2.fillStyle = `rgba(${R.col.map(v => Math.round(v * 255)).join(',')},${a.toFixed(3)})`; g2.fillRect(x, 0, 1, 4); }
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const ring = new THREE.Mesh(new THREE.RingGeometry(30000, 30000 * (1 + R.width * 3), 256, 1), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false, fog: false, opacity: 0.9 }));
+      { const uv = ring.geometry.attributes.uv, p = ring.geometry.attributes.position, r0 = 30000, r1 = 30000 * (1 + R.width * 3); for (let i = 0; i < uv.count; i++) { const rr = Math.hypot(p.getX(i), p.getY(i)); uv.setXY(i, (rr - r0) / (r1 - r0), 0.5); } }
+      ring.rotation.x = Math.PI / 2 - R.tilt; ring.position.y = -9000; ring.renderOrder = -1; this.heaven.add(ring); this.ringMat = ring.material;
+    }
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envScene = new THREE.Scene(); this.envSky = new Sky(); this.envSky.scale.setScalar(1000);
@@ -76,7 +92,7 @@ export class SkySystem {
     const u = this.sky.material.uniforms;
     u.sunPosition.value.copy(dir);
     this.sky.position.copy(cameraPos);
-    this.stars.position.copy(cameraPos);
+    this.stars.position.copy(cameraPos); this.heaven.position.copy(cameraPos);
     const day = THREE.MathUtils.smoothstep(el, -0.12, 0.08);           // 0 night .. 1 day
     const low = 1 - THREE.MathUtils.smoothstep(el, 0.02, 0.35);        // golden hour warmth
     // sun light: warm and weak near the horizon, off below it; a dim blue moonlight at night
@@ -94,9 +110,10 @@ export class SkySystem {
     this.starMat.opacity = Math.max(1 - THREE.MathUtils.smoothstep(el, -0.2, 0.0), THREE.MathUtils.smoothstep(alt, 32000, 80000));
     this.sky.material.uniforms.uFade.value = 1 - space;
     u.uHigh.value = THREE.MathUtils.smoothstep(alt, 400, 4200); u.uDip.value = Math.sqrt(Math.max(0, 2 * alt / 6.5e6)); u.uLit.value = day * (1 - 0.8 * THREE.MathUtils.smoothstep(alt, 9000, 50000));
-    this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2;
+    this.stars.rotation.y = (t / this.planet.dayLength) * Math.PI * 2; this.heaven.rotation.y = this.stars.rotation.y;
+    if (this.ringMat) this.ringMat.opacity = 0.35 + 0.55 * day;
     // fog: horizon colour by day, deep blue by night
-    const fogDay = new THREE.Color(0.66, 0.74, 0.84).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
+    const hz = this.planet.atmosphere.haze || [0.66, 0.74, 0.84], fogDay = new THREE.Color(hz[0], hz[1], hz[2]).lerp(new THREE.Color(0.85, 0.62, 0.45), low * 0.6);
     fogDay.lerp(new THREE.Color(0.58, 0.6, 0.63), THREE.MathUtils.smoothstep(cover, 0.5, 1.0) * 0.8);   // grey under overcast
     fogDay.lerp(new THREE.Color(0.42, 0.55, 0.78), THREE.MathUtils.smoothstep(alt, 300, 3000) * 0.72);    // (from up high, haze is the colour of the sky behind it, or far towers glow white against it)
     const fog = new THREE.Color(0.012, 0.016, 0.03).lerp(fogDay, day);

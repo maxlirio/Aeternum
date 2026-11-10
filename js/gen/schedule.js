@@ -112,9 +112,10 @@ function buildDay(pop, p, D) {
         while (t < end - 0.6 * HR) {
           stay(workPlace, Math.min(end, t + rng.range(0.4, 0.9) * HR), 'on duty');
           for (let k = 0; k < 3 && t < end - 0.4 * HR; k++) beat();
-          if (t < end - 0.2 * HR) go(workPlace, 'on patrol');
+          if (here !== workPlace && !go(workPlace, 'on patrol')) break;      // (always walks back to the station: never just reappears at the desk)
         }
-        stay(workPlace, Math.max(t, end), 'on duty');
+        if (here !== workPlace) go(workPlace, 'on patrol');
+        if (here === workPlace) stay(workPlace, Math.max(t, end), 'on duty');
       } else stay(workPlace, Math.max(t, at(job.hours[1])), 'working');
     }
     if (rng.chance(0.35)) errand();

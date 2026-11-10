@@ -9,7 +9,7 @@ import { floraTile, TILE, grassTile, GTILE, SPECIES, TREES } from '../gen/flora.
 const NEAR_TREE = 190, NEAR = { shrub: 95, fern: 70 };     // full model within (m)
 const MAX_FULL_TREES = 42;
 const FAR = 1000;                                                // trees as stand-ins out to (m)
-const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf']);
+const LEAFY = new Set(['leafcard', 'needlecard', 'frondcard', 'padcard', 'leaf', 'crystal']);      // (what takes the world's living colour: leaves, a succulent's flesh, a fungus cap, crystal)
 // Leaf colours: familiar trees take the planet's own green; the others have their own
 const TINT = { parasol: [0.32, 0.55, 0.42], spiral: [0.45, 0.42, 0.78], bottle: [0.95, 0.55, 0.28] };
 
@@ -24,9 +24,13 @@ export class FloraView {
       if (SPECIES[sp].tree) this.kinds[sp + '_far'] = { sp, far: true, dims: va.dims, prims: null, list: [] };
     }
     // leaves part as the camera comes up to them, rather than filling the screen
+    const hueFree = !!planet.genome && !['green', 'olive'].includes(planet.genome.keys.foliage);      // (only where life isn't green: there the textures' own green must not show)
     const parted = new Set(); for (const k in this.kinds) for (const P of this.kinds[k].prims || []) if (P.leafy && !parted.has(P.pr.material)) { parted.add(P.pr.material); const m = P.pr.material, prior = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prior?.(sh, r); sh.fragmentShader = sh.fragmentShader.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
-      if (vViewPosition.z < 4.5 && fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) > smoothstep(1.2, 4.5, vViewPosition.z)) discard;`); }; m.customProgramCacheKey = () => 'parted'; m.needsUpdate = true; }
-    const g = planet.climate.grass, l = Math.max(...g);
+      if (vViewPosition.z < 4.5 && fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) > smoothstep(1.2, 4.5, vViewPosition.z)) discard;`);
+      if (hueFree && m.map) sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+      { float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)); diffuseColor.rgb = vec3(lum * 2.6); }`);      // (the leaf picture gives light and shade only; the hue is this world's instance colour, so a violet world's leaves are violet, not green-stained)
+    }; m.customProgramCacheKey = () => 'parted' + (hueFree ? 'h' : ''); m.needsUpdate = true; }
+    const g = planet.climate.canopy || planet.climate.grass, l = Math.max(...g);
     this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.3);
     this.at = null; this.tiles = new Map(); this.queue = [];
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._q2 = new THREE.Quaternion(); this._fx = new THREE.Vector3(); this._c = new THREE.Color(); this.up = new THREE.Vector3(0, 1, 0);
@@ -34,7 +38,8 @@ export class FloraView {
   get ok() { return Object.keys(this.kinds).length > 0; }
   leafColour(sp, tint, out) {
     const t = TINT[sp];
-    if (t) out.setRGB(t[0], t[1], t[2]); else out.copy(this.leafBase);
+    if (t) { out.setRGB(t[0], t[1], t[2]); const w = this.planet.genome ? 0.25 + 0.6 * this.planet.genome.weird : 0; if (w) out.lerp(this.leafBase, w); }      // (the strange trees carry the world's own hue too, more so the stranger it is)
+    else out.copy(this.leafBase);
     return out.multiplyScalar((sp === 'spruce' || sp === 'pine' ? 0.6 : 0.78) + 0.3 * tint);
   }
   // The distant stand-in for a species: its real model photographed from the side into a
@@ -116,7 +121,7 @@ export class FloraView {
       }
     }
     K.list.forEach((p, i) => {
-      const s = p.size / H, sx = s * (0.85 + 0.3 * p.tint) * (K.far ? 1.2 : 1);
+      const GS = this.planet.genome?.flora.shape, s = p.size / H * (GS?.h ?? 1), sx = p.size / H * (GS?.w ?? 1) * (0.85 + 0.3 * p.tint) * (K.far ? 1.2 : 1);      // (each world's trees have their own build: taller and slimmer, or squat)
       this._q.setFromAxisAngle(this.up, K.far ? 0 : p.rot);
       if (p.felled) { this._q.setFromAxisAngle(this._fx.set(Math.cos(p.felled.a), 0, -Math.sin(p.felled.a)), 1.5).multiply(this._q2.setFromAxisAngle(this.up, p.rot)); }
       this._m.compose(new THREE.Vector3(p.x, p.y - 0.05, p.z), this._q, new THREE.Vector3(sx, s, sx)).multiply(new THREE.Matrix4().makeTranslation(-L / 2, 0, -D / 2));

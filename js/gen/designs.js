@@ -10,7 +10,7 @@ import { designsFor, designById, houseFoot, FORMS } from './housegen.js';
 import { SMALL, smallDesigns, smallById } from './smallgen.js';
 
 // a culture's ways of building, most favoured first
-const FAVOURS = { masonry: ['stone', 'brick', 'render'], corporate: ['prefab', 'render', 'concrete'], brutalist: ['concrete', 'tin', 'brick'], garden: ['render', 'timber', 'stone'], foundry: ['tin', 'brick', 'concrete'], neon: ['tin', 'concrete', 'prefab'] };
+const FAVOURS = { adobe: ['render', 'stone', 'brick'], carved: ['stone', 'stone', 'render'], stilt: ['timber', 'tin', 'render'], dome: ['prefab', 'concrete', 'render'], grown: ['render', 'timber', 'stone'], spire: ['stone', 'brick', 'render'], masonry: ['stone', 'brick', 'render'], corporate: ['prefab', 'render', 'concrete'], brutalist: ['concrete', 'tin', 'brick'], garden: ['render', 'timber', 'stone'], foundry: ['tin', 'brick', 'concrete'], neon: ['tin', 'concrete', 'prefab'] };
 const WEIGHT = [0.62, 0.28, 0.1];
 const memo = new WeakMap();
 

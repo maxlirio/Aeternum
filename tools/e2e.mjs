@@ -362,8 +362,8 @@ try {
     key('KeyE'); await wait(300); key('Digit1'); await wait(300); out.paid = 200000 - P.credits; out.price = (await import('./js/gen/ships.js')).PRICES[sh.model];
     key('KeyE'); await wait(300); key('Digit1'); await wait(300);
     out.flying = !!O.getFlight();
-    key('Space', false); await wait(4000); dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));
-    out.alt = Math.round(O.getFlight()?.altitude());
+    const y0 = O.getFlight()?.pos[1], tk = performance.now(); key('Space', false); for (let i = 0; i < 80 && O.getFlight()?.pos[1] - y0 < 16; i++) await wait(100); out.secs = +((performance.now() - tk) / 1000).toFixed(1); out.model = sh.model; dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }));      // (lift held until it's well up: a heavy ship takes longer than a light one)
+    out.alt = Math.round(O.getFlight()?.pos[1] - y0); out.agl = Math.round(O.getFlight()?.altitude());      // (height gained from the pad: above-ground reads less where the land rises under you)
     key('KeyD', false); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));      // turn on the spot, then come back down on the pad
     key('KeyE'); await wait(100); out.refusedInAir = !!O.getFlight();
     // come down: brake, descend, land
@@ -376,7 +376,7 @@ try {
     await O.save(); out.id = sh.id; return out; })()`);
   check(sp.walkedIn === 'cockpit' && /cockpit/.test(sp.hud || ''), `walked up the ramp into the cockpit (HUD: ${sp.hud})`);
   check(sp.paid === sp.price && sp.flying, `bought the ship at the helm (${sp.price} cr) and took off`);
-  check(sp.alt > 15, `climbed to ${sp.alt} m`);
+  check(sp.alt > 15, `climbed ${sp.alt} m off the pad in ${sp.secs} s (${sp.model}; ${sp.agl} m above the ground below)`);
   check(sp.refusedInAir, "can't land in mid-air");
   check(sp.landed && sp.at, `landed (${sp.why ?? 'ok'})`);
   const runChk = await ev(`(async () => {

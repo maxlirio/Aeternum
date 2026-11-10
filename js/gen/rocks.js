@@ -14,8 +14,8 @@ const cache = new Map();
 const onSite = (planet, x, z) => { let on = false; sitesNear(planet, x, z, 140, S => { if (Math.hypot(S.x - x, S.z - z) < S.clear) on = true; }); return on; };
 
 export function rockTile(planet, ti, tj) {
-  const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck);
-  const out = [], seed = planet.universeSeed[1] ^ 0x70cc5, x0 = ti * TILE, z0 = tj * TILE, LT = gridTraits(planet, x0, z0, TILE, 2), tracks = tracksNear(planet, x0 + TILE / 2, z0 + TILE / 2, TILE);
+  const ck = planet.seed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck);
+  const out = [], seed = planet.seed[1] ^ 0x70cc5, x0 = ti * TILE, z0 = tj * TILE, LT = gridTraits(planet, x0, z0, TILE, 2), tracks = tracksNear(planet, x0 + TILE / 2, z0 + TILE / 2, TILE);
   const put = (x, z, sp, size, r) => {
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.deck || s.wet > 0.05 || s.h < planet.seaLevel + 1) return;
@@ -51,8 +51,8 @@ export function rockTile(planet, ti, tj) {
 // A steep hillside isn't a smooth thing with rock painted on it: the rock stands out of it, in courses, along the beds it was laid down in. Slabs lying across the fall of the land, sunk into it, each with its own size. Only for looking at (a slope this steep isn't walked on, and they don't stand far out of it).
 const ledges = new Map();
 export function ledgeTile(planet, ti, tj) {
-  const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj; if (ledges.has(ck)) return ledges.get(ck);
-  const out = [], seed = planet.universeSeed[1] ^ 0x1ed6e, n = 32, G = TILE / n;
+  const ck = planet.seed.join(':') + '|' + ti + ',' + tj; if (ledges.has(ck)) return ledges.get(ck);
+  const out = [], seed = planet.seed[1] ^ 0x1ed6e, n = 32, G = TILE / n;
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const i = ti * n + a, j = tj * n + b, r = k => hashInts(seed, [i, j, k]) / 4294967296, x = (i + r(1)) * G, z = (j + r(2)) * G;
     if (slopeHere(planet, x, z) < 0.46 || landRill(planet, x, z) <= 0.05) continue;

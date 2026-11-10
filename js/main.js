@@ -4,7 +4,7 @@
 //   render/ three.js views of gen data   player/ motion, camera, collision
 import * as THREE from 'three';
 import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
-import { HOMEWORLD } from './core/address.js';
+import { HOMEWORLD, Address } from './core/address.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
@@ -117,7 +117,10 @@ import { usablesOf, ownership, contents, take, put, buy, sell, consume, startWor
 const params = new URLSearchParams(location.search);
 const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ui = new UI();
-const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || 'main');
+// ?planet=N (and ?system=M): load another world of this universe instead of home: the developer's switch until there's a way to fly there.
+// Each world keeps its own save slot, so nothing done on one is laid over another.
+const WORLD = params.has('planet') ? new Address([['galaxy', 0], ['sector', 0, 0, 0], ['system', +params.get('system') || 0], ['body', +params.get('planet') || 0]]) : HOMEWORLD;
+const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || (WORLD === HOMEWORLD ? 'main' : `world-${params.get('system') || 0}-${params.get('planet')}`));
 const store = new WorldStore(backend);
 window.ORBIS = { store, ready: false };
 window.__started = true;      // (the code all loaded and linked: from here on, failures have their own handling)
@@ -148,7 +151,7 @@ function newUniverse() {
 async function start(fresh) {
   ui.loading('Generating the world…', 0);
   const U = seedFromHex(store.meta.universe);
-  const planet = makePlanet(U, HOMEWORLD);
+  const planet = makePlanet(U, WORLD);
   // s, pop, polity, ctx and the like below are the town you're in. homeS and homeCtx stay where you started.
   let s = getSettlement(planet, 0, 0); const homeS = s;
   const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched); registerUseJobs(sched);

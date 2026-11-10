@@ -6,22 +6,31 @@ import { globeOf, canon, seamAt, continentDrop, cornerDrop, HOME_LAND } from './
 
 // The bare continental shape: sea, ranges and rolling hills, before the kinds of land work on it.
 export function baseHeight(planet, x, z) {
-  const N = planet.noise;
+  const N = planet.noise, T = planet.genome?.terrain || DEFAULT_T;
   // Domain warp gives the continents and ranges non-grid, flowing shapes.
-  const wx = x + 900 * N.warp.fbm(x / 6000, z / 6000, 3);
-  const wz = z + 900 * N.warp.fbm(x / 6000 + 5.2, z / 6000 - 1.3, 3);
-  const cont = N.cont.fbm(wx / 14000, wz / 14000, 4);                  // [-1,1]
-  // Keep the origin (where milestone 1 spawns) on dry land.
+  const wx = x + T.warp * N.warp.fbm(x / 6000, z / 6000, 3);
+  const wz = z + T.warp * N.warp.fbm(x / 6000 + 5.2, z / 6000 - 1.3, 3);
+  const cont = N.cont.fbm(wx / T.contScale, wz / T.contScale, 4);                  // [-1,1]
+  // Keep the origin (where you start) on dry land, however drowned the world.
   const r = Math.sqrt(x * x + z * z);
-  const landBias = 0.45 * (1 - smoothstep(4000, 14000, r));
+  const landBias = (0.45 + Math.max(0, -T.contBias + 40) / 300) * (1 - smoothstep(4000, 14000, r));
   const c = cont + landBias;
-  let h = 260 * c + 40;                                                  // lowlands & seas
-  const mountMask = smoothstep(0.05, 0.55, c + 0.35 * N.mount.fbm(wx / 9000, wz / 9000, 2));
-  h += 820 * mountMask * N.mount.ridged(wx / 3200, wz / 3200, 4);       // ranges (their finer shape is what water cut: see weathering)
-  h += 55 * N.hill.fbm(x / 800, z / 800, 5);                            // rolling hills
+  let h = T.contAmp * c + T.contBias;                                              // lowlands & seas
+  const mountMask = smoothstep(T.mountFrom, T.mountFrom + 0.5, c + 0.35 * N.mount.fbm(wx / 9000, wz / 9000, 2));
+  let m = N.mount.ridged(wx / T.mountScale, wz / T.mountScale, 4);                 // ranges (their finer shape is what water cut: see weathering)
+  if (T.mount === 'domed') m = 0.55 * m + 0.45 * (0.5 + 0.5 * N.mount.fbm(wx / (T.mountScale * 1.6), wz / (T.mountScale * 1.6), 3));      // rounded old hills, worn down
+  else if (T.mount === 'spire') m = m * m * (1 + T.spire * 2.2);                                                                       // knife ridges and needles
+  let mh = T.mountAmp * mountMask * m;
+  if (T.terrace > 0 && mh > 8) {                                                   // mesas: the risen ground in strata, each a flat shelf ended by a short cliff (the plains between stay smooth)
+    const k = Math.floor(mh / T.terrace), f = mh / T.terrace - k, cliff = f < 0.8 ? f * 0.12 : 0.096 + (f - 0.8) / 0.2 * 0.904;
+    mh += Math.min(1, (mh - 8) / 40) * ((k + cliff) * T.terrace - mh);
+  }
+  h += mh;
+  h += T.hillAmp * N.hill.fbm(x / T.hillScale, z / T.hillScale, 5);              // rolling hills
   // (the ground's small roughness isn't here: it depends on how closely it's being looked at. See weathering.)
   return h;
 }
+const DEFAULT_T = { warp: 900, contScale: 14000, contAmp: 260, contBias: 40, mountAmp: 820, mountScale: 3200, mountFrom: 0.05, mount: 'ridged', hillAmp: 55, hillScale: 800, terrace: 0, spire: 0 };
 setLandBase(baseHeight);
 
 const plain = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));

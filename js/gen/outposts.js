@@ -248,7 +248,7 @@ export function padAt(planet, x, z) {
 
 const cache = new Map();
 export function sitesInTile(planet, ti, tj) {
-  const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck); if (cache.size > 400) cache.clear();
+  const ck = planet.seed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck); if (cache.size > 400) cache.clear();
   const out = [], rng = new Rng(derive(planet.seed, 'outposts', [ti, tj])), cul = cultureOf(planet), head = siteHead(planet, ti, tj, rng);
   if (head) {
     const { x, z, pick, rot0, shoreDir, riverDir } = head, S = surfaceAt(planet, x, z), K = KINDS[pick], items = [];

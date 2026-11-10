@@ -182,6 +182,21 @@ try {
       console.log('   dock', C, JSON.stringify(R)); await shot('dock-' + C);
     }
   }
+  if (want('worlds')) {
+    // other worlds of the universe (gen/genome.js): each one from the street, from the edge of town looking out, and from the air
+    for (const N of (process.env.PLANETS || '0,1,2,3,4,5').split(',')) {
+      await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0&planet=' + N);
+      const G = await ev(`JSON.stringify((g => ({ arch: g.arch, weird: +g.weird.toFixed(2), keys: g.keys, trees: g.flora.trees, ways: g.culture.ways, nations: g.society.nations.map(n => n.name + ' (' + n.gov + ')'), primary: g.society.primary }))(ORBIS.planet.genome))`);
+      console.log('   world', N, G);
+      const go = async (tag, js, wait = 3500) => { await ev(`(async () => { const O = ORBIS, s = O.homeS, wait = ms => new Promise(r => setTimeout(r, ms)); ${js}; await wait(${wait}); return 1; })()`); await shot('world' + N + '-' + tag); };
+      // from the air: up over the edge of town, looking out over the country
+      await go('air', `const f = O.getFlight(), a = 0.7, R = (s.R || 300) + 200; f.pos[0] = s.cx + Math.sin(a) * R; f.pos[2] = s.cz + Math.cos(a) * R; f.pos[1] = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h + 420; f.vel = [Math.sin(a) * 60, 0, Math.cos(a) * 60]; f.throttle = 0.5; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.32, 0); f.w = [0, 0, 0]; f.syncEuler(); O.setCockpitView(false)`, 4500);
+      await go('high', `const f = O.getFlight(), a = 2.4; f.pos[0] = s.cx + Math.sin(a) * 3000; f.pos[2] = s.cz + Math.cos(a) * 3000; f.pos[1] = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h + 1600; f.vel = [Math.sin(a) * 80, 0, Math.cos(a) * 80]; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.22, 0); f.w = [0, 0, 0]; f.syncEuler()`, 5000);
+      // on foot: the edge of town looking out, then in the street
+      await go('edge', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const a = 2.1, R = (s.R || 300) + 140, x = s.cx + Math.sin(a) * R, z = s.cz + Math.cos(a) * R; O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = a; O.cam.yaw = a; O.cam.pitch = 0.04; O.cam.dist = 5`, 5000);
+      await go('street', `const b = s.buildings[Math.floor(s.buildings.length / 3)], [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 - b.ez[0] * 6, b.O[1] + b.ex[1] * b.w / 2 - b.ez[1] * 6); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const a = Math.atan2(b.ez[0], b.ez[1]) + 0.5; O.ctrl.facing = a; O.cam.yaw = a; O.cam.pitch = 0.08; O.cam.dist = 5`, 4000);
+    }
+  }
   if (want('vesper')) {
     await load('hour=' + (process.env.HOUR || 16) + '&fly=runabout0');
     for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.vesper ? 1 : 0')); i++) await sleep(500);

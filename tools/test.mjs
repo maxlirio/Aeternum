@@ -560,7 +560,9 @@ suites.climb = async () => {
   }
   check(tried >= 5 && onto === tried, `pulled up onto furniture ${onto}/${tried}`);
   // a slope too steep to walk can be scrambled up, slowly; exhausted, you can't
-  let found = null;
+  let found = null, fp = p, fw = world;
+  // a face that steep: on this world if it has one near home, else on the next that does (a gentle savanna may have none for kilometres)
+  for (const n of [4, 2, 5, 6, 7, 8, 9, 10, 11, 12]) { if (found) break; const p = n === 4 ? fp : makePlanet(uni(n), HOMEWORLD), s = getSettlement(p, 0, 0); if (!s) continue;
   for (let k = 0; k < 4000 && !found; k++) {
     const a = k * 2.39996, r = s.R + 400 + (k % 400) * 3, x = s.cx + Math.cos(a) * r, z = s.cz + Math.sin(a) * r; if (climbRiver(p, x, z)) continue;     // (a river's bank is loose ground: you slide)
     if (climbFeel(p, x, z).loose > 0.05) continue;    // (nor is scree or sand what this is testing)
@@ -568,9 +570,10 @@ suites.climb = async () => {
       const sl = surfaceHeight(p, x + 3 * dx + 3 * dz, z + 3 * dz - 3 * dx) - surfaceHeight(p, x + 3 * dx - 3 * dz, z + 3 * dz + 3 * dx);    // (a real face, square-on: the fall line runs the way you're climbing, not off to one side down a flute)
       if ((h1 - h0) > 1.4 && (h2 - h0) / 6 > 1.3 && Math.abs(sl) < 0.8) { found = { x, z, facing: th }; break; } }
   }
+  if (found) { fp = p; if (n !== 4) fw = new CollisionWorld(p, s, () => false); } }
   check(found, 'found a slope steeper than 52°');
   if (found) {
-    const climb = tired => { const c = new Controller(world, [found.x, surfaceHeight(p, found.x, found.z), found.z]); c.facing = found.facing; run(c, {}, 0.3); const y0 = c.pos[1]; run(c, { fwd: 1, yaw: found.facing, tired }, 4); return { rise: c.pos[1] - y0, speed: Math.hypot(c.pos[0] - found.x, c.pos[2] - found.z) / 4 }; };
+    const climb = tired => { const c = new Controller(fw, [found.x, surfaceHeight(fp, found.x, found.z), found.z]); c.facing = found.facing; run(c, {}, 0.3); const y0 = c.pos[1]; run(c, { fwd: 1, yaw: found.facing, tired }, 4); return { rise: c.pos[1] - y0, speed: Math.hypot(c.pos[0] - found.x, c.pos[2] - found.z) / 4 }; };
     const fresh = climb(false), tired = climb(true);
     check(fresh.rise > 1 && fresh.speed < 1.15, `scrambled up ${fresh.rise.toFixed(1)} m in 4 s (${fresh.speed.toFixed(2)} m/s along the ground)`);
     check(tired.rise < 0.3, `exhausted: can't climb it (${tired.rise.toFixed(2)} m)`);
@@ -892,14 +895,17 @@ suites.ships = async () => {
   const back = S.shipsIn(R, p, s).find(x => x.id === sh.id);
   check(back.at && Math.hypot(back.at.c[0] - fl.pos[0], back.at.c[2] - fl.pos[2]) < 0.01 && S.shipIsYours(back, pl), 'landed where you left it, after reloading');
   // every hull: walkable from its ramp to its cockpit, and flies with its own handling
+  // (on level ground: what's under test is the ship's own floor plan, not whatever slope this world happens to have outside town)
+  const { surfaceAt: SA } = await import('../js/gen/surface.js');
+  const LV = Array.from({ length: 600 }, (_, k) => [Math.cos(k * 2.39996) * (700 + k * 10), Math.sin(k * 2.39996) * (700 + k * 10)]).find(([a, b]) => { const x = s.cx + a, z = s.cz + b, h = surfaceHeight(p, x, z); if (Math.hypot(a, b) < (s.R || 300) + 200) return false; for (let i = -30; i <= 30; i += 10) for (let j = -30; j <= 30; j += 10) { const q = SA(p, x + i, z + j); if (q.town > 0 || q.road > 0 || q.h < p.seaLevel + 2) return false; } for (let i = -15; i <= 15; i += 5) for (let j = -15; j <= 15; j += 5) if (Math.abs(surfaceHeight(p, x + i, z + j) - h) > 0.9) return false; return true; }) || [900, 900];
   for (const model of ['courier', 'patrol', 'yacht', ...Object.keys((await import('../js/gen/ships.js')).LAYOUTS).filter(k => /[0-9]$/.test(k))]) {
-    const L = shipPlan(model).layout, fake = { id: 'test:' + model, model, at: { c: [s.cx + 900, surfaceHeight(p, s.cx + 900, s.cz + 900), s.cz + 900], facing: 0.3 } };
+    const L = shipPlan(model).layout, fake = { id: 'test:' + model, model, at: { c: [s.cx + LV[0], surfaceHeight(p, s.cx + LV[0], s.cz + LV[1]), s.cz + LV[1]], facing: 0.3 } };
     const bb = S.structureOf(s, fake, () => true, p); world.addStructure(bb);
     const W2 = (x, z) => buildingToWorld(s, bb, x, 0, z), mx = (L.ramp.x0 + L.ramp.x1) / 2, cock = L.rooms.find(q => q.purpose === 'cockpit');
-    const cc = new Controller(world, W2(mx, -1.5)); run(cc, {}, 0.3);
+    const cc = new Controller(world, (q => [q[0], surfaceHeight(p, q[0], q[2]) + 0.05, q[2]])(W2(mx, -1.5))); run(cc, {}, 0.3);      // (on the ground at the foot of the ramp, wherever that ground is)
     const steps = [[mx, (L.hull[1] + (L.partitions[0]?.z ?? L.hull[1] + 2)) / 2], ...L.partitions.map(q => [L.doors[q.door].x, q.z + 0.8]), [mx, (cock.rect[1] + cock.rect[3]) / 2 - 0.4]];
     for (const [x, z] of steps) for (let t = 0; t < 14; t += 1 / 120) { const w = W2(x, z); if (Math.hypot(w[0] - cc.pos[0], w[2] - cc.pos[2]) < 0.3) break; cc.step(1 / 120, { fwd: 1, right: 0, run: false, jump: false, yaw: Math.atan2(w[0] - cc.pos[0], w[2] - cc.pos[2]) }); }
-    check(world.locate(...cc.pos)?.room?.purpose === 'cockpit', `${model}: ramp to cockpit (${world.locate(...cc.pos)?.room?.label})`);
+    if (!check(world.locate(...cc.pos)?.room?.purpose === 'cockpit', `${model}: ramp to cockpit (${world.locate(...cc.pos)?.room?.label})`) && process.env.DBG) { const o = W2(0, 0), dx = cc.pos[0] - o[0], dz = cc.pos[2] - o[2], c = Math.cos(0.3), sn = Math.sin(0.3); console.log('   stuck at local', (dx * c - dz * sn).toFixed(2), (dx * sn + dz * c).toFixed(2), 'y', (cc.pos[1] - o[1]).toFixed(2), 'steps', JSON.stringify(steps), 'ramp', JSON.stringify(L.ramp), 'hull', JSON.stringify(L.hull)); }
     world.removeStructure(bb);
   }
   const sp = m => { const f2 = new Flight(world, p, { model: m }, [s.cx, 2000, s.cz], 0); f2.onGround = false; f2.vel = [0, 0, 60]; for (let t = 0; t < 40; t += 1 / 60) f2.step(1 / 60, { throttle: 1, pitch: f2.vel[1] < 0 ? 0.05 : 0 }); return f2.speed; };
@@ -1105,7 +1111,9 @@ suites.city = async () => {
     check(n > 3000 && bad === 0, `${n} walk-in city buildings (${bad} the plan generator couldn't lay out)`);
     check(unreach === 0, `every room of every sampled walk-in building is reachable from the street (${unreach} not)`);
   }
-  check(maxH > 600, `spires reach ${Math.round(maxH)} m`);
+  // how tall a people build is their culture's (an adobe world's city stays low); somewhere among a few worlds the spires must clear 600 m
+  for (let n = 4; n <= 10 && maxH <= 600; n++) { const c = C.getCity(makePlanet(uni(n), HOMEWORLD)), [i0, j0, i1, j1] = C.cityExtent(c); for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const B = C.cityBlock(c, i, j); if (B.district) for (const b of B.buildings) maxH = Math.max(maxH, b.top || 0); } }
+  check(maxH > 600, `spires reach ${Math.round(maxH)} m on some world`);
   check(kinds.size >= 100, `${kinds.size} kinds of street furniture, stalls and roof kit`);
   for (const d of C.DISTRICTS) check(dist[d] > 0, `district ${d} present (${dist[d] || 0} blocks)`);
   console.log(`  ${total} buildings in 3 cities, tallest ${Math.round(maxH)} m, ${kinds.size} object kinds,`, JSON.stringify(dist));
@@ -1254,7 +1262,7 @@ suites.land = async () => {
   const L = await import('../js/gen/land.js'), { surfaceAt, surfaceHeight } = await import('../js/gen/surface.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { rockTile, rocksNear } = await import('../js/gen/rocks.js'), { floraTile } = await import('../js/gen/flora.js'), { Controller } = await import('../js/player/controller.js'), { CollisionWorld } = await import('../js/player/collision.js');
   // every kind turns up, planets differ
   const seen = new Set(), mixes = new Set();
-  for (const n of [1, 2, 3, 4, 5, 6]) { const p = makePlanet(uni(n), HOMEWORLD), mine = new Set(); for (let i = -30; i <= 30; i++) for (let j = -30; j <= 30; j++) { const k = L.mainLand(p, i * 4000, j * 4000).kind; seen.add(k); mine.add(k); } mixes.add([...mine].sort().join()); }
+  for (let n = 1; n <= 40 && (n <= 6 || seen.size < L.KINDS.length); n++) { const p = makePlanet(uni(n), HOMEWORLD), mine = new Set(); for (let i = -30; i <= 30; i += n <= 6 ? 1 : 3) for (let j = -30; j <= 30; j += n <= 6 ? 1 : 3) { const k = L.mainLand(p, i * 4000, j * 4000).kind; seen.add(k); mine.add(k); } mixes.add([...mine].sort().join()); }
   check(seen.size === L.KINDS.length, `every kind of land exists somewhere (${seen.size}/${L.KINDS.length})`); check(mixes.size > 1, 'planets have different lands');
   // blended weights always add up, height stays continuous across a border
   { const p = makePlanet(uni(2), HOMEWORLD); let worst = 0, bad = 0; for (let i = 0; i < 4000; i++) { const x = -9000 + i * 4.5, z = 2000, tot = L.landAt(p, x, z).reduce((a, q) => a + q.w, 0); if (Math.abs(tot - 1) > 1e-6) bad++; if (i) worst = Math.max(worst, Math.abs(surfaceHeight(p, x, z) - surfaceHeight(p, x - 4.5, z))); } check(!bad, 'land weights add to 1'); check(worst < 44, `no cliffs out of nowhere at a land border (worst step ${worst.toFixed(1)} m over 4.5 m)`); }
@@ -1378,7 +1386,12 @@ suites.crashes = async () => {
 suites.ride = async () => {
   const { outRoutes } = await import('../js/gen/highways.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Ride } = await import('../js/player/ride.js');
   const p = makePlanet(seedFromString('test-universe-3'), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false), r = outRoutes(p, s)[0]; W.flora = false;
-  for (const off of [0, 60]) for (const type of ['sedan', 'hauler']) { const i0 = r.lead + 5, a = r.pts[i0], b = r.pts[i0 + 1], R = new Ride(W, p, { type, pos: [a[0] + off, r.h[i0], a[1] + off], facing: Math.atan2(b[0] - a[0], b[1] - a[1]), colour: 0, id: 't' }); let py = R.pos[1], pd = 0, worst = 0, rev = 0, n = 0, pp = R.pitch, ppd = 0, at = i0;
+  // off the road, over country a car can cross (meadow, forest, moor…), not into a field of rock pillars: this is the suspension under test, not the world's ruggedness
+  const LD = await import('../js/gen/land.js'), ROUGHK = new Set(['karst', 'spires', 'canyon', 'crystal', 'craters', 'lava', 'rockfield', 'badlands', 'ice']);
+  const i00 = r.lead + 5, A0 = r.pts[i00], B0 = r.pts[i00 + 1], hd = [B0[0] - A0[0], B0[1] - A0[1]], hl = Math.hypot(...hd);
+  const { surfaceHeight: SH } = await import('../js/gen/surface.js');
+  const OFF = [60, -60, 120, -120, 200, -200, 320, -320, 480, -480, 640].find(o => { let h1 = null, h2 = null; for (let d = 0; d < 300; d += 2) { const x = A0[0] + o + hd[0] / hl * d, z = A0[1] + o + hd[1] / hl * d; if (d % 10 === 0 && LD.landAt(p, x, z).some(q => q.w > 0.05 && ROUGHK.has(q.c.kind))) return false; const h = SH(p, x, z); if (h2 !== null && Math.abs(h - 2 * h1 + h2) > 0.35) return false; h2 = h1; h1 = h; } return true; }) ?? 60;      // (and no gully cut across it: a car crossing a V-bottomed gully at speed should jolt)
+  for (const off of [0, OFF]) for (const type of ['sedan', 'hauler']) { const i0 = r.lead + 5, a = r.pts[i0], b = r.pts[i0 + 1], R = new Ride(W, p, { type, pos: [a[0] + off, r.h[i0], a[1] + off], facing: Math.atan2(b[0] - a[0], b[1] - a[1]), colour: 0, id: 't' }); let py = R.pos[1], pd = 0, worst = 0, rev = 0, n = 0, pp = R.pitch, ppd = 0, at = i0;
     for (let t = 0; t < 10; t += 1 / 60) { if (!off) { while (at + 1 < r.pts.length && Math.hypot(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]) < 12) at++; R.facing = Math.atan2(r.pts[at][0] - R.pos[0], r.pts[at][1] - R.pos[2]); } for (let k = 0; k < 2; k++) R.step(1 / 120, { fwd: 1, right: 0 }); R.crash = null; R.stun = 0; const d = R.pos[1] - py, dd = Math.abs(d - pd), pd2 = R.pitch - pp; if (t > 2) { worst = Math.max(worst, dd); n++; if (pd2 * ppd < 0 && Math.abs(pd2) > 2e-4 && Math.abs(ppd) > 2e-4) rev++; } py = R.pos[1]; pd = d; pp = R.pitch; ppd = pd2; }
     check(worst < 0.25, `${type} ${off ? 'cross-country' : 'on the road'}: no jolts in the body's height (worst ${(worst * 100).toFixed(1)} cm per frame)`); check(rev / 8 < 6, `${type} ${off ? 'cross-country' : 'on the road'}: the nose isn't shivering (${(rev / 8).toFixed(1)} reversals a second)`); }
 };
@@ -1683,6 +1696,26 @@ suites.rings = async () => {
   }
 };
 
+suites.genome = async () => {
+  // every world from its own genome: deterministic, in range, its start on land with a town, the kinds of world in their proportions, and no two alike
+  const { buildGenome, genomeVector, ARCHETYPES } = await import('../js/gen/genome.js'), { getSettlement: GS } = await import('../js/gen/settlement.js');
+  const count = {}, vecs = []; let bad = 0, weird = 0;
+  for (let n = 0; n < 500; n++) {
+    const p = makePlanet(uni(1), new Address([['galaxy', 0], ['sector', 0, 0, 0], ['system', n >> 4], ['body', n & 15]])), g = p.genome;
+    if (n < 20) check(JSON.stringify(buildGenome(p.seed)) === JSON.stringify(g), `planet ${n}: the same genome every time`);
+    count[g.arch] = (count[g.arch] || 0) + 1; if (g.weird > 0.7) weird++;
+    const v = genomeVector(g); if (v.some(x => !Number.isFinite(x))) bad++; for (const c of [...g.climate.grass, ...g.climate.rock, ...g.climate.dry]) if (c < 0 || c > 1) bad++;
+    if (g.society.nations.length < 1 || g.society.relations.length !== g.society.nations.length * (g.society.nations.length - 1) / 2) bad++;
+    if (n < 40) vecs.push(v);
+    if (n < 12) { check(rawHeight(p, 0, 0) > p.seaLevel + 2, `planet ${n} (${g.arch}): you start on dry land`); check(GS(p, 0, 0), `planet ${n} (${g.arch}): a town where you start`); }
+  }
+  check(!bad, `every number in range (${bad} out)`);
+  const tot = Object.values(ARCHETYPES).reduce((a, A) => a + A.w, 0); for (const [k, A] of Object.entries(ARCHETYPES)) { const want = 500 * A.w / tot, got = count[k] || 0; check(A.w === 0 ? !got : Math.abs(got - want) < 4 * Math.sqrt(want) + 3, `${k}: ${got} of 500 (about ${want.toFixed(0)} expected)`); }
+  check(weird > 20 && weird < 140, `the strange tail: ${weird} of 500 worlds well past the ordinary`);
+  let near = 0; for (let a = 0; a < vecs.length; a++) for (let b = a + 1; b < vecs.length; b++) { let d = 0; for (let i = 0; i < vecs[a].length; i++) d += (vecs[a][i] - vecs[b][i]) ** 2; if (Math.sqrt(d) < 0.08) near++; }
+  check(near === 0, `no two worlds of 40 nearly the same (${near} pairs too close)`);
+  console.log('  ' + Object.entries(count).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(', '));
+};
 suites.fleetdecks = async () => {
   // every great ship has its own insides: its own layout, the deck length the game places it by matching that layout, and its own model file
   const { fleetOf } = await import('../js/gen/capital.js'), L = JSON.parse(readFileSync(new URL('../assets/ships/capital.json', import.meta.url), 'utf8'));

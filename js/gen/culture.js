@@ -11,6 +11,13 @@ const WAYS = {
   brutalist: { label: 'poured concrete', tower: { grid: 4, podium: 2, hab: 2 }, office: { grid: 5, ribbon: 1 }, home: { hab: 5, grid: 2 }, low: { grime: 3, hab: 2 }, height: 0.85, round: 0.03, steps: 0.6, storey: 0.96, bay: 1.1, green: 0.02, neon: 0.3, tint: [0.97, 0.97, 0.96] },
   garden: { label: 'white terraces', tower: { white: 5, ribbon: 3, glass: 1 }, office: { white: 4, ribbon: 3 }, home: { white: 5, hab: 2 }, low: { white: 3, hab: 2 }, height: 0.7, round: 0.4, steps: 2, storey: 1.03, bay: 1.1, green: 0.18, neon: 0.1, tint: [1.03, 1.03, 1.0] },
   foundry: { label: 'dark iron', tower: { bronze: 3, shed: 1, grid: 3 }, office: { grid: 3, bronze: 2 }, home: { grime: 4, brick: 3 }, low: { grime: 5, shed: 2 }, height: 0.8, round: 0.1, steps: 0.8, storey: 1.12, bay: 0.9, green: 0.01, neon: 0.9, tint: [0.84, 0.82, 0.8] },
+  // the ways only some worlds have (gen/genome.js picks a world's traditions from its kind)
+  adobe: { label: 'sun-baked earth', tower: { white: 4, podium: 2, grid: 1 }, office: { white: 3, grid: 2 }, home: { white: 5, hab: 1 }, low: { white: 3, grime: 1 }, height: 0.5, round: 0.35, steps: 2.2, storey: 1.05, bay: 1.0, green: 0.12, neon: 0.08, tint: [1.12, 1.0, 0.84] },
+  carved: { label: 'cut from the rock', tower: { podium: 4, grid: 2, white: 1 }, office: { grid: 3, podium: 2 }, home: { brick: 2, hab: 3, white: 1 }, low: { grime: 3, brick: 2 }, height: 0.6, round: 0.15, steps: 2.6, storey: 1.1, bay: 0.86, green: 0.06, neon: 0.12, tint: [1.06, 0.96, 0.88] },
+  stilt: { label: 'stilts over the water', tower: { ribbon: 3, glass: 2, white: 2 }, office: { ribbon: 3, white: 2 }, home: { hab: 4, white: 2 }, low: { hab: 3, grime: 2, shed: 1 }, height: 0.55, round: 0.2, steps: 1.2, storey: 1.0, bay: 1.05, green: 0.14, neon: 0.18, tint: [0.98, 1.02, 1.04] },
+  dome: { label: 'domes against the cold', tower: { glass: 3, white: 3, grid: 1 }, office: { white: 3, glass: 2 }, home: { white: 4, hab: 2 }, low: { white: 3, hab: 2 }, height: 0.65, round: 0.6, steps: 1, storey: 1.02, bay: 1.0, green: 0.04, neon: 0.14, tint: [0.96, 1.0, 1.06] },
+  grown: { label: 'grown, not built', tower: { white: 3, ribbon: 3, glass: 1 }, office: { white: 3, ribbon: 3 }, home: { white: 4, hab: 1 }, low: { white: 3, hab: 1 }, height: 0.75, round: 0.6, steps: 1.6, storey: 1.06, bay: 1.12, green: 0.3, neon: 0.16, tint: [1.0, 1.04, 0.98] },
+  spire: { label: 'needles and spires', tower: { glass: 2, bronze: 3, ribbon: 2, white: 1 }, office: { bronze: 3, grid: 2 }, home: { brick: 3, white: 2 }, low: { brick: 3, grime: 1 }, height: 1.35, round: 0.25, steps: 0.8, storey: 1.08, bay: 0.9, green: 0.1, neon: 0.22, tint: [1.0, 0.98, 1.04] },
   neon: { label: 'crowded neon', tower: { glass: 3, grime: 2, grid: 2 }, office: { grid: 3, glass: 3 }, home: { grime: 4, hab: 3 }, low: { grime: 5, brick: 2 }, height: 1.25, round: 0.12, steps: 1.2, storey: 0.94, bay: 0.9, green: 0.01, neon: 1.4, tint: [0.92, 0.9, 1.0] },
 };
 const HUES = [[0.72, 0.16, 0.12], [0.1, 0.36, 0.62], [0.86, 0.6, 0.12], [0.16, 0.5, 0.3], [0.56, 0.2, 0.52], [0.84, 0.82, 0.76], [0.2, 0.22, 0.24], [0.9, 0.36, 0.1], [0.12, 0.56, 0.6], [0.5, 0.42, 0.3], [0.36, 0.1, 0.16], [0.62, 0.72, 0.5]];
@@ -26,7 +33,7 @@ export function localTones(planet) {
 }
 export function cultureOf(planet) {
   if (cache.has(planet)) return cache.get(planet);
-  const rng = new Rng(derive(planet.seed, 'culture')), key = rng.pick(Object.keys(WAYS)), w = WAYS[key], jit = (v, a) => v * rng.range(1 - a, 1 + a);
+  const rng = new Rng(derive(planet.seed, 'culture')), key = planet.genome?.culture.ways.find(k => WAYS[k]) || rng.pick(Object.keys(WAYS).slice(0, 6)), w = WAYS[key], jit = (v, a) => v * rng.range(1 - a, 1 + a);
   const shuffled = rng.shuffle(HUES.slice()), c = {
     key, label: w.label, tower: w.tower, office: w.office, home: w.home, low: w.low,
     height: jit(w.height, 0.12), round: Math.min(0.6, jit(w.round, 0.3)), steps: jit(w.steps, 0.15), storey: jit(w.storey, 0.04), bay: jit(w.bay, 0.08), green: jit(w.green, 0.25), neon: jit(w.neon, 0.25),

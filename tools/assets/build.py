@@ -837,7 +837,7 @@ def build_textures():
     with open(ip, 'w') as f: json.dump(index, f, indent=1)
 
 # ------------------------------------------------------------------ geometry
-SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated', 'lampwarm', 'neonpink', 'neoncyan', 'neonamber', 'neongreen', 'neonviolet', 'render', 'brick', 'rooftile', 'slate', 'thatch', 'plank']
+SLOTS = ['wood', 'fabric', 'paint', 'metal', 'laminate', 'stone', 'plastic', 'rubber', 'concrete', 'soil', 'leaf', 'cardboard', 'screen', 'glass', 'tint', 'glow', 'visor', 'bark', 'rock', 'leafcard', 'needlecard', 'impconifer', 'impbroadleaf', 'birchbark', 'smoothbark', 'frondcard', 'padcard', 'hull', 'heatshield', 'hazard', 'navred', 'navgreen', 'navwhite', 'ceramic', 'mirror', 'books', 'corrugated', 'lampwarm', 'neonpink', 'neoncyan', 'neonamber', 'neongreen', 'neonviolet', 'render', 'brick', 'rooftile', 'slate', 'thatch', 'plank', 'crystal']
 # 'tint' = the item's own colour (fabric/paint tinted per instance); 'screen' glows; 'glass' is clear; 'glow' = thruster light; 'visor' = dark tinted canopy glass
 
 class Part:
@@ -2000,7 +2000,109 @@ TREES = {
                    up={2: 0.1, 1: 0.05, 0: 0.05}, droop={2: 0, 1: 0, 0: 0}, wiggle=0.12, taper=0.75, child_r=0.45, phi=2.4, sides=10, bottle=True,
                    bark='bark', card='leafcard', leaf=(1.1, 1.15), per_twig=3),
 }
-def tree_builder(name): return lambda p, L, D, H, r: grow_tree(p, L, D, H, random.Random(name), TREES[name])
+TREES.update({
+    # a palm: one long leaning, ringed stem, a crown of arching fronds
+    'palm':    dict(trunk=1.0, radius=0.2, levels=1, kids={1: 16}, start={1: 0.96}, angle={1: 72}, ratio={1: 0.34},
+                   up={1: 0.03, 0: 0.0}, droop={1: 0.0, 0: 0.5}, wiggle=0.06, taper=0.45, child_r=0.3, phi=2.4, sides=12, seg=0.5,
+                   bark='bark', card='frondcard', leaf=(1.0, 2.4), per_twig=2, along_x=True),
+    # weeping: a short trunk, long limbs that fall back to the ground in curtains
+    'weeping': dict(trunk=0.42, radius=0.34, levels=3, kids={3: 6, 2: 5, 1: 5}, start={3: 0.5, 2: 0.3, 1: 0.3}, angle={3: 55, 2: 40, 1: 30}, ratio={3: 0.9, 2: 0.65, 1: 0.7},
+                   up={3: 0.07, 2: 0.0, 1: 0.0, 0: 0.0}, droop={3: 0.0, 2: 0.16, 1: 0.32, 0: 0.45}, wiggle=0.12, taper=0.72, child_r=0.58, phi=2.4, sides=10,
+                   bark='bark', card='leafcard', leaf=(0.55, 1.5), per_twig=4, hang=True),
+})
+def _ribbed(part, base, top, R0, R1, ribs, mat, n=14, sides=24, bend=None):
+    """A ribbed column (a cactus stem, a coral tube): a tube whose section is a fluted ring, rounded off at the top."""
+    V = mathutils.Vector; bm = bmesh.new(); rings = []
+    for i in range(n + 1):
+        f = i / n; c = base.lerp(top, f) + (bend(f) if bend else V((0, 0, 0))); rr = R0 + (R1 - R0) * f
+        cap = math.sqrt(max(0.0, 1 - max(0, (f - 0.85) / 0.15) ** 2)) if R1 > 0.02 else 1.0
+        ring = []
+        for k in range(sides):
+            a = 2 * math.pi * k / sides; fl = 1 + 0.09 * math.cos(a * ribs); q = c + V((math.cos(a) * rr * fl * cap, 0, math.sin(a) * rr * fl * cap))
+            ring.append(bm.verts.new(P(q.x, q.y, q.z)))
+        rings.append(ring)
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(sides): bm.faces.new([r0[k], r0[(k + 1) % sides], r1[(k + 1) % sides], r1[k]])
+    tip = bm.verts.new(P(*(top + (bend(1) if bend else V((0, 0, 0))) + V((0, R1 * 0.25, 0))))); [bm.faces.new([rings[-1][k], rings[-1][(k + 1) % sides], tip]) for k in range(sides)]
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(part, bm, mat)
+
+def tree_columnar(p, L, D, H, r):
+    """A columnar succulent: a fluted trunk, two to four arms that bend out and up, all of it green flesh (it takes the world's colour)."""
+    V = mathutils.Vector; c = V((L / 2, 0, D / 2)); R = H * 0.07
+    _ribbed(p, c - V((0, 0.3, 0)), c + V((0, H * 0.92, 0)), R, R * 0.9, 12, 'leaf', 18, 26)
+    for k in range(r.randint(2, 4)):
+        a = r.uniform(0, 2 * math.pi); y0 = H * r.uniform(0.25, 0.55); out = r.uniform(1.4, 2.4) * R; up = H * r.uniform(0.25, 0.4); dx, dz = math.cos(a), math.sin(a)
+        s0 = c + V((0, y0, 0)); ra = R * 0.6
+        # the elbow: out of the trunk, curving up (one smooth bend, no seam), then the arm stands up from it
+        el = [s0 + V((dx * out * f_ * 0.9, up * 0.22 * f_ * f_, dz * out * f_ * 0.9)) for f_ in (0, 0.3, 0.55, 0.78, 0.95)] + [s0 + V((dx * out, up * 0.3, dz * out))]
+        tube(p, el, [ra * 1.05] + [ra] * (len(el) - 1), 'leaf', 20)
+        b0 = el[-2]; _ribbed(p, b0, b0 + V((0, up, 0)), ra, ra * 0.88, 10, 'leaf', 10, 20)
+    for k in range(60):      # spines: short pale ticks along the ribs
+        a = r.uniform(0, 2 * math.pi); y = r.uniform(0.1, 0.9) * H; q = c + V((math.cos(a) * R * 1.05, y, math.sin(a) * R * 1.05))
+        card(p, (q.x, q.y, q.z), (math.cos(a), 0.3, math.sin(a)), (0, 1, 0), 0.03, 0.12, 'bark')
+
+def tree_fungus(p, L, D, H, r):
+    """Giant fungi: a pale stalk with a ring partway up, a broad cap with gills beneath it. Two or three together, of different heights."""
+    V = mathutils.Vector
+    for k in range(r.randint(1, 3)):
+        a = r.uniform(0, 2 * math.pi); off = 0 if k == 0 else r.uniform(0.8, 1.8); h = H * (1 if k == 0 else r.uniform(0.45, 0.75)); cx, cz = L / 2 + math.cos(a) * off, D / 2 + math.sin(a) * off
+        R = h * 0.06; lean = V((r.uniform(-0.12, 0.12), 0, r.uniform(-0.12, 0.12))) * h
+        tube(p, [V((cx, -0.2, cz)), V((cx, h * 0.3, cz)) + lean * 0.2, V((cx, h * 0.7, cz)) + lean * 0.6, V((cx, h * 0.92, cz)) + lean], [R * 1.5, R * 1.05, R * 0.95, R * 0.9], 'smoothbark', 16)
+        top = V((cx, h * 0.92, cz)) + lean; Rc = h * r.uniform(0.32, 0.46)
+        bm = bmesh.new(); N, M = 32, 8; rings = []
+        for j in range(M + 1):
+            t = j / M; rr = Rc * math.sin(t * math.pi / 2) ** 0.8; y = top.y + h * 0.16 * math.cos(t * math.pi / 2) - h * 0.02 * t
+            rings.append([bm.verts.new(P(top.x + math.cos(2 * math.pi * i / N) * rr, y, top.z + math.sin(2 * math.pi * i / N) * rr)) for i in range(N)])
+        for r0, r1 in zip(rings, rings[1:]):
+            for i in range(N): bm.faces.new([r0[i], r0[(i + 1) % N], r1[(i + 1) % N], r1[i]])
+        under = [bm.verts.new(P(top.x + math.cos(2 * math.pi * i / N) * Rc * 0.95, top.y - h * 0.03, top.z + math.sin(2 * math.pi * i / N) * Rc * 0.95)) for i in range(N)]
+        for i in range(N): bm.faces.new([rings[-1][i], under[i], under[(i + 1) % N], rings[-1][(i + 1) % N]])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'leaf')
+        for i in range(48):     # gills: thin plates radiating under the cap
+            an = 2 * math.pi * i / 48; d = V((math.cos(an), 0, math.sin(an)))
+            card(p, (top.x + d.x * Rc * 0.55, top.y - h * 0.035, top.z + d.z * Rc * 0.55), d, (0, -1, 0), Rc * 0.85, h * 0.05, 'smoothbark')
+        tube(p, [top - V((0, h * 0.25, 0)) + V((0, 0, 0)), top - V((0, h * 0.24, 0))], [R * 2.2, R * 1.2], 'smoothbark', 16)     # the ring on the stalk
+
+def tree_coral(p, L, D, H, r):
+    """Tube coral grown on land: a clump of hollow fluted tubes, flaring at their open mouths, the colour of the world's life."""
+    V = mathutils.Vector
+    for k in range(r.randint(5, 9)):
+        a = r.uniform(0, 2 * math.pi); off = r.uniform(0, L * 0.18); h = H * r.uniform(0.45, 1.0); R = H * r.uniform(0.04, 0.07); cx, cz = L / 2 + math.cos(a) * off, D / 2 + math.sin(a) * off
+        lean = V((math.cos(a), 0, math.sin(a))) * h * r.uniform(0.05, 0.25)
+        # the tube: fluted, flaring to its mouth, open at the top: a lip all round and the dark throat inside it
+        bm = bmesh.new(); N, M = 20, 14; rings = []
+        for j in range(M + 1):
+            f_ = j / M; ctr = V((cx, -0.2 + (h + 0.2) * f_, cz)) + lean * f_ * f_; rr = R * (1 + 0.45 * f_ ** 3)
+            rings.append([bm.verts.new(P(*(ctr + V((math.cos(2 * math.pi * i / N) * rr * (1 + 0.08 * math.cos(16 * math.pi * i / N)), 0, math.sin(2 * math.pi * i / N) * rr * (1 + 0.08 * math.cos(16 * math.pi * i / N))))))) for i in range(N)])
+        top = V((cx, h, cz)) + lean; inner = [bm.verts.new(P(*(top + V((math.cos(2 * math.pi * i / N) * R * 1.2, -0.04, math.sin(2 * math.pi * i / N) * R * 1.2))))) for i in range(N)]
+        for r0, r1 in zip(rings, rings[1:]):
+            for i in range(N): bm.faces.new([r0[i], r0[(i + 1) % N], r1[(i + 1) % N], r1[i]])
+        for i in range(N): bm.faces.new([rings[-1][i], rings[-1][(i + 1) % N], inner[(i + 1) % N], inner[i]])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'leaf')
+        bm = bmesh.new(); vs = [bm.verts.new(P(*(top + V((math.cos(2 * math.pi * i / N) * R * 1.2, -0.3, math.sin(2 * math.pi * i / N) * R * 1.2))))) for i in range(N)]; bm.faces.new(vs)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        for fc in bm.faces:
+            fc.normal_update()
+            if fc.normal.z < 0: fc.normal_flip()      # (Blender z is up: the throat faces the sky)
+        merge(p, bm, 'rubber')
+
+def tree_crystal(p, L, D, H, r):
+    """A growth of crystal: hexagonal prisms with pointed ends, leaning out from a common root, a few small ones round the foot."""
+    V = mathutils.Vector
+    for k in range(r.randint(8, 13)):
+        big = k < 4; h = H * (r.uniform(0.6, 1.0) if big else r.uniform(0.15, 0.4)); R = h * r.uniform(0.07, 0.12)
+        a = r.uniform(0, 2 * math.pi); tilt = r.uniform(0.05, 0.45 if big else 0.8); d = V((math.cos(a) * math.sin(tilt), math.cos(tilt), math.sin(a) * math.sin(tilt))).normalized()
+        base = V((L / 2 + math.cos(a) * r.uniform(0, 0.6), -0.3, D / 2 + math.sin(a) * r.uniform(0, 0.6)))
+        n = d.orthogonal().normalized(); b = d.cross(n); bm = bmesh.new(); bot, top = [], []
+        for i in range(6):
+            an = math.pi / 3 * i; o = (n * math.cos(an) + b * math.sin(an)) * R
+            q0 = base + o; q1 = base + d * h * 0.78 + o * 0.92; bot.append(bm.verts.new(P(q0.x, q0.y, q0.z))); top.append(bm.verts.new(P(q1.x, q1.y, q1.z)))
+        tip = base + d * h; tv = bm.verts.new(P(tip.x, tip.y, tip.z))
+        for i in range(6): j = (i + 1) % 6; bm.faces.new([bot[i], bot[j], top[j], top[i]]); bm.faces.new([top[i], top[j], tv])
+        bm.faces.new(bot[::-1]); bmesh.ops.recalc_face_normals(bm, faces=bm.faces); merge(p, bm, 'crystal')
+
+TREE_FNS = {'columnar': tree_columnar, 'fungus': tree_fungus, 'coral': tree_coral, 'crystal': tree_crystal}
+def tree_builder(name): return (lambda p, L, D, H, r: TREE_FNS[name](p, L, D, H, random.Random(name))) if name in TREE_FNS else (lambda p, L, D, H, r: grow_tree(p, L, D, H, random.Random(name), TREES[name]))
 
 def fern(p, L, D, H, r):
     """Undergrowth fern: fronds arching out from a crown, cards of the frond atlas."""
@@ -2231,7 +2333,7 @@ def variants():
         ('speeder', speeder, 2.6, 1.0, 1.05),
         ('streetlamp', streetlamp, 0.6, 1.9, 6.3),
         ('conifer', conifer, 4.5, 4.5, 10), ('broadleaf', broadleaf, 7, 7, 10),
-        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in TREES], ('toilet', toilet, 0.45, 0.7, 0.8), ('basin', basin, 0.6, 0.45, 0.9), ('shower', shower, 0.9, 0.9, 2.1),
+        *[(f'tree_{k}', tree_builder(k), 8, 8, 10) for k in list(TREES) + list(TREE_FNS)], ('toilet', toilet, 0.45, 0.7, 0.8), ('basin', basin, 0.6, 0.45, 0.9), ('shower', shower, 0.9, 0.9, 2.1),
         ('tvstand', tvstand, 1.6, 0.45, 0.55), ('bookshelf', bookshelf, 1.0, 0.35, 2.0), ('armchair', armchair, 0.85, 0.85, 0.95),
         ('vase', vase, 0.18, 0.18, 0.5), ('kettle', kettle, 0.24, 0.18, 0.26), ('books', books, 0.26, 0.19, 0.14), ('lamp', lamp, 0.28, 0.28, 0.5),
         ('bowl', bowl, 0.32, 0.32, 0.13), ('mugs', mugs, 0.24, 0.12, 0.11), ('potplant', potplant, 0.3, 0.3, 0.45),

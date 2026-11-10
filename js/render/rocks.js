@@ -81,7 +81,7 @@ export class RockView {
   constructor(planet) {
     this.planet = planet; this.group = new THREE.Group(); this.group.name = 'rocks';
     this.ok = !!groundTextures(); this.sets = new Map(); this.mats = {}; this.tiles = new Map(); this.ledgeTiles = new Map(); this.queue = []; this.at = null; this.last = 0;
-    const seed = hashStr(planet.universeSeed[1] ^ 0x60ccc, planet.address?.key || 'p'), t = landTones(planet);
+    const seed = hashStr(planet.seed[1] ^ 0x60ccc, planet.address?.key || 'p'), t = landTones(planet);
     this.seed = seed;
     this.colour = { plain: planet.climate.rock.map(v => v * 1.5), sandstone: t.sandstone.map(v => v * 1.15), basalt: [0.2, 0.19, 0.19], granite: [0.62, 0.59, 0.56], pale: [0.92, 0.88, 0.8] };
     this._m = new THREE.Matrix4(); this._c = new THREE.Color(); this._p = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(); this._e = new THREE.Euler(); this._n = new THREE.Vector3(); this._q2 = new THREE.Quaternion();

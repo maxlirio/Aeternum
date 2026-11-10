@@ -28,6 +28,12 @@ export const SPECIES = {
   parasol: { tree: true, solid: 0.45, h: [6, 11], moist: 0.35, alt: 0.35, alien: true },
   spiral:  { tree: true, solid: 0.3, h: [6, 10], moist: 0.85, alt: 0.25, alien: true },
   bottle:  { tree: true, solid: 0.7, h: [5, 9], moist: 0.2, alt: 0.3, alien: true },
+  palm:    { tree: true, solid: 0.25, h: [7, 15], moist: 0.62, alt: 0.2, alien: false },
+  weeping: { tree: true, solid: 0.4, h: [7, 12], moist: 0.82, alt: 0.3, alien: false },
+  columnar:{ tree: true, solid: 0.35, h: [3, 8], moist: 0.12, alt: 0.4, alien: false },
+  fungus:  { tree: true, solid: 0.5, h: [4, 12], moist: 0.72, alt: 0.3, alien: true },
+  coral:   { tree: true, solid: 0.5, h: [3, 7], moist: 0.6, alt: 0.3, alien: true },
+  crystal: { tree: true, solid: 0.5, h: [3, 9], moist: 0.2, alt: 0.5, alien: true },
   shrub:   { solid: 0, h: [0.8, 2.0] },
   fern:    { solid: 0, h: [0.5, 1.1] },
 };
@@ -35,13 +41,15 @@ export const TREES = Object.keys(SPECIES).filter(k => SPECIES[k].tree);
 // Which trees grow on this planet: a few familiar ones and some that aren't, by the planet's seed.
 const sets = new Map();
 export function plantSet(planet) {
-  const ck = planet.universeSeed.join(':') + '|' + (planet.address?.key || '');
+  const ck = planet.seed.join(':');
   if (sets.has(ck)) return sets.get(ck);
-  const h = k => hashInts(planet.universeSeed[0] ^ 0x7ee5, [hashStr(3, planet.address?.key || 'p'), k]) / 4294967296;
-  const alien = 0.25 + 0.6 * h(0);                                   // how strange this world's plants are
-  const pool = TREES.map((k, i) => ({ k, w: (SPECIES[k].alien ? alien : 1 - alien * 0.6) * (0.4 + h(i + 1)) })).sort((a, b) => b.w - a.w);
-  const chosen = pool.slice(0, 4 + Math.floor(h(20) * 2)).map(x => x.k);
-  if (!chosen.some(k => !SPECIES[k].alien)) chosen[chosen.length - 1] = 'oak';
+  // the planet's genome says which body plans grow here (gen/genome.js); only the ones there are models for can stand yet
+  let chosen = (planet.genome?.flora.trees || []).filter(k => SPECIES[k]?.tree);
+  if (chosen.length < 3) {      // fill up from what fits the world, nearest to its strangeness
+    const alien = planet.genome ? planet.genome.weird : 0.4, h = k => hashInts(planet.seed[0] ^ 0x7ee5, [planet.seed[1], k]) / 4294967296;
+    const pool = TREES.filter(k => !chosen.includes(k)).map((k, i) => ({ k, w: (SPECIES[k].alien ? alien : 1 - alien * 0.6) * (0.4 + h(i + 1)) })).sort((a, c) => c.w - a.w);
+    chosen = chosen.concat(pool.slice(0, 3 - chosen.length + Math.floor(h(20) * 2)).map(x => x.k));
+  }
   sets.set(ck, chosen);
   return chosen;
 }
@@ -53,14 +61,14 @@ export const fellKey = p => Math.round(p.x * 4) + ',' + Math.round(p.z * 4);
 const cache = new Map();
 // Everything in the TILE × TILE square whose corner is (ti·TILE, tj·TILE).
 export function floraTile(planet, ti, tj) {
-  const ck = planet.universeSeed.join(':') + '|' + ti + ',' + tj;
+  const ck = planet.seed.join(':') + '|' + ti + ',' + tj;
   if (cache.has(ck)) return cache.get(ck);
-  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.universeSeed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE), LT = gridTraits(planet, ti * TILE, tj * TILE, TILE);
+  const out = [], C = planet.climate, n = TILE / CELL, seed = planet.seed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE), LT = gridTraits(planet, ti * TILE, tj * TILE, TILE);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b;
     const r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + 0.15 + 0.7 * r(1)) * CELL, z = (cj + 0.15 + 0.7 * r(2)) * CELL;
-    const Lt = LT(x, z, 'trees'), Ls = LT(x, z, 'shrub'), Lf = LT(x, z, 'fern');
+    const Dn = planet.genome?.flora.density ?? 1, Lt = LT(x, z, 'trees') * Dn, Ls = LT(x, z, 'shrub') * Dn, Lf = LT(x, z, 'fern') * Dn;
     if (r(3) > 0.02 + 1.3 * Lt + 0.5 * Ls + 0.6 * Lf) continue;                          // (bare land: don't even look)
     const s = surfaceAt(planet, x, z);
     if (s.town > 0.01 || s.road > 0.01 || s.deck || s.wet > 0.02 || s.h < planet.seaLevel + 2) continue;
@@ -110,9 +118,9 @@ export function floraNear(planet, x, z, R, fn) {
 export const GCELL = 0.65, GTILE = 26;
 const gcache = new Map();
 export function grassTile(planet, ti, tj) {
-  const ck = planet.universeSeed.join(':') + '|g' + ti + ',' + tj;
+  const ck = planet.seed.join(':') + '|g' + ti + ',' + tj;
   if (gcache.has(ck)) return gcache.get(ck);
-  const n = GTILE / GCELL, seed = planet.universeSeed[1] ^ 0x6a55, out = [], LG = gridTraits(planet, ti * GTILE, tj * GTILE, GTILE, 2);
+  const n = GTILE / GCELL, seed = planet.seed[1] ^ 0x6a55, out = [], LG = gridTraits(planet, ti * GTILE, tj * GTILE, GTILE, 2);
   for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
     const ci = ti * n + a, cj = tj * n + b, r = k => hashInts(seed, [ci, cj, k]) / 4294967296;
     const x = (ci + r(1)) * GCELL, z = (cj + r(2)) * GCELL;
