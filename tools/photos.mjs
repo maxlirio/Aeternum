@@ -230,7 +230,7 @@ try {
   }
   if (want('ftl')) {
     // interstellar: up out of the air, the holo map (ui/holomap.js), a jump, and out of it over another world
-    await load('hour=11&fly=runabout0');
+    await load('hour=11&fly=runabout0' + (process.env.FROM ? '&' + process.env.FROM : ''));
     await ev(`(async () => { const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'), wait = ms => new Promise(q => setTimeout(q, ms)); for (let i = 0; i < 30; i++) { f.pos[1] = 60000; f.vel = [0, 0, 0]; f.q = F.fromEuler(0.4, 0.3, 0); f.w = [0, 0, 0]; f.syncEuler(); await wait(100); } return O.inSpace; })()`);
     await shot('ftl-space');
     await ev(`(() => { const st = document.createElement('style'); st.textContent = '.holo, .holo * { visibility: visible !important; }'; document.head.append(st); ORBIS.holo(); return 1; })()`); await sleep(1500); await shot('ftl-map-stars');
