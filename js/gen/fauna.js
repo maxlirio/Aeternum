@@ -142,6 +142,60 @@ const PLANS = {
     }
     return { R, root, pelvis, chest, mid: chest, neck, head, tail, plan: 'glider', stride: 1, speed: [6, 14], ears: [], wings, nt, hr, flies: true };
   },
+
+  // ---- the body plans only some worlds have (gen/genome.js picks each world's) ----
+  // Crawler: a long low six-legged grazer, plated along its back, two long feelers it sweeps the ground with.
+  crawler(rng, size) {
+    const H = size * 0.3, L = size * 1.3, g = size * 0.2, B = beast(rng, { H, L, girth: g, legs: 6, neckUp: size * 0.02, neckOut: size * 0.16, neckR: 0.9, head: size * 0.13, headWide: 1.4, eye: 0.22, tail: size * 0.3, tailUp: -size * 0.05, legR: size * 0.032, shoulder: 0 });
+    const R = B.R, n = rng.int(6, 9);
+    for (let i = 0; i < n; i++) { const t = -L * 0.44 + (i + 0.5) / n * L * 0.88, bone = t < -L * 0.1 ? B.pelvis : t > L * 0.25 ? B.chest : B.mid; R.prim(bone, [0, H + g * 0.7, t - L * 0.05], [0, H + g * 0.82, t + L * 0.05], g * 0.75, g * 0.7, 3, { k: 0.15, flat: 0.45, wide: 1.5 }); }
+    const ears = []; for (const s of [-1, 1]) { const a = [s * B.hr * 0.4, B.nt[1] + B.hr * 0.4, B.nt[2] + B.hr * 0.8], b = [s * B.hr * 1.6, B.nt[1] + B.hr * 1.2, B.nt[2] + B.hr * 3.4], e = R.bone('ear', B.head, a); R.prim(e, a, b, B.hr * 0.1, B.hr * 0.05, 2, { k: 0.04 }); ears.push({ bone: e, side: s }); }
+    return { ...B, plan: 'crawler', stride: size * 0.35, speed: [0.6, 3.2], ears };
+  },
+  // Grazer: a great slow beast, a hump over its shoulders and a pair of swept horns. Herds of them.
+  grazer(rng, size) {
+    const H = size * 0.62, L = size * 1.05, g = size * 0.32, B = beast(rng, { H, L, girth: g, legs: 4, neckUp: size * 0.06, neckOut: size * 0.28, neckR: 0.8, head: size * 0.15, headWide: 1.1, eye: 0.26, tail: size * 0.35, tailUp: -size * 0.25, legR: size * 0.065, shoulder: size * 0.12 });
+    const R = B.R; R.prim(B.chest, [0, H + g * 0.6, L * 0.2], [0, H + g * 1.15, L * 0.38], g * 0.7, g * 0.5, 0, { k: 0.4 });
+    for (const s of [-1, 1]) { const a = [s * B.hr * 0.55, B.nt[1] + B.hr * 0.5, B.nt[2] + B.hr * 0.2], m = [s * B.hr * 1.6, B.nt[1] + B.hr * 0.9, B.nt[2] - B.hr * 0.4], e = [s * B.hr * 1.9, B.nt[1] + B.hr * 1.9, B.nt[2] - B.hr * 0.1]; R.prim(B.head, a, m, B.hr * 0.22, B.hr * 0.14, 3, { k: 0.05 }); R.prim(B.head, m, e, B.hr * 0.14, B.hr * 0.04, 3, { k: 0.05 }); }
+    return { ...B, plan: 'grazer', stride: size * 0.7, speed: [0.6, 3.6], ears: [] };
+  },
+  // Browser: tall, a long neck that reaches the canopy, a small head with fan ears, long thin legs.
+  browser(rng, size) {
+    const H = size * 0.55, L = size * 0.55, g = size * 0.17, B = beast(rng, { H, L, girth: g, legs: 4, neckUp: size * 0.62, neckOut: size * 0.18, neckR: 0.5, head: size * 0.07, eye: 0.38, tail: size * 0.2, tailUp: -size * 0.1, legR: size * 0.026, ankle: H * 0.05, shoulder: size * 0.1 });
+    const R = B.R, nt = B.nt, hr = B.hr, ears = [];
+    for (const s of [-1, 1]) { const a = [s * hr * 0.5, nt[1] + hr * 0.5, nt[2] - hr * 0.2], b = [s * hr * 2.2, nt[1] + hr * 1.1, nt[2] - hr * 0.8], e = R.bone('ear', B.head, a); R.prim(e, a, b, hr * 0.3, hr * 0.62, 1, { k: 0.08, flat: 0.25 }); ears.push({ bone: e, side: s }); }
+    return { ...B, plan: 'browser', stride: size * 0.55, speed: [0.8, 6], ears };
+  },
+  // Serpent: a long low body close to the ground on many tiny legs, a blunt head held up; it flows rather than walks.
+  serpent(rng, size) {
+    const H = size * 0.12, L = size * 1.6, g = size * 0.1, B = beast(rng, { H, L, girth: g, legs: 6, neckUp: size * 0.1, neckOut: size * 0.14, neckR: 0.9, head: size * 0.08, headWide: 1.25, eye: 0.3, tail: size * 0.9, tailUp: -size * 0.04, legR: size * 0.016, ankle: H * 0.2 });
+    return { ...B, plan: 'serpent', stride: size * 0.2, speed: [0.8, 5], ears: [] };
+  },
+  // Flock: small fast fliers, two wings and a forked tail, many together.
+  flock(rng, size) { const r = PLANS.glider(rng, size); return { ...r, plan: 'flock' }; },
+  // Jelly: a floating bell, lit from inside, trailing long soft tentacles; it drifts on the air of dense worlds.
+  jelly(rng, size) {
+    const R = new Rig(), y = size * 0.6, g = size * 0.35;
+    const root = R.bone('root', -1, [0, y, 0]), pelvis = R.bone('pelvis', root, [0, y, 0]), chest = R.bone('chest', pelvis, [0, y + g * 0.2, 0]);
+    R.prim(chest, [0, y - g * 0.1, 0], [0, y + g * 0.7, 0], g * 1.15, g * 0.5, 0, { k: 0.6, flat: 1 }); R.prim(chest, [0, y - g * 0.2, 0], [0, y + g * 0.1, 0], g * 0.95, g * 0.9, 1, { k: 0.4 });
+    let tail = null;
+    for (let k = 0; k < 7; k++) { const a = k / 7 * 6.283, x = Math.cos(a) * g * 0.6, z = Math.sin(a) * g * 0.6, pts = [[x, y - g * 0.15, z], [x * 1.1, y - size * 0.35, z * 1.1], [x * 0.9, y - size * 0.7, z * 0.9], [x * 0.7, y - size * 1.05, z * 0.7]], ch = R.chain('tent' + k, pelvis, pts, [g * 0.09, g * 0.07, g * 0.05, g * 0.02], 2, { k: 0.05 }); if (!tail) tail = ch; }
+    R.eye(chest, [g * 0.5, y + g * 0.1, g * 0.85], g * 0.12);
+    return { R, root, pelvis, chest, mid: chest, neck: [chest], head: chest, tail, plan: 'jelly', stride: 1, speed: [1.5, 4], ears: [], nt: [0, y, g], hr: g, flies: true };
+  },
+  // Burrower: low and broad, big digging claws on its forelegs, small eyes, a short stiff tail.
+  burrower(rng, size) {
+    const H = size * 0.3, L = size * 0.7, g = size * 0.24, B = beast(rng, { H, L, girth: g, legs: 4, neckUp: size * 0.02, neckOut: size * 0.12, neckR: 0.95, head: size * 0.16, headWide: 1.2, eye: 0.16, tail: size * 0.15, tailUp: size * 0.05, legR: size * 0.06 });
+    const R = B.R; for (const s of [-1, 1]) for (const k of [-1, 0, 1]) R.prim(B.chest, [s * g * 0.9, H * 0.15, L * 0.38 + k * g * 0.12], [s * g * 1.0, 0.02, L * 0.52 + k * g * 0.16], g * 0.06, g * 0.02, 3, { k: 0.03 });
+    return { ...B, plan: 'burrower', stride: size * 0.35, speed: [0.5, 4], ears: [] };
+  },
+  // Shell: a great domed shell, a head and four stumpy legs out from under it. Unhurried, and nothing bothers it.
+  shell(rng, size) {
+    const H = size * 0.3, L = size * 0.8, g = size * 0.26, B = beast(rng, { H, L, girth: g, legs: 4, neckUp: size * 0.06, neckOut: size * 0.22, neckR: 0.55, head: size * 0.1, eye: 0.26, tail: size * 0.1, tailUp: -size * 0.05, legR: size * 0.07 });
+    const R = B.R; R.prim(B.mid, [0, H + g * 0.1, -L * 0.42], [0, H + g * 0.25, L * 0.42], g * 1.45, g * 1.4, 3, { k: 0.7, flat: 0.62, wide: 1.15 });
+    for (let i = 0; i < 5; i++) { const t = -L * 0.3 + i * L * 0.15; R.prim(B.mid, [0, H + g * 0.95, t - L * 0.05], [0, H + g * 1.02, t + L * 0.05], g * 0.42, g * 0.42, 2, { k: 0.1, flat: 0.4 }); }
+    return { ...B, plan: 'shell', stride: size * 0.3, speed: [0.3, 1.6], ears: [] };
+  },
 };
 
 // Where each lives, how big, how it takes you. size: length-scale in metres. flock: how many together. fear: how close you can come. bold: fights back if hurt.
@@ -151,17 +205,36 @@ const KINDS = {
   stilter:  { sizes: [3.4, 5.2], flock: [2, 5], fear: 26, bold: false, hp: 50, lands: { forest: 0.9, meadow: 0.5, karst: 0.6, marsh: 0.4 } },
   strider:  { sizes: [1.8, 2.6], flock: [3, 9], fear: 22, bold: false, hp: 35, lands: { badlands: 1.2, dunes: 0.8, saltpan: 0.6, rockfield: 0.8, moor: 0.5, meadow: 0.4, lava: 0.3 } },
   hopper:   { sizes: [0.5, 0.8], flock: [2, 6], fear: 9, bold: false, hp: 10, lands: { forest: 1.3, meadow: 0.9, karst: 0.7, moor: 0.5, rockfield: 0.4 } },
-  glider:   { sizes: [1.6, 2.8], flock: [3, 8], fear: 0, bold: false, hp: 12, lands: { forest: 1, karst: 1, meadow: 0.6, marsh: 0.8, badlands: 0.4, moor: 0.5 } },
+  glider:   { sizes: [1.6, 2.8], flock: [3, 8], fear: 0, bold: false, hp: 12, lands: { forest: 1, karst: 1, meadow: 0.6, marsh: 0.8, badlands: 0.4, moor: 0.5, jungle: 1, spires: 1, canyon: 0.6 } },
+  crawler:  { sizes: [1.4, 2.4], flock: [3, 8], fear: 10, bold: false, hp: 30, lands: { badlands: 1, rockfield: 1, lava: 1, fungal: 1.4, crystal: 1.2, craters: 1, canyon: 0.8, jungle: 0.6 } },
+  grazer:   { sizes: [3.0, 4.6], flock: [4, 10], fear: 18, bold: true, hp: 120, lands: { meadow: 1.5, moor: 1, ice: 0.6, marsh: 0.5, karst: 0.4 } },
+  browser:  { sizes: [4.5, 6.5], flock: [2, 5], fear: 28, bold: false, hp: 70, lands: { forest: 1, jungle: 1.4, meadow: 0.6, karst: 0.6, spires: 0.6 } },
+  serpent:  { sizes: [2.5, 4.5], flock: [1, 3], fear: 12, bold: true, hp: 45, lands: { dunes: 1.2, jungle: 1, marsh: 1, fungal: 0.8, canyon: 0.6, crystal: 0.5 } },
+  flock:    { sizes: [0.7, 1.1], flock: [8, 16], fear: 0, bold: false, hp: 5, lands: { meadow: 1, forest: 1, marsh: 1, moor: 1, karst: 1, jungle: 1, spires: 1, canyon: 1, dunes: 0.5, ice: 0.5 } },
+  jelly:    { sizes: [1.5, 3.2], flock: [3, 7], fear: 0, bold: false, hp: 15, lands: { fungal: 1.5, marsh: 1, jungle: 0.8, meadow: 0.6, crystal: 0.8, forest: 0.5 } },
+  burrower: { sizes: [0.7, 1.2], flock: [2, 5], fear: 12, bold: false, hp: 18, lands: { dunes: 1, badlands: 1, meadow: 0.6, ice: 0.8, craters: 1.2, canyon: 0.8, saltpan: 0.6 } },
+  shell:    { sizes: [1.2, 2.2], flock: [1, 4], fear: 3, bold: true, hp: 160, lands: { rockfield: 1, lava: 1, crystal: 1.2, craters: 1, dunes: 0.6, saltpan: 0.8, marsh: 0.4 } },
 };
+// the old six reach the new kinds of country too
+for (const [k, more] of Object.entries({ trundler: { ice: 0.6, fungal: 0.5 }, rooter: { jungle: 1.4, fungal: 0.8 }, stilter: { jungle: 1, spires: 0.6 }, strider: { canyon: 1, craters: 0.6, crystal: 0.6, spires: 0.8 }, hopper: { jungle: 0.8, ice: 0.5, spires: 0.6 } })) Object.assign(KINDS[k].lands, more);
 const SYL = [['Bar', 'Tol', 'Nes', 'Vor', 'Ka', 'Ool', 'Ren', 'Mu', 'Sha', 'Dra', 'Pel', 'Gri'], ['u', 'a', 'o', 'i', 'e', 'ai'], ['ma', 'th', 'n', 'rl', 'sk', 'ba', 'dor', 'lim', 'ri', 'vex']];
 
+function hueCoat(h, rng) {
+  const hsv = (h, s, v) => { h -= Math.floor(h); const i = Math.floor(h * 6), f = h * 6 - i, p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s); return [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i % 6]; };
+  const s = rng.range(0.3, 0.6), v = rng.range(0.32, 0.5);
+  return [hsv(h, s, v), hsv(h + 0.04, s * 0.4, Math.min(0.85, v * 1.7)), hsv(h - 0.05, s * 1.2, v * 0.5), hsv(h + 0.5, s * 0.6, v * 1.1)];
+}
 const memo = new WeakMap();
 export function speciesOf(planet) {
   let list = memo.get(planet); if (list) return list;
   list = [];
-  for (const plan of Object.keys(PLANS)) {
-    const rng = new Rng(derive(planet.seed, 'fauna', [plan.length, plan.charCodeAt(1)])), K = KINDS[plan], size = rng.range(...K.sizes), coat = COATS[rng.int(0, COATS.length - 1)], name = rng.pick(SYL[0]) + rng.pick(SYL[1]) + rng.pick(SYL[2]);
-    list.push({ id: plan, plan, name, size, coat, pattern: rng.int(0, 3), patternSeed: rng.int(0, 99999), skin: plan === 'trundler' ? 'hide' : plan === 'strider' ? 'scales' : 'pelt', rig: null, K, seed: rng.int(0, 2 ** 30), height: size });
+  const G = planet.genome, plans = G ? G.fauna.plans.filter(k => PLANS[k]) : Object.keys(PLANS).slice(0, 6);
+  if (G?.noGround) { for (const k of ['jelly', 'flock', 'glider']) if (!plans.includes(k)) plans.push(k); plans.splice(0, plans.length, ...plans.filter(k => KINDS[k].fear === 0)); }      // (a world with no ground: only what flies or floats)
+  for (const plan of plans) {
+    const rng = new Rng(derive(planet.seed, 'fauna', [plan.length, plan.charCodeAt(1), plan.charCodeAt(2)])), K = KINDS[plan], size = rng.range(...K.sizes) * (G ? G.fauna.stretch.bulk : 1), name = rng.pick(SYL[0]) + rng.pick(SYL[1]) + rng.pick(SYL[2]);
+    // the coat: a natural one, or on a strange world one in the world's own hues (gen/genome.js coatHue)
+    const coat = G && G.weird > 0.4 && rng.chance(0.4 + 0.5 * G.weird) ? hueCoat(G.fauna.coatHue + rng.range(-0.08, 0.08), rng) : COATS[rng.int(0, COATS.length - 1)];
+    list.push({ id: plan, plan, name, size, coat, pattern: rng.int(0, 3), patternSeed: rng.int(0, 99999), skin: ['trundler', 'grazer', 'shell'].includes(plan) ? 'hide' : ['strider', 'serpent', 'crawler'].includes(plan) ? 'scales' : plan === 'jelly' ? 'chitin' : 'pelt', rig: null, K, seed: rng.int(0, 2 ** 30), height: size });
   }
   memo.set(planet, list);
   return list;
@@ -179,6 +252,7 @@ export function herdInTile(planet, ti, tj) {
   const sps = speciesOf(planet); let tot = 0; const W = sps.map(S => { const v = S.K.lands[land.kind] || 0; tot += v; return v; });
   if (r(3) > Math.min(0.85, tot * 0.32)) return null;
   const s = surfaceAt(planet, x, z); if (s.h < planet.seaLevel + 2 || s.town > 0.02) return null;
+  if (planet.genome?.noGround && s.h < planet.genome.cloud.deck + 100) return null;      // (no herds in the abyss: only over the decks)
   let q = r(4) * tot, sp = null; for (let i = 0; i < sps.length; i++) { q -= W[i]; if (q < 0) { sp = sps[i]; break; } } sp = sp || sps[0];
   const n = sp.K.flock[0] + Math.floor(r(5) * (sp.K.flock[1] - sp.K.flock[0] + 1));
   return { id: `h${ti},${tj}`, sp, x, z, n, seed: hashInts(planet.seed[1], [ti, tj]) };

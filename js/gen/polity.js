@@ -3,19 +3,28 @@
 // Laws are data — later polities (nations, corporations) will supply different tables.
 import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
+import { townSociety } from './society.js';
+// the authority and its enforcers, by the form of government (gen/genome.js GOVERNMENTS); the town's name or its nation's in them
+const FORMS = {
+  charter: (t, n) => [`${n} Company, ${t} Office`, `${n} Company Security`], guild: t => [`Guilds of ${t}`, `${t} Guild Watch`], council: t => [`Council of ${t}`, `${t} Civic Security`],
+  house: (t, n) => [`House ${n}, ${t} Seat`, `House ${n} Guard`], junta: (t, n) => [`${n} Military Authority, ${t}`, `${n} Military Police`], temple: t => [`Temple of ${t}`, `${t} Temple Wardens`],
+  commune: t => [`${t} Workers' Commune`, `${t} People's Militia`], syndicate: (t, n) => [`The ${n} Syndicate`, `Syndicate enforcers`],
+};
 
 const cache = new Map();
 export function getPolity(planet, s) {
-  const ck = planet.universeSeed.join(':') + '|' + s.key;
+  const ck = planet.seed.join(':') + '|' + s.key;
   if (cache.has(ck)) return cache.get(ck);
   const rng = new Rng(derive(s.address.seed(planet.universeSeed), 'polity'));
   // the administration building nearest the centre houses Civic Security
   const offices = s.buildings.filter(b => b.type === 'office').map(b => [b, Math.hypot((b.rect[0] + b.rect[2]) / 2, (b.rect[1] + b.rect[3]) / 2)]).sort((a, c) => a[1] - c[1]);
-  const strict = rng.range(0.7, 1.5);
+  const soc = townSociety(planet, s), strict = rng.range(0.7, 1.5) * (soc ? soc.law : 1);      // (a junta's law is hard, a syndicate's loose)
+  const named = soc ? FORMS[soc.government]?.(s.name, soc.nation.name) : null;
   const polity = {
-    name: rng.pick([`${s.name} Civic Authority`, `Council of ${s.name}`, `${s.name} Municipal Board`]),
+    name: named ? named[0] : rng.pick([`${s.name} Civic Authority`, `Council of ${s.name}`, `${s.name} Municipal Board`]),
+    government: soc?.govLabel || 'council', nation: soc?.nation.name || null, industry: soc?.industryLabel || null,
     security: offices[0]?.[0].key || null,
-    securityName: `${s.name} Civic Security`,
+    securityName: named ? named[1] : `${s.name} Civic Security`,
     strictness: strict,
     currency: 'cr',
     // offence → base fine (credits) and whether it goes on your record

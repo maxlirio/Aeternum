@@ -50,7 +50,15 @@ export function bareSurfaceAt(planet, x, z, far = false, step = 0) {
 export function surfaceAt(planet, x, z, far = false, step = 0) {
   const b = bareSurfaceAt(planet, x, z, far, step), pad = padAt(planet, x, z);
   if (pad) b.h = lerp(b.h, pad.h, pad.w * (1 - (b.roadW || 0)));
+  if (planet.craters?.length) b.h -= craterAt(planet, x, z);
   return b;
+}
+// Craters blown in the ground (sim/fleetwar.js, main.js): part of the save, laid over what's generated like a felled tree.
+// A bowl with a raised, broken rim; the ground thrown out round it.
+export function craterAt(planet, x, z) {
+  let d = 0;
+  for (const C of planet.craters) { const r = Math.hypot(x - C.x, z - C.z) / C.r; if (r >= 1.6) continue; const v = r < 1 ? C.d * (1 - r * r) - C.d * 0.18 * r ** 4 : -C.d * 0.18 * ((1.6 - r) / 0.6) ** 2; if (Math.abs(v) > Math.abs(d)) d = v; }
+  return d;
 }
 
 // The top of a bridge at (x, z), if there is one there: { h } or null. Only ever looked up where there's a river.

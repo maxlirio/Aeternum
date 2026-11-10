@@ -118,7 +118,7 @@ export class SkySystem {
     fogDay.lerp(new THREE.Color(0.42, 0.55, 0.78), THREE.MathUtils.smoothstep(alt, 300, 3000) * 0.72);    // (from up high, haze is the colour of the sky behind it, or far towers glow white against it)
     const fog = new THREE.Color(0.012, 0.016, 0.03).lerp(fogDay, day);
     this.scene.fog.color.copy(fog);
-    this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0)) * Math.exp(-Math.max(0, alt) / 7000);
+    this.scene.fog.density = (0.00009 + 0.00006 * this.planet.atmosphere.turbidity / 6) * (1 + 2.5 * (w ? w.rain : 0)) * Math.exp(-Math.max(0, alt) / 7000) * (this.planet.genome?.noGround ? 0.28 : 1);      // (a cloud world's upper air is clear: you see from city to city)
     this.renderer.toneMappingExposure = 0.7 - 0.1 * day;
     // regenerate the environment map when the sun has moved noticeably
     if (!this.lastEnvDir || this.lastEnvDir.angleTo(dir) > 0.02) {

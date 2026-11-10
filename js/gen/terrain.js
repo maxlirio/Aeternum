@@ -3,6 +3,7 @@
 import { clamp, smoothstep } from '../core/noise.js';
 import { shapeLand, setLandBase, landRill, landRough } from './land.js';
 import { globeOf, canon, seamAt, continentDrop, cornerDrop, HOME_LAND } from './globe.js';
+import { skyHeight } from './skyisles.js';
 
 // The bare continental shape: sea, ranges and rolling hills, before the kinds of land work on it.
 export function baseHeight(planet, x, z) {
@@ -33,10 +34,14 @@ export function baseHeight(planet, x, z) {
 const DEFAULT_T = { warp: 900, contScale: 14000, contAmp: 260, contBias: 40, mountAmp: 820, mountScale: 3200, mountFrom: 0.05, mount: 'ridged', hillAmp: 55, hillScale: 800, terrace: 0, spire: 0 };
 setLandBase(baseHeight);
 
-const plain = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));
+const plain0 = (planet, x, z) => shapeLand(planet, x, z, baseHeight(planet, x, z));
+// a town built out over the water (gen/settlement.js onWater): its deck stands on piles above the sea; under it and around it, the sea floor as it was
+let townNearFn = null; export const bindWaterTowns = f => { townNearFn = f; };
+const plain = (planet, x, z) => { const h = plain0(planet, x, z); if (h < planet.seaLevel + 3 && townNearFn && planet.genome) { const s = townNearFn(planet, x, z); if (s?.onWater && Math.hypot(x - s.cx, z - s.cz) < s.R + 40) return s.h; } return h; };
 // The land at (x, z) on the planet. Near home the pattern simply runs on; further out, oceans lie over it, and along a seam
 // of the unfolded globe (gen/globe.js) the two sides are blended so a walk across doesn't meet a cliff.
 export function rawHeight(planet, x, z) {
+  if (planet.genome?.noGround) return skyHeight(planet, x, z);          // (a world with no ground: decks in the air, gen/skyisles.js)
   if (x * x + z * z < HOME_LAND * HOME_LAND) return plain(planet, x, z);
   const G = globeOf(planet), [a, b] = canon(G, x, z), S = seamAt(G, a, b);
   let h = plain(planet, a, b); if (S) h += (plain(planet, S.x, S.z) - h) * S.w;
@@ -96,6 +101,7 @@ function stripes(planet, x, z, o) {
 }
 // How far the ground here stands above or below its planned height. step: how far apart the caller's samples are (0: as finely as it can be asked).
 export function weathering(planet, x, z, h, step = 0) {
+  if (planet.genome?.noGround) return 0;
   const sea = planet.seaLevel; if (h < sea - 3) return 0;
   // the small roughness of the ground, only at sizes the sampling can hold. Finer than that it aliases into flakes.
   const rough = landRough(planet, x, z), D = planet.noise.detail; let bumps = 0;

@@ -21,7 +21,7 @@ export function makePlanet(universeSeed, address) {
     address, seed, universeSeed, genome,
     name: planetName(rng),
     climate,
-    seaLevel: 0,
+    seaLevel: genome.noGround ? -100000 : 0,          // (a cloud world has no sea: the clouds are render/skyisles.js)
     dayLength: Math.round(rng.range(19, 31) * 3600),       // seconds per solar day
     axialTilt: rng.range(0.05, 0.42),                       // radians
     latitude: rng.range(-0.7, 0.7),                         // of the surface patch M1 uses

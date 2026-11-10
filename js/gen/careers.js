@@ -21,6 +21,10 @@ export const ROLES = {
   // 'Store owner' is not a role you can apply for: the owner owns the shop.
 };
 export const SKILLS = { admin: 'Administration', trade: 'Trade', tech: 'Technical' };
+// every industry's trades (gen/genome.js INDUSTRIES): hands-on work, mostly technical; the last of each list runs the place
+import { INDUSTRIES } from './genome.js';
+for (const I of Object.values(INDUSTRIES)) I.jobs.forEach((t, i) => { if (ROLES[t]) return; const head = i === I.jobs.length - 1 && /foreman|skipper|chief|grower|forester|vet|agronomist|chemist|assayer|operator|grader/i.test(t);
+  ROLES[t] = head ? { skill: 'tech', min: 0.55, wage: 40 + 4 * (t.length % 4), senior: true } : { skill: /trader|packer|grader|picker/i.test(t) ? 'trade' : 'tech', min: 0.05 + 0.1 * i, fitness: 0.3, wage: 19 + 4 * i + (t.length % 5) }; });
 export const RANKS = ['', 'Senior ', 'Lead '];
 // promotion to rank r needs this many good shifts and this much skill above the role's minimum
 export const PROMOTE = [null, { shifts: 8, margin: 0.15 }, { shifts: 20, margin: 0.3 }];

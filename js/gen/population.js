@@ -14,6 +14,15 @@ import { buildingPlan } from './building.js';
 import { givenName, surname } from './names.js';
 import { getPolity } from './polity.js';
 import { holdingCell } from './custody.js';
+import { townSociety } from './society.js';
+import { gangsOf } from './gangs.js';
+import { INDUSTRIES } from './genome.js';
+// A town's works are its industry's (gen/society.js): a crystal town's workshops cut crystal, a fishing port's are its boat sheds.
+function industryJob(type, soc) {
+  if (!soc || (type !== 'workshop' && type !== 'hangar')) return null; const I = INDUSTRIES[soc.industry]; if (!I) return null; const J = I.jobs;
+  if (type === 'workshop') return { work: { title: J[0], hours: [[6, 15]] }, machine: J[1] !== J[J.length - 1] ? J[1] : null, head: J[J.length - 1] };
+  return J.length > 3 ? { work: { title: J[2], hours: [[6, 14], [14, 22]] }, head: 'Hangar chief' } : null;
+}
 
 const JOB = {
   office: { work: { title: 'Clerk', hours: [[8, 17]] }, head: 'Office manager' },
@@ -85,9 +94,9 @@ function generate(planet, s) {
   }
 
   // ---- jobs (one per work anchor in a workplace; some anchors run two shifts)
-  const polity = getPolity(planet, s), securityHQ = polity.security, cellRoom = holdingCell(planet, s, polity)?.room.i;
+  const soc = townSociety(planet, s), polity = getPolity(planet, s), securityHQ = polity.security, cellRoom = holdingCell(planet, s, polity)?.room.i;
   for (const b of s.buildings) {
-    const J = JOB[b.type];
+    const J = industryJob(b.type, soc) || JOB[b.type];
     if (!J) continue;
     const plan = buildingPlan(planet, s, b);
     // (the holding cell in the security office is nobody's office)
@@ -95,7 +104,7 @@ function generate(planet, s) {
     work.forEach(({ a, i }, n) => {
       const prop = plan.props[a.prop];
       if (b.key === securityHQ) { // the security office runs day and evening shifts, mostly on patrol
-        for (const hours of [[6, 14], [14, 22]]) pop.jobs.push({ id: `${b.key}/job${pop.jobs.length}`, b: b.key, bType: b.type, employer: 'Civic Security', anchor: i, title: n === 0 ? 'Security chief' : 'Security officer', hours, holder: null, security: true, patrol: n !== 0 });
+        for (const hours of [[6, 14], [14, 22]]) pop.jobs.push({ id: `${b.key}/job${pop.jobs.length}`, b: b.key, bType: b.type, employer: polity.securityName, anchor: i, title: n === 0 ? 'Security chief' : 'Security officer', hours, holder: null, security: true, patrol: n !== 0 });
         return;
       }
       const title = n === 0 ? J.head : prop?.kind === 'machine' && J.machine ? J.machine : J.work.title;
@@ -106,7 +115,7 @@ function generate(planet, s) {
   // ---- employment: working-age adults, in a shuffled order, take open jobs
   const candidates = rng.shuffle(pop.people.filter(p => p.age >= 18 && p.age <= 66));
   // taken from the end: security first, then each workplace's head, then everyone else
-  const isHead = j => j.title === JOB[j.bType]?.head;
+  const isHead = j => j.title === JOB[j.bType]?.head || j.title === industryJob(j.bType, soc)?.head;
   // a town keeps a security force in proportion to its size (chief + officers); spare posts stay open
   const chief = j => j.title === 'Security chief', sec = pop.jobs.filter(j => j.security);
   const force = sec.filter(j => !chief(j)).slice(0, Math.max(2, Math.round(candidates.length * 0.07)) - 2).concat(sec.filter(chief));
@@ -125,6 +134,8 @@ function generate(planet, s) {
   }
   pop.jobById = new Map(pop.jobs.map(j => [j.id, j]));
   pop.buildingByKey = new Map(s.buildings.map(b => [b.key, b]));
+  // the town's crews (gen/gangs.js): who's in one, looked up by the day plans
+  { let G = null; pop.gangOf = id => (G ||= gangsOf(planet, s, pop)).find(q => q.members.includes(id)) || null; }
   return pop;
 }
 

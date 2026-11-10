@@ -6,6 +6,16 @@ import * as THREE from 'three';
 import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
 import { HOMEWORLD, Address } from './core/address.js';
 import { setTownCulture } from './render/materials.js';
+import { SkyIslesView } from './render/skyisles.js';
+import { HarbourView } from './render/harbour.js';
+import { FleetWar } from './sim/fleetwar.js';
+import { marketOf, priceAt, holdSize, goodName } from './gen/trade.js';
+import { townSociety, nationsOf } from './gen/society.js';
+import { gangsOf } from './gen/gangs.js';
+import { FrontBattle, frontsOf, RANKS } from './sim/front.js';
+import { FleetWarView } from './render/fleetwar.js';
+import { noteExplored } from './world/gencache.js';
+import { isCloudWorld, cloudOf } from './gen/skyisles.js';
 import { cultureOf } from './gen/culture.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address } from './gen/settlement.js';
@@ -40,7 +50,7 @@ import { startingSkills } from './gen/character.js';
 import { getPolity } from './gen/polity.js';
 import { advanceBody, moveSpeedFactor } from './sim/processes/character.js';
 import { catchUp } from './sim/offline.js';
-import { whereAt } from './gen/schedule.js';
+import { whereAt, dayIndex } from './gen/schedule.js';
 import { CapitalView } from './render/capital.js';
 import { ThrustView } from './render/thrust.js';
 import { fleetOf, fleetContact } from './gen/capital.js';
@@ -243,6 +253,7 @@ async function start(fresh) {
   let cityRooms = null;        // walk-in city buildings (made once the collision world exists)
   const pipes = new PipeView(); root.add(pipes.group);
   root.add(bridgeGroup(planet, s));
+  const harbour = isCloudWorld(planet) ? null : new HarbourView(planet, k => cityView.kit(k), propLib); if (harbour) root.add(harbour.group);      // (towns out over the water, their piles and jetties; fishing boats working from every harbour)
   const outposts = new OutpostView(planet, propLib, k => k.startsWith('gb_') ? (propLib ? buildingParts(planet, k, propLib.wornSurface) : null) : k.startsWith('sm_') ? (propLib ? smallParts(planet, k, propLib.wornSurface) : null) : cityView.kit(k)); root.add(outposts.group);
   let goods = null;
   let roadRules = null, roadLimit = null;
@@ -250,11 +261,16 @@ async function start(fresh) {
   let doorView = new DoorView(s, town.doors);
   town.group.add(doorView.mesh);
   let doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
-  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet), roadView = new RoadView(planet, root), globeView = new GlobeView(planet, scene);
+  const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet, { onExplore: (ci, cj) => { if (noteExplored(store.player, ci, cj)) store.touchPlayer(); } }),      // (where you've been goes in the save; what was worked out there in world/gencache.js)
+    roadView = new RoadView(planet, root), globeView = new GlobeView(planet, scene);
   let inSpace = false, geoAtX = 0, geoAtZ = 0;
   const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
   const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
   const sea = makeSea(planet); scene.add(sea);
+  // a world with no ground (gen/skyisles.js): no land to stream, no sea; its decks and the cloud sea below instead
+  const cloudW = isCloudWorld(planet), altRef = cloudW ? cloudOf(planet).deck : planet.seaLevel;
+  const skyIsles = cloudW ? new SkyIslesView(planet, propLib) : null; if (skyIsles) root.add(skyIsles.group);
+  if (cloudW) sea.visible = false;
   // where someone told you to go: a tall pale beam you can see over the rooftops
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 120, 12, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, fog: false }));
   beam.visible = false; scene.add(beam);          // (not 'water': that's the plant-watering action)
@@ -299,7 +315,7 @@ async function start(fresh) {
 
   // warm up the terrain around the player before revealing the world
   for (let i = 0; terrain.pending || i === 0; i++) {
-    terrain.update(player.pos[0], player.pos[2], 40);
+    if (!cloudW) terrain.update(player.pos[0], player.pos[2], 40);
     ui.loading('Streaming terrain…', 0.7 + 0.3 * Math.min(1, i / 40));
     await tick();
     if (i > 400) break;
@@ -960,7 +976,8 @@ async function start(fresh) {
   }
   async function flyFlow(b) {
     const sh = shipById(b.ship.id), t = clock.now(), opts = [];
-    if (shipIsYours(sh, player)) opts.push({ a: 'launch', label: 'Take off', note: 'Space climb · Q descend · W/S thrust · A/D turn · Shift boost · E lands when you\'re down and slow' });
+    if (shipIsYours(sh, player)) { opts.push({ a: 'launch', label: 'Take off', note: 'Space climb · Q descend · W/S thrust · A/D turn · Shift boost · E lands when you\'re down and slow' });
+      const here = sh.at ? settlementNear(planet, sh.at.c[0], sh.at.c[2]) : s; if (here && marketOf(planet, here, dayIndex(planet, t)).length) opts.push({ a: 'trade', label: `Trade cargo at ${here.name}`, note: `${holdOf(sh).n} of ${holdSize(LAYOUTS[sh.model])} crates in the hold` }); }
     else {
       if (sh.forSale) opts.push({ a: 'buy', label: `Buy the ${sh.name} — ${PRICES[sh.model]} cr`, note: `You have ${player.credits ?? 0} cr`, disabled: (player.credits ?? 0) < PRICES[sh.model] });
       opts.push({ a: 'steal', label: 'Override the lockout and take off', note: `It belongs to ${esc(sh.ownerName)}. <b>That's stealing a ship.</b>` });
@@ -968,12 +985,63 @@ async function start(fresh) {
     let pick = null;
     await modal(async () => { pick = await ui.choose({ title: `${sh.name} — helm`, sub: `${shipIsYours(sh, player) ? 'Your ship.' : esc(sh.ownerName) + '\'s ship.'} ${({ freighter: 'A cargo freighter: a high hold, a crew deck with two bunks, a two-seat flight deck.', courier: 'A small fast courier: a cabin and a two-seat cockpit.', patrol: 'Civic Security\'s patrol ship.', yacht: 'A private yacht: a lounge, a galley, a stateroom and a bridge.' })[sh.model] || 'A short-range shuttle: a cargo hold, a bunk and a galley.'}`, options: opts }); });
     if (!pick || pick.a === 'close') return;
+    if (pick.a === 'trade') { await tradeFlow(sh, sh.at ? settlementNear(planet, sh.at.c[0], sh.at.c[2]) : s); return; }
     if (pick.a === 'buy') { const r = buyShip(store, sh, t); ui.toast(r.ok ? `The ${esc(sh.name)} is yours. Sit at the helm again to take off.` : r.why, r.ok ? '' : 'warn'); syncShips(); return; }
     if (pick.a === 'steal') {
       const seen = witnessesHere(), inc = stealShip(store, s, sh, t, seen); lodgeIncident(ctx, inc);
       ui.toast(`You overrode the ${esc(sh.name)}'s lockout. ${seen.length ? `<b>${seen} ${seen === 1 ? 'person' : 'people'} saw you.</b>` : 'Nobody saw you.'}`, 'bad', 8000);
     }
     takeOff(allShips(clock.now()).find(x => x.id === sh.id));
+  }
+  // ---- trade (gen/trade.js): crates in your ship's hold, bought where they're made, sold where they're wanted
+  // ---- gangs on their corners (gen/gangs.js)
+  let turfT = 0, turfWarned = null, turfTick = 0, scorchTick = 0;
+  function gangTick(dt) {
+    if ((turfTick -= dt) > 0 || flight || ride || !pop.gangOf) return; turfTick = 0.5;
+    const t = clock.now(), hr = (t % planet.dayLength) / planet.dayLength * 24, night = hr > 20 || hr < 3.5;
+    // a member's cut, once a day
+    if (player.gang && player.gangTown === s.key || player.gang?.startsWith(s.key)) { const d = Math.floor(t / planet.dayLength); if (player.gangDay !== d) { if (player.gangDay != null) { const cut = 30 + (d % 5) * 12; player.credits = (player.credits ?? 0) + cut; ui.toast(`Your cut from ${esc(player.gangName)}'s business: <b>${cut} cr</b>.`, '', 5000); } player.gangDay = d; store.touchPlayer(); } }
+    const G = night ? gangsOf(planet, s, pop).find(q => Math.hypot(ctrl.pos[0] - q.turf.x, ctrl.pos[2] - q.turf.z) < q.turf.r) : null;
+    if (!G || player.gang === G.id) { turfT = 0; return; }
+    const out = G.members.filter(id => { const w = whereAt(pop, pop.byId.get(id), t); return w.activity === 'with the gang'; }); if (out.length < 2) return;
+    turfT += 0.5;
+    if (turfWarned !== G.id) { turfWarned = G.id; ui.toast(`<b>${esc(G.name)}</b> are out on their corner. Someone calls out: "Wrong street, friend."`, 'warn', 6000); return; }
+    if (turfT > 8) { turfT = -40; const take = Math.min(player.credits ?? 0, 40 + Math.floor(Math.random() * 60)); player.credits = (player.credits ?? 0) - take; store.touchPlayer();
+      store.log({ t, type: 'mugged', who: player.id, by: G.name, amount: take, town: s.name, at: [Math.round(ctrl.pos[0]), Math.round(ctrl.pos[2])] });
+      ui.toast(take ? `${esc(G.name)} close round you and go through your pockets: <b>${take} cr</b> gone.` : `${esc(G.name)} close round you, find nothing worth taking, and shove you on your way.`, 'bad', 8000); hurtPlayer(take ? 6 : 12, G.name); }
+  }
+  // ---- soldiering (sim/front.js): enlisted with your town's nation, flown to the front in an issued fighter
+  async function deployFlow() {
+    const S = player.soldier, nat = townSociety(planet, s)?.nation; if (!S || !nat) return;
+    const Fs = frontsOf(planet, nat); if (!Fs.length) { ui.toast('Nowhere to send you: there\'s no fighting on our borders today.', 'warn'); return; }
+    const F = Fs[0], sh = { id: 'issued:' + Math.floor(clock.now()), model: ['interceptor', 'striker', 'warden'][S.rank % 3], name: `${nat.name} ${RANKS[S.rank]} ${player.name.split(' ').pop()}`, colour: 4 };
+    const x = F.x - Math.sin(F.dir) * 6000, z = F.z - Math.cos(F.dir) * 6000, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel) + 900;
+    flight = new Flight(world, planet, sh, [x, y, z], F.dir); flight.onGround = false; flight.vel = [Math.sin(F.dir) * 150, 0, Math.cos(F.dir) * 150]; flight.throttle = 0.7; flight.issued = { x: F.x, z: F.z };
+    ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; joinWar();
+    ui.toast(`<b>Deployed.</b> A transport drops you at the staging field and you're in the air in a ${esc(sh.model)}, 6 km short of the ${esc(F.b.name)} line. Bring down what comes at you.`, '', 10000);
+  }
+  function endDeployment() {
+    leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk';
+    const hq = pop.buildingByKey.get(polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [s.cx, s.h, s.cz]; ctrl.pos = [at[0], s.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0];
+    ui.toast(`Deployment over: you hand the fighter back and a transport brings you home. <small>${RANKS[player.soldier.rank]} · ${player.soldier.kills || 0} kills</small>`, '', 8000);
+  }
+  function holdOf(sh) { const H = store.getDelta('hold/' + sh.id) || { goods: {} }; H.n = Object.values(H.goods).reduce((a, b) => a + b, 0); return H; }
+  async function tradeFlow(sh, town) {
+    let note = '';
+    await modal(async () => {
+      for (;;) {
+        const day = dayIndex(planet, clock.now()), M = marketOf(planet, town, day), H = holdOf(sh), cap = holdSize(LAYOUTS[sh.model]), soc = townSociety(planet, town), opts = [];
+        for (const g of M) { opts.push({ a: 'buy', v: g.good, label: `Buy a crate of ${g.name.toLowerCase()} — ${g.buy} cr`, note: g.made ? `made here: cheap` : 'shipped in', disabled: (player.credits ?? 0) < g.buy || H.n >= cap }); if (H.goods[g.good]) opts.push({ a: 'sell', v: g.good, label: `Sell a crate of ${g.name.toLowerCase()} — ${g.sell} cr`, note: `${H.goods[g.good]} in the hold` }); }
+        for (const [g, n] of Object.entries(H.goods)) if (n && !M.some(q => q.good === g)) { const [, sp] = priceAt(planet, town, g, day); opts.push({ a: 'sell', v: g, label: `Sell a crate of ${goodName(g).toLowerCase()} — ${sp} cr`, note: `${n} in the hold · nobody makes it here` }); }
+        const r = await ui.choose({ title: `${town.name} — freight market`, sub: `${esc(soc?.industryLabel ? town.name + ' lives by ' + soc.industryLabel : '')}. You have ${player.credits ?? 0} cr. Hold: ${H.n} of ${cap} crates.${note ? ' ' + note : ''}`, options: opts });
+        if (!r || r.a === 'close') break;
+        const [bp, sp] = priceAt(planet, town, r.v, day);
+        if (r.a === 'buy') { player.credits -= bp; H.goods[r.v] = (H.goods[r.v] || 0) + 1; note = `Bought a crate of ${goodName(r.v).toLowerCase()}.`; }
+        else { player.credits = (player.credits ?? 0) + sp; H.goods[r.v]--; if (!H.goods[r.v]) delete H.goods[r.v]; note = `Sold a crate of ${goodName(r.v).toLowerCase()} for ${sp} cr.`; }
+        store.patchDelta('hold/' + sh.id, { goods: { ...H.goods } }); store.touchPlayer();
+        if (r.a === 'sell') store.log({ t: clock.now(), type: 'trade', who: player.id, good: r.v, price: sp, town: town.name });
+      }
+    });
   }
   function takeOff(sh) {
     const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
@@ -990,7 +1058,7 @@ async function start(fresh) {
   let docking = null;
   function dockTarget() {
     if (!flight || docking) return null; let best = null, bd = 1500;
-    for (const C of fleet) { const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), m = [at.c[0] - fx * C.deckD / 2, at.c[1], at.c[2] - fz * C.deckD / 2], d = Math.hypot(flight.pos[0] - m[0], flight.pos[1] - m[1], flight.pos[2] - m[2]), near = Math.max(0, Math.hypot(flight.pos[0] - C.x, flight.pos[1] - C.y, flight.pos[2] - C.z) - (C.span || C.length) * 0.55), q = Math.min(d, near * 2.5 + 200); if (q < bd) { bd = q; best = { C, d }; } }     // (near the hull anywhere counts, not just near the bay's mouth: on a ship five kilometres long you can be beside it and a long way from its door)
+    for (const C of fleet) { if (fleetWar.away(C.model)) continue; const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), m = [at.c[0] - fx * C.deckD / 2, at.c[1], at.c[2] - fz * C.deckD / 2], d = Math.hypot(flight.pos[0] - m[0], flight.pos[1] - m[1], flight.pos[2] - m[2]), near = Math.max(0, Math.hypot(flight.pos[0] - C.x, flight.pos[1] - C.y, flight.pos[2] - C.z) - (C.span || C.length) * 0.55), q = Math.min(d, near * 2.5 + 200); if (q < bd) { bd = q; best = { C, d }; } }     // (near the hull anywhere counts, not just near the bay's mouth: on a ship five kilometres long you can be beside it and a long way from its door)
     return best;
   }
   function startDock(C) {
@@ -1084,7 +1152,7 @@ async function start(fresh) {
   async function talkFlow(a) {
     const p = a.person;
     if (a.pose === 'lie') { ui.toast(`${esc(nameFor(p))} is asleep.`); return; }
-    const said = []; let n = 0;
+    const said = []; let n = 0, deployAfter = false;
     const say = (who, line) => said.push(`<p><b>${esc(who)}:</b> ${esc(line)}</p>`);
     await modal(async () => {
       for (;;) {
@@ -1093,9 +1161,19 @@ async function start(fresh) {
         if (!met) opts.push({ a: 'intro', label: 'Introduce yourself' });
         opts.push({ a: 'work', label: 'Ask what they do' }, { a: 'home', label: 'Ask where they live' }, { a: 'family', label: 'Ask about their family' },
           { a: 'chat', label: 'Make small talk' }, { a: 'way', label: 'Ask for directions' });
+        const crew = pop.gangOf?.(p.id);      // a gang's boss can let you in (gen/gangs.js)
+        if (crew && crew.boss === p.id && player.gang !== crew.id) opts.push({ a: 'join', label: `Ask to run with ${crew.name}`, note: player.gang ? 'You\'d be leaving your own crew.' : 'Their turf is yours to walk; there\'s a cut in it. The law won\'t like it.' });
+        if (crew && player.gang === crew.id) opts.push({ a: 'leave', label: `Walk away from ${crew.name}` });
+        const pj = p.job && pop.jobById.get(p.job), natHere = townSociety(planet, s)?.nation, atWar = natHere && frontsOf(planet, natHere).length;
+        if (pj?.title === 'Security chief' && atWar && !player.soldier) opts.push({ a: 'enlist', label: `Enlist with ${natHere.name}`, note: `At war with ${frontsOf(planet, natHere).map(F => F.b.name).join(' and ')}. Paid for every kill.` });
+        if (pj?.title === 'Security chief' && player.soldier) opts.push({ a: 'deploy', label: 'Report for duty: to the front', note: `${RANKS[player.soldier.rank]} · ${player.soldier.kills || 0} kills` });
         const r = await ui.choose({ title: met ? p.name : nameFor(p)[0].toUpperCase() + nameFor(p).slice(1), sub: `${p.age} · ${esc(a.activity)}${relation(p.id) ? ' · ' + relation(p.id) : ''}${said.length ? '<div class="talk">' + said.slice(-6).join('') + '</div>' : ''}`, options: opts });
         if (r.a === 'close') break;
         const reticent = !met && r.a !== 'intro' && r.a !== 'chat' && r.a !== 'way';
+        if (r.a === 'enlist') { player.soldier = { nation: natHere.id, rank: 0, kills: 0, since: t }; store.touchPlayer(); store.log({ t, type: 'enlisted', who: player.id, nation: natHere.name }); say(p.given, `Welcome to the ${natHere.name} forces, ${RANKS[0].toLowerCase()}. Report to me when you're ready to go to the front.`); continue; }
+        if (r.a === 'deploy') { deployAfter = true; break; }
+        if (r.a === 'join') { if (!met || (player.credits ?? 0) < 50) { say(p.given || 'They', !met ? 'Who are you? Get lost.' : 'Come back with something to show. Fifty, say.'); continue; } player.credits -= 50; player.gang = crew.id; player.gangName = crew.name; player.gangDay = null; store.touchPlayer(); store.log({ t, type: 'joined_gang', who: player.id, gang: crew.name, town: s.name }); say(p.given, `Fifty. Fine. You're with ${crew.name} now. Our corner's your corner.`); continue; }
+        if (r.a === 'leave') { player.gang = null; store.touchPlayer(); say(p.given, 'Your choice. Don\'t come round the corner after dark.'); continue; }
         if (r.a === 'intro') { introduce(store, p, t); say('You', `I'm ${player.given || player.name.split(' ')[0]}.`); say(p.given, `${p.given}. ${p.given === player.given ? 'Same as you!' : 'Nice to meet you.'}`); continue; }
         if (reticent) { say(p.given || 'They', "Sorry — do I know you?"); continue; }
         talked(store, p);
@@ -1110,6 +1188,7 @@ async function start(fresh) {
         }
       }
     });
+    if (deployAfter) deployFlow();      // (reporting for duty: off to the front, sim/front.js)
   }
 
 
@@ -1291,6 +1370,21 @@ async function start(fresh) {
 
   // ---- air combat (sim/aircombat.js): your ship in the fight, raids, and Civic Security's fighters
   const war = new AirWar(world, planet), combatView = new CombatView(scene);
+  // the great ships in the fight (sim/fleetwar.js): Anvil's lasers and missiles, Bastion's fighters, Sable's bombing runs. What lands, wrecks.
+  planet.craters = [...store.deltas].filter(([k]) => k.startsWith('crater/')).map(([, v]) => v);
+  const groundY = (x, z) => Math.max(world.groundAt(x, z, 1e5).h, cloudW ? -1e9 : planet.seaLevel);
+  function groundBlast({ p, R, by }) {
+    fx.blast(p, R * 0.5); fx.dustRing(p, R); wrecks.blastAt(p, R * 1.5);
+    const d = Math.hypot(ctrl.pos[0] - p[0], ctrl.pos[1] - p[1], ctrl.pos[2] - p[2]); if (d < R * 2.5 && !flight) hurtPlayer(Math.round(80 * (1 - d / (R * 2.5))), `a blast from the ${by === 'sable' ? 'Sable' : 'Anvil'}`);
+    if (!cloudW && p[1] > planet.seaLevel + 0.5) {        // a crater, kept: the ground stays broken (gen/surface.js craterAt)
+      const C = { x: Math.round(p[0] * 10) / 10, z: Math.round(p[2] * 10) / 10, r: R * 0.55, d: R * 0.16 }, id = 'crater/' + Math.round(p[0]) + ',' + Math.round(p[2]);
+      if (!store.getDelta(id) && planet.craters.length < 600) { planet.craters.push(C); store.patchDelta(id, C); terrain.refresh(p[0], p[2], C.r * 1.7); }
+    }
+    for (const b of nearBuildingsOf(p, R * 1.6)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });     // (what was hit is marked: render keeps it scorched)
+  }
+  function nearBuildingsOf(p, r) { const out = []; for (const b of s.buildings || []) { const [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2); if (Math.hypot(x - p[0], z - p[2]) < r + Math.max(b.w, b.d) / 2) out.push(b); } return out; }
+  const front = new FrontBattle({ planet, war, ground: groundY, hooks: { blast: groundBlast } });      // (sim/front.js: where your nation is at war, the war is on near its border)
+  const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
   let myCraft = null, raid = null, firing = false;
   function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
   function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
@@ -1315,14 +1409,14 @@ async function start(fresh) {
     ui.toast(`The ${esc(sh.name)} is going down — you <b>eject</b> and come down on a parachute.`, 'bad', 9000);
   }
   // raids: every few hours raiders come in over the hills; security scrambles
-  function raidTick(t) {
+  function raidTick(t, force = false) {
     const k = raidIndex(planet, t), R = raidAt(planet, s, k);
-    if (!raid && t >= R.t && t < R.t + 200 && !store.getDelta('raid/' + k)) {
+    if (!raid && (force || (t >= R.t && t < R.t + 200)) && !store.getDelta('raid/' + k)) {
       const dist = 7000, bx = Math.sin(R.bearing), bz = Math.cos(R.bearing), C = cityView.city;
       // where you are decides what they hit: the megacity (its sky lanes and tower tops), or the town
       const inCity = Math.hypot(ctrl.pos[0] - C.cx, ctrl.pos[2] - C.cz) < C.R + 2500;
       const tgt = inCity ? [ctrl.pos[0] * 0.6 + C.cx * 0.4, C.h + 260, ctrl.pos[2] * 0.6 + C.cz * 0.4] : [s.cx, s.h, s.cz], n = inCity ? R.n + 2 : R.n, nd = inCity ? R.defenders + 2 : R.defenders;
-      raid = { k, t0: t, raiders: [], defenders: [], city: inCity };
+      raid = { k, t0: t, raiders: [], defenders: [], city: inCity, bearing: R.bearing, target: tgt };
       for (let i = 0; i < n; i++) raid.raiders.push(Object.assign(war.spawn(R.models[i % R.models.length], 'raider', [tgt[0] + bx * dist + (i - n / 2) * 140, Math.max(tgt[1], s.h) + 1300 + i * 90, tgt[2] + bz * dist + i * 60], R.bearing + Math.PI, 170), { groundTarget: tgt }));
       const hq = pop.buildingByKey.get(polity.security), at = inCity ? [tgt[0] - bx * 1500, C.h + 400, tgt[2] - bz * 1500] : hq ? b2w(hq, hq.w / 2, 0, hq.d / 2) : [s.cx, s.h, s.cz];
       for (let i = 0; i < nd; i++) raid.defenders.push(war.spawn(R.defModels[i % R.defModels.length], 'security', [at[0] + i * 60, (inCity ? at[1] : s.h + 260) + i * 40, at[2] - 80], R.bearing, inCity ? 170 : 140));
@@ -1716,9 +1810,20 @@ async function start(fresh) {
         avatar.object.updateMatrix(); _rm.multiplyMatrices(ringBend, avatar.object.matrix).decompose(avatar.object.position, avatar.object.quaternion, avatar.object.scale);
       } }
     war.step(dt, !!myCraft); combatView.update(war, toRender); drawMarkers();
+    { const nat = townSociety(planet, s)?.nation; front.step(dt, player.soldier ? nationsOf(planet)[player.soldier.nation] || nat : nat, flight ? flight.pos : ctrl.pos);
+      for (const e of front.drain()) { if (e.type === 'front') ui.toast(`<b>The front.</b> ${esc(e.F.a.name)} and ${esc(e.F.b.name)} are at ${e.F.state === 'war' ? 'war' : 'it along the border'} here: guns on both sides of the line, fighters overhead.`, 'bad', 9000); }
+      const fresh = war.events.slice(war._k || 0); war._k = war.events.length; if (war.events.length > 1500) { war.events.splice(0, 1000); war._k -= 1000; }      // (the air war's event list was never emptied: read it from where we left off, and keep it short)
+      if (flight?.issued) { for (const e of fresh) if (e.type === 'killed' && e.by === myCraft && e.craft.side === 'raider') { const S = player.soldier; S.kills = (S.kills || 0) + 1; const pay = 120 + 40 * S.rank; player.credits = (player.credits ?? 0) + pay; if (S.kills % 5 === 0 && S.rank < RANKS.length - 1) { S.rank++; ui.toast(`Promoted: <b>${RANKS[S.rank]}</b>.`, '', 7000); } store.touchPlayer(); ui.toast(`Kill confirmed. <b>${pay} cr</b>.`, '', 3000); }
+        if (flight.onGround || !front.F && Math.hypot(flight.pos[0] - flight.issued.x, flight.pos[2] - flight.issued.z) > 20000) endDeployment(); } }
+    fleetWar.step(dt, raid); { const fe = fleetWar.drain(); fleetWarView.update(dt, fleetWar, toRender, groundY, fe, camera);
+      for (const e of fe) { const C = fleet.find(c => c.model === e.C); if (!C) continue;
+        if (e.type === 'launch') ui.toast(`The <b>${esc(C.name)}</b> is launching ${e.n} fighters.`, '', 5000);
+        else if (e.type === 'salvo' && !raid?.saidSalvo) { raid && (raid.saidSalvo = true); ui.toast(`The <b>${esc(C.name)}</b> opens its missile cells.`, 'bad', 5000); }
+        else if (e.type === 'sortie') ui.toast(`The <b>${esc(C.name)}</b> leaves station on a bombing run.`, '', 6000);
+        else if (e.type === 'home') ui.toast(`The <b>${esc(C.name)}</b> is back on station.`, '', 4000); } }
     if (myCraft && !myCraft.alive && flight) eject();
     sched.tick(dt, t, homeCtx);
-    if (!inSpace) terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
+    if (!inSpace && !cloudW) terrain.update(ctrl.pos[0], ctrl.pos[2], 5);
     if (!inSpace) cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
     homeTown.town.group.visible = Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 7000;   // (the town is a speck from the city)
     { const me = flight ? null : ride ? ride.pos : ctrl.pos, blocks = me ? [me] : []; for (const D of wrecks.list.values()) if (!D.ride && (D.hits.length || D.burnt) && Math.abs(D.pos[0] - ctrl.pos[0]) < 300 && Math.abs(D.pos[2] - ctrl.pos[2]) < 300) blocks.push(D.pos); cityTraffic.update(clock.now(), dt, ctrl.pos, 1 - (sky.state.day ?? 1), toRender, blocks, town.group.visible ? trafficNear(planet, s, clock.now(), ctrl.pos[0], ctrl.pos[2], 320, cityTraffic.life.delayOf).filter(v => !v.parked).map(v => { const r = townRedAhead(s, v.pos[0], v.pos[2], Math.sin(v.facing), Math.cos(v.facing), clock.now()); return r ? { ...v, stop: Math.max(0, r.d) } : v; }) : []); }
@@ -1739,12 +1844,24 @@ async function start(fresh) {
     if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
     if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
     if (!inSpace) { fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]); }
-    if (!inSpace) { outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt); }
+    if (!inSpace) { outposts.update(ctrl.pos[0], ctrl.pos[2]); rivers.update(ctrl.pos[0], ctrl.pos[2], dt); harbour?.update(ctrl.pos[0], ctrl.pos[2], clock.now(), dt); }
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind, cam.yaw + (cam.cur != null && cam.cur < 1 ? 0 : 0)); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');
     const camW = [camera.position.x + origin[0], camera.position.y + origin[1], camera.position.z + origin[2]];
     const wx = params.has('weather') ? { ...weatherAt(planet, t), ...JSON.parse(params.get('weather')) } : weatherAt(planet, t);
-    const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - planet.seaLevel);
-    { const alt = ctrl.pos[1] - planet.seaLevel; terrainFar.value.set(8000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+    const skyState = sky.update(t, new THREE.Vector3(rp[0], rp[1], rp[2]), camera.position, wx, ctrl.pos[1] - altRef);
+    if (cloudW && !flight && ctrl.pos[1] < cloudOf(planet).deck + 40) {      // fell off a deck, down into the clouds: you come round back on your town's deck, hurt
+      const n = homeS.nodes[0], [fx, fz] = homeS.toWorld(n.u + 3, n.v + 3); ctrl.pos = [fx, homeS.h + 0.3, fz]; ctrl.vel = [0, 0, 0]; ride = null; ctrl.mode = 'walk';
+      player.hp = Math.max(10, (player.hp ?? 100) - 45); store.touchPlayer(); ui.toast('You fell into the clouds. Someone fished you out with a skimmer: you wake back in town, bruised.', 'bad', 9000);
+    }
+    gangTick(dt);
+    // what the fleet's or the front's blasts hit burns for a while, then smoulders (scorch/… deltas, main.js groundBlast)
+    if ((scorchTick -= dt) <= 0) { scorchTick = 0.25; const t = clock.now();
+      for (const b of s.buildings || []) { const D = store.getDelta('scorch/' + b.key); if (!D) continue; const age = t - D.t; if (age > planet.dayLength) continue;
+        const [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2), top = s.h + (b.floors || 2) * 3.2, hot = age < planet.dayLength / 12;
+        if (Math.hypot(x - ctrl.pos[0], z - ctrl.pos[2]) > 1500) continue;
+        if (hot) { fx.flame([x, top, z], 3); fx.burnLight?.([x, top, z], 2.5, 1); } fx.smoke([x, top + 1, z], hot ? 6 : 3, weatherAt(planet, t).wind, hot ? 0.05 : 0.14, hot ? 0.55 : 0.3); } }
+    if (skyIsles) skyIsles.update(ctrl.pos[0], ctrl.pos[1], ctrl.pos[2], dt, skyState.dir, origin, THREE.MathUtils.smoothstep(skyState.dir.y, -0.12, 0.08));
+    { const alt = ctrl.pos[1] - altRef; terrainFar.value.set(8000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000 && !cloudW; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
       globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
       const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
@@ -1819,14 +1936,14 @@ async function start(fresh) {
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
     waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if (surfaceHeight(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
-    if (!params.has('norefl')) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
+    if (!params.has('norefl') && !cloudW) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3 || !!ringHere();     // (in a ring everything's turning: a map a frame stale shakes everyone in it)     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
     // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
     rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
     renderer.render(scene, camera);
   }
   requestAnimationFrame(safeFrame);
-  window.ORBIS = { get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), avatar, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, avatar, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }

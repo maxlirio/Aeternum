@@ -22,7 +22,7 @@ export class FaunaSim {
       const a0 = (H.seed * 0.001 + i * 2.4) % 6.283, r0 = 2 + H.sp.size * 1.3 * Math.sqrt(i + 0.5), x = H.x + Math.cos(a0) * r0, z = H.z + Math.sin(a0) * r0;
       const s = surfaceAt(this.planet, x, z);
       const A = { id, herd: H, sp: H.sp, x, z, y: s.h, facing: a0 * 3, speed: 0, wantSpeed: 0, tx: x, tz: z, state: frozen ? 'pose' : 'graze', t: 2 + (i * 1.7) % 7, hp: H.sp.K.hp, alert: 0, pitch: 0, hx: 0, seed: (H.seed + i * 7919) % 1000, gh: s.h, flown: 0, frozen };
-      if (H.sp.K.fear === 0) { A.state = 'fly'; A.y = s.h + 45 + (i * 13) % 30; A.ang = i * 0.7; }
+      if (H.sp.K.fear === 0) { A.state = 'fly'; A.y = s.h + 45 + (i * 13) % 30; A.ang = i * 0.7; A.base = s.h; }
       list.push(A); this.animals.push(A);
     }
     this.herds.set(H.id, { H, list, cx: H.x, cz: H.z, tx: H.x, tz: H.z, t: 10, alarm: 0 });
@@ -91,13 +91,13 @@ export class FaunaSim {
     A.hgt = (A.hgt || 0) - dt; if (A.hgt <= 0) { A.hgt = A.speed > 3 ? 0.07 : 0.15; const f = R * 0.45, h0 = surfaceHeight(this.planet, A.x, A.z), hf = surfaceHeight(this.planet, A.x + Math.sin(A.facing) * f, A.z + Math.cos(A.facing) * f), hb = surfaceHeight(this.planet, A.x - Math.sin(A.facing) * f, A.z - Math.cos(A.facing) * f); A.gh = h0; A.wantPitch = Math.atan2(hb - hf, 2 * f); }
     A.y += (A.gh - A.y) * Math.min(1, dt * 7); A.pitch += ((A.wantPitch || 0) - A.pitch) * Math.min(1, dt * 4);
   }
-  slow(A) { return { trundler: 0.8, rooter: 0.9, stilter: 1.2, strider: 1.4, hopper: 1.3, glider: 8 }[A.sp.plan] * (A.sp.size > 3 ? 1.2 : 1); }
-  fast(A) { return { trundler: 3.3, rooter: 4.5, stilter: 6.5, strider: 9, hopper: 7.5, glider: 14 }[A.sp.plan]; }
+  slow(A) { return { trundler: 0.8, rooter: 0.9, stilter: 1.2, strider: 1.4, hopper: 1.3, glider: 8, crawler: 0.7, grazer: 0.8, browser: 1.1, serpent: 0.9, flock: 9, jelly: 1.5, burrower: 0.6, shell: 0.3 }[A.sp.plan] * (A.sp.size > 3 ? 1.2 : 1); }
+  fast(A) { return { trundler: 3.3, rooter: 4.5, stilter: 6.5, strider: 9, hopper: 7.5, glider: 14, crawler: 3.2, grazer: 3.6, browser: 6, serpent: 5, flock: 16, jelly: 4, burrower: 4, shell: 1.6 }[A.sp.plan]; }
   fly(A, dt, G) {
     const R = 30 + (A.seed % 40); A.ang += dt * (9 + A.seed % 3) / R; const x = (G?.cx ?? A.x) + Math.cos(A.ang) * R, z = (G?.cz ?? A.z) + Math.sin(A.ang) * R;
     A.hgt = (A.hgt || 0) - dt; if (A.hgt <= 0) { A.hgt = 0.6; A.gh = surfaceHeight(this.planet, A.x, A.z); }
-    const want = Math.atan2(x - A.x, z - A.z), v = 10 + (A.seed % 4); A.facing += angDiff(want, A.facing) * Math.min(1, dt * 1.6); A.x += Math.sin(A.facing) * v * dt; A.z += Math.cos(A.facing) * v * dt; A.speed = v; A.bank = angDiff(want, A.facing);
-    const wy = Math.max(A.gh, 0) + 45 + (A.seed % 35) + Math.sin(this.time * 0.2 + A.seed) * 6; A.y += (wy - A.y) * Math.min(1, dt * 0.5);
+    const want = Math.atan2(x - A.x, z - A.z), v = A.sp.plan === 'jelly' ? 2 + (A.seed % 2) : 10 + (A.seed % 4); A.facing += angDiff(want, A.facing) * Math.min(1, dt * 1.6); A.x += Math.sin(A.facing) * v * dt; A.z += Math.cos(A.facing) * v * dt; A.speed = v; A.bank = angDiff(want, A.facing);
+    const floor = this.planet.genome?.noGround ? Math.max(A.base ?? A.gh, A.gh) : Math.max(A.gh, 0), wy = floor + (A.sp.plan === 'jelly' ? 8 + (A.seed % 14) : 45 + (A.seed % 35)) + Math.sin(this.time * 0.2 + A.seed) * 6;      // (a jelly drifts low; on a cloud world everything keeps above its deck, not the abyss) A.y += (wy - A.y) * Math.min(1, dt * 0.5);
     if (A.falling !== undefined) { A.falling += dt * 9.8; A.y -= A.falling * dt; if (A.y <= A.gh) { A.y = A.gh; A.state = 'down'; A.t = 0; } }
   }
   // Harm. True if it died of it.

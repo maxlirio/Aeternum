@@ -17,6 +17,7 @@ const CELL = 32, STEP = ROUTE_STEP, EDGE = 60;   // search grid (coarse enough t
 const caches = new WeakMap();   // planet -> routes by town
 // Just where the roads run. Knows nothing of rivers, so rivers can be laid out across them.
 export function routeLines(planet, s) {
+  if (planet.genome?.noGround || s.onWater) return [];            // (between floating towns you fly; a town out on the water is reached by boat or air)
   let cache = caches.get(planet); if (!cache) caches.set(planet, cache = new Map());
   if (!cache.has(s.key)) { const rs = []; s.outRoads.forEach((o, i) => rs.push(route(planet, s, o, i, rs))); cache.set(s.key, rs); }
   return cache.get(s.key);

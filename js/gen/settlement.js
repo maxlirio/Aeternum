@@ -11,6 +11,9 @@ import { hash01, derive } from '../core/hash.js';
 import { REGION } from '../core/units.js';
 import { globeOf, wellInside } from './globe.js';
 import { rawHeight } from './terrain.js';
+import { bindSky, townAltitude } from './skyisles.js';
+import { siteFit } from './society.js';
+import { mainLand } from './land.js';
 import { getCity } from './city.js';
 import { placeName, personName, companyName, streetWord, streetSuffix } from './names.js';
 
@@ -32,6 +35,8 @@ function zoneWeights(z) {
 }
 
 // Does region cell (rx, rz) contain a settlement? Region (0,0) always does (spawn).
+// Does this world build out over the sea? Its people's way is stilts, or it's a world of water.
+export const waterTowns = planet => !!planet.genome && (['ocean', 'archipelago'].includes(planet.genome.arch) || planet.genome.culture.ways.includes('stilt')) && !planet.genome.noGround;
 function regionHasSettlement(planet, rx, rz) {
   if (rx === 0 && rz === 0) return true;
   if (hash01(planet.seed, [rx, rz, 77]) >= 0.35) return false;
@@ -45,6 +50,7 @@ export function getSettlement(planet, rx, rz) {
   let cache = caches.get(planet); if (!cache) caches.set(planet, cache = new Map());
   const ck = rx + ',' + rz;
   if (cache.has(ck)) return cache.get(ck);
+  cache.set(ck, null);       // (while it's being worked out: anything that asks about this region's ground in the meantime sees no town yet)
   const s = regionHasSettlement(planet, rx, rz) ? generate(planet, rx, rz) : null;
   cache.set(ck, s);
   if (s) getPolity(planet, s);            // seats the local authority (names the civic office's owner)
@@ -78,23 +84,28 @@ function generate(planet, rx, rz) {
   const rng = new Rng(seed);
   const R = rx === 0 && rz === 0 ? 260 : rng.range(150, 300);
   const margin = 700;
-  // Site: flattest dry candidate in the cell.
+  // Site: flattest dry candidate in the cell. (On a world with no ground a town is its own floating deck: anywhere in the cell, at its own height.)
   let best = null;
-  for (let k = 0; k < 28; k++) {
+  if (planet.genome?.noGround) best = { x: rx * REGION + REGION / 2 + rng.range(-300, 300), z: rz * REGION + REGION / 2 + rng.range(-300, 300), h: townAltitude(planet, rx, rz), score: 0 };
+  for (let k = 0; k < 28 && !planet.genome?.noGround; k++) {
     const x = rx * REGION + margin + rng.next() * (REGION - 2 * margin);
     const z = rz * REGION + margin + rng.next() * (REGION - 2 * margin);
     const f = flatness(planet, x, z, R);
     if (f.mean < planet.seaLevel + 10) continue;
-    const score = f.sd + Math.max(0, f.mean - 450) * 0.05;
+    // towns grow up where their world's work is: a crystal world's round its crystal fields, a fishing world's on the coast (gen/society.js)
+    const fit = planet.genome ? siteFit(planet, mainLand(planet, x, z).kind, rawHeight(planet, x + 900, z) < planet.seaLevel || rawHeight(planet, x - 900, z) < planet.seaLevel || rawHeight(planet, x, z + 900) < planet.seaLevel || rawHeight(planet, x, z - 900) < planet.seaLevel) : 0;
+    const score = f.sd + Math.max(0, f.mean - 450) * 0.05 - fit * 9;
     if (!best || score < best.score) best = { x, z, h: f.mean, score };
   }
+  // all water: on a sea-going world (its people build on stilts) the town goes out over the water on piles, its deck a few metres above the swell
+  if (!best && waterTowns(planet)) best = { x: rx * REGION + REGION / 2 + rng.range(-400, 400), z: rz * REGION + REGION / 2 + rng.range(-400, 400), h: planet.seaLevel + 3.6, score: 0, water: true };
   if (!best) return null;                       // all water: no town in this cell
   { const c = getCity(planet); if (Math.hypot(best.x - c.cx, best.z - c.cz) < c.R + 1200 + R) return null; }   // the megacity has swallowed this ground
   const angle = rng.range(0, Math.PI / 2);
   const s = {
     address, seed, key: address.key, rx, rz, R,
     name: placeName(rng),
-    cx: best.x, cz: best.z, h: Math.round(best.h * 10) / 10,
+    cx: best.x, cz: best.z, h: Math.round(best.h * 10) / 10, onWater: !!best.water,
     angle, cos: Math.cos(angle), sin: Math.sin(angle),
     roads: [], nodes: [], buildings: [], pads: [], outRoads: [],
   };
@@ -260,3 +271,7 @@ export function address(s, b) {
   const n = 2 * Math.max(0, Math.round((along + s.R + 20) / 9)) + side + 1;
   return `${n} ${s.streetNames.get(line)}`;
 }
+import { getCity as _gc } from './city.js';
+bindSky(getSettlement, regionOf, p => _gc(p));
+import { bindWaterTowns } from './terrain.js';
+bindWaterTowns((p, x, z) => settlementNear(p, x, z));

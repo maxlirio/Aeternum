@@ -312,4 +312,9 @@ export class TerrainStreamer {
   }
   get pending() { return this.queue.length; }
   get count() { return this.tiles.size; }
+  // The ground changed under (x, z) within r (a crater): rebuild the tiles over it, in place.
+  refresh(x, z, r) {
+    for (const [k, t] of this.tiles) { const s = CHUNK * 2 ** t.lod, x0 = t.i * s, z0 = t.j * s; if (x + r < x0 || x - r > x0 + s || z + r < z0 || z - r > z0 + s) continue;
+      const mesh = this.buildTile(t.lod, t.i, t.j); this.parent.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = mesh; }
+  }
 }

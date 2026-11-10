@@ -8,7 +8,7 @@ import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PORT = 8517, CDP = 9334, slot = 'e2e' + process.pid;
+const PORT = +process.env.PORT || 8517, CDP = +process.env.CDP || 9334, slot = 'e2e' + process.pid;
 const profile = join(tmpdir(), 'orbis-e2e-' + process.pid);
 preflight();
 const chrome = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', ['--headless=new', `--remote-debugging-port=${CDP}`, `--user-data-dir=${profile}`,
@@ -589,7 +589,8 @@ try {
     // thrown off a bike
     { const [bx, bz] = C.toWorld(u + 3, v + 3), Rb = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'tb', pos: [bx, y, bz], facing: yaw }); P.hp = 100; O.setRideForTest(Rb); Rb.speed = 30; for (let i = 0; i < 300 && O.getRide2(); i++) await wait(40); out.thrown = !O.getRide2(); out.bikeHurt = P.hp < 100; await wait(400); O.ctrl.mode = 'walk'; }
     // a ship flown into the ground
-    { const sh = O.getShips()[0], ox = O.ctrl.pos[0], oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; out.shipHp = Ds?.hp; out.shipDepth = Ds?.hits?.map(h => h.depth); await wait(400); P.hp = 100; }
+    { const sh = O.getShips().find(x => !x.field && !x.fleet) || O.getShips()[0], ox = O.ctrl.pos[0],      // (a pad-sized ship: a big field ship's hull takes a lot more)
+      oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; out.shipHp = Ds?.hp; out.shipDepth = Ds?.hits?.map(h => h.depth); await wait(400); P.hp = 100; }
     return out; })()`);
   check(cr.walkStopped >= cr.carHw * 0.9 || cr.alongCar >= cr.carHl * 0.9, `a parked car pushes you out of it (${cr.walkStopped?.toFixed(2)} m from its centre line, half its width ${cr.carHw?.toFixed(2)})`);
   check(cr.onRoof > cr.carH * 0.8, `stood on its roof (${cr.onRoof?.toFixed(2)} m up a ${cr.carH} m car)`);

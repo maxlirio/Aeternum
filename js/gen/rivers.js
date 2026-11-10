@@ -15,7 +15,7 @@ import { globeOf, wellInside } from './globe.js';
 const LONGEST = 30000;
 export const REGION = 12000, STEP = 60, MAXLEN = 11500, BANK = 24, WIDE = 90, CELL = 240;
 const memo = new WeakMap();
-function stateOf(planet) { let S = memo.get(planet); if (!S) memo.set(planet, S = { regions: new Map(), grid: new Map(), last: null, rivers: [] }); return S; }
+function stateOf(planet) { let S = memo.get(planet); if (!S) memo.set(planet, S = { regions: new Map(), grid: new Map(), last: null, rivers: [], next: 0 }); return S; }
 
 function trace(planet, x, z, heading, rng, path = null, maxLen = MAXLEN, maxCut = 26, lake = 0) {
   const ending = () => lake && pts.length >= lake ? { pts, toSea: false, lake: true } : null;     // (a river with no way to the sea fills the low ground it stops in)
@@ -36,15 +36,28 @@ function trace(planet, x, z, heading, rng, path = null, maxLen = MAXLEN, maxCut 
   return ending();              // (only what reaches the sea or a lake: a wide river doesn't just stop)
 }
 function generate(planet, ri, rj) {
-  const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; S.regions.set(key, true);
-  for (const [T, w0] of cellRivers(planet, ri, rj)) addRiver(S, T, w0);
+  const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; const own = []; S.regions.set(key, own);
+  for (const [T, w0] of cellRivers(planet, ri, rj)) own.push(addRiver(S, T, w0));
 }
 // A cell's rivers, worked out once and handed over from a background thread, so walking into new land doesn't stop the world while they're found.
 export function riverCellDone(planet, ri, rj) { return stateOf(planet).regions.has(ri + ',' + rj); }
-export function adoptRiverCell(planet, ri, rj, list) { const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; S.regions.set(key, true); for (const [T, w0] of list) addRiver(S, T, w0); }
+export function adoptRiverCell(planet, ri, rj, list) { const S = stateOf(planet), key = ri + ',' + rj; if (S.regions.has(key)) return; const own = []; S.regions.set(key, own); for (const [T, w0] of list) own.push(addRiver(S, T, w0)); }
+// Let go of the cells far from (ci, cj): their rivers out of the lists and the grid. They come back the same when you return (from the cache, world/gencache.js, or worked out again).
+export function forgetRiverCells(planet, ci, cj, keep = 3) {
+  const S = stateOf(planet); if (S.regions.size <= (2 * keep + 1) ** 2) return 0; let n = 0;
+  for (const [key, own] of [...S.regions]) {
+    const [a, b] = key.split(',').map(Number); if (Math.max(Math.abs(a - ci), Math.abs(b - cj)) <= keep) continue;
+    S.regions.delete(key); n++; if (!Array.isArray(own) || !own.length) continue; const gone = new Set(own);
+    for (const R of own) for (let i = 0; i + 1 < R.pts.length; i++) { const p0 = R.pts[i], p1 = R.pts[i + 1], reach = R.w[i] / 2 + WIDE + 2;
+      for (let p = Math.floor((Math.min(p0.x, p1.x) - reach) / CELL); p <= Math.floor((Math.max(p0.x, p1.x) + reach) / CELL); p++) for (let q = Math.floor((Math.min(p0.z, p1.z) - reach) / CELL); q <= Math.floor((Math.max(p0.z, p1.z) + reach) / CELL); q++) { const k = p * 200003 + q, c = S.grid.get(k); if (!c) continue; const kept = c.filter(e => !gone.has(e[0])); if (kept.length) S.grid.set(k, kept); else S.grid.delete(k); } }
+    S.rivers = S.rivers.filter(R => !gone.has(R));
+  }
+  S.last = null; return n;
+}
 // What this cell's rivers are. Reads the land and the towns, never other rivers, so it comes out the same whatever order the cells are found in.
 export function cellRivers(planet, ri, rj) {
   const out = [];
+  if (planet.genome?.noGround) return out;          // (no ground, no rivers)
   const rng = new Rng(derive(planet.seed, 'rivers', [ri, rj])), n = rng.int(2, 5);
   for (let r = 0; r < n; r++) {
     // a source: the highest of a few spots, if it's wet enough for water to come off it
@@ -57,7 +70,7 @@ export function cellRivers(planet, ri, rj) {
   return out;
 }
 function addRiver(S, T, w0 = 0) {
-  const L = T.pts.length, R = { id: S.rivers.length, pts: T.pts, toSea: T.toSea, lake: !!T.lake, w: T.pts.map((_, i) => { const w = 2.6 + 13 * Math.min(1, (i + w0) / 110), e = L - 1 - i; return +(T.lake && e < 9 ? w + (e < 2 ? (e / 2) * 58 : 58 * Math.min(1, (9 - e) / 4)) : w).toFixed(2); }) };
+  const L = T.pts.length, R = { id: S.next++, pts: T.pts, toSea: T.toSea, lake: !!T.lake, w: T.pts.map((_, i) => { const w = 2.6 + 13 * Math.min(1, (i + w0) / 110), e = L - 1 - i; return +(T.lake && e < 9 ? w + (e < 2 ? (e / 2) * 58 : 58 * Math.min(1, (9 - e) / 4)) : w).toFixed(2); }) };
   S.rivers.push(R);
     for (let i = 0; i + 1 < L; i++) { const a = R.pts[i], b = R.pts[i + 1], reach = R.w[i] / 2 + WIDE + 2; for (let p = Math.floor((Math.min(a.x, b.x) - reach) / CELL); p <= Math.floor((Math.max(a.x, b.x) + reach) / CELL); p++) for (let q = Math.floor((Math.min(a.z, b.z) - reach) / CELL); q <= Math.floor((Math.max(a.z, b.z) + reach) / CELL); q++) { const k = p * 200003 + q; let c = S.grid.get(k); if (!c) S.grid.set(k, c = []); c.push([R, i]); } }
   return R;

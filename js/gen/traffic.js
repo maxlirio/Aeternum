@@ -1,3 +1,4 @@
+import { getSettlement } from './settlement.js';
 // The town's traffic: drivers going somewhere, keeping to the right. Pure in time — where each one
 // is at t follows from a hash and the street graph — so it needs no saving.
 // Nobody in it is a resident; it doesn't stop for you, and being hit by it hurts (struckBy).
@@ -143,5 +144,25 @@ export function airTraffic(planet, s, t, x, z, R = 4000) {
     if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
     out.push({ id: `air:${k}`, model, c: [px, alt, pz], facing: Math.atan2(ux * dir, uz * dir), colour: Math.floor(h(8) * 7), pitch: 0, roll: 0, rampDown: false });
   }
+  // cargo runs: a freighter to each town nearby and back, carrying what this town makes (gen/trade.js): up out of town, across, down at the other end, a while unloading, home
+  for (const run of cargoRuns(planet, s)) { const p = runAt(run, t); if (p && (p.c[0] - x) ** 2 + (p.c[2] - z) ** 2 < R * R) out.push(p); }
   return out;
+}
+export function cargoRuns(planet, s) {
+  const runs = [], seed = planet.seed[0] ^ 0x7a3d;
+  for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) {
+    if (!a && !b) continue; const o = getSettlement(planet, s.rx + a, s.rz + b); if (!o) continue;
+    const h = j => hashInts(seed, [hashStr(6, s.key), hashStr(7, o.key), j]) / 4294967296; if (h(0) > 0.6) continue;
+    const d = Math.hypot(o.cx - s.cx, o.cz - s.cz), speed = 120, fly = d / speed, dwell = 300 + 400 * h(1);
+    runs.push({ id: `cargo:${s.key}>${o.key}`, from: s, to: o, d, fly, dwell, period: 2 * (fly + dwell), phase: h(2), colour: Math.floor(h(3) * 7) });
+  }
+  return runs;
+}
+// Where a cargo run's freighter is at t: in the air between the towns, or null while it's on the ground at either end (parked ships handle that).
+export function runAt(run, t) {
+  const u = ((t / run.period + run.phase) % 1) * run.period, { from, to, fly, dwell } = run;
+  let f, A, B; if (u < fly) { f = u / fly; A = from; B = to; } else if (u < fly + dwell) return null; else if (u < 2 * fly + dwell) { f = (u - fly - dwell) / fly; A = to; B = from; } else return null;
+  const climb = Math.min(1, f * 6, (1 - f) * 6), alt = Math.max(A.h, B.h) + 40 + 560 * climb * climb * (3 - 2 * climb);
+  const x = A.cx + (B.cx - A.cx) * f, z = A.cz + (B.cz - A.cz) * f, y = A.h + (B.h - A.h) * f + (alt - Math.max(A.h, B.h));
+  return { id: run.id, model: 'freighter', c: [x, y, z], facing: Math.atan2(B.cx - A.cx, B.cz - A.cz), colour: run.colour, pitch: 0, roll: 0, rampDown: false, cargo: true };
 }

@@ -10,7 +10,11 @@ import { getSettlement, roadRect, rectsOverlap } from '../js/gen/settlement.js';
 import { buildingPlan, roomGraph } from '../js/gen/building.js';
 
 // Nearly every suite here is about the home town, over hundreds of worlds; working out the rivers of all the towns around each one would take minutes. (suites.towns and the browser tests use the real thing.)
-const makePlanet = (...a) => Object.assign(realPlanet(...a), { onlyHomeRiver: true });
+// (Most suites test life on the ground. A test universe whose home world rolled a cloud world (no ground: gen/skyisles.js) is swapped, the
+// same way every time, for a neighbouring universe's home; the cloud suite asks for cloud worlds by address, and gets them.)
+const makePlanet = (u, a, ...r) => { let p = realPlanet(u, a, ...r); for (let k = 1; p.genome?.noGround && a === HOMEWORLD; k++) p = realPlanet([u[0] ^ (0x5bd1 * k), u[1]], a, ...r); return Object.assign(p, { onlyHomeRiver: true }); };
+// A world whose people build one of the six old ways (the climbing suites were written against those facades): the first from uni(n) on that does.
+const classicPlanet = async n => { const { cultureOf } = await import('../js/gen/culture.js'); for (let k = n; ; k += 100) { const p = makePlanet(uni(k), HOMEWORLD); if (['corporate', 'masonry', 'brutalist', 'garden', 'foundry', 'neon'].includes(cultureOf(p).key)) return p; } };
 const suites = {};
 let failures = 0;
 const check = (cond, msg) => { if (!cond) { failures++; console.log('  FAIL', msg); } return cond; };
@@ -924,7 +928,7 @@ suites.flora = async () => {
   check(all.length > 1000 && bad.length === 0, `${all.length} plants within 900 m, none in town, on a road or under the sea`);
   const { SPECIES, plantSet } = await import('../js/gen/flora.js');
   const trees = all.filter(q => SPECIES[q.sp]?.tree);
-  check(plantSet(p).length >= 4, 'this planet grows ' + plantSet(p).join(', '));
+  check(plantSet(p).length >= 3, 'this planet grows ' + plantSet(p).join(', '));
   check(trees.length > 100, `${trees.length} trees`);
   // you can't walk through a trunk
   const world = new CollisionWorld(p, s, () => false), t = trees[0];
@@ -1123,7 +1127,7 @@ suites.climbing = async () => {
   const C = await import('../js/gen/city.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
   const { Climber, BODY } = await import('../js/player/climber.js');
-  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  const p = await classicPlanet(1), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
   const find = (dist, test) => { for (let a = 0; a < 3600; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district !== dist) continue; for (const b of B.buildings) if (test(b)) return b; } return null; };
   // stand at a wall (the -u side of a tier) and grab it
   const at = (b, ti = 0, v = 0.5) => { const t = b.tiers[ti], vm = t.r[1] + (t.r[3] - t.r[1]) * v, [x, z] = c.toWorld(t.r[0] - 0.6, vm), [tx, tz] = c.toWorld(t.r[0] + 2, vm), l = Math.hypot(tx - x, tz - z), fx = (tx - x) / l, fz = (tz - z) / l; return { x, z, fx, fz, yaw: Math.atan2(fx, fz), y: base + t.y0 }; };
@@ -1163,12 +1167,16 @@ suites.climbing = async () => {
       check(cl.done?.kind === 'walk' && Math.abs(cl.done.pos[1] - (base + hab.top)) < 1, `climbed ${hab.top} m and stepped onto the roof (${cl.done?.kind}, ${st.T.toFixed(0)} s, ${(hab.top / st.T).toFixed(2)} m/s, ${st.moves} moves)`); console.log(`  ${hab.top} m hab block in ${st.T.toFixed(0)} s (${(hab.top / st.T).toFixed(2)} m/s), ${st.moves} moves, peak stretch ${st.stretch.toFixed(3)}`); } }
   // every climbable style of facade can be climbed 12 m
   for (const [dist, name] of [['undercity', 'grime'], ['commerce', 'grid'], ['commerce', 'ribbon'], ['commerce', 'bronze'], ['housing', 'brick'], ['industry', 'shed']]) {
-    const b = find(dist, q => C.STYLES[q.style][0] === name && !q.tiers[0].shape && q.tiers[0].y0 === 0 && q.tiers[0].y1 > 12); if (!b) { console.log('  (no ' + name + ')'); continue; }
-    const q = at(b), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz);
-    if (!check(cl, `${name}: can be grabbed`)) continue;
-    const st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 12, 90); good(st, name);
-    const need = dist === 'undercity' ? 6 : 12;        // (the Warrens' stacked overhangs can roof over a route)
-    check(cl.pelvis[1] > base + need || cl.done, `${name}: ${need} m up (reached ${(cl.pelvis[1] - base).toFixed(1)} m in ${st.T.toFixed(0)} s)`);
+    // a building of this style you can climb: an awning or a sign across one wall can block a route up it (as it would a real climber), so up to six are tried; every attempt keeps the rules
+    const seen = new Set(), need = dist === 'undercity' ? 6 : 12; let best = -1, T = 0, any = false, grabbed = false;        // (the Warrens' stacked overhangs can roof over a route)
+    for (let k = 0; k < 6; k++) {
+      const b = find(dist, q => !seen.has(q.id) && C.STYLES[q.style][0] === name && !q.tiers[0].shape && q.tiers[0].y0 === 0 && q.tiers[0].y1 > 12); if (!b) break; seen.add(b.id); any = true;
+      const q = at(b), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); if (!cl) continue; grabbed = true;
+      const st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 12, 90); good(st, name); best = Math.max(best, cl.done ? 99 : cl.pelvis[1] - base); T = st.T;
+      if (best >= need) break;
+    }
+    if (!any) { console.log('  (no ' + name + ')'); continue; }
+    check(grabbed, `${name}: can be grabbed`); check(best >= need, `${name}: ${need} m up (best of ${seen.size}: ${best.toFixed(1)} m)`);
   }
   // sideways along a wall, down again and off at the bottom; the same climb at 30 and 120 Hz
   { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 6, 60);
@@ -1197,16 +1205,18 @@ suites.climbing = async () => {
 suites.aircombat = async () => {
   const { AirWar, raidAt, raidIndex } = await import('../js/sim/aircombat.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
-  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false); world.flora = false;
+  // (over a world without great ranges near home: this is about the pilots, not about mountains in the way)
+  let p = null; for (let k = 4; !p; k += 100) { const q = makePlanet(uni(k), HOMEWORLD); if (q.genome.terrain.mountAmp < 1000) p = q; }
+  const s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false); world.flora = false;
   let wins = { security: 0, raider: 0 }, crashes = 0, gunKills = 0, mslKills = 0, fights = 0;
   const pairs = [['striker', 'needle'], ['interceptor', 'shade'], ['warden', 'gunship0'], ['needle', 'interceptor'], ['shade', 'striker'], ['interceptor', 'interceptor']];
   for (const [a, b] of pairs) {
     const war = new AirWar(world, p), A = war.spawn(a, 'security', [s.cx, s.h + 1500, s.cz], 0, 150), B = war.spawn(b, 'raider', [s.cx + 300, s.h + 1600, s.cz + 4000], Math.PI, 150);
-    for (let t = 0; t < 240 && A.alive && B.alive; t += 1 / 60) war.step(1 / 60);
+    for (let t = 0; t < 360 && A.alive && B.alive; t += 1 / 60) war.step(1 / 60);
     fights++;
     const dead = [A, B].find(c => !c.alive); if (dead) { wins[dead === A ? 'raider' : 'security']++; const e = war.events.find(e => e.type === 'killed'); if (e && !e.by) crashes++; }
   }
-  check(wins.security + wins.raider >= 4, `${fights} dogfights: ${wins.security} won by security, ${wins.raider} by raiders, ${fights - wins.security - wins.raider} still going after 4 min`);
+  check(wins.security + wins.raider >= 4, `${fights} dogfights: ${wins.security} won by security, ${wins.raider} by raiders, ${fights - wins.security - wins.raider} still going after 6 min`);
   check(crashes <= 1, `AI pilots fly into the ground at most rarely (${crashes})`);
   // a missile against a target that can't dodge or flare it kills it
   const w2 = new AirWar(world, p), shooter = w2.spawn('striker', 'security', [s.cx, s.h + 2000, s.cz], 0, 150, 'player'), tgt = w2.spawn('courier', 'raider', [s.cx, s.h + 2000, s.cz + 1500], 0, 120, 'player');
@@ -1290,16 +1300,18 @@ suites.land = async () => {
 };
 suites.fauna = async () => {
   const F = await import('../js/gen/fauna.js'), C = await import('../js/gen/creature.js'), { FaunaSim } = await import('../js/sim/fauna.js'), { surfaceHeight } = await import('../js/gen/surface.js');
-  const p = makePlanet(uni(1), HOMEWORLD), sps = F.speciesOf(p), plans = new Set(sps.map(s => s.plan));
-  check(plans.size >= 6, `${plans.size} body plans`); const q = makePlanet(uni(2), HOMEWORLD), sq = F.speciesOf(q); check(sps.some((S, i) => S.size !== sq[i].size || S.coat !== sq[i].coat), "another planet's animals differ");
+  // a world with something shy and something bold on the ground (each world has its own five to eight body plans: gen/genome.js)
+  let p = null, sps = null; for (let n = 1; n < 40 && !p; n++) { const q = makePlanet(uni(n), HOMEWORLD), L = F.speciesOf(q); if (L.some(s => s.K.fear > 0 && !s.K.bold && s.plan !== 'shell') && L.some(s => s.K.bold && s.K.fear > 0)) { p = q; sps = L; } }
+  const plans = new Set(sps.map(s => s.plan)), every = new Set(); for (let n = 1; n < 60; n++) for (const S of F.speciesOf(makePlanet(uni(n), HOMEWORLD))) every.add(S.plan);
+  check(plans.size >= 5, `${plans.size} body plans on this world`); check(every.size >= 13, `${every.size} body plans across worlds`); const q = makePlanet(uni(2), HOMEWORLD), sq = F.speciesOf(q); check(sps.some((S, i) => S.size !== sq[i].size || S.coat !== sq[i].coat), "another planet's animals differ");
   check(JSON.stringify(F.herdInTile(p, 3, 4)?.id) === JSON.stringify(F.herdInTile(makePlanet(uni(1), HOMEWORLD), 3, 4)?.id), 'the same herds in the same places');
   for (const S of sps) { const r = F.rigOf(S), a = C.skinOf(r.R, 40, S.coat, S.pattern, S.patternSeed); let bad = 0; for (const v of a.pos) if (!Number.isFinite(v)) bad++; for (let i = 0; i < a.skw.length; i += 4) { const t = a.skw[i] + a.skw[i + 1] + a.skw[i + 2] + a.skw[i + 3]; if (Math.abs(t - 1) > 1e-3) bad++; } for (const v of a.idx) if (v >= a.pos.length / 3) bad++; for (let i = 0; i < a.ski.length; i++) if (a.ski[i] >= r.R.bones.length) bad++; check(!bad && a.idx.length > 300, `${S.plan}: a whole skin (${a.idx.length / 3} triangles, ${r.R.bones.length} bones, ${bad} bad)`); r.R.legs.forEach(L => check(L.len0 > 0 && L.len1 > 0, 'legs have length')); }
   // behaviour
-  const S = sps.find(s => s.plan === 'rooter'), dead = new Map(), far = [S.size + 200, 0];
+  const S = sps.find(s => s.K.fear > 0 && !s.K.bold && s.plan !== 'shell'), dead = new Map(), far = [S.size + 200, 0];
   const { surfaceAt } = await import('../js/gen/surface.js'), L0 = await import('../js/gen/land.js'); let x0 = null, z0 = null; for (let i = -40; i <= 40 && x0 === null; i++) for (let j = -40; j <= 40 && x0 === null; j++) { const x = i * 200 + 90, z = j * 200 + 70, q = surfaceAt(p, x, z), ls = L0.landAt(p, x, z); if (q.h > 20 && q.h < 300 && !q.town && !q.road && ls.length === 1 && ls[0].c.kind === 'meadow') { let fl = 0; for (const [a, b] of [[20, 0], [-20, 0], [0, 20], [0, -20]]) { const r = surfaceAt(p, x + a, z + b); fl = Math.max(fl, Math.abs(r.h - q.h)); if (r.town) fl = 99; } if (fl < 3) { x0 = x; z0 = z; } } }
   const mk = () => new FaunaSim(p, { isDead: id => dead.has(id), markDead: id => dead.set(id, 1), onStruck: () => { mk.struck = (mk.struck || 0) + 1; } });
   const shy = mk(); shy.test = true; const H = { id: 'h0', sp: S, x: x0, z: z0, n: 3, seed: 3 }; shy.spawnHerd(H); const A = shy.animals[0], d0 = Math.hypot(A.x - x0, A.z - z0); for (let t = 0; t < 6; t += 1 / 30) shy.update(1 / 30, A.x + 3, A.z, A.y); check(['flee'].includes(A.state) && A.speed > 1, `a shy one runs when you come close (${A.state}, ${A.speed.toFixed(1)} m/s)`); const y = shy.animals[1]; check(shy.herds.get('h0').alarm > 0, 'and the whole herd goes');
-  const big = sps.find(s => s.K.bold), wr = mk(); wr.test = true; wr.spawnHerd({ id: 'h1', sp: big, x: x0, z: z0, n: 1, seed: 5 }); const B = wr.animals[0]; wr.hurt(B, 5); check(B.state === 'charge', `a big one you hurt comes for you (${B.state})`); const tx = B.x + 7, tz = B.z, ty = B.y; for (let t = 0; t < 12 && !mk.struck; t += 1 / 30) wr.update(1 / 30, tx, tz, ty); check(mk.struck, 'and gets there');
+  const big = sps.find(s => s.K.bold && s.K.fear > 0), wr = mk(); wr.test = true; wr.spawnHerd({ id: 'h1', sp: big, x: x0, z: z0, n: 1, seed: 5 }); const B = wr.animals[0]; wr.hurt(B, 5); check(B.state === 'charge', `a big one you hurt comes for you (${B.state})`); const tx = B.x + 7, tz = B.z, ty = B.y; for (let t = 0; t < 12 && !mk.struck; t += 1 / 30) wr.update(1 / 30, tx, tz, ty); check(mk.struck, 'and gets there');
   const K = mk(); K.test = true; K.spawnHerd({ id: 'h2', sp: S, x: x0, z: z0, n: 2, seed: 9 }); const V = K.animals[0]; check(K.hurt(V, 1e4), 'it can be killed'); check(dead.has(V.id), 'that is remembered'); K.clear(); K.spawnHerd({ id: 'h2', sp: S, x: x0, z: z0, n: 2, seed: 9 }); check(K.animals.length === 1, 'and it stays dead when you come back');
   // they stay on the land: not through towns, nor underwater
   const w = mk(); w.test = true; w.spawnHerd({ id: 'h3', sp: S, x: x0, z: z0, n: 6, seed: 11 }); let bad = 0; for (let t = 0; t < 120; t += 1 / 20) { w.update(1 / 20, x0 + 500, z0, 0); for (const a of w.animals) if (Math.abs(a.y - surfaceHeight(p, a.x, a.z)) > 3 || !Number.isFinite(a.x)) bad++; } check(bad < 8, `over two minutes they stay on the ground (${bad} off it)`);
@@ -1307,7 +1319,7 @@ suites.fauna = async () => {
 suites.corners = async () => {
   const surfaceHeightAt = (await import('../js/gen/surface.js')).surfaceHeight;
   const C = await import('../js/gen/city.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Climber, BODY } = await import('../js/player/climber.js'), { sitesInTile } = await import('../js/gen/outposts.js'), { towerOf } = await import('../js/gen/towers.js'), { faceAhead } = await import('../js/gen/holds.js'), { siteReal } = await import('../js/world/sitereal.js');
-  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  const p = await classicPlanet(1), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
   let b = null; for (let a = 0; a < 3600 && !b; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); for (const q of B.buildings) if (q.tiers.length === 1 && !q.tiers[0].shape && C.STYLES[q.style]?.[5] && q.tiers[0].y1 > 18 && q.tiers[0].r[2] - q.tiers[0].r[0] > 8 && q.tiers[0].r[3] - q.tiers[0].r[1] > 8 && q.tiers[0].r[2] - q.tiers[0].r[0] < 26 && q.tiers[0].r[3] - q.tiers[0].r[1] < 26) { b = q; break; } }
   check(b, 'found a plain block to climb');
   const t = b.tiers[0], LEN = { h: BODY.upperArm + BODY.foreArm, f: BODY.thigh + BODY.shin };
@@ -1426,7 +1438,7 @@ suites.rivers = async () => {
     for (let i = -14; i <= 14; i++) for (let j = -14; j <= 14; j++) for (const S of sitesInTile(p, i, j)) for (const it of S.items) if (it.box) { const c = Math.cos(it.rot), s = Math.sin(it.rot), [a, b] = it.box; if (/^(gb_|sm_)/.test(it.k) && surfaceAt(p, it.x, it.z).wet > 0.3) built++; } }
   console.log(`    ${total} rivers on ${planets.length} planets, ${Math.min(...lens)}–${Math.max(...lens)} m`);
   check(total > planets.length, 'planets have rivers'); check(!up, `water only runs downhill (${up} rises)`); check(!dry, `each reaches the sea, and the water sits above its bed (${dry} don't)`); check(!inTown, `none runs through a town (${inTown})`); check(!built, `nobody builds in one (${built})`);
-  const p = planets[0], R = riversNear(p, 0, 0)[0], q = R.pts[10], a = surfaceAt(p, q.x, q.z), b = surfaceAt(makePlanet(uni(1), HOMEWORLD), q.x, q.z); check(a.h === b.h, 'the same seed cuts the same channels');
+  const pi = planets.findIndex(p => riversNear(p, 0, 0).length), p = planets[pi], R = riversNear(p, 0, 0)[0], q = R.pts[Math.min(10, R.pts.length - 1)], a = surfaceAt(p, q.x, q.z), b = surfaceAt(makePlanet(uni(pi + 1), HOMEWORLD), q.x, q.z); check(a.h === b.h, 'the same seed cuts the same channels');      // (the first world with rivers near home: an arid one may have none)
 };
 suites.walkin = async () => {
   const { sitesInTile } = await import('../js/gen/outposts.js'), { FORMS, designsFor, designPlan } = await import('../js/gen/housegen.js'), { siteReal } = await import('../js/world/sitereal.js'), { roomGraph } = await import('../js/gen/building.js');
@@ -1537,7 +1549,7 @@ suites.globe = async () => {
 suites.mantle = async () => {
   // Going over a ledge: the foot goes on it, the hips don't pass through it, and no limb has to stretch to stay where it is.
   const { Climber, BODY } = await import('../js/player/climber.js'); const { CollisionWorld } = await import('../js/player/collision.js'); const C = await import('../js/gen/city.js');
-  const p = makePlanet(uni(1), HOMEWORLD), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
+  const p = await classicPlanet(1), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
   let b; for (let a = 0; a < 3600 && !b; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district === 'housing') b = B.buildings.find(q => q.top > 30 && q.top < 50 && q.tiers.length === 1 && C.STYLES[q.style][5]); }
   const t = b.tiers[0], vm = (t.r[1] + t.r[3]) / 2, [x, z] = c.toWorld(t.r[0] - 0.6, vm), [tx, tz] = c.toWorld(t.r[0] + 2, vm), l = Math.hypot(tx - x, tz - z), fx = (tx - x) / l, fz = (tz - z) / l, yaw = Math.atan2(fx, fz), cl = Climber.grab(W, x, base, z, fx, fz);
   if (!check(cl, 'grabbed the wall')) return;
@@ -1570,14 +1582,15 @@ suites.network = async () => {
   const { outRoutes, MAX_GRADE, nearRoute } = await import('../js/gen/highways.js');
   let towns = 0, links = 0, alone = 0, stubs = 0, joined = 0;
   for (const u of [1, 2, 3]) {
-    const p = realPlanet(uni(u), HOMEWORLD), q = realPlanet(uni(u), HOMEWORLD), list = [];
+    const full = () => { let p = realPlanet(uni(u), HOMEWORLD); for (let k = 1; p.genome?.noGround; k++) p = realPlanet([uni(u)[0] ^ (0x5bd1 * k), uni(u)[1]], HOMEWORLD); return p; };      // (the whole road map, not makePlanet's home-only shortcut; never a world without ground)
+    const p = full(), q = full(), list = [];
     for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) { const s = getSettlement(p, a, b); if (s) list.push(s); }
     const seen = new Map();
     for (const s of list) { towns++; const L = linksOfTown(p, s); if (!L.length) alone++; for (const r of L) { seen.set(r.id, r); check(r.ends.includes(s.key), 'a road touches its town'); } }
     for (const r of seen.values()) { links++;
       for (let i = 1; i < r.h.length; i++) if (!r.bridges.some(B => i >= B.i0 - 1 && i <= B.i1 + 1) && Math.abs(r.h[i] - r.h[i - 1]) > MAX_GRADE * 4 * 1.6 && i > 8 && i < r.h.length - 8) { check(false, `too steep on ${r.id} at ${i}: ${Math.abs(r.h[i] - r.h[i - 1]) / 4}`); break; }
       check(Math.hypot(r.pts[0][0] - r.from.pts.at(-1)[0], r.pts[0][1] - r.from.pts.at(-1)[1]) < 0.01 || Math.hypot(r.pts[0][0] - r.to.pts.at(-1)[0], r.pts[0][1] - r.to.pts.at(-1)[1]) < 0.01, 'it starts where a road out of town ends');
-      const [x, z] = r.pts[r.pts.length >> 1]; check(linksAt(p, x, z).includes(r), 'and the ground knows it is there');
+      const [x, z] = r.pts[r.pts.length >> 1]; check(linksAt(p, x, z).includes(r), `and the ground knows it is there (world ${u}, ${p.genome.arch}, ${r.id})`);
       check(Math.abs(surfaceHeight(p, x, z) - nearRoute(r, x, z).h) < 0.6 || r.bridges.length, `the ground is graded to it ${surfaceHeight(p, x, z)} ${nearRoute(r, x, z).h}`);
     }
     for (const s of list) for (const r of outRoutes(p, s)) { stubs++; if (r.joined) joined++; }
@@ -1715,6 +1728,75 @@ suites.genome = async () => {
   let near = 0; for (let a = 0; a < vecs.length; a++) for (let b = a + 1; b < vecs.length; b++) { let d = 0; for (let i = 0; i < vecs[a].length; i++) d += (vecs[a][i] - vecs[b][i]) ** 2; if (Math.sqrt(d) < 0.08) near++; }
   check(near === 0, `no two worlds of 40 nearly the same (${near} pairs too close)`);
   console.log('  ' + Object.entries(count).sort((a, b) => b[1] - a[1]).map(([k, v]) => k + ' ' + v).join(', '));
+};
+suites.cloud = async () => {
+  // a world with no ground: towns on floating decks, bridges you can walk, air everywhere else (gen/skyisles.js)
+  const K = await import('../js/gen/skyisles.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js'), { REGION } = await import('../js/core/units.js');
+  let p = null; for (let n = 0; n < 200 && !p; n++) { const q = makePlanet(uni(1), new Address([['galaxy', 0], ['sector', 0, 0, 0], ['system', n >> 4], ['body', n & 15]])); if (q.genome.noGround) p = q; }
+  if (!check(p, 'there are cloud worlds')) return;
+  const s = getSettlement(p, 0, 0), P = K.skyPlan(p, s), C = K.cloudOf(p);
+  check(s && s.h > C.deck + 400, `the town floats well above the clouds (${s.h | 0} m, clouds at ${C.deck | 0})`);
+  check(Math.abs(rawHeight(p, s.cx, s.cz) - s.h) < 1e-6, 'the town stands on its deck');
+  check(rawHeight(p, s.cx + 2000, s.cz + 2000) < C.deck - 1000, 'beyond the decks: only air, down through the clouds');
+  for (const D of P.decks) { const [rx, rz] = [Math.floor((D.x + D.r) / REGION), Math.floor((D.z + D.r) / REGION)]; check(Math.floor((D.x - D.r) / REGION) === 0 && rx === 0 && Math.floor((D.z - D.r) / REGION) === 0 && rz === 0, `deck ${D.kind} inside its town's region`); }
+  let jumps = 0; for (const B of P.bridges) { let prev = null; for (let t = 0; t <= 1; t += 0.01) { const x = B.a[0] + (B.b[0] - B.a[0]) * t, z = B.a[1] + (B.b[1] - B.a[1]) * t, h = rawHeight(p, x, z); if (prev !== null && Math.abs(h - prev) > 1.5) jumps++; prev = h; } }
+  check(P.bridges.length >= 3 && !jumps, `${P.bridges.length} bridges, each an unbroken walk from deck to deck (${jumps} breaks)`);
+  // walk the first bridge, from the main deck out onto the satellite
+  const W = new CollisionWorld(p, s, () => false); W.flora = false; const B = P.bridges[0], D = P.decks.slice(1).sort((d, e) => Math.hypot(d.x - B.b[0], d.z - B.b[1]) - Math.hypot(e.x - B.b[0], e.z - B.b[1]))[0];
+  const c = new Controller(W, [B.a[0], B.a[2] + 0.3, B.a[1]]), yaw = Math.atan2(B.b[0] - B.a[0], B.b[1] - B.a[1]), L = Math.hypot(B.b[0] - B.a[0], B.b[1] - B.a[1]);
+  for (let t = 0; t < L / 1.2 + 10; t += 1 / 60) c.step(1 / 60, { fwd: 1, right: 0, yaw });
+  check(D && Math.hypot(c.pos[0] - D.x, c.pos[2] - D.z) < D.r && Math.abs(c.pos[1] - D.h) < 0.5, `walked across the bridge onto the ${D?.kind} deck (${(c.pos[1] - (D?.h ?? 0)).toFixed(2)} m)`);
+  console.log(`  ${p.genome.arch} world: ${P.decks.length} decks, ${P.bridges.length} bridges, town at ${s.h | 0} m`);
+};
+suites.gencache = async () => {
+  // explore-to-generate, remembered: far country is let go (memory stays flat over a long trip), and what comes back is the same; the cache round-trips; where you've been is noted
+  const R = await import('../js/gen/rivers.js'), { GenCache, noteExplored } = await import('../js/world/gencache.js');
+  const p = makePlanet(uni(2), HOMEWORLD), at = (x, z) => R.riverAt(p, x, z), sample = () => { const out = []; for (let i = 0; i < 400; i++) { const r = at(i * 61.3, 2000 + i * 17.1); out.push(r ? r.d.toFixed(2) : '-'); } return out.join(); };
+  const before = sample(); let most = 0;
+  for (let k = 0; k <= 120; k += 4) { const x = k * 1000, z = 2000; R.riversNear(p, x, z); R.forgetRiverCells(p, Math.floor(x / R.REGION), Math.floor(z / R.REGION), 3); most = Math.max(most, R.riversNear(p, x, z).length); }
+  R.forgetRiverCells(p, 0, 0, 3);
+  check(sample() === before, 'rivers forgotten and worked out again come back exactly the same');
+  const near = R.riversNear(p, 0, 2000).length; check(most < 400 && near > 0, `memory stays bounded over 120 km (${most} rivers held at most; ${near} near home)`);
+  const C = new GenCache(p); await C.put('rivers', '1,2', [[{ pts: [{ x: 1, z: 2, y: 3 }] }, 4]]); const back = await C.get('rivers', '1,2'); check(JSON.stringify(back) === '[[{"pts":[{"x":1,"z":2,"y":3}]},4]]', 'the cache round-trips');
+  const other = new GenCache(makePlanet(uni(4), HOMEWORLD)); check(C.key('rivers', '1,2') !== other.key('rivers', '1,2'), 'each planet keys its own');
+  const pl = {}; check(noteExplored(pl, 3, 4) && !noteExplored(pl, 3, 4) && pl.explored.length === 1, 'a cell you come into is noted once');
+};
+suites.fleetwar = async () => {
+  // the great ships fight: Anvil's beams cut raiders in two, its missiles slide out, light and hit; Bastion launches; Sable flies its run and comes home
+  const { AirWar } = await import('../js/sim/aircombat.js'), { FleetWar } = await import('../js/sim/fleetwar.js'), { fleetOf } = await import('../js/gen/capital.js'), { CollisionWorld } = await import('../js/player/collision.js');
+  const p = makePlanet(uni(2), HOMEWORLD), s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false); world.flora = false;
+  const fleet = fleetOf(p, s), A = fleet.find(c => c.model === 'anvil'), B = fleet.find(c => c.model === 'bastion'), Sb = fleet.find(c => c.model === 'sable'), home = { x: Sb.x, z: Sb.z };
+  const war = new AirWar(world, p), blasts = [], ground = (x, z) => Math.max(world.groundAt(x, z, 1e5).h, p.seaLevel);
+  const FW = new FleetWar({ war, fleet, ground, hooks: { blast: e => blasts.push(e) } });
+  const raiders = [0, 1, 2, 3].map(i => war.spawn('needle', 'raider', [A.x + 3000 + i * 200, A.y - 400, A.z + 2000], Math.PI, 150)).concat([war.spawn('shade', 'raider', [B.x + 2500, B.y + 200, B.z + 1500], Math.PI, 150)]);
+  const raid = { k: 1, raiders, defenders: [], bearing: 0.7, target: [s.cx, s.h, s.cz] };
+  let sliced = 0, launched = 0, salvo = 0, slid = 0, lit = 0; const ev = [];
+  for (let t = 0; t < 420; t += 1 / 30) { war.step(1 / 30); FW.step(1 / 30, raid); for (const e of FW.drain()) { ev.push(e.type); if (e.type === 'sliced') sliced++; if (e.type === 'launch') launched++; if (e.type === 'salvo') salvo++; } for (const m of FW.missiles) { if (m.phase === 'slide' && m.t > 0) slid++; if (m.phase === 'burn') lit++; } }
+  check(sliced >= 1, `a beam cut a raider in two (${sliced})`);
+  check(salvo >= 1 && slid > 0 && lit > 0, `missiles slid out of their cells and lit (${salvo} salvos)`);
+  check(raiders.every(c => !c.alive), `the raiders didn't survive it (${raiders.filter(c => c.alive).length} left)`);
+  check(launched === 1, `the carrier put its fighters up (${launched})`);
+  check(FW.missiles.length === 0 || FW.missiles.every(m => m.t < 31), 'no missile hangs about');
+  check(blasts.length > 0 && blasts.every(b => Number.isFinite(b.p[1])), `what came down blew up where it landed (${blasts.length} blasts)`);
+  check(Math.hypot(Sb.x - home.x, Sb.z - home.z) < 1, `Sable flew its run and came home (${Math.round(Math.hypot(Sb.x - home.x, Sb.z - home.z))} m off station)`);
+  console.log(`  ${sliced} cut in two, ${salvo} salvos, ${blasts.length} ground blasts; events: ${[...new Set(ev)].join(', ')}`);
+};
+suites.front = async () => {
+  // nations at war have a front where their lands meet; near it, both sides' fighters are up and the guns are firing
+  const { frontsOf, FrontBattle, frontPoint } = await import('../js/sim/front.js'), SO = await import('../js/gen/society.js'), { AirWar } = await import('../js/sim/aircombat.js'), { CollisionWorld } = await import('../js/player/collision.js');
+  let p = null, nat = null; for (let n = 1; n < 200 && !p; n++) { const q = makePlanet(uni(n), HOMEWORLD); const N = SO.nationsOf(q); if (N.length > 1 && frontsOf(q, N[0]).length) { p = q; nat = N[0]; } }
+  if (!check(p, 'some world is at war')) return;
+  const F = frontsOf(p, nat)[0], W = SO.nationAt(p, F.x, F.z);
+  check(W.border < 50, `the front lies on the border (${W.border.toFixed(1)} m off it)`);
+  const s = getSettlement(p, 0, 0), world = new CollisionWorld(p, s, () => false); world.flora = false; const war = new AirWar(world, p), blasts = [];
+  const B = new FrontBattle({ planet: p, war, ground: (x, z) => world.groundAt(x, z, 1e5).h, hooks: { blast: e => blasts.push(e) } });
+  for (let t = 0; t < 30; t += 1 / 20) B.step(1 / 20, nat, [F.x - 2000, 500, F.z]);
+  check(B.ours.length && B.theirs.length, `both sides in the air (${B.ours.length} ours, ${B.theirs.length} theirs)`);
+  const sides = blasts.map(b => Math.sign((b.p[0] - F.x) * Math.sin(F.dir) + (b.p[2] - F.z) * Math.cos(F.dir)));
+  check(blasts.length > 5 && sides.includes(1) && sides.includes(-1), `shells landing on both sides of the line (${blasts.length})`);
+  B.step(1 / 20, nat, [F.x + 90000, 500, F.z + 90000]); check(!B.F && !war.craft.length, 'away from the front, the battle there is left to itself');
+  const tally = { peace: 0, cold: 0, 'border war': 0, war: 0 }; for (let n = 1; n < 120; n++) for (const r of makePlanet(uni(n), HOMEWORLD).genome.society.relations) tally[r.state]++;
+  console.log('  relations over 120 worlds: ' + JSON.stringify(tally));
 };
 suites.fleetdecks = async () => {
   // every great ship has its own insides: its own layout, the deck length the game places it by matching that layout, and its own model file

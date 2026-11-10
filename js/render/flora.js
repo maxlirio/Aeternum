@@ -28,7 +28,7 @@ export class FloraView {
     const parted = new Set(); for (const k in this.kinds) for (const P of this.kinds[k].prims || []) if (P.leafy && !parted.has(P.pr.material)) { parted.add(P.pr.material); const m = P.pr.material, prior = m.onBeforeCompile; m.onBeforeCompile = (sh, r) => { prior?.(sh, r); sh.fragmentShader = sh.fragmentShader.replace('#include <alphatest_fragment>', `#include <alphatest_fragment>
       if (vViewPosition.z < 4.5 && fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) > smoothstep(1.2, 4.5, vViewPosition.z)) discard;`);
       if (hueFree && m.map) sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-      { float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)); diffuseColor.rgb = vec3(lum * 2.6); }`);      // (the leaf picture gives light and shade only; the hue is this world's instance colour, so a violet world's leaves are violet, not green-stained)
+      { float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)); diffuseColor.rgb = vec3(lum * 1.9); }`);      // (the leaf picture gives light and shade only; the hue is this world's instance colour, so a violet world's leaves are violet, not green-stained)
     }; m.customProgramCacheKey = () => 'parted' + (hueFree ? 'h' : ''); m.needsUpdate = true; }
     const g = planet.climate.canopy || planet.climate.grass, l = Math.max(...g);
     this.leafBase = new THREE.Color(g[0] / l, g[1] / l, g[2] / l).lerp(new THREE.Color(1, 1, 1), 0.3);

@@ -95,11 +95,11 @@ export const ARCHETYPES = {
     flora: { palm: 4, weeping: 2, parasol: 1.5, coral: 1.5, spiral: 1 },
     fauna: { flock: 4, glider: 3, serpent: 2, shell: 2, jelly: 1, hopper: 1, crawler: 1 },
     ways: { stilt: 6, grown: 1.5, garden: 1.5, neon: 1, corporate: 0.8 } },
-  // a world with no ground at all: cities float in its clouds. Defined here; switched off (w: 0) until the game has a mode for a world without a surface.
-  gas: { w: 0, noGround: true, weird: [0.4, 1], warm: [0.3, 0.7], damp: [0.5, 0.9], relief: [0, 0], sea: [1, 1], treeline: [0, 0],
-    lands: { meadow: 1 }, foliage: { gold: 2, purple: 1, teal: 1, red: 1 }, mount: { domed: 1 },
-    flora: { coral: 1 }, fauna: { jelly: 5, flock: 3, glider: 3, serpent: 1 },
-    ways: { spire: 3, grown: 2, dome: 2, corporate: 2, neon: 1 } },
+  // a world with no ground at all: a gas giant's upper air, its people on floating cities over a sea of cloud (gen/skyisles.js)
+  cloud: { w: 0.7, noGround: true, weird: [0.35, 0.9], warm: [0.35, 0.7], damp: [0.45, 0.8], relief: [0, 0], sea: [0, 0], treeline: [4000, 6000],
+    lands: { meadow: 3, forest: 1 }, foliage: { gold: 2, purple: 1.5, teal: 1.5, red: 1, green: 1 }, mount: { domed: 1 },
+    flora: { weeping: 2, parasol: 2, spiral: 2, coral: 1.5, palm: 1, fungus: 0.6 }, fauna: { jelly: 5, flock: 4, glider: 4, serpent: 0.5 },
+    ways: { spire: 3, grown: 2, dome: 2, corporate: 2, neon: 1.4, garden: 1 } },
   cratered: { w: 0.5, weird: [0.3, 0.8], warm: [0.3, 0.6], damp: [0.08, 0.3], relief: [0.3, 0.7], sea: [-0.9, -0.4], treeline: [600, 1000],
     lands: { craters: 6, rockfield: 2, dunes: 1, saltpan: 1, badlands: 0.6, lava: 0.6, crystal: 0.3 },
     foliage: { olive: 2, gold: 1.5, white: 1, teal: 1, red: 1 }, mount: { domed: 3, ridged: 1 },
@@ -147,9 +147,11 @@ const ROCKS = {
   green:  [[0.24, 0.28, 0.24], [0.2, 0.26, 0.24]],
   violet: [[0.3, 0.24, 0.32], [0.26, 0.22, 0.3]],
 };
-const ROCK_BY = { ocean: { dark: 2, grey: 2, pale: 1 }, gas: { pale: 1 }, temperate: { grey: 4, warm: 2 }, steppe: { warm: 3, grey: 2, red: 1 }, highland: { grey: 4, dark: 1 }, jungle: { grey: 2, warm: 2, red: 1 }, savanna: { red: 3, warm: 3 },
+const ROCK_BY = { ocean: { dark: 2, grey: 2, pale: 1 }, cloud: { pale: 2, grey: 1 }, temperate: { grey: 4, warm: 2 }, steppe: { warm: 3, grey: 2, red: 1 }, highland: { grey: 4, dark: 1 }, jungle: { grey: 2, warm: 2, red: 1 }, savanna: { red: 3, warm: 3 },
   arid: { red: 4, warm: 3, pale: 1 }, archipelago: { dark: 2, grey: 2, pale: 1 }, frozen: { pale: 3, grey: 3, dark: 1 }, canyonland: { red: 5, warm: 2 }, volcanic: { dark: 6, red: 1 },
   fungal: { violet: 2, dark: 2, green: 1, grey: 1 }, crystal: { pale: 3, violet: 2, grey: 1 }, spireforest: { warm: 2, pale: 2, grey: 2 }, cratered: { grey: 3, pale: 2, dark: 2 } };
+// a gas giant's cloud bands: cream and ochre, rust, teal, violet; pairs of light and dark
+const BANDS = [[[0.92, 0.86, 0.74], [0.78, 0.6, 0.42]], [[0.9, 0.8, 0.68], [0.66, 0.38, 0.26]], [[0.78, 0.9, 0.92], [0.36, 0.56, 0.62]], [[0.88, 0.82, 0.94], [0.5, 0.4, 0.62]], [[0.95, 0.92, 0.86], [0.62, 0.64, 0.7]], [[0.94, 0.84, 0.7], [0.5, 0.32, 0.3]]];
 
 // hsv → rgb, h may run past 1 (it wraps)
 function hsv(h, s, v) {
@@ -166,7 +168,7 @@ const mixc = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 const RESOURCES = {
   temperate: { grain: 4, timber: 3, ore: 2, stone: 1.5, fish: 1.5 }, steppe: { grain: 3, livestock: 3, ore: 2, salt: 1 }, highland: { ore: 4, stone: 3, timber: 2, livestock: 1.5 },
   jungle: { timber: 4, medicine: 3, fruit: 3, fish: 1 }, savanna: { grain: 4, livestock: 4, ore: 1 }, arid: { salt: 3, ore: 3, solar: 3, water: 2, spice: 1.5 },
-  archipelago: { fish: 5, fruit: 2, salt: 1.5, timber: 1 }, ocean: { fish: 6, kelp: 3, salt: 2, pearl: 1 }, frozen: { ore: 3, ice: 3, fur: 1.5, fish: 1.5 },
+  archipelago: { fish: 5, fruit: 2, salt: 1.5, timber: 1 }, cloud: { helium3: 6, gas: 4, fruit: 1 }, ocean: { fish: 6, kelp: 3, salt: 2, pearl: 1 }, frozen: { ore: 3, ice: 3, fur: 1.5, fish: 1.5 },
   canyonland: { ore: 4, stone: 3, water: 2 }, volcanic: { geothermal: 4, ore: 4, sulphur: 2.5 }, fungal: { medicine: 4, fibre: 3, spore: 3 },
   crystal: { crystal: 6, ore: 2, stone: 1 }, spireforest: { timber: 3, fruit: 2, stone: 2 }, cratered: { ore: 4, rare: 3, ice: 2 }, gas: { helium3: 6, gas: 4 },
 };
@@ -283,7 +285,8 @@ export function buildGenome(seed) {
   // ---- people ----
   const ways = pickSet(A.ways, 2);
   const soc = society(rng, arch, weird);
-  return { arch, weird, noGround: !!A.noGround, terrain, lands, climate, atmosphere, sky: { moons, ring }, flora, fauna, culture: { ways, old: ways[1] }, society: soc, keys: { foliage: fam, rock: rockFam, sand: sandKey, sea: seaKey, sky: skyKey } };
+  const cloud = A.noGround ? { deck: R(500, 900), bands: rng.pick(BANDS).map(c => c.map(v => J(v, 0.05))), storm: R(0.2, 1), speed: R(4, 14), puffs: R(0.5, 1) } : null;
+  return { arch, weird, noGround: !!A.noGround, cloud, terrain, lands, climate, atmosphere, sky: { moons, ring }, flora, fauna, culture: { ways, old: ways[1] }, society: soc, keys: { foliage: fam, rock: rockFam, sand: sandKey, sea: seaKey, sky: skyKey } };
 }
 // A few numbers per planet, for comparing two of them (tests and tools/planets.mjs).
 export function genomeVector(g) {

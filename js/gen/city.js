@@ -46,7 +46,8 @@ export function getCity(planet) {
   const address = planet.address.child('city', 0, 0), seed = address.seed(planet.universeSeed), rng = new Rng(seed);
   const R = r1(rng.range(3600, 4400));
   let best = null;
-  for (let k = 0; k < 40; k++) {
+  if (planet.genome?.noGround) { const a = rng.range(0, Math.PI * 2), d = rng.range(8600, 10500) + R * 0.35, C = planet.genome.cloud; best = { x: Math.sin(a) * d, z: Math.cos(a) * d, mean: C.deck + 700 + rng.range(0, 500), score: 0 }; }     // (a cloud world's megacity floats too: gen/skyisles.js)
+  for (let k = 0; k < 40 && !best; k++) {
     const a = rng.range(0, Math.PI * 2), d = rng.range(7600, 10500) + R * 0.35;
     const x = Math.sin(a) * d, z = Math.cos(a) * d;
     let sum = 0, sum2 = 0, n = 0, wet = 0;

@@ -139,6 +139,11 @@ function buildDay(pop, p, D) {
   const dinner = homeSpot(['kitchen', 'livingkitchen']) || homeSpot(['sit']);
   if (dinner && t < at(18.2 + rng.range(-0.4, 0.8))) { if (go(dinner, 'dinner')) stay(dinner, Math.max(t, at(18.3 + rng.range(-0.3, 0.6))), 'cooking'); }
   if (dinner && t < at(sleep) - 0.8 * HR && go(dinner, 'dinner')) stay(dinner, Math.min(at(sleep) - 0.6 * HR, t + rng.range(0.4, 0.8) * HR), 'dinner');
+  // a gang member's evening is out on the corner with the crew (gen/gangs.js), till late
+  const G = pop.gangOf ? pop.gangOf(p.id) : null;
+  if (G && t < at(sleep) - 1 * HR) { const n = pop.s.nodes.find(q => q.u === G.turf.u && q.v === G.turf.v), road = n ? pop.s.roads.findIndex(r => r.na === pop.s.nodes.indexOf(n) || r.nb === pop.s.nodes.indexOf(n)) : -1;
+    if (road >= 0) { const r = pop.s.roads[road], off = r.w / 2 + 1.5 + rng.range(0, 3), uv = r.a[1] === r.b[1] ? [n.u + rng.range(-6, 6), n.v + off] : [n.u + off, n.v + rng.range(-6, 6)], [x, z] = pop.s.toWorld(uv[0], uv[1]);
+      if (go({ street: uv, road, pos: [x, pop.s.h + 0.05, z], facing: rng.range(0, 6.28), pose: 'stand' }, 'out with the gang')) stay(here, at(sleep) + 0.5 * HR, 'with the gang'); } }
   const evening = homeSpot(['sit', 'living']);
   if (evening && t < at(sleep) - 0.3 * HR && go(evening, 'at home')) stay(evening, at(sleep) - 0.05 * HR, 'at home');
   if (here !== bed) go(bed, 'going to bed');

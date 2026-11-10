@@ -3,6 +3,7 @@
 // high ground, lighthouses on the shore, ruins anywhere. Pure: (planet, tile) → sites, read from the
 // land itself, so each planet's countryside follows its own terrain and climate. Nothing is stored
 // until you change something. Each item: { k (kit name), x, y, z, rot, r (solid radius, or 0) }.
+import { outpostBias } from './society.js';
 import { Rng } from '../core/prng.js';
 import { derive, hash01 } from '../core/hash.js';
 import { surfaceAt, bareSurfaceAt } from './surface.js';
@@ -224,7 +225,8 @@ function siteHead(planet, ti, tj, rng) {
   let room = 1, spread = 0, sum = S.h, n = 1; for (const r of [70, 140, 210, 290]) for (let k = 0; k < 8; k++) { const q = q0(Math.cos(k * 0.785) * r, Math.sin(k * 0.785) * r); if (r < 290) { sum += q.h; n++; spread = Math.max(spread, Math.abs(q.h - S.h)); } if (q.wet > 0.02 || q.town > 0.01 || q.h < planet.seaLevel + 3) room = 0; }
   if (room && riverWithin(planet, x, z, 300)) room = 0;
   const land = { river, plain: !room ? 0 : spread < 22 ? 1 : spread < 45 ? 0.4 : 0, flat: d < 3 ? 1 : d < 7 ? 0.45 : 0.05, steep: d > 6 ? 1 : 0.15, wet: moisture(planet, x, z), low: S.h < 180 ? 1 : 0.4, high: S.h > 150 ? 1 : 0.25, shore, road };
-  const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land))])), rot0 = rng.range(0, 6.28), G = GRADED[pick];
+  const bias = outpostBias(planet);      // (the world's industries fill its countryside: mines everywhere on a crystal world, landings on a fishing one)
+  const pick = rng.weighted(Object.entries(KINDS).map(([k, K]) => [k, Math.max(0.0001, K.fit(land)) * (bias?.[k] || 1)])), rot0 = rng.range(0, 6.28), G = GRADED[pick];
   return { x, z, S, pick, rot0, shoreDir, riverDir, land, pad: G ? { x, z, h: sum / n, R: G[0], F: G[1] } : null };
 }
 // Levelled ground near (x, z): { h, w } or null. Called for every point of ground anywhere, so it's kept cheap.
@@ -248,6 +250,7 @@ export function padAt(planet, x, z) {
 
 const cache = new Map();
 export function sitesInTile(planet, ti, tj) {
+  if (planet.genome?.noGround) return [];
   const ck = planet.seed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck); if (cache.size > 400) cache.clear();
   const out = [], rng = new Rng(derive(planet.seed, 'outposts', [ti, tj])), cul = cultureOf(planet), head = siteHead(planet, ti, tj, rng);
   if (head) {

@@ -49,6 +49,7 @@ function planOf(planet, A) {
 }
 // Every join a town has, its own and the ones others have made to it, without repeats.
 export function joinsOf(planet, A) {
+  if (planet.genome?.noGround) return [];
   const seen = new Map(), add = p => { const [a, b] = idOf(p[0], p[1]), id = a.s.key + '#' + a.i + '|' + b.s.key + '#' + b.i; if (!seen.has(id)) seen.set(id, [id, a, b]); };
   for (const p of planOf(planet, A).own) add(p);
   for (const [, B] of nearTowns(planet, A)) for (const p of planOf(planet, B).own) if (p[1].s === A) add(p);
@@ -159,6 +160,7 @@ export const knownLinks = planet => [...stateOf(planet).links.values()].filter(B
 
 // The roads that could affect (x, z): a coarse cell's worth, worked out once.
 export function linksAt(planet, x, z) {
+  if (planet.genome?.noGround) return [];
   if (planet.onlyHomeRiver) return NONE;   // (tests over hundreds of home towns: see tools/test.mjs)
   const S = stateOf(planet), rx = Math.floor(x / REGION), rz = Math.floor(z / REGION), k = rx * 100003 + rz; let list = S.cells.get(k);
   if (list) return list;
@@ -176,6 +178,7 @@ const NONE = [];
 
 // For the background thread: the towns around a region, routed, as plain data; and taking that data in.
 export function linksAround(planet, rx, rz, reach = 2) {
+  if (planet.genome?.noGround) return [];
   const out = [];
   for (let a = -reach; a <= reach; a++) for (let b = -reach; b <= reach; b++) {
     const s = getSettlement(planet, rx + a, rz + b); if (!s) continue;

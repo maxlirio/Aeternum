@@ -190,11 +190,63 @@ try {
       console.log('   world', N, G);
       const go = async (tag, js, wait = 3500) => { await ev(`(async () => { const O = ORBIS, s = O.homeS, wait = ms => new Promise(r => setTimeout(r, ms)); ${js}; await wait(${wait}); return 1; })()`); await shot('world' + N + '-' + tag); };
       // from the air: up over the edge of town, looking out over the country
-      await go('air', `const f = O.getFlight(), a = 0.7, R = (s.R || 300) + 200; f.pos[0] = s.cx + Math.sin(a) * R; f.pos[2] = s.cz + Math.cos(a) * R; f.pos[1] = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h + 420; f.vel = [Math.sin(a) * 60, 0, Math.cos(a) * 60]; f.throttle = 0.5; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.32, 0); f.w = [0, 0, 0]; f.syncEuler(); O.setCockpitView(false)`, 4500);
-      await go('high', `const f = O.getFlight(), a = 2.4; f.pos[0] = s.cx + Math.sin(a) * 3000; f.pos[2] = s.cz + Math.cos(a) * 3000; f.pos[1] = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h + 1600; f.vel = [Math.sin(a) * 80, 0, Math.cos(a) * 80]; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.22, 0); f.w = [0, 0, 0]; f.syncEuler()`, 5000);
+      await go('air', `const f = O.getFlight(), a = 0.7, R = (s.R || 300) + 200; f.pos[0] = s.cx + Math.sin(a) * R; f.pos[2] = s.cz + Math.cos(a) * R; f.pos[1] = Math.max(O.world.groundAt(f.pos[0], f.pos[2], 1e4).h, O.planet.genome.cloud ? s.h - 300 : -1e9) + 420; f.vel = [Math.sin(a) * 60, 0, Math.cos(a) * 60]; f.throttle = 0.5; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.32, 0); f.w = [0, 0, 0]; f.syncEuler(); O.setCockpitView(false)`, 4500);
+      await go('high', `const f = O.getFlight(), a = 2.4; f.pos[0] = s.cx + Math.sin(a) * 3000; f.pos[2] = s.cz + Math.cos(a) * 3000; f.pos[1] = Math.max(O.world.groundAt(f.pos[0], f.pos[2], 1e4).h, O.planet.genome.cloud ? s.h - 300 : -1e9) + 1600; f.vel = [Math.sin(a) * 80, 0, Math.cos(a) * 80]; f.facing = a; const F = await import('./js/player/flight.js'); f.q = F.fromEuler(a, -0.22, 0); f.w = [0, 0, 0]; f.syncEuler()`, 5000);
       // on foot: the edge of town looking out, then in the street
       await go('edge', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const a = 2.1, R = (s.R || 300) + 140, x = s.cx + Math.sin(a) * R, z = s.cz + Math.cos(a) * R; O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; O.ctrl.facing = a; O.cam.yaw = a; O.cam.pitch = 0.04; O.cam.dist = 5`, 5000);
+      if (await ev('ORBIS.planet.genome.cloud ? 1 : 0')) {      // a cloud world: stand at the deck's rail looking out over the drop, and look up at the town from beneath
+        await go('rim', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const K = await import('./js/gen/skyisles.js'), P = K.skyPlan(O.planet, s), D = P.decks[0], a = (P.decks[1]?.a ?? 0.6) + 0.5, e = K.deckEdge(D, a) - 4, x = D.x + Math.cos(a) * e, z = D.z + Math.sin(a) * e; O.ctrl.pos = [x, D.h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const yaw = Math.atan2(Math.cos(a), Math.sin(a)); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = -0.18; O.cam.dist = 6`, 5000);
+        await go('bridge', `const K = await import('./js/gen/skyisles.js'), P = K.skyPlan(O.planet, s), B = P.bridges[0], x = B.a[0] + (B.b[0] - B.a[0]) * 0.45, z = B.a[1] + (B.b[1] - B.a[1]) * 0.45; O.ctrl.pos = [x, B.a[2] + (B.b[2] - B.a[2]) * 0.45 + 0.1, z]; O.ctrl.vel = [0, 0, 0]; const yaw = Math.atan2(B.b[0] - B.a[0], B.b[1] - B.a[1]); O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.05; O.cam.dist = 6`, 4000);
+      }
+      // the world's creatures: one of each species, side by side on open ground just outside town
+      await go('beasts', `O.setFlightForTest(null); O.ctrl.mode = 'walk'; const F = await import('./js/gen/fauna.js'), sps = F.speciesOf(O.planet), a = 2.1, R = (s.R || 300) + 60, x0 = s.cx + Math.sin(a) * R, z0 = s.cz + Math.cos(a) * R, px = Math.cos(a), pz = -Math.sin(a); O.fauna.clear();
+        let off = -sps.reduce((t, S) => t + S.size * 1.6, 0) / 2; for (const S of sps) { off += S.size * 0.8; O.fauna.spawnTest(S, x0 + px * off, z0 + pz * off, 1, a + Math.PI / 2); off += S.size * 0.8; }
+        const cx = x0 + Math.sin(a) * 14, cz = z0 + Math.cos(a) * 14; O.ctrl.pos = [cx, O.world.groundAt(cx, cz, 1e4).h + 0.05, cz]; O.ctrl.vel = [0, 0, 0]; const yaw = a + Math.PI; O.ctrl.facing = yaw; O.cam.yaw = yaw; O.cam.pitch = 0.12; O.cam.dist = 7`, 5000);
       await go('street', `const b = s.buildings[Math.floor(s.buildings.length / 3)], [x, z] = s.toWorld(b.O[0] + b.ex[0] * b.w / 2 - b.ez[0] * 6, b.O[1] + b.ex[1] * b.w / 2 - b.ez[1] * 6); O.ctrl.pos = [x, O.world.groundAt(x, z, 1e4).h + 0.05, z]; O.ctrl.vel = [0, 0, 0]; const a = Math.atan2(b.ez[0], b.ez[1]) + 0.5; O.ctrl.facing = a; O.cam.yaw = a; O.cam.pitch = 0.08; O.cam.dist = 5`, 4000);
+    }
+  }
+  if (want('harbour')) {
+    // a town built out over the sea: seen from the water, its piles and quay, boats coming and going
+    await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0&planet=' + (process.env.PLANET || 18));
+    const T = await ev(`(async () => { const S = await import('./js/gen/settlement.js'); for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) { const s = S.getSettlement(ORBIS.planet, i, j); if (s?.onWater) return { cx: s.cx, cz: s.cz, R: s.R, h: s.h, name: s.name }; } return null; })()`);
+    console.log('   water town', JSON.stringify(T));
+    if (T) for (const [tag, d, up, a] of [['approach', 420, 60, 0.6], ['quay', 150, 8, 2.2], ['above', 250, 260, 4]]) {
+      await ev(`(async () => { const O = ORBIS, f = O.getFlight(), wait = ms => new Promise(q => setTimeout(q, ms)), F = await import('./js/player/flight.js'), T = ${JSON.stringify(T)}, a = ${a};
+        const x = T.cx + Math.sin(a) * (T.R + ${d}), z = T.cz + Math.cos(a) * (T.R + ${d}), yaw = Math.atan2(T.cx - x, T.cz - z);
+        for (let i = 0; i < 50; i++) { f.pos = [x, T.h + ${up}, z]; f.vel = [0, 0, 0]; f.vtol = true; f.facing = yaw; f.q = F.fromEuler(yaw, -0.08, 0); f.w = [0, 0, 0]; f.syncEuler(); O.cam.dist = 24; await wait(100); } return 1; })()`);
+      await shot('harbour-' + tag);
+    }
+  }
+  if (want('war')) {
+    // a world at war: enlist, report for duty, and fly at the front (sim/front.js)
+    for (const N of (process.env.PLANETS || '0,1,2,3,4,5,6,7,8,9').split(',')) {
+      await load('hour=' + (process.env.HOUR || 14) + '&planet=' + N);
+      const info = await ev(`(async () => { const O = ORBIS, F = await import('./js/sim/front.js'), soc = O.townSociety(); const fr = soc ? F.frontsOf(O.planet, soc.nation) : []; return { arch: O.planet.genome.arch, nation: soc?.nation.name, gov: soc?.govLabel, industry: soc?.industryLabel, gangs: O.gangs().map(g => g.name + ' (' + g.members.length + ')'), fronts: fr.map(f => f.b.name + ' ' + f.state + ' ' + Math.round(Math.hypot(f.x, f.z) / 1000) + ' km') }; })()`);
+      console.log('   world', N, JSON.stringify(info));
+      if (!info.fronts.length) continue;
+      await ev(`(async () => { const O = ORBIS, soc = O.townSociety(); O.store.player.soldier = { nation: soc.nation.id, rank: 0, kills: 0 }; O.deploy(); return 1; })()`);
+      for (const [tag, secs] of [['front', 6], ['fight', 10]]) {
+        await ev(`(async () => { const wait = ms => new Promise(q => setTimeout(q, ms)); for (let i = 0; i < ${secs} * 10; i++) { const f = ORBIS.getFlight(); if (f) { f.throttle = 0.6; } await wait(100); } return 1; })()`);
+        const st = await ev(`(() => { const B = ORBIS.front; return { at: !!B.F, ours: B.ours.length, theirs: B.theirs.length, craters: ORBIS.planet.craters.length, flying: !!ORBIS.getFlight() }; })()`);
+        console.log('   war', tag, JSON.stringify(st)); await shot('war-' + tag);
+      }
+      break;
+    }
+  }
+  if (want('battle')) {
+    // a raid, and the great ships answering it: Anvil's beams and missiles, Bastion's fighters, Sable's run
+    await load('hour=' + (process.env.HOUR || 15) + '&fly=runabout0' + (process.env.PLANET ? '&planet=' + process.env.PLANET : ''));
+    await ev(`(async () => { const O = ORBIS; O.startRaid(); return 1; })()`);
+    const R = await ev(`(() => { const r = ORBIS.getRaid(); return r ? { bearing: r.bearing, target: r.target, n: r.raiders.length } : null; })()`);
+    console.log('   raid', JSON.stringify(R));
+    // bring the raiders in close to the Anvil, and watch from off its quarter: the beams, the cells opening, the missiles going
+    await ev(`(() => { const O = ORBIS, A = O.fleet.find(c => c.model === 'anvil'), r = O.getRaid() || {}; for (let i = 0; i < 5; i++) (r.raiders ||= []).push(O.war.spawn('needle', 'raider', [A.x + 1800 + i * 240, A.y - 200 + i * 50, A.z + 1400 - i * 180], -2.3, 140)); return 1; })()`);
+    for (const [tag, secs] of [['beam', 0.5], ['cells', 1.4], ['missiles', 2.6], ['after', 5]]) {
+      await ev(`(async () => { const O = ORBIS, A = O.fleet.find(c => c.model === 'anvil'), f = O.getFlight(), wait = ms => new Promise(q => setTimeout(q, ms)); if (!f) return 0;
+        const px = A.x + 3400, pz = A.z + 2600, py = A.y + 150, yaw = Math.atan2(A.x + 1500 - px, A.z + 1200 - pz); const F = await import('./js/player/flight.js');
+        for (let i = 0; i < ${secs} * 10; i++) { f.pos = [px, py, pz]; f.vel = [0, 0, 0]; f.vtol = true; f.facing = yaw; f.q = F.fromEuler(yaw, -0.04, 0); f.w = [0, 0, 0]; f.syncEuler(); O.setCockpitView(false); O.cam.dist = 26; await wait(100); } return 1; })()`);
+      const st = await ev(`(() => { const W = ORBIS.fleetWar; return { beams: W.beams.length, missiles: W.missiles.length, sliding: W.missiles.filter(m => m.phase === 'slide' && m.t > 0).length, raiders: ORBIS.getRaid()?.raiders.filter(c => c.alive).length }; })()`);
+      console.log('   battle', tag, JSON.stringify(st)); await shot('battle-' + tag);
     }
   }
   if (want('vesper')) {

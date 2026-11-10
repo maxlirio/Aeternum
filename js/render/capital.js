@@ -147,7 +147,7 @@ export class CapitalView {
         this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; this.onMesh?.(C);
       }
       if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
-      C.mesh.position.set(...toRender(C.x, C.y, C.z));
+      C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.y = C.yaw;      // (a ship can leave its station: sim/fleetwar.js)
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if (far < 5000 && !(this.deckLoads ||= new Set()).has(C.ship.model)) { this.deckLoads.add(C.ship.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
