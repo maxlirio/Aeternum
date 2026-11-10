@@ -108,6 +108,20 @@ function glassMaterial() {
   return m;
 }
 
+// What a people face their town buildings with (gen/culture.js): [homes and shops, offices and works]. Panels where they build modern.
+const FACADES = { corporate: ['facade', 'facade'], neon: ['facade', 'concrete'], brutalist: ['concrete', 'concrete'], masonry: ['brick', 'limestone'], garden: ['render', 'render'], foundry: ['brick', 'concrete'],
+  adobe: ['adobe', 'render'], carved: ['sandstone', 'rock'], stilt: ['plank', 'render'], dome: ['render', 'concrete'], grown: ['render', 'adobe'], spire: ['limestone', 'slate'] };
+let cultureKey = 'corporate';
+export const setTownCulture = k => { cultureKey = FACADES[k] ? k : 'corporate'; };
+const facades = new Map();
+// The facade for a building of this kind on this world: its material, and whether it's a natural one (then the building's paint colour is only a faint tint).
+export function townFacade(type) {
+  const name = FACADES[cultureKey][type === 'office' || type === 'workshop' || type === 'hangar' ? 1 : 0];
+  if (name === 'facade') return null;
+  if (!facades.has(name)) facades.set(name, std(name, 3.2, { vertexColors: true }, name));
+  return facades.get(name);
+}
+
 let M = null;
 export function materials() {
   if (M) return M;

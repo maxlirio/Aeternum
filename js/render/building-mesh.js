@@ -1,7 +1,7 @@
 // Turns a building plan (gen/building.js) into geometry in a MeshBuilder.
 // Static parts only: shell, slabs, walls with real openings, glass, stairs, fittings,
 // furniture. Door leaves are dynamic and live in render/doors.js.
-import { materials, WINDOW_TYPES } from './materials.js';
+import { materials, WINDOW_TYPES, townFacade } from './materials.js';
 import { subFrame } from './meshbuilder.js';
 import { SLAB_T, EXT_T } from '../gen/building.js';
 import { Rng } from '../core/prng.js';
@@ -24,8 +24,8 @@ const OUTER = { front: 'nz', back: 'pz', left: 'nx', right: 'px' };
 
 // What a building's outside is made of, and its colour. (The first thing its generator draws, so a distant block matches the real one.)
 export function facadeOf(b, M) {
-  const rng = new Rng(seedFromString(b.key)), corr = b.type === 'workshop' || b.type === 'hangar';
-  return { mat: corr ? M.corrugated : M.panels, col: rng.pick(PALETTE[b.type]) };
+  const rng = new Rng(seedFromString(b.key)), corr = b.type === 'workshop' || b.type === 'hangar', own = !corr ? townFacade(b.type) : null, col = rng.pick(PALETTE[b.type]);
+  return { mat: own || (corr ? M.corrugated : M.panels), col: own ? col.map(v => 0.72 + 0.28 * v) : col };
 }
 
 export function buildBuilding(mb, plan, b, frame) {
@@ -34,8 +34,9 @@ export function buildBuilding(mb, plan, b, frame) {
   mb.setFrame(...frame);
   const rng = new Rng(seedFromString(b.key));
   const corr = b.type === 'workshop' || b.type === 'hangar';
-  const facade = skin ? skin.wall : corr ? M.corrugated : M.panels;
-  const fcol = skin ? WHITE : rng.pick(PALETTE[b.type]);
+  const own = !skin && !corr ? townFacade(b.type) : null;       // (faced as this world's people face their buildings: brick, earth, sandstone, timber…)
+  const facade = skin ? skin.wall : own || (corr ? M.corrugated : M.panels);
+  const fcol = skin ? WHITE : own ? rng.pick(PALETTE[b.type]).map(v => 0.72 + 0.28 * v) : rng.pick(PALETTE[b.type]);
   const typeIdx = WINDOW_TYPES.indexOf(b.type);
   const { w, d, F, H } = plan;
   const top = F * H;

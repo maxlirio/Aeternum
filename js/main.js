@@ -5,6 +5,8 @@
 import * as THREE from 'three';
 import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
 import { HOMEWORLD, Address } from './core/address.js';
+import { setTownCulture } from './render/materials.js';
+import { cultureOf } from './gen/culture.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address } from './gen/settlement.js';
 import { buildingPlan } from './gen/building.js';
@@ -151,7 +153,7 @@ function newUniverse() {
 async function start(fresh) {
   ui.loading('Generating the world…', 0);
   const U = seedFromHex(store.meta.universe);
-  const planet = makePlanet(U, WORLD);
+  const planet = makePlanet(U, WORLD); setTownCulture(cultureOf(planet).key);      // (this world's people face their towns their own way)
   // s, pop, polity, ctx and the like below are the town you're in. homeS and homeCtx stay where you started.
   let s = getSettlement(planet, 0, 0); const homeS = s;
   const sched = new Scheduler(store); registerDoorJobs(sched); registerLawJobs(sched); registerWorkJobs(sched); registerLifeJobs(sched); registerUseJobs(sched);

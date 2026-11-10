@@ -52,7 +52,7 @@ export class FloraView {
     const dl = new THREE.DirectionalLight(0xffffff, 2.2); dl.position.set(3, 6, 8); scene.add(new THREE.HemisphereLight(0xffffff, 0x445544, 1.6), dl);
     for (const P of near.prims) {
       const m = new THREE.Mesh(P.pr.geometry, P.leafy ? P.pr.material.clone() : P.pr.material); m.position.set(-L / 2, 0, -D / 2);
-      if (P.leafy) m.material.color = this.leafColour(K.sp, 0.5, new THREE.Color());
+      if (P.leafy) { m.material.color = this.leafColour(K.sp, 0.5, new THREE.Color()); m.material.onBeforeCompile = P.pr.material.onBeforeCompile; m.material.customProgramCacheKey = P.pr.material.customProgramCacheKey; }      // (the far picture's leaves take the world's hue the same way the near ones do)
       scene.add(m);
     }
     const rt = new THREE.WebGLRenderTarget(W, Hh, { samples: 4 }), r = this.renderer, oldT = r.getRenderTarget(), oldC = r.getClearColor(new THREE.Color()), oldA = r.getClearAlpha();
