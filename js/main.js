@@ -491,8 +491,8 @@ async function start(fresh) {
     if (lad) { ctrl.grabLadder(lad); return; }
     if (ride) { getOff(); return; }
     if (flight && docking) return;
-    if (flight && inSpace) { holoFlow(); return; }        // (out of the air: the navigation screen, and the stars)
     if (flight && !flight.onGround) { const dt_ = dockTarget(); if (dt_) { startDock(dt_.C); return; } }
+    if (flight && flight.pos[1] - altRef > 5000) { holoFlow(); return; }        // (5 km up and clear of the fleet's bays: the navigation screen, and the stars)
     if (flight) { setDown(); return; }
     const rp = nearRamp();
     if (rp) { rampFlow(rp); return; }
@@ -1070,15 +1070,21 @@ async function start(fresh) {
   }
   async function ftlJump(to) {
     const chart = starChart(U), J = jumpOf(chart, HERE, to), dest = chart[to.system], sh = flight.ship;
+    try {
+      const P = player, carry = { name: P.name, given: P.given, family: P.family, age: P.age, credits: P.credits, inventory: P.inventory, weapon: P.weapon, skills: P.skills, hp: P.hp, fatigue: P.fatigue, hunger: P.hunger, soldier: P.soldier ? { ...P.soldier, world: WORLD.key } : null, worlds: [...new Set([...(P.worlds || []), WORLD.key])] };
+      localStorage.setItem('orbis-ftl', JSON.stringify({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } }));
+    } catch (e) { console.error('FTL', e); ui.toast(`The FTL drive won't spool: ${esc(e.message || e)}.`, 'bad', 6000); return; }
+    // the jump starts the moment you engage it; what's left behind is saved while the stars stretch (and can't hold you here if the save is slow or fails)
     paused = true; keys.clear();
     ui.toast(`<b>FTL.</b> ${to.system === HERE.system ? 'In-system jump' : J.ly.toFixed(1) + ' light years'} to ${esc(dest.name)}.`, '', 4000);
-    const P = player, carry = { name: P.name, given: P.given, family: P.family, age: P.age, credits: P.credits, inventory: P.inventory, weapon: P.weapon, skills: P.skills, hp: P.hp, fatigue: P.fatigue, hunger: P.hunger, soldier: P.soldier ? { ...P.soldier, world: WORLD.key } : null, worlds: [...new Set([...(P.worlds || []), WORLD.key])] };
-    localStorage.setItem('orbis-ftl', JSON.stringify({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } }));
-    if (sh.id === visitorShip()?.id) { dropDelta('visitor/ship'); dropDelta(shipKey(sh.id)); flight = null; player.piloting = null; ctrl.mode = 'walk'; }     // (you take it with you: it's not parked here any more)
-    else await save();
-    if (flight) { player.piloting = null; store.patchDelta(shipKey(sh.id), { flying: undefined, away: true }); }
-    store.touchPlayer(); await store.flush();
-    await ftlEffect(J.secs);
+    const effect = ftlEffect(J.secs), saving = (async () => {
+      try {
+        if (sh.id === visitorShip()?.id) { dropDelta('visitor/ship'); dropDelta(shipKey(sh.id)); player.piloting = null; player.pos = ctrl.pos.slice(); }     // (you take it with you: it's not parked here any more)
+        else { store.patchDelta(shipKey(sh.id), { flying: undefined, away: true }); player.piloting = null; player.pos = flight.pos.slice(); }
+        store.meta.gameTime = clock.now(); store.meta.realTime = Date.now(); store.touchPlayer(); store.dirty.meta = true; await store.flush();
+      } catch (e) { console.warn('saving before the jump', e); }
+    })();
+    await Promise.race([Promise.all([effect, saving]), new Promise(r => setTimeout(r, J.secs * 1000 + 5000))]);
     const q = new URLSearchParams(); for (const k of ['seed', 'hour', 'store']) if (params.has(k)) q.set(k, params.get(k));
     if (!(to.system === 0 && to.body === 3)) { q.set('planet', to.body); q.set('system', to.system); }
     q.set('auto', 'arrive'); location.href = location.pathname + '?' + q.toString();
@@ -1094,10 +1100,10 @@ async function start(fresh) {
       store.patchDelta('visitor/ship', V); store.patchDelta(shipKey(V.id), { flying: true }); ships = allShips(clock.now()); sh = shipById(V.id); }
     else store.patchDelta(shipKey(sh.id), { flying: true, away: undefined });
     const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
-    const a = 1.1, x = homeS.cx + Math.sin(a) * 9000, z = homeS.cz + Math.cos(a) * 9000, y = altRef + 52000, f = Math.atan2(homeS.cx - x, homeS.cz - z);
-    flight = new Flight(world, planet, sh, [x, y, z], f); flight.onGround = false; flight.vel = [Math.sin(f) * 120, -40, Math.cos(f) * 120]; flight.throttle = 0.3;
+    const a = 1.1, x = homeS.cx + Math.sin(a) * 26000, z = homeS.cz + Math.cos(a) * 26000, y = altRef + 30000, f = Math.atan2(homeS.cx - x, homeS.cz - z);     // (30 km up, 26 km out, nose down at the town: the world fills the screen ahead)
+    flight = new Flight(world, planet, sh, [x, y, z], f); flight.onGround = false; flight.q = fromEuler(f, -0.45, 0); flight.syncEuler(); flight.vel = [Math.sin(f) * 220, -110, Math.cos(f) * 220]; flight.throttle = 0.4;
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; ctrl.pos = [x, y, z]; joinWar(); player.piloting = sh.id; store.touchPlayer();
-    ftlEffect(1.4, true);
+    ftlEffect(2.6, true);
     ui.toast(`<b>Out of FTL</b> over <b>${esc(planet.name)}</b>${H.to.system !== 0 || H.fromName ? `, from ${esc(H.fromName)}` : ''}. ${esc(townSociety(planet, homeS)?.nation?.name || 'Its people')} have a town below.`, '', 10000);
   }
   function soldierKill() { const S = player.soldier; S.kills = (S.kills || 0) + 1; const pay = 120 + 40 * S.rank; player.credits = (player.credits ?? 0) + pay; if (S.kills % 5 === 0 && S.rank < RANKS.length - 1) { S.rank++; ui.toast(`Promoted: <b>${RANKS[S.rank]}</b>.`, '', 7000); } store.touchPlayer(); ui.toast(`Kill confirmed. <b>${pay} cr</b>.`, '', 3000); }
@@ -1887,8 +1893,10 @@ async function start(fresh) {
       // the eye is fixed in the ship, turned with it: bank and the world tilts, the cockpit stays put round you
       const L = flight.L, a = flight.L.seats.find(x => x.kind === 'pilot'), Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-flight.pitch, flight.facing, flight.roll, 'YXZ'));
       const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyQuaternion(Q), p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z);
+      shipView.cock = { id: flight.ship.id, eye: [a.x, L.deck + 1.7, a.z - 0.45] };      // (render/ships.js: the hull cut away ahead of you, a windscreen in its place)
       camera.position.set(...p0); camera.quaternion.copy(Q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.08)); camera.updateMatrixWorld();
     } else if (!shot) {
+      shipView.cock = null;
       // driving, the camera rides on its own softer springs: you see the car move over a bump, not the whole world
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
       else { rideCamY = null; cam.update(dt, ctrl.pos, toRender); }

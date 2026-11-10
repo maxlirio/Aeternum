@@ -228,6 +228,29 @@ try {
       await shot('harbour-' + tag);
     }
   }
+  if (want('ftlclick')) {
+    // the jump the way a player makes it: E at 6 km, a world clicked, Engage pressed; frames through the jump and the arrival
+    await load('hour=11&fly=runabout0' + (process.env.FROM ? '&' + process.env.FROM : ''));
+    await ev(`(async () => { const st = document.createElement('style'); st.textContent = '.holo, .holo * { visibility: visible !important; }'; document.head.append(st); const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'), wait = ms => new Promise(q => setTimeout(q, ms)); for (let i = 0; i < 20; i++) { f.pos[1] = 6200; f.vel = [Math.sin(f.facing) * 80, 0, Math.cos(f.facing) * 80]; f.q = F.fromEuler(f.facing, 0, 0); f.w = [0, 0, 0]; f.syncEuler(); await wait(100); } dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); await wait(80); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); return 1; })()`);
+    await sleep(1500); console.log('   map open', await ev(`!!document.querySelector('.holo')`)); await shot('ftlc-map');
+    await ev(`(() => { document.querySelector('.holo [data-a=open]').click(); return 1; })()`); await sleep(700);
+    console.log('   world picked', await ev(`(() => { const cv = document.querySelector('.holo canvas'), r = cv.getBoundingClientRect(); for (let y = 0; y < r.height; y += 3) for (let x = 0; x < r.width; x += 3) { cv.dispatchEvent(new MouseEvent('click', { clientX: r.left + x, clientY: r.top + y })); const b = document.querySelector('.holo [data-a=jump]'); if (b && !b.disabled) return document.querySelector('.holo h2').textContent; } return null; })()`));
+    await ev(`(() => { document.querySelector('.holo [data-a=jump]').click(); return 1; })()`);
+    for (const ms of [500, 1200, 1300]) { await sleep(ms); await shot('ftlc-jump-' + ms).catch(() => console.log('   (navigating)')); }
+    let t = ''; for (let i = 0; i < 300; i++) { await sleep(400); t = await ev(`location.search.includes('arrive') ? document.title : 'jumping'`).catch(() => 'nav'); if (t === 'READY' || t.startsWith('ERROR')) break; if (i === 40) console.log('   still', t); }
+    console.log('   after', t);
+    for (const [k, ms] of [[1, 300], [2, 700], [3, 700], [4, 900], [5, 1500]]) { await sleep(ms); await shot('ftlc-arrive-' + k).catch(() => {}); }
+    console.log('   arrived', await ev(`JSON.stringify({ planet: ORBIS.planet.name, flying: !!ORBIS.getFlight(), alt: Math.round(ORBIS.getFlight()?.pos[1] || 0) })`));
+  }
+  if (want('cockpits')) {
+    // what the pilot sees: each ship flown, the view from the seat, level and in daylight
+    for (const M of (process.env.MODELS || 'shuttle,freighter,courier,patrol,yacht,runabout0,racer0,dropship0,gunship0,explorer0,hauler0,ferry0,arrow0,manta0,wraith0,miner0,interceptor,striker,needle,warden,shade').split(',')) {
+      await load('hour=12&fly=' + M);
+      await ev(`(async () => { const O = ORBIS, f = O.getFlight(), F = await import('./js/player/flight.js'), wait = ms => new Promise(q => setTimeout(q, ms)); if (!f) return 0; O.setCockpitView(true); for (let i = 0; i < 25; i++) { f.pos[1] = Math.max(O.world.groundAt(f.pos[0], f.pos[2], 1e4).h, O.planet.seaLevel) + 250; f.vel = [Math.sin(f.facing) * 60, 0, Math.cos(f.facing) * 60]; f.q = F.fromEuler(f.facing, 0, 0); f.w = [0, 0, 0]; f.syncEuler(); await wait(100); } return 1; })()`);
+      await shot('cockpit-' + M);
+      if (process.env.DEBUG) { console.log(await ev(`(() => { const V = ORBIS.shipView, g = V.cockG; return JSON.stringify({ has: !!g, vis: g?.visible, n: g?.children.length, cock: V.cock, plane: V.cockPlane && [V.cockPlane.normal.toArray().map(v => +v.toFixed(2)), +V.cockPlane.constant.toFixed(1)], clip: ORBIS.renderer.localClippingEnabled, mats: g?.children.slice(0, 3).map(m => m.material.clippingPlanes?.length) }); })()`)); await ev(`(() => { ORBIS.shipView.cockG.visible = false; ORBIS.shipView.endCockpit = () => {}; ORBIS.shipView.drawCockpit = () => {}; return 1; })()`); await sleep(800); await shot('cockpit-' + M + '-nocock'); }
+    }
+  }
   if (want('ftl')) {
     // interstellar: up out of the air, the holo map (ui/holomap.js), a jump, and out of it over another world
     await load('hour=11&fly=runabout0' + (process.env.FROM ? '&' + process.env.FROM : ''));

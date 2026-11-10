@@ -109,13 +109,20 @@ export function ftlEffect(secs, back = false) {
     const g = cv.getContext('2d'), d = devicePixelRatio || 1; cv.width = innerWidth * d; cv.height = innerHeight * d; g.scale(d, d);
     const N = 900, st = Array.from({ length: N }, () => ({ a: Math.random() * 6.283, r: Math.random() ** 0.5 * 40 + 2, z: Math.random(), h: 190 + Math.random() * 40 })), t0 = performance.now(), W = innerWidth, H = innerHeight;
     const step = () => {
-      const t = (performance.now() - t0) / 1000, f = Math.min(1, t / secs), k = back ? 1 - f : f, speed = back ? (1 - f) ** 2 : f ** 2;
-      g.fillStyle = `rgba(0,3,8,${back ? 0.25 + 0.6 * (1 - f) : 0.25 + 0.6 * f})`; g.fillRect(0, 0, W, H);
-      for (const s of st) { s.r *= 1 + speed * 0.09 + 0.004; if (s.r > Math.hypot(W, H)) s.r = 2 + Math.random() * 30; const len = 2 + speed * 90 * (s.r / 200), x = W / 2 + Math.cos(s.a) * s.r, y = H / 2 + Math.sin(s.a) * s.r;
-        g.strokeStyle = `hsla(${s.h},90%,${70 + 25 * k}%,${0.3 + 0.7 * k})`; g.lineWidth = 0.6 + k * 1.6; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.cos(s.a) * len, y - Math.sin(s.a) * len); g.stroke(); }
-      const flash = back ? Math.max(0, 1 - t * 2.2) : Math.max(0, (f - 0.86) / 0.14); if (flash > 0) { g.fillStyle = `rgba(225,245,255,${flash})`; g.fillRect(0, 0, W, H); }
+      const t = (performance.now() - t0) / 1000, f = Math.min(1, t / secs);
+      if (!back) {      // going in: the stars stretch, faster and faster, then a flash
+        const k = f, speed = f * f;
+        g.fillStyle = `rgba(0,3,8,${0.25 + 0.6 * f})`; g.fillRect(0, 0, W, H);
+        streaks(k, speed); const flash = Math.max(0, (f - 0.86) / 0.14); if (flash > 0) { g.fillStyle = `rgba(225,245,255,${flash})`; g.fillRect(0, 0, W, H); }
+      } else {          // coming out: the streaks slow to points on black, a flash, and the world's simply there
+        const slow = Math.min(1, f / 0.62), speed = (1 - slow) ** 2;
+        if (f < 0.62) { g.fillStyle = 'rgba(0,3,8,0.55)'; g.fillRect(0, 0, W, H); streaks(1 - slow * 0.6, speed); }
+        else { g.clearRect(0, 0, W, H); const q = (f - 0.62) / 0.38, flash = q < 0.18 ? q / 0.18 : 1 - (q - 0.18) / 0.82; g.fillStyle = `rgba(230,246,255,${Math.max(0, flash)})`; g.fillRect(0, 0, W, H); }
+      }
       if (f < 1) requestAnimationFrame(step); else { if (back) cv.remove(); done(cv); }
     };
+    const streaks = (k, speed) => { for (const s of st) { s.r *= 1 + speed * 0.09 + 0.004; if (s.r > Math.hypot(W, H)) s.r = 2 + Math.random() * 30; const len = 2 + speed * 90 * (s.r / 200), x = W / 2 + Math.cos(s.a) * s.r, y = H / 2 + Math.sin(s.a) * s.r;
+      g.strokeStyle = `hsla(${s.h},90%,${70 + 25 * k}%,${0.3 + 0.7 * k})`; g.lineWidth = 0.6 + k * 1.6; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.cos(s.a) * len, y - Math.sin(s.a) * len); g.stroke(); } };
     step();
   });
 }

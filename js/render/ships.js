@@ -58,9 +58,10 @@ export class ShipView {
   putGear(k, m) { const im = this.gearParts[k], i = this.gearN[im.uuid] = (this.gearN[im.uuid] || 0); if (i >= 512) return; im.setMatrixAt(i, m); this.gearN[im.uuid]++; }
   gearOf(id) { return this.gearAnim.get(id); }
   update(list, dt) {
-    const n = {}; this.gearN = {}; this.gearSeen = new Set();
+    const n = {}; this.gearN = {}; this.gearSeen = new Set(); this.cockSeen = false;
     for (const s of list) {
-      const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue; if (this.viewer && Math.hypot(s.c[0] - this.viewer[0], s.c[2] - this.viewer[2]) > 2400) continue;     // (too far to see)
+      const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue;
+      if (this.cock?.id === s.id) { this.drawCockpit(M, s); continue; }       // (the ship you're flying, seen from its seat: drawn on its own, cut open ahead of you behind a windscreen) if (this.viewer && Math.hypot(s.c[0] - this.viewer[0], s.c[2] - this.viewer[2]) > 2400) continue;     // (too far to see)
       const i = n[s.model || 'shuttle'] = (n[s.model || 'shuttle'] ?? 0); if (i >= MAX) continue;
       const { W, D } = M.L;
       this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);
@@ -89,6 +90,7 @@ export class ShipView {
         if (G.flat) for (const sx of [-1, 1]) this.putGear('door', this._m.clone().multiply(new THREE.Matrix4().makeTranslation(G.ax + sx * 0.34, G.top - 0.01, G.z)).multiply(new THREE.Matrix4().makeRotationZ(sx > 0 ? Math.PI + doorT * 1.35 : -doorT * 1.35)));
       }
     }
+    if (!this.cockSeen) this.endCockpit();
     for (const im of Object.values(this.gearParts)) { im.count = this.gearN[im.uuid] || 0; im.instanceMatrix.needsUpdate = true; }
     for (const id of [...this.gearAnim.keys()]) if (!this.gearSeen.has(id)) this.gearAnim.delete(id);
     for (const [model, M] of Object.entries(this.models)) for (const { im, tinted } of [...M.hull, ...M.ramp]) {
@@ -96,4 +98,67 @@ export class ShipView {
     }
   }
   rampOpen(id) { return (this.anim.get(id) ?? 1) > 0.98; }
+  // The pilot's view (main.js cockpit view): whatever of the hull stands ahead of your eye is cut away, and a windscreen stands there instead,
+  // a bubble of glass in its frame with the console under it, so every ship sees forward. cock: { id, eye: [x, y, z] in the ship's layout frame } or null.
+  drawCockpit(M, s) {
+    if (!this.cockG) { this.cockG = new THREE.Group(); this.cockG.matrixAutoUpdate = false; this.group.add(this.cockG); this.cockPlane = new THREE.Plane(); this.cockFor = null; }
+    const col = LIVERY[(((s.colour | 0) % LIVERY.length) + LIVERY.length) % LIVERY.length]; this._c.setRGB(col[0], col[1], col[2]);
+    const key = (s.model || 'shuttle') + '|' + this.cock.eye.join(',') + '|' + (s.colour | 0);
+    if (this.cockFor !== key) {
+      this.cockG.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); }); this.cockG.clear(); this.cockFor = key;
+      for (const { im, tinted } of [...M.hull, ...M.ramp]) { const m = im.material.clone(); m.clippingPlanes = [this.cockPlane]; m.clipShadows = true; if (tinted) { m.color = m.color.clone().multiply(this._c); } const me = new THREE.Mesh(im.geometry, m); me.frustumCulled = false; me.receiveShadow = true; this.cockG.add(me); }
+      for (const me of windscreen(this.cock.eye)) this.cockG.add(me);
+    }
+    this._e.set(-(s.pitch || 0), s.facing, s.roll || 0);
+    this._m.compose(new THREE.Vector3(...s.c), this._q.setFromEuler(this._e), new THREE.Vector3(1, 1, 1)).multiply(new THREE.Matrix4().makeTranslation(-M.L.W / 2, 0, -M.L.D / 2));
+    this.cockG.matrix.copy(this._m); this.cockG.matrixWorldNeedsUpdate = true;
+    // keep what's behind a plane just ahead of the eye: n·p + c >= 0 with n pointing back along the ship
+    const E = this.cock.eye, P0 = new THREE.Vector3(E[0], E[1], E[2] + 0.06), W = this.group.matrixWorld.clone().multiply(this._m); P0.applyMatrix4(W);
+    const fwd = new THREE.Vector3(0, 0, 1).transformDirection(W); this.cockPlane.set(fwd.clone().negate(), fwd.dot(P0));
+    this.cockG.visible = true; this.cockSeen = true;
+  }
+  endCockpit() { if (this.cockG) this.cockG.visible = false; }
 }
+
+// the windscreen round the pilot's eye E (layout frame, looking +z): a bubble of glass across the forward view, its frame — sill, header, two
+// pillars, a centre post — and the console under it with its screens lit
+const glassMat = Object.assign(new THREE.MeshStandardMaterial({ color: 0xb8d6e6, roughness: 0.04, metalness: 0.2, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 1.6 }), { userData: { lit: false } });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c3036, roughness: 0.45, metalness: 0.7 }), dashMat = new THREE.MeshStandardMaterial({ color: 0x1a1d22, roughness: 0.6, metalness: 0.3 });
+const screenMat = new THREE.MeshStandardMaterial({ color: 0x08141a, emissive: 0x3aa6c8, emissiveIntensity: 0.9, roughness: 0.25 });
+function windscreen(E) {
+  const R = 1.05, at = (th, ph, r = R) => new THREE.Vector3(E[0] + Math.sin(th) * Math.cos(ph) * r, E[1] + Math.sin(ph) * r, E[2] + Math.cos(th) * Math.cos(ph) * r);
+  const T0 = -1.45, T1 = 1.45, P0 = -0.42, P1 = 0.95, nu = 40, nv = 20, pos = [], idx = [];
+  for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) { const p = at(T0 + (T1 - T0) * i / nu, P0 + (P1 - P0) * j / nv); pos.push(p.x, p.y, p.z); }
+  for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i; idx.push(a, a + 1, a + nu + 1, a + 1, a + nu + 2, a + nu + 1); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  const out = [Object.assign(new THREE.Mesh(g, glassMat), { renderOrder: 2 })];
+  // the frame: a slim sill and header along the bubble, pillars out at the corners
+  const bar = (pts, r) => { const c = new THREE.CatmullRomCurve3(pts), tg = new THREE.TubeGeometry(c, Math.max(8, pts.length * 3), r, 8, false); return new THREE.Mesh(tg, frameMat); };
+  const along = (f, n = 24) => Array.from({ length: n + 1 }, (_, k) => f(k / n));
+  out.push(bar(along(t => at(T0 + (T1 - T0) * t, P0, R + 0.01)), 0.022), bar(along(t => at(T0 + (T1 - T0) * t, P1, R + 0.01)), 0.02));
+  for (const th of [T0, -1.08, 1.08, T1]) out.push(bar(along(t => at(th, P0 + (P1 - P0) * t, R + 0.01), 16), 0.018));
+  // the console: a shelf round under the glass, its face dropping to the floor, small displays set in it facing you
+  const sy = E[1] + Math.sin(P0) * R, r0 = 0.52, r1 = Math.cos(P0) * R + 0.02, sp = [], si = [], N = 40;
+  for (let i = 0; i <= N; i++) { const th = T0 + (T1 - T0) * i / N, c = Math.cos(th), sn = Math.sin(th); for (const [r, y] of [[r1, sy], [r0, sy], [r0, sy - 0.75]]) sp.push(E[0] + sn * r, y, E[2] + c * r); }
+  for (let i = 0; i < N; i++) { const a = i * 3; for (const k of [0, 1]) si.push(a + k, a + 3 + k, a + 1 + k, a + 1 + k, a + 3 + k, a + 4 + k); }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3)); sg.setIndex(si); sg.computeVertexNormals(); out.push(new THREE.Mesh(sg, Object.assign(dashMat, { side: THREE.DoubleSide })));
+  const COLS = [0x3aa6c8, 0x7ad08a, 0xd0a040, 0x3aa6c8, 0xc86a4a, 0x3aa6c8];
+  for (let k = 0; k < 6; k++) { const th = -0.75 + k * 0.3, r = (r0 + r1) / 2 + 0.02, p = new THREE.Vector3(E[0] + Math.sin(th) * r, sy + 0.012, E[2] + Math.cos(th) * r);
+    const sc = new THREE.Mesh(new THREE.PlaneGeometry(k % 2 ? 0.16 : 0.12, 0.08), screenOf(k, COLS[k])); sc.position.copy(p); sc.rotation.order = 'YXZ'; sc.rotation.set(-1.05, th + Math.PI, 0); out.push(sc); }
+  for (const m of out) { m.frustumCulled = false; m.userData.own = true; }
+  return out;
+}
+// a display's picture: a readout drawn once — a horizon, a radar sweep, a column of figures, a bar graph — in its colour on black
+const screens = new Map();
+function screenOf(k, col) {
+  const key = k % 4 + ':' + col; if (screens.has(key)) return screens.get(key);
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d'), hex = '#' + col.toString(16).padStart(6, '0');
+  g.fillStyle = '#03070a'; g.fillRect(0, 0, 128, 64); g.strokeStyle = hex; g.fillStyle = hex; g.lineWidth = 1.5; g.globalAlpha = 0.9;
+  if (k % 4 === 0) { g.beginPath(); g.moveTo(0, 36); g.lineTo(128, 28); g.stroke(); for (let i = 1; i < 5; i++) { g.globalAlpha = 0.4; g.beginPath(); g.moveTo(44, 32 - i * 7); g.lineTo(84, 32 - i * 7); g.stroke(); } g.globalAlpha = 0.9; g.strokeRect(58, 28, 12, 6); }
+  else if (k % 4 === 1) { for (const r of [10, 20, 30]) { g.beginPath(); g.arc(64, 32, r, 0, 6.283); g.globalAlpha = 0.4; g.stroke(); } g.globalAlpha = 0.9; g.beginPath(); g.moveTo(64, 32); g.lineTo(90, 14); g.stroke(); for (const [x, y] of [[50, 20], [80, 40], [70, 18]]) g.fillRect(x, y, 3, 3); }
+  else if (k % 4 === 2) { g.font = '9px monospace'; for (let i = 0; i < 6; i++) g.fillText(['ALT 6240', 'SPD 0311', 'HDG 087', 'THR 040', 'FUEL 92', 'HULL 100'][i], 8, 11 + i * 9.5); }
+  else for (let i = 0; i < 9; i++) { const h = 8 + ((i * 37) % 40); g.fillRect(8 + i * 13, 58 - h, 8, h); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.85, roughness: 0.3 }); screens.set(key, m); return m;
+}
+
