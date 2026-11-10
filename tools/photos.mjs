@@ -182,6 +182,18 @@ try {
       console.log('   dock', C, JSON.stringify(R)); await shot('dock-' + C);
     }
   }
+  if (want('dockpit')) {
+    // docking seen from the pilot's seat: on the bay's line, at the doors, inside, and down
+    await load('hour=15&fly=runabout0');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
+    const C = process.env.DOCK || 'bastion';
+    await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = [600, 120, 500];
+      f.pos[0] = C.x + a * c + d * s; f.pos[1] = C.y + b; f.pos[2] = C.z - a * s + d * c; f.vel = [0, 0, 0]; f.onGround = false; f.throttle = 0.4; O.setCockpitView(true); await new Promise(r => setTimeout(r, 300)); O.startDock(O.dockTarget().C); return 1; })()`);
+    for (const [tag, cond] of [['line', 'D.s > D.sMid + 10'], ['doors', 'D.s > D.sIn - 8'], ['inside', 'D.s > D.sIn + 20'], ['settle', 'D.settle']]) {
+      const R = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)); for (let i = 0; i < 2000; i++) { const D = O.getDocking(); if (!D) return { gone: 1 }; if (${cond}) break; await wait(50); } const D = O.getDocking(), f = O.getFlight(); window.__pause = true; return { s: +D.s.toFixed(1), v: +D.v.toFixed(2), sIn: +D.sIn.toFixed(1), end: +D.end.toFixed(1), hover: f.hover, thr: f.throttle, pitch: +D.pitch.toFixed(3), y: +(f.pos[1] - D.deckY).toFixed(2) }; })()`);
+      console.log('   dockpit', tag, JSON.stringify(R)); await shot('dockpit-' + tag); await ev('(window.__pause = false, 1)');
+    }
+  }
   if (want('worlds')) {
     // other worlds of the universe (gen/genome.js): each one from the street, from the edge of town looking out, and from the air
     for (const N of (process.env.PLANETS || '0,1,2,3,4,5').split(',')) {

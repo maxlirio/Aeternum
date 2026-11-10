@@ -148,6 +148,14 @@ function windscreen(E) {
   for (const m of out) { m.frustumCulled = false; m.userData.own = true; }
   return out;
 }
+// the column of figures: what the ship is doing now, in the console's amber
+let figures = null;
+function drawFigures(lines) {
+  const F = figures; if (!F || (F.lines && F.lines.join() === lines.join())) return; F.lines = lines; const g = F.g;
+  g.globalAlpha = 1; g.fillStyle = '#03070a'; g.fillRect(0, 0, 128, 64); g.fillStyle = F.hex; g.globalAlpha = 0.9; g.font = '9px monospace';
+  lines.forEach((l, i) => g.fillText(l, 8, 11 + i * 9.5)); if (F.t) F.t.needsUpdate = true;
+}
+export function cockpitReadout(lines) { drawFigures(lines); }
 // a display's picture: a readout drawn once — a horizon, a radar sweep, a column of figures, a bar graph — in its colour on black
 const screens = new Map();
 function screenOf(k, col) {
@@ -156,9 +164,9 @@ function screenOf(k, col) {
   g.fillStyle = '#03070a'; g.fillRect(0, 0, 128, 64); g.strokeStyle = hex; g.fillStyle = hex; g.lineWidth = 1.5; g.globalAlpha = 0.9;
   if (k % 4 === 0) { g.beginPath(); g.moveTo(0, 36); g.lineTo(128, 28); g.stroke(); for (let i = 1; i < 5; i++) { g.globalAlpha = 0.4; g.beginPath(); g.moveTo(44, 32 - i * 7); g.lineTo(84, 32 - i * 7); g.stroke(); } g.globalAlpha = 0.9; g.strokeRect(58, 28, 12, 6); }
   else if (k % 4 === 1) { for (const r of [10, 20, 30]) { g.beginPath(); g.arc(64, 32, r, 0, 6.283); g.globalAlpha = 0.4; g.stroke(); } g.globalAlpha = 0.9; g.beginPath(); g.moveTo(64, 32); g.lineTo(90, 14); g.stroke(); for (const [x, y] of [[50, 20], [80, 40], [70, 18]]) g.fillRect(x, y, 3, 3); }
-  else if (k % 4 === 2) { g.font = '9px monospace'; for (let i = 0; i < 6; i++) g.fillText(['ALT 6240', 'SPD 0311', 'HDG 087', 'THR 040', 'FUEL 92', 'HULL 100'][i], 8, 11 + i * 9.5); }
+  else if (k % 4 === 2) figures = { g, hex, t: null, lines: null };      // (the flight's own figures, written in by readout() as they change)
   else for (let i = 0; i < 9; i++) { const h = 8 + ((i * 37) % 40); g.fillRect(8 + i * 13, 58 - h, 8, h); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; if (k % 4 === 2) { figures.t = t; drawFigures(['ALT ----', 'SPD ----', 'HDG ---', 'THR ---', 'LIFT ---']); }
   const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: t, emissiveIntensity: 0.85, roughness: 0.3 }); screens.set(key, m); return m;
 }
 

@@ -86,7 +86,7 @@ import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, st
 import { Flight, fromEuler } from './player/flight.js';
 import { AirWar, raidAt, raidIndex } from './sim/aircombat.js';
 import { CombatView } from './render/combat.js';
-import { ShipView } from './render/ships.js';
+import { ShipView, cockpitReadout } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { RockView } from './render/rocks.js';
 import { GroundMarks } from './render/prints.js';
@@ -1908,7 +1908,9 @@ async function start(fresh) {
       // the eye is fixed in the ship, turned with it: bank and the world tilts, the cockpit stays put round you
       const L = flight.L, a = flight.L.seats.find(x => x.kind === 'pilot'), Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-flight.pitch, flight.facing, flight.roll, 'YXZ'));
       const eye = new THREE.Vector3(a.x - L.W / 2, L.deck + 1.7, a.z - L.D / 2 - 0.45).applyQuaternion(Q), p0 = toRender(flight.pos[0] + eye.x, flight.pos[1] + eye.y, flight.pos[2] + eye.z);
-      shipView.cock = { id: flight.ship.id, eye: [a.x, L.deck + 1.7, a.z - 0.45] };      // (render/ships.js: the hull cut away ahead of you, a windscreen in its place)
+      shipView.cock = { id: flight.ship.id, eye: [a.x, L.deck + 1.7, a.z - 0.45] };
+      { const f = flight, al = f.altitude(), n = (v, w) => String(Math.max(0, Math.round(v))).padStart(w, '0');      // the console's figures: the same as the tape under the screen
+        cockpitReadout([`ALT ${al > 99999 ? n(al / 1000, 4) + 'k' : n(al, 5)}`, `SPD ${n(f.airspeed * 3.6, 4)}`, `HDG ${n(((f.facing * 57.2958) % 360 + 360) % 360, 3)}`, `THR ${f.throttle < -0.01 ? 'R' + n(-f.throttle * 100, 2) : n(f.throttle * 100, 3)}`, `LIFT ${n(f.hover * 100, 3)}`]); }      // (render/ships.js: the hull cut away ahead of you, a windscreen in its place)
       camera.position.set(...p0); camera.quaternion.copy(Q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.08)); camera.updateMatrixWorld();
     } else if (!shot) {
       shipView.cock = null;

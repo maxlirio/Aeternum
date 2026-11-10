@@ -94,6 +94,10 @@ export class ThrustView {
       // the ship's frame, as ShipView places it
       const L = I.L; E.holder.position.set(...s.c); E.holder.quaternion.setFromEuler(new THREE.Euler(-(s.pitch || 0), s.facing, s.roll || 0, 'YXZ')); E.holder.updateMatrix();
       E.holder.position.add(new THREE.Vector3(-L.W / 2, 0, -L.D / 2).applyQuaternion(E.holder.quaternion));
+      // from the pilot's seat the hull ahead of you is cut away (render/ships.js drawCockpit): the jets under the nose would show through it, glaring
+      // in the windscreen, where a pilot sees only the nose; their light on the ground and the steam they raise still show
+      const ck = this.ships.cock?.id === s.id ? this.ships.cock.eye[2] - 0.5 : Infinity;
+      for (const J of E.main) J.g.visible = J.q.p.z < ck; for (const J of E.lift) J.g.visible = J.q.p.z < ck;
       const spread = 1 + 1.8 * (s.vac || 0), P = Math.min(2, s.thrust), H = s.hover || 0;
       for (const J of E.main) for (const m of J.layers) { const u = m.material.uniforms; u.uPower.value = Math.min(1, 0.25 + 0.75 * Math.min(1, P)) * (P > 0.02 ? 1 : 0); u.uHeat.value = s.heat || 0; u.uTime.value = this.t; const len = Math.max(J.r * (11 + 24 * P), 2.5 + 7 * P) * m.userData.ll * (1 + 0.4 * (s.vac || 0)); m.scale.set(J.r * m.userData.rr * spread * (1 + 0.15 * P), len, J.r * m.userData.rr * spread * (1 + 0.15 * P)); m.visible = P > 0.02; }
       for (const J of E.lift) for (const m of J.layers) { const u = m.material.uniforms; u.uPower.value = Math.min(1, H * 1.4); u.uHeat.value = 0; u.uTime.value = this.t; m.scale.set(J.r * m.userData.rr * (1 + H * 0.3), Math.max(J.r * (6 + 12 * H), 1.2 + 3.5 * H) * m.userData.ll, J.r * m.userData.rr * (1 + H * 0.3)); m.visible = H > 0.04; }
