@@ -16,6 +16,17 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const SIDES = { player: 'you', security: 'Civic Security', raider: 'raiders' };
 export const hostile = (a, b) => a !== b && !(a === 'player' && b === 'security') && !(a === 'security' && b === 'player');
 
+// The stick that turns an airframe's nose onto a direction (unit, world): roll it so the direction is above the canopy, then pull; level the
+// wings once it's there; never pulled over the stall. The AI pilots fly by it, and so does your instructor when you fly by the mouse.
+export function steerToward(f, want, care = true) {
+  const right = f.left.map(x => -x), du = dot(want, f.up), dr = dot(want, right), df = dot(want, f.fwd);
+  const rollErr = Math.atan2(dr, Math.max(0.05, du + (df > 0.97 ? 0.4 : 0)));
+  let pitch = clamp(Math.atan2(du, Math.max(0.02, df)) * 3.5, -1, 1), roll = clamp(rollErr * 1.8, -1, 1);
+  if (df > 0.995) roll = clamp(-f.roll * 1.5 * (du >= 0 ? 1 : 0) + rollErr, -1, 1);
+  if (care && Math.abs(f.aoa) > 0.24) pitch *= 0.3;
+  return { pitch, roll, yaw: clamp(dr * 2, -1, 1) * 0.3 };
+}
+export const GUN = { v: GUN_V, range: GUN_RANGE };
 export class AirWar {
   constructor(world, planet) {
     this.world = world; this.planet = planet;
@@ -123,9 +134,11 @@ export class AirWar {
     this.events.push({ type: 'flares', craft: c });
     return true;
   }
-  hit(c, dmg, by) {
+  // at: where it struck (on or by the hull), dir: the way it was going: so whoever draws it can do the damage where it was done
+  hit(c, dmg, by, at = null, dir = null) {
     if (!c.alive) return;
     c.hp -= dmg;
+    if (at) this.events.push({ type: 'hit', craft: c, by, dmg, at, dir: dir || norm(sub(c.f.pos, at)) });
     if (c.hp <= 0) {
       c.alive = false; c.wreck = 0; c.f.throttle = 0; c.f.assist = false;
       this.booms.push({ p: c.f.pos.slice(), t: 0, big: true });
@@ -154,7 +167,7 @@ export class AirWar {
       for (const c of this.craft) {
         if (!c.alive || c === r.from || !hostile(r.from.side, c.side)) continue;
         const seg = sub(r.p, p0), w = sub(c.f.pos, p0), t = clamp(dot(w, seg) / (dot(seg, seg) || 1), 0, 1), cl = add(p0, seg, t);
-        if (len(sub(c.f.pos, cl)) < c.r) { this.hit(c, GUN_DMG, r.from); r.life = 0; if (Math.random() < 0.3) this.booms.push({ p: cl, t: 0, spark: true }); break; }
+        if (len(sub(c.f.pos, cl)) < c.r) { this.hit(c, GUN_DMG, r.from, cl, norm(r.v)); r.life = 0; if (Math.random() < 0.3) this.booms.push({ p: cl, t: 0, spark: true }); break; }
       }
       if (r.p[1] < this.world.groundAt(r.p[0], r.p[2], r.p[1] + 1).h) r.life = 0;
     }
@@ -169,7 +182,7 @@ export class AirWar {
         const acc = [4 * closing * (omega[1] * norm(los)[2] - omega[2] * norm(los)[1]), 4 * closing * (omega[2] * norm(los)[0] - omega[0] * norm(los)[2]), 4 * closing * (omega[0] * norm(los)[1] - omega[1] * norm(los)[0])];
         const al = len(acc), cap = 30 * 9.81; m.v = add(m.v, al > cap ? acc.map(x => x / al * cap) : acc, dt);
         if (tgt.decoy) { tgt.f.pos = add(tgt.f.pos, tgt.f.vel, dt); if (r < MSL_FUSE * 2) { this.booms.push({ p: m.p.slice(), t: 0, big: false }); m.life = 0; } }
-        else if (r < MSL_FUSE) { this.hit(tgt, MSL_DMG, m.from); this.booms.push({ p: m.p.slice(), t: 0, big: true }); m.life = 0; }
+        else if (r < MSL_FUSE) { this.hit(tgt, MSL_DMG, m.from, m.p.slice(), norm(m.v)); this.booms.push({ p: m.p.slice(), t: 0, big: true }); m.life = 0; }
       }
       m.v = norm(m.v).map(x => x * sp);
       m.p = add(m.p, m.v, dt);

@@ -5,7 +5,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PORT = 8517, CDP = 9341, slot = 'photos' + process.pid, SEED = process.env.SEED || '00c0ffee00b0a7e5';
+const PORT = +(process.env.PORT || 8517), CDP = 9341, slot = 'photos' + process.pid, SEED = process.env.SEED || '00c0ffee00b0a7e5';
 const only = process.argv.slice(2);
 const want = n => !only.length || only.includes(n);
 const profile = join(tmpdir(), 'orbis-photos-' + process.pid);
@@ -173,7 +173,8 @@ try {
       const R = await ev(`(async () => { const O = ORBIS, C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), wait = ms => new Promise(r => setTimeout(r, ms)), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = ${JSON.stringify(off)};
         f.pos[0] = C.x + a * c + d * s; f.pos[1] = C.y + b; f.pos[2] = C.z - a * s + d * c; f.vel = [0, 0, 0]; f.onGround = false; f.throttle = 0.4; await wait(300);
         const tg = O.dockTarget(); if (!tg || tg.C.model !== '${C}') return { target: tg?.C?.model || null };
-        dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); const t0 = performance.now(); let hit = 0;
+        out.landWhy = O.getFlight()?.landingProblem(); out.atDock = { onG: O.getFlight()?.onGround, sp: +O.getFlight()?.speed.toFixed(2), y: local(O.getFlight().pos)[1] };
+      dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); const t0 = performance.now(); let hit = 0;
         let maxTop = -99, roof = 0; for (let i = 0; i < 1500 && O.getDocking(); i++) { await wait(100); if (O.getFlight().impact > 0) hit++; const D = O.getDocking(); if (D && D.s > D.sIn - 5) { const fl = O.getFlight(); maxTop = Math.max(maxTop, fl.pos[1] + (fl.L.H ?? 5) - D.deckY); } if (D && !window.__appShot && D.s > D.sMid - 30) { window.__appShot = 1; window.__pause = true; break; } }
         window.__appShot = 0;
         const fl = O.getFlight(), loc = O.world.locate(fl.pos[0], fl.pos[1] + 1, fl.pos[2]);
@@ -196,6 +197,80 @@ try {
       if (!off) console.log('   walk into someone', await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), c = O.ctrl; const L = O.getAgents().concat(window.__walkers || []).filter(a => a.pose !== 'lie' && Math.abs(a.pos[1] - c.pos[1]) < 3).sort((a, b) => Math.hypot(a.pos[0] - c.pos[0], a.pos[2] - c.pos[2]) - Math.hypot(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2])); const a = L[0]; if (!a) return 'nobody';
         let min = 99; for (let i = 0; i < 40; i++) { const b = O.getAgents().concat(window.__walkers || []).find(q => q.id === a.id); if (!b) break; const d = Math.hypot(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2]); if (i === 0) { c.pos = [b.pos[0] - 2.5, b.pos[1] + 0.05, b.pos[2]]; c.vel = [0, 0, 0]; } O.cam.yaw = Math.atan2(b.pos[0] - c.pos[0], b.pos[2] - c.pos[2]); c.facing = O.cam.yaw; dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(60); if (i > 2) min = Math.min(min, d); }
         dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); return JSON.stringify({ who: String(a.id).slice(0, 20), minGap: +min.toFixed(2) }); })()`));
+    }
+  }
+  if (want('climbreal')) {
+    // the ADVENTURER body on a real town wall: up it a few holds, then the hands up close (what each is on, and how far its skin is from it)
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    await ev(`(() => { const O = ORBIS; O.ctrl.facing += 1.9; O.cam.yaw = O.ctrl.facing; return 1; })()`); await sleep(1500); await shot('climbreal-stand');
+    await ev(`(async () => { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await new Promise(r => setTimeout(r, 1700)); return 1; })()`); await shot('climbreal-walk');
+    await ev(`(async () => { dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' })); await new Promise(r => setTimeout(r, 1500)); return 1; })()`); await shot('climbreal-run');
+    await ev(`(async () => { dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftLeft' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await new Promise(r => setTimeout(r, 800)); return 1; })()`);
+    const R = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world;
+      let got = null;
+      // walk the town: the first wall in front of a spot that the climber can take
+      const s = O.s; for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 6) continue; const a = f.w * 0.5, x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } }
+        if (got) break; }
+      if (!got) return { none: true };
+      for (let i = 0; i < 4; i++) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(900); }
+      dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1500);
+      return { face: got.key, y: +(c.pos[1] - got.y0).toFixed(2), mode: c.mode, body: window.__body }; })()`);
+    console.log('   climb', JSON.stringify(R));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
+    const views = [['back', 0, 0.35, 3.2], ['lhand', -0.55, 1.12, 0.45], ['rhand', 0.55, 1.12, 0.45], ['side', 1.6, 0.6, 1.6]];
+    for (const [tag, side, up, back] of views) {
+      const G = await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall; if (!W) return 'nowall'; const P = W.pose(), n = W.normal, R = W.right(), k = '${tag}' === 'lhand' ? 'lh' : 'rh', L = P.limbs[k], at = '${tag}'.endsWith('hand') ? L.p : P.pelvis;
+        const cx = at[0] + n[0] * ${back} + R[0] * ${side}, cy = at[1] + (${up} - ('${tag}'.endsWith('hand') ? 1.0 : 0)), cz = at[2] + n[2] * ${back} + R[2] * ${side}; window.__shotCam = { pos: [cx, cy, cz], look: [at[0], at[1] - ('${tag}'.endsWith('hand') ? 0.05 : -0.3), at[2]] };
+        await new Promise(r => setTimeout(r, 600)); return JSON.stringify({ hold: L.kind, grip: L.grip }); })()`);
+      console.log('   ', tag, G); await shot('climbreal-' + tag);
+    }
+    await ev('(window.__shotCam = null, 1)');
+  }
+  if (want('undock')) {
+    // dock in a great ship, step out, take off again, and fly out of its bay: where does the ship go?
+    await load('hour=15&fly=runabout0&still');
+    for (let i = 0; i < 80 && !(await ev('ORBIS.capitalView.models.longshore ? 1 : 0')); i++) await sleep(500);
+    const C = process.env.DOCK || 'bastion';
+    const R = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), C = O.fleet.find(c => c.model === '${C}'), f = O.getFlight(), c = Math.cos(C.yaw), s = Math.sin(C.yaw), [a, b, d] = [600, 120, 500];
+      f.pos[0] = C.x + a * c + d * s; f.pos[1] = C.y + b; f.pos[2] = C.z - a * s + d * c; f.vel = [0, 0, 0]; f.onGround = false; f.throttle = 0.4; await wait(300); O.startDock(O.dockTarget().C);
+      for (let i = 0; i < 3000 && O.getDocking(); i++) await wait(50);
+      const id = O.getFlight().ship.id, local = p => { const dx = p[0] - C.x, dz = p[2] - C.z; return [dx * c - dz * s, p[1] - C.y, dx * s + dz * c].map(v => +v.toFixed(1)); }, out = { docked: local(O.getFlight().pos) };
+      dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); await wait(80); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); await wait(1500);
+      out.afterE = { mode: O.ctrl.mode, flying: !!O.getFlight() };
+      O.takeOffForTest(id); await wait(500); const F = O.getFlight(); out.state = { docking: !!O.getDocking(), mode: O.ctrl.mode, paused: !!window.__paused, onG: F?.onGround, hover: F?.hover, thr: F?.throttle, vtol: F?.vtol, ui: document.querySelector('.panel:not([hidden]), .modal:not([hidden]), dialog[open]')?.className || null }; out.takeoff = { flying: !!F, at: F && local(F.pos), onGround: F?.onGround, facing: F && +F.facing.toFixed(2), bayYaw: +C.yaw.toFixed(2) };
+      const track = []; { const h0 = O.war.hit.bind(O.war); O.war.hit = (c2, d2, by) => { if (c2.pilot === 'player') { const Cp = (window.__capMod ||= null); out.hits = (out.hits || []).concat([{ d: +d2.toFixed(1), imp: +(c2.f.impact || 0).toFixed(1), at: local(c2.f.pos), vel: c2.f.vel.map(v => +v.toFixed(1)), ground: +(c2.f.pos[1] - O.world.groundAt(c2.f.pos[0], c2.f.pos[2], c2.f.pos[1] + 2).h).toFixed(1), solid: O.world.solidAt(c2.f.pos[0], c2.f.pos[1], c2.f.pos[2], 3) }]); } return h0(c2, d2, by); }; } const press = (k, on) => dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code: k }));
+      press('Space', true); await wait(1500); press('Space', false); track.push(local(F.pos));
+      press('KeyW', true); for (let i = 0; i < 48; i++) { await wait(250); const F2 = O.getFlight(); if (!F2) { out.ended = { why: window.__flightEnd, mode: O.ctrl.mode, toast: [...document.querySelectorAll('.toast, #toast, .toasts > *')].map(e => e.innerText).join(' | ').slice(0, 300), at: local(O.ctrl.pos) }; break; } if (F2.impact > 0.5 || i % 4 === 3) track.push([...local(F2.pos), 'thr' + F2.throttle.toFixed(2), 'hov' + (F2.hover || 0).toFixed(2), 'paused' + (O.isPaused?.() ?? '?'), 'imp' + (+(F2.impact || 0).toFixed(1)), 'hp' + O.war.craft.find(c => c.pilot === 'player')?.hp, O.war.rounds.length + 'r' + O.war.missiles.length + 'm', F2.dead ? 'DEAD' : '', +F2.airspeed.toFixed(0)]); } press('KeyW', false);
+      out.track = track; out.impact = O.getFlight()?.impact; return out; })()`);
+    console.log('   undock', JSON.stringify(R));
+  }
+  if (want('dogfight')) {
+    // a raider held in the air ahead; your guns into it: the sight, then the damage on it close up
+    await load('hour=14&fly=interceptor&still');
+    await sleep(2500);
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
+    const R = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), f = O.getFlight(), W = O.war; f.pos[1] = O.world.groundAt(f.pos[0], f.pos[2], 1e4).h + 1500; f.onGround = false; f.vel = [Math.sin(f.facing) * 160, 0, Math.cos(f.facing) * 160]; f.throttle = 0.7; await wait(800);
+      const fw = f.fwd, P = [f.pos[0] + fw[0] * 260, f.pos[1] + fw[1] * 260 + 4, f.pos[2] + fw[2] * 260], T = W.spawn('${process.env.FOE || 'gunship0'}', 'raider', P, f.facing, 140); T.hp = T.maxHp = 2000; T.guns = 0; T.missiles = 0;
+      window.__T = T; O.fleetWar.step = () => {}; { const st = T.f.step.bind(T.f); T.f.step = (dt, inp) => { const v0 = T.f.vel.slice(), p0 = T.f.pos.slice(); st(dt, inp); if (T.f.impact > 20 && !window.__imp) window.__imp = { dt, v0: v0.map(x => +x.toFixed(1)), v1: T.f.vel.map(x => +x.toFixed(1)), p0: p0.map(x => +x.toFixed(1)), p1: T.f.pos.map(x => +x.toFixed(1)), imp: T.f.impact, onG: T.f.onGround, belly: T.f.belly }; }; } const me = W.craft.find(c => c.pilot === 'player'); let shots = 0;
+      for (let i = 0; i < 160; i++) { W.craft = W.craft.filter(c => c === me || c === T); if (T.alive) { (window.__tl ||= []).push([i, +T.f.airspeed.toFixed(0), +(T.f.impact || 0).toFixed(0), +T.hp.toFixed(0), +(T.f.pos[1] - O.world.groundAt(T.f.pos[0], T.f.pos[2], 1e5).h).toFixed(0)]); } const d = [T.f.pos[0] - f.pos[0], T.f.pos[1] - f.pos[1], T.f.pos[2] - f.pos[2]], l = Math.hypot(...d); const { fromEuler } = await import('./js/player/flight.js'); f.q = fromEuler(Math.atan2(d[0], d[2]), Math.asin(d[1] / l), 0); f.syncEuler(); if (l > 120) { W.fireGuns(me, 0.016); shots++; } f.vel = [d[0] / l * (T.f.airspeed + (l - 150) * 0.8), d[1] / l * (T.f.airspeed + (l - 150) * 0.8), d[2] / l * (T.f.airspeed + (l - 150) * 0.8)]; await wait(60); }
+      await wait(400); const ev2 = W.events.filter(e => e.type === 'hit' && e.craft === T).length; return { imp: window.__imp, tl: (window.__tl || []).slice(-6), evs: W.events.filter(e => e.craft === T).map(e => e.type + ':' + (e.by ? e.by.pilot || e.by.side : '-') + ':' + (e.dmg || '')).slice(0, 12), hp: T.hp, shots, hits: ev2, dmg: O.war && (await import('./js/render/damage.js')) && 1, state: O.shipDamageState?.('war' + T.id) }; })()`);
+    console.log('   dogfight', JSON.stringify(R));
+    console.log('   dmgdraw', await ev(`(() => { const O = ORBIS, T = window.__T, D = O.shipDamage.ships.get('war' + T.id); if (!D) return 'none'; D.g.updateMatrixWorld(true); const p = new D.g.position.constructor().setFromMatrixPosition(D.g.matrixWorld); const A = D.meshes.map(m => { const b = m.mesh.geometry.attributes.aBurn.array; let mx = 0, n = 0; for (const x of b) { if (x > mx) mx = x; if (x > 0.3) n++; } let moved = 0; const P = m.mesh.geometry.attributes.position.array; for (let i = 0; i < P.length; i++) moved = Math.max(moved, Math.abs(P[i] - m.pos0[i])); return [+mx.toFixed(2), n, +moved.toFixed(3), P.length / 3]; }); const mineD = O.shipDamage.ships.has(O.getFlight().ship.id), myHits = O.war.events.filter(e => e.type === 'hit' && e.craft.pilot === 'player').map(e => e.by?.side || e.by?.pilot || '-').slice(0, 5); const inst = Object.values(O.shipView.models[T.model].hull).map(h => h.im.count); return JSON.stringify({ mineD, myHits, A: A.length, inst, hitsR: D.hits, vis: D.g.visible, kids: D.g.children.length, at: p.toArray().map(v => +v.toFixed(1)), want: O.toRender(...T.f.pos).map(v => +v.toFixed(1)), alive: T.alive, inWar: O.war.craft.includes(T), model: T.model, hasModel: !!O.shipView.models[T.model], prog: O.renderer.info.programs.filter(p => p.name.includes('scorched') || true).length, mat: D.meshes[0].mesh.material.type }); })()`));
+    await shot('dogfight-sight');
+    await ev('(ORBIS.war.booms = ORBIS.war.booms.filter(b => !b.smoke), window.__freeze = true, 1)'); for (const [tag, off] of [['near-a', [9, 4, 15]], ['near-b', [-9, 5, 14]], ['near-c', [3, -4, 13]]]) {
+      await ev(`(() => { const F = window.__T.f, o = ${JSON.stringify(off)}; window.__shotCam = { get pos() { const T = F.pos, fw = F.fwd, up = F.up, lf = F.left; return [0, 1, 2].map(i => T[i] - fw[i] * o[2] + up[i] * o[1] + lf[i] * o[0]); }, get look() { return F.pos; } }; return 1; })()`); await sleep(500); await shot('dogfight-' + tag);
+    }
+    await ev('(window.__shotCam = null, 1)');
+  }
+  if (want('fps')) {
+    // frames per second on foot in town: the placeholder body, the ADVENTURER body
+    for (const q of (process.env.FPSQ || 'body=placeholder,').split(',')) {
+      await load('hour=12&' + q); await sleep(4000);
+      const R = await ev(`(async () => { let n = 0, on = true; const f = () => { n++; if (on) requestAnimationFrame(f); }; requestAnimationFrame(f); await new Promise(r => setTimeout(r, 4000)); on = false; return { fps: +(n / 4).toFixed(1), body: window.__body || 'placeholder', tris: ORBIS.renderer.info.render.triangles, calls: ORBIS.renderer.info.render.calls }; })()`);
+      console.log('   fps', q || 'adventurer', JSON.stringify(R));
     }
   }
   if (want('dockpit')) {

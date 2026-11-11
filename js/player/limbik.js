@@ -4,6 +4,8 @@
 //   rig = { root, pelvis, spine: [bones…], head?, arms: { l: [upper, lower, hand], r }, legs: { l: [thigh, calf, foot], r },
 //           fingers?: { l: [[bone…]…], r }, curl?: axis }
 import * as THREE from 'three';
+import { gripHand, wristFor } from './grasp.js';
+import { gripOfHold } from './handhold.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _wq = new THREE.Quaternion();
@@ -80,6 +82,9 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
   for (const s of ['l', 'r']) {
     const sd = s === 'l' ? R.clone().negate() : R, [ua, la, ha] = rig.arms[s], [th, ca, fo] = rig.legs[s], H = pose.limbs[s + 'h'], Fo = pose.limbs[s + 'f'];
     const hp = v3(toRender(...H.p)), shoulder = ua.getWorldPosition(new THREE.Vector3());
+    // a real hand: what it's on is felt for, and the wrist goes where that grip needs it, closing in over the last of the reach
+    const RH = rig.hands?.[s], G = RH && H.hold && (H.grip ?? 0) > 0 ? gripOfHold(H.hold, s, rig.probe, toRender, rig.fromRender) : null;
+    if (G) { const w = v3(wristFor(G, RH)), e = H.grip >= 1 ? 1 : (H.grip * H.grip * (3 - 2 * H.grip)); hp.lerp(w, e); }
     const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, -0.25);
     miss = Math.max(miss, solveLimb(ua, la, ha, hp, elbowPole));
     const fp = v3(toRender(...Fo.p)), hip = th.getWorldPosition(new THREE.Vector3());
@@ -89,8 +94,12 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     // the hand lies on its hold: fingers over the ledge toward the wall, palm down, thumb in; in the
     // air it opens and leads toward where it's going. The foot's toes point at the wall.
     const wall = H.n ? v3(H.n).negate() : F.clone(), grip = H.grip ?? 0;
+    if (RH) {      // the hand closes on what it's on, or, reaching, is open and follows the forearm
+      if (G) { RH.hand.quaternion.copy(RH.hand.userData.q0); RH.hand.updateMatrixWorld(true); gripHand(RH, G, grip); }
+      else { for (const f of ['index', 'middle', 'ring', 'pinky']) RH.fingers[f].bones.forEach((b, i) => b.quaternion.copy(RH.fingers[f].q0[i])); RH.thumb.bones.forEach((b, i) => b.quaternion.copy(RH.thumb.q0[i])); RH.hand.quaternion.copy(RH.hand.userData.q0); RH.hand.updateMatrixWorld(true); }
+    } else
     setWorldQuat(ha, yawFrame.clone().multiply(rig.rest.get(ha)));
-    if (rig.palm) {
+    if (rig.palm && !RH) {
       const down = new THREE.Vector3(0, -1, 0), fingers = wall.clone().multiplyScalar(0.85).addScaledVector(down, 0.5 * grip).normalize();
       aimBone(ha, rig.palm[s].middle, fingers);
       // twist about the fingers so the thumb lies toward the body's centre line

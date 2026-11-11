@@ -34,12 +34,28 @@ export function fleetOf(planet, S) {
   });
 }
 
+// How sheltered a point is by a great ship's bay: 1 inside its decks and doors, easing to 0 over the first 150 m out past the mouth (the weather doesn't blow in a hangar).
+export function bayShelter(list, px, py, pz) {
+  let best = 0;
+  for (const C of list) {
+    if (C.away) continue; const F = FLEET[C.model], dx = px - C.x, dz = pz - C.z; if (dx * dx + dz * dz > (F.length * 0.8) ** 2) continue;
+    const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, [mx, my, mz] = F.dock, o = Math.max(0, lx - mx);
+    if (lx < mx - (deckLen[C.model] || 100) - 4 || o > 150 || ly < my - 8 - o * 0.35 || ly > my + 12 + o * 0.6 || Math.abs(lz - mz) > 20 + o * 0.6) continue;
+    best = Math.max(best, 1 - o / 150);
+  }
+  return best;
+}
 // If (px, py, pz) is inside a ship's solid parts: the shortest way out of it, in world coordinates. Otherwise null.
 export function fleetContact(list, px, py, pz, r = 3) {
   for (const C of list) {
     const dx = px - C.x, dz = pz - C.z; const reach = Math.max(1200, (FLEET[C.model].span || FLEET[C.model].length) * 0.7); if (dx * dx + dz * dz > reach * reach) continue;
     const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, F = FLEET[C.model];
     const back = (ox, oy, oz) => [ox * c + oz * s, oy, -ox * s + oz * c];
+    // the way in and out of the dock is never solid: from the back of its decks out past the mouth, as high and wide as its doors (a wing or a hull box
+    // across it would let the ship fly itself in, then wreck you flying out)
+    // (out past the mouth it opens into a funnel: a ship drifting a little on its way out is still on its way out)
+    const [mx, my, mz] = F.dock, o = Math.max(0, lx - mx), wide = 19 + o * 0.6, lo = my - 7 - o * 0.35, hi = my + 11 + o * 0.6;
+    if (lx > mx - (deckLen[C.model] || 100) - 4 && lx < mx + 900 && ly > lo + (o ? 0 : r * 0.3) && ly < hi - (o ? 0 : r * 0.3) && Math.abs(lz - mz) < wide - (o ? 0 : r * 0.3)) continue;
     for (const b of F.solid) {
       const a0 = lx - b[0] + r, a1 = b[3] - lx + r, h0 = ly - b[1] + r, h1 = b[4] - ly + r, z0 = lz - b[2] + r, z1 = b[5] - lz + r;
       if (a0 > 0 && a1 > 0 && h0 > 0 && h1 > 0 && z0 > 0 && z1 > 0) { const m = Math.min(a0, a1, h0, h1, z0, z1); return m === a0 ? back(-a0, 0, 0) : m === a1 ? back(a1, 0, 0) : m === h0 ? back(0, -h0, 0) : m === h1 ? back(0, h1, 0) : m === z0 ? back(0, 0, -z0) : back(0, 0, z1); }

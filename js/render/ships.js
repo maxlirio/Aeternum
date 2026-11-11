@@ -68,13 +68,16 @@ export class ShipView {
       this._m.compose(new THREE.Vector3(...s.c), this._q.setFromEuler(this._e), new THREE.Vector3(1, 1, 1)).multiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, -D / 2));
       const col = LIVERY[(((s.colour | 0) % LIVERY.length) + LIVERY.length) % LIVERY.length];     // (whatever a ship's record says, drawing it must not stop the game)
       this._c.setRGB(col[0], col[1], col[2]);
-      for (const { im, tinted } of M.hull) { im.setMatrixAt(i, this._m); if (tinted) im.setColorAt(i, this._c); }
       let a = this.anim.get(s.id) ?? (s.rampDown ? 1 : 0);
       a += Math.max(-dt / 2.5, Math.min(dt / 2.5, (s.rampDown ? 1 : 0) - a)); this.anim.set(s.id, a);
-      const q = new THREE.Quaternion().slerp(M.raise, 1 - a), h = M.hinge;
-      this._r.copy(this._m).multiply(new THREE.Matrix4().makeTranslation(h.x, h.y, h.z)).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-h.x, -h.y, -h.z));
-      for (const { im, tinted } of M.ramp) { im.setMatrixAt(i, this._r); if (tinted) im.setColorAt(i, this._c); }
-      n[s.model || 'shuttle']++;
+      // a ship that's been hit is drawn from its own dented, scorched copy (render/damage.js); the rest share the instanced hulls
+      if (!this.damage?.draw(s.id, this._m, performance.now() / 1000)) {
+        for (const { im, tinted } of M.hull) { im.setMatrixAt(i, this._m); if (tinted) im.setColorAt(i, this._c); }
+        const q = new THREE.Quaternion().slerp(M.raise, 1 - a), h = M.hinge;
+        this._r.copy(this._m).multiply(new THREE.Matrix4().makeTranslation(h.x, h.y, h.z)).multiply(new THREE.Matrix4().makeRotationFromQuaternion(q)).multiply(new THREE.Matrix4().makeTranslation(-h.x, -h.y, -h.z));
+        for (const { im, tinted } of M.ramp) { im.setMatrixAt(i, this._r); if (tinted) im.setColorAt(i, this._c); }
+        n[s.model || 'shuttle']++;
+      }
       // the gear: down on the ground, or when it's been asked for; up and stowed in the hull otherwise
       let g = this.gearAnim.get(s.id) ?? (s.gear ?? 1); g += Math.max(-dt / 2.2, Math.min(dt / 2.2, (s.gear ?? 1) - g)); this.gearAnim.set(s.id, g); this.gearSeen.add(s.id);
       const legT = Math.min(1, g * 1.35), doorT = Math.min(1, g * 3, (1 - g) * 6 + (g > 0.98 ? 0.75 : 0));      // (the doors open first, the leg swings down; closed again once it's stowed)

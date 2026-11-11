@@ -38,7 +38,7 @@ export class CombatView {
     let f = 0, sm = 0, bright = 0, bp = null;
     for (const b of war.booms) {
       const p = toRender(...b.p);
-      if (b.smoke) { const r = 3 + b.t * 4; this._m.compose(new THREE.Vector3(p[0], p[1] + b.t * 3, p[2]), this._q.identity(), this._s.set(r, r, r)); if (sm < 400) this.smoke.setMatrixAt(sm++, this._m); continue; }
+      if (b.smoke) { const r = (b.s ?? 1) * (3 + b.t * 4); this._m.compose(new THREE.Vector3(p[0], p[1] + b.t * 3, p[2]), this._q.identity(), this._s.set(r, r, r)); if (sm < 400) this.smoke.setMatrixAt(sm++, this._m); continue; }
       const life = b.big ? 2.5 : b.flare ? 3 : 0.6, k2 = b.t / life;
       const r = b.flare ? 0.8 : b.spark ? 1.2 : b.big ? 6 + 26 * Math.sqrt(k2) : 2 + 5 * k2;
       this._m.compose(new THREE.Vector3(...p), this._q.identity(), this._s.set(r, r, r)); if (f < 400) this.fire.setMatrixAt(f++, this._m);

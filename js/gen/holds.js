@@ -17,17 +17,19 @@ export const STEP_A = 0.45;       // spacing of holds along a row (m)
 const MAX_GAP = 0.85;             // no blank stretch of wall taller than this: a body spans about 2 m, hand to foot
 const SHOP = 5.2;                 // the ground-floor band of a city facade (matches the shader)
 
-const fill = rows => {            // rails through any stretch too tall to reach across
-  rows.sort((p, q) => p.y - q.y);
-  const out = [];
-  for (let i = 0; i < rows.length; i++) {
-    out.push(rows[i]);
-    const nx = rows[i + 1]; if (!nx) break;
-    const gap = nx.y - rows[i].y, n = Math.ceil(gap / MAX_GAP);
-    // (between a sill and its lintel these are the window's glazing bars: the shader draws the same ones)
-    for (let k = 1; k < n; k++) out.push({ y: rows[i].y + gap * k / n, kind: 'rail' });
+const fill = rows => {            // rails through any stretch too tall to reach across. A sill or a lintel is only under or over its window, so it
+  rows.sort((p, q) => p.y - q.y);  // doesn't close a gap across the rest of the wall: the stretch is measured between rows that run the whole way.
+  const partial = r => !!r.spans || (!!r.win && (r.kind === 'sill' || r.kind === 'head')), full = rows.filter(r => !partial(r)), out = rows.slice();
+  for (let i = 0; i + 1 < full.length; i++) {
+    const a = full[i], b = full[i + 1], gap = b.y - a.y, n = Math.ceil(gap / MAX_GAP);
+    for (let k = 1; k < n; k++) { const y = a.y + gap * k / n, near = rows.find(r => partial(r) && Math.abs(r.y - y) < 0.14);
+      if (!near) { out.push({ y, kind: 'rail' }); continue; }
+      // where a rail would meet a sill or a lintel, that course runs the whole width instead (a continuous lintel course; on a plain wall, a steel rail at the window heads)
+      if (near.spans) { near.kind = 'rail'; delete near.spans; } else delete near.win; }
   }
-  return out.filter((r, i) => i === 0 || r.y - out[i - 1].y > 0.12 || r.kind === 'top');
+  out.sort((p, q) => p.y - q.y);
+  const kept = []; for (const r of out) { const prev = [...kept].reverse().find(q => !partial(q)); if (!prev || r.y - prev.y > 0.12 || r.kind === 'top' || partial(r)) kept.push(r); }
+  return kept;
 };
 
 // ---- the city
@@ -132,7 +134,7 @@ function makeTownFace(world, b, side) {
   rows.push({ y: F * H + 0.7, kind: 'top' });    // the parapet
   const f = { key: `t:${b.key}:${side}`, o: toW(...def.o), t: dir(...def.t), n: dir(...def.n), w: def.L, y0: base, y1: base + F * H + 0.7, town: b, label: b.owner,
     rows: fill(rows).map(r => ({ ...r, y: base + r.y })) };
-  { const clear = []; for (const wl of plan.walls) if (wl.exterior && wl.side === def.sd) for (const o of wl.openings) clear.push([Math.min(lat(o.a), lat(o.b)), Math.max(lat(o.a), lat(o.b))]); f.pipes = pipesOf(f, 0, clear); }
+  { const clear = []; f.openings = []; for (const wl of plan.walls) if (wl.exterior && wl.side === def.sd) for (const o of wl.openings) { const a0 = Math.min(lat(o.a), lat(o.b)), a1 = Math.max(lat(o.a), lat(o.b)); clear.push([a0, a1]); f.openings.push({ a0, a1, y0: base + wl.k * H + o.y0, y1: base + wl.k * H + o.y1, door: o.kind !== 'window' }); } f.pipes = pipesOf(f, 0, clear); }
   f.next = () => townFace(world, b, (side + 1) % 4);
   f.prev = () => townFace(world, b, (side + 3) % 4);
   return f;
@@ -222,6 +224,21 @@ export function smoothAhead(world, x, y, z, fx, fz) {
   const q = 0.9; return world.solidAt(x + fx * q, y + 1.2, z + fz * q, 0.05);
 }
 
+// Where along a row there's something to hold: under and over each window for a sill or a lintel (a town's from its plan, a
+// city facade's from its bays), all along it for a band, a rail or a parapet. → [[a0, a1]…] or null (all of it).
+export function rowSpans(f, row, all = false) {
+  if (row.kind === 'rail' && f.openings?.length) {      // a rail on a town wall stops at each door it would cross (across a window it's the window's transom bar; all: the stone course, which stops at windows too)
+    const cut = f.openings.filter(o => (all || o.door) && row.y > o.y0 - 0.08 && row.y < o.y1 + 0.08).map(o => [o.a0 - 0.1, o.a1 + 0.1]).sort((p, q) => p[0] - q[0]); if (!cut.length) return null;
+    const out = []; let a = 0.05; for (const [c0, c1] of cut) { if (c0 - a > 0.3) out.push([a, c0]); a = Math.max(a, c1); } if (f.w - 0.05 - a > 0.3) out.push([a, f.w - 0.05]); return out;
+  }
+  if (row.spans) return row.spans.map(([a, b]) => [a - (row.kind === 'head' ? 0.12 : 0.05), b + (row.kind === 'head' ? 0.12 : 0.05)]);
+  if ((row.kind === 'sill' || row.kind === 'head') && row.win?.bay > 0.5 && f.b) {
+    const out = [], B = row.win.bay, W = B * row.win.frac, n = Math.floor(f.w / B);
+    for (let i = 0; i < n; i++) { const c = (i + 0.5) * B + (f.w - n * B) / 2; out.push([c - W / 2 - 0.06, c + W / 2 + 0.06]); }
+    return out;
+  }
+  return null;
+}
 // The holds on a face in a box round (a, y). Each is clear of whatever else stands there. A corner is a hold all the way up:
 // a building's arris or a tower's leg is something to wrap your hands round, row or no row.
 export const CORNER_STEP = 0.45;
@@ -232,7 +249,9 @@ export function holdsNear(world, f, a, y, ra, ry, fn) {
     const at = []; for (let k = Math.ceil(a0 / STEP_A); k * STEP_A <= a1; k++) at.push(k * STEP_A);
     if (a0 <= 0.15 + ins) at.unshift(0.15 + ins);                     // ...and right up to the corners, to reach round them
     if (a1 >= f.w - 0.15 - ins) at.push(f.w - 0.15 - ins);
+    const sp = rowSpans(f, row);
     for (const h of at) {
+      if (sp && !sp.some(([s0, s1]) => h >= s0 + 0.07 && h <= s1 - 0.07)) continue;      // (a sill is only under its window)
       const p = pointOn(f, h, row.y, -ins), n = f.n;
       if (!f.tower && row.kind !== 'top' && row.kind !== 'ground') { if (world.solidAt(p[0] + n[0] * 0.32, row.y + 0.15, p[2] + n[1] * 0.32, 0.05)) continue; }   // someone else's wall is in the way
       fn({ p, n, a: h, y: row.y, kind: row.kind, face: f });

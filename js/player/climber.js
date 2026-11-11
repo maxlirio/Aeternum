@@ -208,13 +208,26 @@ export class Climber {
         const dir = this.dirOf(input);
         if (input.fwd > 0 && this.startTop()) return;
         if (input.fwd < 0 && !input.right && this.onGround()) { this.getOff(); return; }
-        const m = this.plan(dir);
+        let m = this.plan(dir);
+        // straight up blocked (a window's glass, a door): edge round it, up and to one side, keeping to that side until the way is clear again
+        if (this.detour && (this.pelvis[1] > this.detourY + 1.0 || input.right || input.fwd <= 0)) this.detour = 0;
+        if ((!m || this.detour) && input.fwd > 0 && !input.right) {
+          if (!this.detour) { this.detour = this.detourSide(dir.R); this.detourY = this.pelvis[1]; this.detourMiss = 0; }
+          const d2 = this.plan({ ...dir, right: this.detour });
+          if (d2) { m = d2; this.detourMiss = 0; } else if (!m && ++this.detourMiss > 3) { this.detour = -this.detour; this.detourMiss = 0; }
+        }
         if (m) this.startMove(m, input); else this.blocked = input.fwd > 0 ? 'no hold in reach above' : 'no hold in reach';
       }
     }
     if (this.turnTo && this.limb.lh.hold?.face === this.turnTo && this.limb.rh.hold?.face === this.turnTo) { this.face = this.turnTo; this.turnTo = null; }
     this.updateBody(dt);
     if (!this.effort) this.effort = 0.25;      // hanging on is work too
+  }
+  // which way round: toward the nearest course above that runs on past what's in the way (+1 your right, -1 your left)
+  detourSide(R) {
+    const { lh, rh } = this.limb, here = lh.hold && rh.hold ? lerp3(lh.hold.p, rh.hold.p, 0.5) : this.pelvis, hy = Math.max(lh.hold?.p[1] ?? here[1], rh.hold?.p[1] ?? here[1]); let best = 0, bd = Infinity;
+    this.candidates([here[0], hy + 0.6, here[2]], 4, 0.45, h => { if (h.kind === 'ground' || h.y <= hy + 0.2 || h.kind === 'sill' || h.kind === 'head') return; const side = dot(sub(h.p, here), R), d = Math.abs(side); if (d > 0.3 && d < bd) { bd = d; best = side > 0 ? 1 : -1; } });
+    return best || 1;
   }
   normalOfMove(L) { return L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : this.normal; }
   updateBody(dt, stiff = 14) {
@@ -400,7 +413,7 @@ export class Climber {
     const toHands = sub(hc, this.pelvis), lean = this.state === 'top' ? this.topOut.lean ?? 0 : clamp(dot(toHands, f) / Math.max(0.3, toHands[1]), -0.5, 0.5);
     let up = [f[0] * lean, 1, f[2] * lean]; const ul = len(up); up = [up[0] / ul, up[1] / ul, up[2] / ul];
     const limbs = {};
-    for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null }; if (limbs[k].grip < 0) limbs[k].grip = 0; }
+    for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null, hold: L.hold || null }; if (limbs[k].grip < 0) limbs[k].grip = 0; }
     return { state: this.state, pelvis: this.pelvis.slice(), right: R, up, forward: f, tilt: clamp((rh.p[1] - lh.p[1]) * 0.22, -0.3, 0.3), hipTilt: clamp((rf.p[1] - lf.p[1]) * 0.18, -0.25, 0.25), lookAt: this.lookAt || null, limbs };
   }
   get feet() { return [this.pelvis[0], this.pelvis[1] - BODY.hipHeight, this.pelvis[2]]; }

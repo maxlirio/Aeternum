@@ -27,7 +27,7 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI
 // the rig
 let rig;
 if (RIG === 'real') {
-  const g = await new GLTFLoader().loadAsync('../out/lab/adventurer_body.glb'); scene.add(g.scene); const by = {}; g.scene.traverse(o => { if (o.isBone || o.name) by[o.name] = by[o.name] || o; });
+  const g = await new GLTFLoader().loadAsync('../assets/adventurer.glb'); scene.add(g.scene); const by = {}; g.scene.traverse(o => { if (o.isBone || o.name) by[o.name] = by[o.name] || o; });
   const fing = sd => ['index', 'middle', 'ring', 'pinky'].map(n => [`${n}_01_${sd}`, `${n}_02_${sd}`, `${n}_03_${sd}`].map(k => by[k]));
   rig = { root: g.scene, pelvis: by.pelvis, spine: [by.spine_01, by.spine_02, by.spine_03], head: by.head, arms: { l: [by.upperarm_l, by.lowerarm_l, by.hand_l], r: [by.upperarm_r, by.lowerarm_r, by.hand_r] }, legs: { l: [by.thigh_l, by.calf_l, by.foot_l], r: [by.thigh_r, by.calf_r, by.foot_r] },
     fingers: { l: fing('l'), r: fing('r') }, palm: { l: { middle: by.middle_01_l, thumb: by.thumb_01_l }, r: { middle: by.middle_01_r, thumb: by.thumb_01_r } }, toe: { l: by.ball_l, r: by.ball_r } };
