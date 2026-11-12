@@ -4,7 +4,7 @@
 //   rig = { root, pelvis, spine: [bones…], head?, arms: { l: [upper, lower, hand], r }, legs: { l: [thigh, calf, foot], r },
 //           fingers?: { l: [[bone…]…], r }, curl?: axis }
 import * as THREE from 'three';
-import { gripHand, wristFor } from './grasp.js';
+import { gripHand, wristFor, rollNeed, FOREARM_ROLL } from './grasp.js';
 import { gripOfHold } from './handhold.js';
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _e = new THREE.Vector3();
@@ -48,7 +48,7 @@ const basis = (x, y, z) => new THREE.Quaternion().setFromRotationMatrix(new THRE
 export function captureRest(rig) {
   rig.root.updateMatrixWorld(true);
   const rest = new Map(), add = b => { if (b) rest.set(b, b.getWorldQuaternion(new THREE.Quaternion()).clone()); };
-  add(rig.pelvis); (rig.spine || []).forEach(add); add(rig.head);
+  add(rig.pelvis); (rig.spine || []).forEach(add); add(rig.neck); add(rig.head);
   for (const s of ['l', 'r']) { rig.arms[s].forEach(add); rig.legs[s].forEach(add); (rig.fingers?.[s] || []).flat().forEach(add); }
   rig.rest = rest; rig.rootRest = rig.root.quaternion.clone();
   return rig;
@@ -72,11 +72,18 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     const f = (i + 1) / n, q = new THREE.Quaternion().slerpQuaternions(tiltP, tiltS, f), l = new THREE.Quaternion().slerp(lean, f);
     setWorldQuat(b, q.multiply(l).multiply(yawFrame).multiply(rig.rest.get(b)));
   });
-  if (rig.head && pose.lookAt) {     // eyes on the hold you're going for
-    const h = rig.head.getWorldPosition(new THREE.Vector3()), t = v3(toRender(...pose.lookAt)).sub(h).normalize();
-    const look = new THREE.Quaternion().setFromUnitVectors(F, t); look.slerp(new THREE.Quaternion(), 0.25);
+  // eyes on the hold you're going for, as far as a neck turns (it doesn't bury the chin in the chest to watch a foot): the neck takes half, the head the rest
+  if (rig.head) {
+    let look = new THREE.Quaternion();
+    if (pose.lookAt) {
+      const h = rig.head.getWorldPosition(new THREE.Vector3()), t = v3(toRender(...pose.lookAt)).sub(h).normalize(), Y = new THREE.Vector3(0, 1, 0);
+      const yaw = Math.max(-0.6, Math.min(0.6, Math.atan2(t.dot(R), t.dot(F)) * 0.75)), pitch = Math.max(-0.3, Math.min(0.45, Math.atan2(t.dot(Y), Math.hypot(t.dot(R), t.dot(F))) * 0.75));
+      const dir = F.clone().multiplyScalar(Math.cos(pitch) * Math.cos(yaw)).addScaledVector(R, Math.cos(pitch) * Math.sin(yaw)).addScaledVector(Y, Math.sin(pitch));
+      look = new THREE.Quaternion().setFromUnitVectors(F, dir.normalize());
+    }
+    if (rig.neck) setWorldQuat(rig.neck, new THREE.Quaternion().slerp(look, 0.5).multiply(yawFrame).multiply(rig.rest.get(rig.neck)));
     setWorldQuat(rig.head, look.multiply(yawFrame).multiply(rig.rest.get(rig.head)));
-  } else if (rig.head) setWorldQuat(rig.head, yawFrame.clone().multiply(rig.rest.get(rig.head)));
+  }
   let miss = 0;
   // limbs: elbows out and down, knees out over the toes
   for (const s of ['l', 'r']) {
@@ -86,10 +93,24 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     const RH = rig.hands?.[s], G = RH && H.hold && (H.grip ?? 0) > 0 ? gripOfHold(H.hold, s, rig.probe, toRender, rig.fromRender) : null;
     if (G) { const w = v3(wristFor(G, RH)), e = H.grip >= 1 ? 1 : (H.grip * H.grip * (3 - 2 * H.grip)); hp.lerp(w, e); }
     const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, -0.25);
-    miss = Math.max(miss, solveLimb(ua, la, ha, hp, elbowPole));
+    // the arm is put from its modelled pose every frame (so no roll is carried over from the last one), and where the hand has a grip the elbow
+    // swings round the shoulder-to-wrist line to where the forearm needs least roll to bring the palm round: a forearm only turns so far
+    const fromRest = () => { for (const b of [ua, la, ha]) if (b.userData.q0) b.quaternion.copy(b.userData.q0); ua.updateMatrixWorld(true); };
+    let pole = elbowPole;
+    if (G && ua.userData.q0) {
+      const axis = hp.clone().sub(shoulder).normalize(); let best = null;
+      for (const sw of [0, -0.35, 0.35, -0.7, 0.7, -1.05, 1.05]) {
+        const pp = elbowPole.clone().sub(shoulder).applyAxisAngle(axis, sw).add(shoulder); fromRest(); solveLimb(ua, la, ha, hp, pp);
+        const need = Math.abs(rollNeed(RH, G)), cost = Math.max(0, need - FOREARM_ROLL * 0.85) * 3 + need * 0.15 + Math.abs(sw) * 0.25, el = la.getWorldPosition(_e), cost2 = cost + Math.max(0, el.dot(F) - hp.dot(F) + 0.06) * 8 + Math.max(0, -(el.clone().sub(shoulder).dot(sd)) - 0.04) * 6 + Math.max(0, el.y - shoulder.y - 0.12) * 4;     // (the elbow not into the wall, not across the chest, not cocked up over the shoulder)
+        if (!best || cost2 < best.cost) best = { cost: cost2, pp };
+      }
+      pole = best.pp;
+    }
+    fromRest();
+    miss = Math.max(miss, solveLimb(ua, la, ha, hp, pole));
     const fp = v3(toRender(...Fo.p)), hip = th.getWorldPosition(new THREE.Vector3());
     const kneeUp = Math.max(0, fp.y - hip.y + 0.5);     // (a foot up near hip height: the knee comes up and out, it doesn't go through what's in front)
-    const kneePole = hip.clone().addScaledVector(sd, 0.35).addScaledVector(F, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), 0.1 + kneeUp * 1.6);
+    const kneePole = hip.clone().addScaledVector(sd, 0.35 + kneeUp * 0.35).addScaledVector(F, 0.5 + kneeUp * 0.4).addScaledVector(new THREE.Vector3(0, 1, 0), 0.1 + kneeUp * 0.45);     // (a foot up near the hip: the knee goes up, out to the side and toward the wall, never back through the body)
     miss = Math.max(miss, solveLimb(th, ca, fo, fp, kneePole));
     // the hand lies on its hold: fingers over the ledge toward the wall, palm down, thumb in; in the
     // air it opens and leads toward where it's going. The foot's toes point at the wall.

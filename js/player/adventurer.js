@@ -22,7 +22,7 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
   const skinned = []; root.traverse(o => { if (o.isSkinnedMesh) skinned.push(o); });
   const body = skinned.find(m => /body/i.test(m.name)) || skinned[0];
   const fing = (f, s) => ['01', '02', '03'].map(k => by[`${f}_${k}_${s}`]);
-  const rig = captureRest({ root, pelvis: by.pelvis, spine: [by.spine_01, by.spine_02, by.spine_03], head: by.head,
+  const rig = captureRest({ root, pelvis: by.pelvis, spine: [by.spine_01, by.spine_02, by.spine_03], neck: by.neck_01, head: by.head,
     arms: { l: [by.upperarm_l, by.lowerarm_l, by.hand_l], r: [by.upperarm_r, by.lowerarm_r, by.hand_r] }, legs: { l: [by.thigh_l, by.calf_l, by.foot_l], r: [by.thigh_r, by.calf_r, by.foot_r] },
     toe: { l: by.ball_l, r: by.ball_r } });
   rig.handBones = {}; for (const s of ['l', 'r']) rig.handBones[s] = { hand: by['hand_' + s], index: fing('index', s), middle: fing('middle', s), ring: fing('ring', s), pinky: fing('pinky', s), thumb: fing('thumb', s) };

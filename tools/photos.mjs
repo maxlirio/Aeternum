@@ -199,6 +199,39 @@ try {
         dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); return JSON.stringify({ who: String(a.id).slice(0, 20), minGap: +min.toFixed(2) }); })()`));
     }
   }
+  if (want('climbfix')) {
+    // the arms and head through a climb: every frame, each elbow's bend, each forearm's roll and how far the head is tipped back on the chest; then close views
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    const R = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world;
+      let got = null; const s = O.s;
+      for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 6) continue; const a = f.w * 0.5, x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } }
+        if (got) break; }
+      if (!got) return { none: true };
+      const rig = O.avatar.rig, V = () => new THREE.Vector3(), T = await import('three'); const THREE = T;
+      const flex = s => { const a = rig.arms[s][0].getWorldPosition(new THREE.Vector3()), b = rig.arms[s][1].getWorldPosition(new THREE.Vector3()), c2 = rig.arms[s][2].getWorldPosition(new THREE.Vector3()); return 180 - a.sub(b).angleTo(c2.sub(b)) * 180 / Math.PI; };
+      const upOf = b => new THREE.Vector3(0, 1, 0).applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()));
+      const S = { lf: [], rf: [], ltw: [], rtw: [], head: [], headDrop: [], gap: [] };
+      for (let i = 0; i < 40; i++) { if (i % 10 === 0) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); if (i % 10 === 6) dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(110);
+        S.lf.push(flex('l')); S.rf.push(flex('r')); S.ltw.push((rig.hands.l.lastTw || 0) * 57.3); S.rtw.push((rig.hands.r.lastTw || 0) * 57.3);
+        const hd = rig.head, sp = rig.spine[2]; S.head.push(upOf(hd).angleTo(upOf(sp)) * 57.3);
+        const hp = hd.getWorldPosition(new THREE.Vector3()), sh = rig.arms.l[0].getWorldPosition(new THREE.Vector3()).add(rig.arms.r[0].getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5); S.headDrop.push((hp.y - sh.y) * 100); const Wl = O.ctrl.wall?.limb; if (Wl?.lh.hold && Wl.lf.hold) S.gap.push((Math.min(Wl.lh.hold.p[1], Wl.rh.hold.p[1]) - Math.max(Wl.lf.hold.p[1], Wl.rf.hold.p[1])) * 100); }
+      dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1200);
+      const st = a => ({ min: +Math.min(...a).toFixed(0), max: +Math.max(...a).toFixed(0), mean: +(a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) });
+      return { ...Object.fromEntries(Object.entries(S).map(([k, v]) => [k, st(v)])), ltwAll: S.ltw.map(x => Math.round(x)).join(' '), rtwAll: S.rtw.map(x => Math.round(x)).join(' '), lfAll: S.lf.map(x => Math.round(x)).join(' '), gapAll: S.gap.map(x => Math.round(x)).join(' '), relaxed: O.ctrl.wall?.relaxed, strictN: O.ctrl.wall?.strictN }; })()`);
+    console.log('   arms/head', JSON.stringify(R));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
+    const views = [['headback', 0, 0.75, 1.3, 0.55], ['lelbow', -0.9, 0.55, 0.9, 0.5], ['relbow', 0.9, 0.55, 0.9, 0.5], ['headside', 1.3, 0.6, 0.6, 0.55]];
+    for (const [tag, side, up, back, lookUp] of views) {
+      await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall, P = W.pose(), n = W.normal, R = W.right(), at = P.pelvis;
+        window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side}, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side}], look: [at[0] + R[0] * ${side} * 0.25, at[1] + ${lookUp}, at[2] + R[2] * ${side} * 0.25] };
+        await new Promise(r => setTimeout(r, 600)); return 1; })()`);
+      await shot('climbfix-' + tag);
+    }
+    await ev('(window.__shotCam = null, 1)');
+  }
   if (want('climbreal')) {
     // the ADVENTURER body on a real town wall: up it a few holds, then the hands up close (what each is on, and how far its skin is from it)
     await load('hour=11');

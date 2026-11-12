@@ -84,11 +84,12 @@ export class Climber {
     const R = this.right(), n = this.normal; let hy = 0, hn = 0, fy = 0, fn = 0, cx = 0, cz = 0, c = 0;
     for (const k of LIMBS) { const e = ends[k]; if (!e) continue; if (isHand(k)) { hy += e[1]; hn++; } else { fy += e[1]; fn++; } cx += e[0]; cz += e[2]; c++; }
     hy /= hn || 1; fy /= fn || 1;
-    const wantY = fn ? Math.min(hy - BODY.shoulderUp - ARM * 0.72, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;
-    const off = this.face.tower ? 0.1 : WALL; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.28 : -1e9), cz / c + n[2] * off];
+    const wantY = fn ? Math.min(hy - BODY.shoulderUp - ARM * 0.86, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
+    const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.1 - (hy - fy), 0, 0.5) : 0;     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
+    const off = this.face.tower ? 0.1 : WALL + high * 0.55; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.28 - high * 0.9 : -1e9), cz / c + n[2] * off];
     for (let it = 0; it < 10; it++) {
       for (const k of LIMBS) { const e = ends[k]; if (!e) continue;
-        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? 0.2 : 0.3;
+        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? 0.2 : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle)
         if (d > L) p = add(p, v, (1 - L / d) * 0.7); else if (d < min && d > 1e-4) p = add(p, v, (1 - min / d) * 0.5);
       }
       p = this.offWall(p);
@@ -102,7 +103,7 @@ export class Climber {
     const faces = this.leapFaces || new Set(); if (!this.leapFaces) { for (const k of LIMBS) { const h = this.limb[k]?.hold; if (h) faces.add(h.face); } faces.add(this.face); }      // (in the air, only the wall you're going to counts)
     let best = -Infinity, bf = null;
     for (const f of faces) { const o = outOf(f, p[0], p[2], p[1]); if (o > best) { best = o; bf = f; } }
-    const lo = this.face.tower ? 0.04 : 0.2, hi = 0.5;     // (on steelwork you hug the leg)
+    const lo = this.face.tower ? 0.04 : 0.2, hi = 0.62;     // (on steelwork you hug the leg)
     if (best < lo) return [p[0] + bf.n[0] * (lo - best), p[1], p[2] + bf.n[1] * (lo - best)];
     if (faces.size === 1 && best > hi) return [p[0] - bf.n[0] * (best - hi), p[1], p[2] - bf.n[1] * (best - hi)];
     return p;
@@ -127,7 +128,9 @@ export class Climber {
   }
   // How far along your right a point is, measured round a corner rather than through it.
   along(p, R, face = this.face) { return dot(p, R); }
-  plan(dir) {
+  // the move to make: going up, with the feet kept well under the hands if any move allows it, else any move at all (across or down, as it comes)
+  plan(dir) { if (dir.right || dir.up <= 0) { this.strict = false; const m = this.planWith(dir); this.strict = true; return m; } this.strict = true; let m = this.planWith(dir, true); if (!m) { this.strict = false; m = this.planWith(dir); this.strict = true; if (m) this.relaxed = (this.relaxed || 0) + 1; } else this.strictN = (this.strictN || 0) + 1; return m; }
+  planWith(dir, firstTry = false) {
     const { R, right, up } = dir, L = this.limb;
     const order = up > 0 && !right ? ['lh', 'rf', 'rh', 'lf'] : up < 0 && !right ? ['lf', 'rh', 'rf', 'lh'] : right > 0 ? ['rh', 'rf', 'lh', 'lf'] : ['lh', 'lf', 'rh', 'rf'];
     for (const k of LIMBS) if (L[k].free && !isHand(k)) { const m = this.moveFor(k, { R, right: 0, up: 0 }); if (m) return m; }   // feet swinging: find them a hold first
@@ -135,8 +138,8 @@ export class Climber {
       const k = order[(this.cycle + n) % 4], m = this.moveFor(k, dir);
       if (m) { this.cycle = (this.cycle + n + 1) % 4; return m; }
     }
-    // stretched out on a traverse with one hand far above the other: bring the high one down level
-    if (right && !up) {
+    // stretched out on a traverse with one hand far above the other: bring the high one down level (only once a foot coming up under the hands won't do)
+    if (right && !up && !firstTry) {
       const [hi, lo] = (L.lh.hold?.p[1] ?? 0) > (L.rh.hold?.p[1] ?? 0) ? ['lh', 'rh'] : ['rh', 'lh'], gap = L[hi].hold.p[1] - L[lo].hold.p[1];
       if (gap > 0.3) { const m = this.moveFor(hi, { R, right: 0, up: -1 }); if (m) return m; }
     }
@@ -162,9 +165,11 @@ export class Climber {
         const sep = dot(sub(h.p, other.hold.p), R) * (isLeft(k) ? -1 : 1), gapY = Math.abs(h.p[1] - other.hold.p[1]);
         if ((sep < (hand ? 0.1 : 0.04) && h.face === other.hold.face && !(h.kind === 'pipe' && other.hold.kind === 'pipe' && h.a === other.hold.a)) || Math.abs(sep) > (hand ? 1.05 : 1.0) || gapY > 1.2) return;
       }
-      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55;     // (on a pipe you can bunch right up)
+      // hands well above the feet: a foot doesn't come up under the hands (you'd squat under them, elbows folded, head down on the wall); a
+      // hand reaching up needs less (on a pipe or a corner you can bunch up more)
+      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.strict === false || h.kind === 'pipe' || h.kind === 'corner' || this.face.tower ? tuck : 0.9;     // (unless nothing else will go)
       if (hand) { for (const F of feet) if (F.hold && h.p[1] - F.hold.p[1] < tuck) return; }
-      else for (const H of hands) if (H.hold && H.hold.p[1] - h.p[1] < tuck) return;
+      else for (const H of hands) if (H.hold && H.hold.p[1] - h.p[1] < footTuck) return;
       const over = { [k]: endAt(k, h) }, sol = this.solve(this.ends(over));
       if (sol.slack > -0.005) return;     // (not at the very end of an arm: the body has to be able to settle there)
       // on a corner, stay on it going up: it's the fast way, the legs of a tower most of all

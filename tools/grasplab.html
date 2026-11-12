@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 const { captureHand, gripHand, wristFor, solidOf, frameOf, gripReport } = await import('../js/player/grasp.js'), { solveLimb } = await import('../js/player/limbik.js');
-const q = new URLSearchParams(location.search), ONLY = q.get('only');
+const q = new URLSearchParams(location.search), ONLY = q.get('only'); globalThis.__noThumb = !!q.get('nothumb');
 const g = await new GLTFLoader().loadAsync('../assets/adventurer.glb'); const by = {}; g.scene.traverse(o => { if (o.name) by[o.name] = by[o.name] || o; });
 g.scene.traverse(o => { if (o.isBone) o.userData.q0 = o.quaternion.clone(); });
 const meshes = []; g.scene.traverse(o => { if (o.isSkinnedMesh) { meshes.push(o); o.frustumCulled = false; } });
@@ -15,7 +15,7 @@ const body = meshes.find(m => /body/i.test(m.name)) || meshes[0];
 const fing = (f, s) => ['01', '02', '03'].map(k => by[`${f}_${k}_${s}`]);
 const rig = { root: g.scene, handBones: { r: { hand: by.hand_r, index: fing('index', 'r'), middle: fing('middle', 'r'), ring: fing('ring', 'r'), pinky: fing('pinky', 'r'), thumb: fing('thumb', 'r') } } };
 const H = captureHand(rig, 'r', [body]);
-const NX = 3, TW = 300, TH = 300;
+const NX = 3, TW = +(q.get('tile') || 300), TH = TW;
 if (q.get('rest')) {      // the hand as modelled, with the palm's measured normal drawn out of it (green) and the thumb side (red)
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); renderer.setSize(900, 300); document.body.append(renderer.domElement); renderer.setScissorTest(true);
   const scene = new THREE.Scene(); scene.background = new THREE.Color(0x8a97a3); scene.add(new THREE.HemisphereLight(0xffffff, 0x556070, 2)); scene.add(g.scene); g.scene.updateMatrixWorld(true);
@@ -42,6 +42,9 @@ const stone = new THREE.MeshStandardMaterial({ color: 0xb9b4a8, roughness: 0.9 }
 const cam = new THREE.PerspectiveCamera(30, TW / TH, 0.01, 50), report = [];
 const handVerts = (() => { const sk = body.skeleton, ids = new Set([by.hand_r, ...['index', 'middle', 'ring', 'pinky', 'thumb'].flatMap(f => fing(f, 'r'))].map(b => sk.bones.indexOf(b))), out = [], sw = body.geometry.attributes.skinWeight, si = body.geometry.attributes.skinIndex;
   for (let i = 0; i < sw.count; i++) { let w = 0; for (let k = 0; k < 4; k++) if (ids.has(si.getComponent(i, k))) w += sw.getComponent(i, k); if (w > 0.5) out.push(i); } return out; })();
+const thick = () => { const out = {}; for (const [nm, nx] of [['thumb_01_r', 'thumb_02_r'], ['thumb_02_r', 'thumb_03_r'], ['index_01_r', 'index_02_r']]) { const bi = body.skeleton.bones.indexOf(by[nm]), A = by[nm].getWorldPosition(new THREE.Vector3()), B = by[nx].getWorldPosition(new THREE.Vector3()), ax = B.clone().sub(A), L = ax.length(); ax.normalize(); let sum = 0, n = 0, mx = 0; const sw = body.geometry.attributes.skinWeight, si = body.geometry.attributes.skinIndex, v = new THREE.Vector3();
+  for (const i of handVerts) { let ok = false; for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === bi && sw.getComponent(i, k) > 0.6) ok = true; if (!ok) continue; body.getVertexPosition(i, v); v.applyMatrix4(body.matrixWorld); const r = v.sub(A), t = r.dot(ax); if (t < 0 || t > L) continue; const d = r.addScaledVector(ax, -t).length(); sum += d; n++; mx = Math.max(mx, d); } out[nm] = [+(sum / Math.max(1, n) * 1000).toFixed(1), +(mx * 1000).toFixed(1), n]; } return out; };
+for (const b of Object.values(by)) if (b.isBone && b.userData.q0) b.quaternion.copy(b.userData.q0); g.scene.updateMatrixWorld(true); const thickRest = thick();
 for (let row = 0; row < NY; row++) {
   const R = rows[row], G = R.g, set = new THREE.Group(); scene.add(set);
   // the solid, built from the same numbers the hand is planned against
@@ -69,7 +72,10 @@ for (let row = 0; row < NY; row++) {
   const wr2 = worst ? worst.clone().sub(F.E) : null, wloc = worst ? (() => { const hw = by.hand_r.getWorldPosition(new THREE.Vector3()), hq = by.hand_r.getWorldQuaternion(new THREE.Quaternion()).invert(), l = worst.clone().sub(hw).applyQuaternion(hq); return [l.dot(H.local.F), l.dot(H.local.N), l.dot(H.local.A)].map(x => +x.toFixed(3)); })() : null;
   const rep = gripReport(G, H);
   const gaps = {}; for (const fn of ['index', 'middle', 'ring', 'pinky', 'thumb']) { const bi = body.skeleton.bones.indexOf(by[fn + '_03_r']); let mg = Infinity; for (const i of handVerts) { let ok = false; for (let k = 0; k < 4; k++) if (si.getComponent(i, k) === bi && sw.getComponent(i, k) > 0.5) ok = true; if (!ok) continue; body.getVertexPosition(i, v); v.applyMatrix4(body.matrixWorld); const r = v.clone().sub(F.E); mg = Math.min(mg, sd(r.dot(F.O), r.dot(F.Y))); } gaps[fn] = +(mg * 1000).toFixed(1); }
-  report.push({ name: R.name, tipGapMM: gaps, armMiss: +miss.toFixed(3), penMM: +(pen * 1000).toFixed(1), touch, worstBone: wi >= 0 ? bn(wi) : null, worstOY: wr2 ? [wr2.dot(F.O), wr2.dot(F.Y)].map(x => +x.toFixed(3)) : null, worstFNA: wloc, inside: byBone, W: rep.W, plan0: rep.middle, rp: +H.rp.toFixed(4), rf: +H.rf.toFixed(4) });
+  const elb = (() => { const a = by.upperarm_r.getWorldPosition(new THREE.Vector3()), b = by.lowerarm_r.getWorldPosition(new THREE.Vector3()), c = by.hand_r.getWorldPosition(new THREE.Vector3()); return +(180 - a.sub(b).angleTo(c.sub(b)) * 180 / Math.PI).toFixed(0); })();
+  const thDeg = H.thumb.bones.map((b, i) => +(b.quaternion.angleTo(H.thumb.q0[i]) * 57.3).toFixed(0));
+  const thumbOYT = [...H.thumb.bones.map(b => b.getWorldPosition(new THREE.Vector3())), by.middle_01_r.getWorldPosition(new THREE.Vector3()), by.hand_r.getWorldPosition(new THREE.Vector3())].map(p => { const r = p.sub(F.E); return [r.dot(F.O), r.dot(F.Y), r.dot(new THREE.Vector3().crossVectors(F.O, F.Y))].map(x => +(x * 100).toFixed(1)); });
+  report.push({ name: R.name, thickRest, thick: thick(), thumbOYT, thumbDbg: H.thumbDbg, thDeg, twDeg: +((H.lastTw || 0) * 180 / Math.PI).toFixed(0), elbowFlexDeg: elb, tipGapMM: gaps, armMiss: +miss.toFixed(3), penMM: +(pen * 1000).toFixed(1), touch, worstBone: wi >= 0 ? bn(wi) : null, worstOY: wr2 ? [wr2.dot(F.O), wr2.dot(F.Y)].map(x => +x.toFixed(3)) : null, worstFNA: wloc, inside: byBone, W: rep.W, plan0: rep.middle, rp: +H.rp.toFixed(4), rf: +H.rf.toFixed(4) });
   if (worst) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.003), new THREE.MeshBasicMaterial({ color: 0xff00ff, depthTest: false })); m.position.copy(worst); m.renderOrder = 9; set.add(m); }
   const c = new THREE.Vector3(...G.E).addScaledVector(new THREE.Vector3(...G.O), 0.02);
   const views = [[0.0, 0.12, 0.42], [0.42, 0.06, 0.08], [0.25, 0.32, 0.25]];
