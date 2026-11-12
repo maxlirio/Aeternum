@@ -33,6 +33,9 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
   const speedOf = name => { const c = clip(name); if (!c) return 0; const A = mixer.clipAction(c); A.play(); A.weight = 1; let lo = Infinity, hi = -Infinity; for (let i = 0; i <= 24; i++) { mixer.setTime(c.duration * i / 24); root.updateMatrixWorld(true); const z = by.ball_l.getWorldPosition(_v).z - by.pelvis.getWorldPosition(new THREE.Vector3()).z; lo = Math.min(lo, z); hi = Math.max(hi, z); } A.stop(); return (hi - lo) / (c.duration / 2); };
   const gaits = GAITS.map(([n, v]) => { const m = n === 'idle' ? 0 : speedOf(n); return { n, v: m > 0.5 && m < 12 ? m : v, a: act[n] }; }).filter(x => x.a);
   for (const b of Object.values(by)) if (b.isBone) b.quaternion.copy(b.userData.q0);
+  // the idle pose's joints, each against its parent: what the climber keeps the torso, neck, head and collarbones at, so the body is the same shape on a wall as standing
+  if (act.idle) { const A = act.idle; A.play(); A.weight = 1; mixer.setTime(0); root.updateMatrixWorld(true); for (const b of Object.values(by)) if (b.isBone) b.userData.qi = b.quaternion.clone(); A.stop(); for (const b of Object.values(by)) if (b.isBone) b.quaternion.copy(b.userData.q0); }
+  rig.clavicles = { l: by.clavicle_l, r: by.clavicle_r };
   for (const G of gaits) { G.a.play(); G.a.weight = 0; G.a.enabled = true; }
   const mats = []; root.traverse(o => { if (o.isMesh) for (const m of [].concat(o.material)) { if (!mats.includes(m)) { m.userData.t0 = m.transparent; m.userData.d0 = m.depthWrite; mats.push(m); } } });
   let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null;

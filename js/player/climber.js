@@ -85,11 +85,11 @@ export class Climber {
     for (const k of LIMBS) { const e = ends[k]; if (!e) continue; if (isHand(k)) { hy += e[1]; hn++; } else { fy += e[1]; fn++; } cx += e[0]; cz += e[2]; c++; }
     hy /= hn || 1; fy /= fn || 1;
     const wantY = fn ? Math.min(hy - BODY.shoulderUp - ARM * 0.86, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
-    const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.1 - (hy - fy), 0, 0.5) : 0;     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
-    const off = this.face.tower ? 0.1 : WALL + high * 0.55; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.28 - high * 0.9 : -1e9), cz / c + n[2] * off];
+    const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.2 - (hy - fy), 0, 0.5) : 0;     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
+    const off = this.face.tower ? 0.1 : WALL + high * 0.55; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.5 - high * 1.4 : -1e9), cz / c + n[2] * off];
     for (let it = 0; it < 10; it++) {
       for (const k of LIMBS) { const e = ends[k]; if (!e) continue;
-        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? 0.2 : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle)
+        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
         if (d > L) p = add(p, v, (1 - L / d) * 0.7); else if (d < min && d > 1e-4) p = add(p, v, (1 - min / d) * 0.5);
       }
       p = this.offWall(p);
@@ -167,7 +167,7 @@ export class Climber {
       }
       // hands well above the feet: a foot doesn't come up under the hands (you'd squat under them, elbows folded, head down on the wall); a
       // hand reaching up needs less (on a pipe or a corner you can bunch up more)
-      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.strict === false || h.kind === 'pipe' || h.kind === 'corner' || this.face.tower ? tuck : 0.9;     // (unless nothing else will go)
+      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.strict === false || h.kind === 'pipe' || h.kind === 'corner' || this.face.tower ? tuck : 1.15;     // (unless nothing else will go)
       if (hand) { for (const F of feet) if (F.hold && h.p[1] - F.hold.p[1] < tuck) return; }
       else for (const H of hands) if (H.hold && H.hold.p[1] - h.p[1] < footTuck) return;
       const over = { [k]: endAt(k, h) }, sol = this.solve(this.ends(over));

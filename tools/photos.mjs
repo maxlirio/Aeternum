@@ -232,6 +232,61 @@ try {
     }
     await ev('(window.__shotCam = null, 1)');
   }
+  if (want('climbstrain')) {
+    // How far the skin is from its standing shape: every edge of the body mesh measured in the idle pose, then through a climb; per body part,
+    // how much the edges stretch or squash (|posed/idle - 1|), and a few lengths across the body
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    await sleep(1500);
+    const R = await ev(`(async () => { const O = ORBIS, THREE = await import('three'), wait = ms => new Promise(r => setTimeout(r, ms)), H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world;
+      let body = null; O.avatar.object.traverse(o => { if (o.isSkinnedMesh && /body/i.test(o.name)) body = o; });
+      const g = body.geometry, idx = g.index.array, N = g.attributes.position.count, sw = g.attributes.skinWeight, si = g.attributes.skinIndex, bones = body.skeleton.bones;
+      const dom = new Array(N); for (let i = 0; i < N; i++) { let b = 0, wm = 0; for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > wm) { wm = sw.getComponent(i, k); b = si.getComponent(i, k); } dom[i] = bones[b].name.replace(/_0?\\d$|_[lr]$/g, '').replace(/_0\\d/, '').replace(/_[lr]$/, ''); }
+      const E = new Set(); for (let t = 0; t < idx.length; t += 3) for (const [a, b] of [[idx[t], idx[t + 1]], [idx[t + 1], idx[t + 2]], [idx[t + 2], idx[t]]]) E.add(a < b ? a * 1e6 + b : b * 1e6 + a);
+      const edges = [...E].map(k => [Math.floor(k / 1e6), k % 1e6]);
+      const snap = () => { body.updateMatrixWorld(true); body.skeleton.update(); const P = new Float32Array(N * 3), v = new THREE.Vector3(); for (let i = 0; i < N; i++) { body.getVertexPosition(i, v); v.applyMatrix4(body.matrixWorld); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; } return P; };
+      const L = (P, a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+      const idle = snap(), L0 = edges.map(([a, b]) => L(idle, a, b));
+      // landmarks on the skin, picked in the idle pose: the top of each shoulder, the back of the neck, the small of the back, the widest of
+      // the waist and the hips, the crown; the same vertices measured again on the wall
+      const rig = O.avatar.rig, bp = b => b.getWorldPosition(new THREE.Vector3()), fw = new THREE.Vector3(0, 0, 1).applyQuaternion(O.avatar.object.getWorldQuaternion(new THREE.Quaternion())), lf = new THREE.Vector3(1, 0, 0).applyQuaternion(O.avatar.object.getWorldQuaternion(new THREE.Quaternion())), V = i => new THREE.Vector3(idle[i * 3], idle[i * 3 + 1], idle[i * 3 + 2]);
+      const pick = (near, rad, score, parts) => { let best = -1, bs = -Infinity; for (let i = 0; i < N; i++) { if (!parts.includes(dom[i])) continue; const v = V(i); if (v.distanceTo(near) > rad) continue; const sc = score(v); if (sc > bs) { bs = sc; best = i; } } return best; };
+      const ua = { l: bp(rig.arms.l[0]), r: bp(rig.arms.r[0]) }, nk = bp(rig.neck || rig.head), pv = bp(rig.pelvis), s1 = bp(rig.spine[0]), hd = bp(rig.head);
+      const T = ['spine', 'clavicle', 'upperarm', 'neck'], Pv = ['pelvis', 'thigh', 'spine'];
+      const LM = { shL: pick(ua.l, 0.12, v => v.dot(lf) + v.y * 0.3, T), shR: pick(ua.r, 0.12, v => -v.dot(lf) + v.y * 0.3, T), c7: pick(nk, 0.12, v => -v.dot(fw), ['neck', 'spine']), sacrum: pick(pv, 0.15, v => -v.dot(fw) - Math.abs(v.y - pv.y) * 2, Pv), waistL: pick(s1, 0.25, v => v.dot(lf) - Math.abs(v.y - s1.y) * 4, ['spine']), waistR: pick(s1, 0.25, v => -v.dot(lf) - Math.abs(v.y - s1.y) * 4, ['spine']), hipL: pick(pv, 0.3, v => v.dot(lf) - Math.abs(v.y - pv.y + 0.08) * 4, Pv), hipR: pick(pv, 0.3, v => -v.dot(lf) - Math.abs(v.y - pv.y + 0.08) * 4, Pv), crown: pick(hd, 0.3, v => v.y, ['head']) };
+      const D = (P, a, b) => +(L(P, LM[a], LM[b]) * 100).toFixed(1);
+      const props = P => ({ shoulders: D(P, 'shL', 'shR'), waist: D(P, 'waistL', 'waistR'), hips: D(P, 'hipL', 'hipR'), back: D(P, 'c7', 'sacrum'), neckToCrown: D(P, 'c7', 'crown'), shToHipL: D(P, 'shL', 'hipL'), shToHipR: D(P, 'shR', 'hipR') });
+      window.__props = { idle: props(idle) };
+      const strain = (P) => { const by = {}; edges.forEach(([a, b], j) => { if (L0[j] < 1.5e-3) return; const s = Math.abs(L(P, a, b) / L0[j] - 1), r = dom[a]; (by[r] ||= []).push(s); }); const out = {}; for (const [r, a] of Object.entries(by)) { a.sort((x, y) => x - y); out[r] = [a[Math.floor(a.length * 0.5)], a[Math.floor(a.length * 0.95)], a[a.length - 1]].map(x => +(x * 100).toFixed(1)); } return out; };
+      // the reference: the body's own run, as authored
+      dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft' })); await wait(1500); const runF = []; for (let i = 0; i < 6; i++) { await wait(90); runF.push(strain(snap())); } dispatchEvent(new KeyboardEvent('keyup', { code: 'ShiftLeft' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(900);
+      const runAgg = {}; for (const f of runF) for (const [r, v] of Object.entries(f)) { const a = runAgg[r] ||= [0, 0, 0]; v.forEach((x, k) => a[k] = Math.max(a[k], x)); }
+      let got = null; const s = O.s;
+      for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 6) continue; const a = f.w * 0.5, x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } }
+        if (got) break; }
+      if (!got) return { none: true };
+      const frames = []; let worst = null;
+      for (let i = 0; i < 30; i++) { if (i % 10 === 0) dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); if (i % 10 === 6) dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(150);
+        if (i % 3 === 2) { const st = strain(snap()); frames.push(st); (window.__st ||= []).push(O.ctrl.wall?.state + ':' + (O.ctrl.wall?.moving || '-')); } }
+      dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1200); const fin = snap(); frames.push(strain(fin)); window.__props.wall = props(fin);
+      // per part: the worst over the climb of each statistic
+      const agg = {}; for (const f of frames) for (const [r, v] of Object.entries(f)) { const a = agg[r] ||= [0, 0, 0]; v.forEach((x, k) => a[k] = Math.max(a[k], x)); }
+      // the arm alone: raised to each height, and the collarbone with it; the flank and the shoulders measured each time (synchronously, nothing else moves)
+      const sweep = []; { const ua2 = rig.arms.r[0], cl = rig.clavicles?.r, sp = rig.spine[2], q0u = ua2.quaternion.clone(), q0c = cl?.quaternion.clone(), Fw = new THREE.Vector3(0, 0, 1).applyQuaternion(O.avatar.object.getWorldQuaternion(new THREE.Quaternion())), Rt = new THREE.Vector3(-1, 0, 0).applyQuaternion(O.avatar.object.getWorldQuaternion(new THREE.Quaternion()));
+        const aim = (bone, child, dir) => { const a = bone.getWorldPosition(new THREE.Vector3()), b = child.getWorldPosition(new THREE.Vector3()), c0 = b.sub(a).normalize(), q = new THREE.Quaternion().setFromUnitVectors(c0, dir), wq = bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(q), pq = bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert(); bone.quaternion.copy(pq.multiply(wq)); bone.updateMatrixWorld(true); };
+        for (const cdeg of [0, 15, 30]) for (const edeg of [60, 90, 120, 150, 170]) { if (cl) { cl.quaternion.copy(q0c); cl.updateMatrixWorld(true); if (cdeg) { const wq = cl.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromAxisAngle(Fw, -cdeg * Math.PI / 180)); const pq = cl.parent.getWorldQuaternion(new THREE.Quaternion()).invert(); cl.quaternion.copy(pq.multiply(wq)); cl.updateMatrixWorld(true); } }
+          ua2.quaternion.copy(q0u); ua2.updateMatrixWorld(true); const e = edeg * Math.PI / 180, dir = new THREE.Vector3(0, -Math.cos(e), 0).addScaledVector(Fw, Math.sin(e) * 0.6).addScaledVector(Rt, Math.sin(e) * 0.4).normalize(); aim(ua2, rig.arms.r[1], dir);
+          const P = snap(); sweep.push(cdeg + '/' + edeg + ': flank ' + D(P, 'shR', 'hipR') + ' shoulders ' + D(P, 'shL', 'shR') + ' c7-shR ' + D(P, 'c7', 'shR')); }
+        ua2.quaternion.copy(q0u); if (cl) cl.quaternion.copy(q0c); ua2.updateMatrixWorld(true); sweep.push('idle: flank ' + D(idle, 'shR', 'hipR') + ' c7-shR ' + D(idle, 'c7', 'shR')); }
+      return { sweep, props: window.__props, perFrame: frames.map(f => ['pelvis', 'upperarm', 'hand', 'spine'].map(r => f[r]?.[1]).join('/')).join('  '), states: window.__st, edges: edges.length, parts: Object.fromEntries(Object.entries(agg).sort((a, b) => b[1][1] - a[1][1]).map(([r, v]) => [r, { climb: v, run: runAgg[r] }])) }; })()`);
+    console.log('   strain % [median, p95, max] worst over the climb', JSON.stringify(R));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
+    await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall, P = W.pose(), n = W.normal, at = P.pelvis; window.__shotCam = { pos: [at[0] + n[0] * 6, at[1] + 0.45, at[2] + n[2] * 6], look: [at[0], at[1] + 0.45, at[2]] }; O.camera.fov = 14; O.camera.updateProjectionMatrix(); await new Promise(r => setTimeout(r, 600)); return 1; })()`);
+    await shot('climbstrain-back');
+    await ev('(window.__shotCam = null, 1)');
+  }
   if (want('climbreal')) {
     // the ADVENTURER body on a real town wall: up it a few holds, then the hands up close (what each is on, and how far its skin is from it)
     await load('hour=11');

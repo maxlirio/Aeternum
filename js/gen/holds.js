@@ -14,7 +14,7 @@ import { towerOf } from './towers.js';
 
 export { MAX_GAP };
 export const STEP_A = 0.45;       // spacing of holds along a row (m)
-const MAX_GAP = 0.85;             // no blank stretch of wall taller than this: a body spans about 2 m, hand to foot
+const MAX_GAP = 0.45;             // no blank stretch of wall taller than this: the feet three or four holds under the hands (1.2–1.6 m, a body hanging long off its arms, not squatting on its feet) and the next hold still in reach
 const SHOP = 5.2;                 // the ground-floor band of a city facade (matches the shader)
 
 const fill = rows => {            // rails through any stretch too tall to reach across. A sill or a lintel is only under or over its window, so it
