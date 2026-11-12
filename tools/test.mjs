@@ -1271,6 +1271,18 @@ suites.aircombat = async () => {
   // head-on, a heat-seeker can't lock
   const w3 = new AirWar(world, p), h1 = w3.spawn('striker', 'security', [s.cx, s.h + 2000, s.cz], 0, 150), h2 = w3.spawn('striker', 'raider', [s.cx, s.h + 2000, s.cz + 2000], Math.PI, 150);
   check(w3.seekerTarget(h1) === null, 'no lock head-on (it has to see the engines)');
+  // the mouse instructor banks, it doesn't flip: aim 90° right, 150° left, and a dive with a hair of side in it
+  { const { steerToward } = await import('../js/sim/aircombat.js'), { Flight } = await import('../js/player/flight.js');
+    for (const [model, yaw, pit, alt] of [['striker', -Math.PI / 2, 0, 2500], ['courier', 2.6, 0, 2500], ['striker', -0.035, -1.05, 6000]]) {
+      const f = new Flight(world, p, { model }, [s.cx, s.h + alt, s.cz], 0); f.onGround = false; f.vtol = false; f.vel = [0, 0, 150]; f.throttle = 0.85;
+      const aim = [Math.sin(yaw) * Math.cos(pit), Math.sin(pit), Math.cos(yaw) * Math.cos(pit)], st = {}; let bank = 0, flips = 0, side = 0, at = null;
+      for (let t = 0; t < 15; t += 1 / 60) {
+        const S = steerToward(f, aim, true, st, 1 / 60); f.step(1 / 60, { pitch: S.pitch, roll: S.roll, yaw: S.yaw });
+        bank = Math.max(bank, Math.abs(f.roll)); if (f.roll > 0.14 && side < 0 || f.roll < -0.14 && side > 0) flips++; if (Math.abs(f.roll) > 0.14) side = Math.sign(f.roll);
+        const off = Math.acos(Math.min(1, f.fwd[0] * aim[0] + f.fwd[1] * aim[1] + f.fwd[2] * aim[2])); if (off < 0.05) { if (at === null) at = t; } else at = null;
+      }
+      check(bank < 1.35 && flips === 0 && at !== null && Math.abs(f.roll) < 0.17, `mouse instructor, ${model} to ${Math.round(yaw * 57.3)}°/${Math.round(pit * 57.3)}°: most bank ${Math.round(bank * 57.3)}°, ${flips} reversals, on the aim from ${at?.toFixed(1)} s, wings at ${Math.round(f.roll * 57.3)}°`);
+    } }
   // raids are pure in time
   const r1 = raidAt(p, s, raidIndex(p, 3.3e9)), r2 = raidAt(p, s, raidIndex(p, 3.3e9));
   check(JSON.stringify(r1) === JSON.stringify(r2) && r1.n >= 2, `raids are deterministic: ${r1.n} raiders, ${r1.defenders} defenders`);

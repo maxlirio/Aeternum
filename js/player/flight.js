@@ -97,7 +97,11 @@ export class Flight {
     }
     // At speed the wings carry the weight (any wing that can't, the assist trims it with the lift jets): you fly level without sinking, and climb by
     // pulling up. Only across the path, so climbing still costs speed, and only when fast — slow down and the weight comes back on.
-    if (V > 0.5 && !this.onGround && !this.dead && !this.ai && !this.vtol) { const fast = sstep(this.vs * 0.7, this.vs * 1.1, V) * (1 - this.stall), w = m * G * (1 - vac) * fast, up = [0, 1, 0], c = dot(up, vh); force = add(force, add(up, vh, -c), w); }
+    if (V > 0.5 && !this.onGround && !this.dead && !this.ai && !this.vtol) { const fast = sstep(this.vs * 0.7, this.vs * 1.1, V) * (1 - this.stall), w = m * G * (1 - vac) * fast, up = [0, 1, 0], c = dot(up, vh); force = add(force, add(up, vh, -c), w);
+      // banked, the wing that holds the weight up leans with it, and the lean turns you: a level, coordinated turn at g·tan(bank), as a real
+      // wing gives when it's flown right (up to ~65°; past the knife-edge none of it). Pull, and the turn tightens.
+      const sx = cross(up, vh), sl = len(sx);
+      if (sl > 0.15) { const S = sx.map(v => v / sl), Lu = cross(vh, S), su = dot(U, S), cu = dot(U, Lu); if (cu > 0) force = add(force, S, w * su / Math.max(cu, 0.42) * sstep(0, 0.25, cu) * sstep(0.15, 0.4, sl)); } }
     force = add(force, F, this.thrustMax * this.throttle * (burner ? 1.9 : 1) * (1 + vac * (burner ? 180 : 40)));
     if (inp.brake && vac) force = add(force, this.vel, -m * 1.5 * vac);
     if (V > 30000) force = add(force, vh, -(V - 30000) * m);

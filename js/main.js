@@ -951,7 +951,7 @@ async function start(fresh) {
   const stick = [0, 0];
   // In a ship the mouse aims: it swings a direction round the sky and the view follows it; your instructor flies the nose there, the guns with it
   // (render the aim circle: ui/flighthud.js). The arrow keys are the stick itself and take over while they're held.
-  let aimDir = null;
+  let aimDir = null, aimSt = {};     // (aimSt: the instructor's memory — its eased bank, the way round it chose)
   cam.onMouse = (dx, dy) => { if (!flight) return false; if (docking) return true;
     if (!aimDir) aimDir = flight.fwd.slice();
     let yaw = Math.atan2(aimDir[0], aimDir[2]), pit = Math.asin(Math.max(-1, Math.min(1, aimDir[1]))); yaw -= dx * 0.0021; pit = Math.max(-1.45, Math.min(1.45, pit - dy * 0.0021));
@@ -1714,9 +1714,10 @@ async function start(fresh) {
         if (docking) { stepDock(dt); ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; } else {
         // the instructor: flying (not hovering, not on the ground), the stick is put to bring the nose round onto where you're aiming
         let ip = 0, ir = 0, iy = 0; if (!aimDir || flight.onGround) aimDir = flight.fwd.slice();
-        if (!flight.onGround && flight.airspeed > 35 && !kp && !kr) { const S = steerToward(flight, aimDir); ip = S.pitch; ir = S.roll; iy = S.yaw; }
+        if (!flight.onGround && flight.airspeed > 35 && !kp && !kr) { const S = steerToward(flight, aimDir, true, aimSt, dt); ip = S.pitch; ir = S.roll; iy = S.yaw; }
         else if (!flight.onGround && !kp && !kr) { const want = Math.atan2(aimDir[0], aimDir[2]), e = Math.atan2(Math.sin(want - flight.facing), Math.cos(want - flight.facing)); iy = Math.max(-1, Math.min(1, e * 2)); }     // (slow, on the lift jets: it turns to face the way you're looking)
         if (kp || kr) aimDir = flight.fwd.slice();
+        if (kp || kr || flight.onGround || flight.airspeed <= 35) aimSt = {};     // (the instructor picks up from however the ship is flying when it's next in charge)
         flight.step(dt, { throttle: (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), pitch: Math.max(-1, Math.min(1, stick[1] + kp + ip)), roll: Math.max(-1, Math.min(1, stick[0] + kr + ir)),
           yaw: Math.max(-1, Math.min(1, (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + iy)), up: keys.has('Space'), down: keys.has('KeyQ'), boost: input.run, brake: keys.has('KeyB'), wind: (w => { const k = 1 - bayShelter(fleet, ...flight.pos); return k >= 1 ? w : w && (Array.isArray(w) ? w.map(v => v * k) : typeof w === 'object' ? Object.fromEntries(Object.entries(w).map(([a, v]) => [a, typeof v === 'number' && a !== 'dir' && a !== 'heading' ? v * k : v])) : w * k); })(weatherAt(planet, t).wind) }); }
         ctrl.pos = [flight.pos[0], flight.pos[1] + 2.4, flight.pos[2]]; ctrl.facing = flight.facing; ctrl.speed = 0;

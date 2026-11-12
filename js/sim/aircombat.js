@@ -16,15 +16,44 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const SIDES = { player: 'you', security: 'Civic Security', raider: 'raiders' };
 export const hostile = (a, b) => a !== b && !(a === 'player' && b === 'security') && !(a === 'security' && b === 'player');
 
-// The stick that turns an airframe's nose onto a direction (unit, world): roll it so the direction is above the canopy, then pull; level the
-// wings once it's there; never pulled over the stall. The AI pilots fly by it, and so does your instructor when you fly by the mouse.
-export function steerToward(f, want, care = true) {
+// Your instructor, when you fly by the mouse: the stick that brings the nose onto a direction (unit, world) the way a pilot would. It works out
+// how far the aim lies to the side of the nose and how far above it, as seen with the wings level; banks into the turn in proportion to the
+// side error (a few degrees for a nudge, never past BANK_MAX for a big one; the bank eases toward its target at a limited rate, so it can't snap
+// from one wing to the other); and moves the nose with the pull and the rudder together, so a pull in a bank turns rather than climbs. The
+// wings come level as the nose arrives (the bank goes with the side error), and within a hair of the aim it does nothing, so hand tremor
+// doesn't rock the ship. (The bank itself turns you: player/flight.js, the wings carry the weight.) Up and down it only pitches. Nothing here rolls the ship over: a target behind is a hard banked turn, one way,
+// kept until it's in front. `st` is the instructor's memory (its eased bank and which way it committed); a fresh {} starts it.
+// (The AI pilots fly their own, harder stick in AirWar.pilot: they roll over and pull, as fighters do.)
+const BANK_MAX = 1.13, BANK_RATE = 1.6;                             // ~65°; ~90°/s
+const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+export function steerToward(f, want, care = true, st = {}, dt = 1 / 60) {
   const right = f.left.map(x => -x), du = dot(want, f.up), dr = dot(want, right), df = dot(want, f.fwd);
-  const rollErr = Math.atan2(dr, Math.max(0.05, du + (df > 0.97 ? 0.4 : 0)));
-  let pitch = clamp(Math.atan2(du, Math.max(0.02, df)) * 3.5, -1, 1), roll = clamp(rollErr * 1.8, -1, 1);
-  if (df > 0.995) roll = clamp(-f.roll * 1.5 * (du >= 0 ? 1 : 0) + rollErr, -1, 1);
+  const off = Math.acos(clamp(df, -1, 1));
+  // the error with the bank taken out: side (+ right) and up, in the frame of the wings held level
+  const vert = Math.abs(f.pitch) > 1.15;                              // (pointing nearly straight up or down, "level wings" means nothing: just pitch and yaw)
+  const phi = vert ? 0 : f.roll, c = Math.cos(phi), s = Math.sin(phi);
+  const lat = dr * c + du * s, up = -dr * s + du * c;
+  let side = Math.atan2(lat, df);                                     // −π..π, how far round the nose has to come sideways
+  const elev = Math.atan2(up, Math.hypot(lat, df));                   // and how far up or down
+  // far behind, the side can flip with a hair of movement: commit to one way round and keep it until the aim is ahead again
+  if (Math.abs(side) > 1.9 && st.side) side = st.side * Math.abs(side);
+  st.side = Math.abs(side) > 1.4 ? (st.side || Math.sign(side) || 1) : 0;
+  // none at all within a hair of the nose (hand tremor on the mouse)
+  const dz = sstep(0.003, 0.015, off);
+  // the bank it wants: proportional to the side error, saturating smoothly at BANK_MAX, eased toward at a limited rate
+  const bankWant = vert ? 0 : BANK_MAX * Math.tanh(side * 3 / BANK_MAX) * dz;
+  if (st.bank === undefined || !isFinite(st.bank)) st.bank = clamp(phi, -BANK_MAX, BANK_MAX);
+  st.bank += clamp(bankWant - st.bank, -BANK_RATE * dt, BANK_RATE * dt);
+  // the stick commands a roll rate (2.4·agility rad/s at full): ask for a rate in proportion to the bank error, so it settles without ringing
+  const A = f.agility || 1, be = Math.atan2(Math.sin(st.bank - phi), Math.cos(st.bank - phi));
+  const roll = vert ? 0 : clamp(be * 2.6 / (2.4 * A), -1, 1);
+  // the nose: a turn rate across and up in proportion to the error (~0.4 s across, ~0.2 s up and down, capped), turned into the airframe's pitch and
+  // yaw through the bank: level, the rudder slides the nose across; banked, the pull does it; and the pull never lifts the nose off the aim
+  const K = 2.6, KU = 4.5, wl = clamp(side * K, -1.4, 1.4) * dz, wu = clamp(elev * KU, -1.4, 1.4) * dz;
+  let pitch = clamp((wu * c + wl * s) / (1.1 * A), -1, 1);
   if (care && Math.abs(f.aoa) > 0.24) pitch *= 0.3;
-  return { pitch, roll, yaw: clamp(dr * 2, -1, 1) * 0.3 };
+  const yaw = clamp((wl * c - wu * s) / (0.6 * A), -1, 1);
+  return { pitch, roll, yaw };
 }
 export const GUN = { v: GUN_V, range: GUN_RANGE };
 export class AirWar {
