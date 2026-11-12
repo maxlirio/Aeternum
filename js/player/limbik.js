@@ -74,9 +74,16 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     setWorldQuat(rig.pelvis, tilt.multiply(lean).multiply(yawFrame).multiply(rig.rest.get(rig.pelvis)));
     for (const b of [...rig.spine, rig.neck, rig.clavicles?.l, rig.clavicles?.r, rig.head]) if (b?.userData.qi) b.quaternion.copy(b.userData.qi);
     rig.pelvis.updateMatrixWorld(true);
-    if (pose.lookAt) {
-      const h = rig.head.getWorldPosition(new THREE.Vector3()), t = v3(toRender(...pose.lookAt)).sub(h).normalize(), cur = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.root.quaternion), q = new THREE.Quaternion().setFromUnitVectors(cur, t), ang = 2 * Math.acos(Math.min(1, Math.abs(q.w)));
-      if (ang > 1e-4) { q.slerp(new THREE.Quaternion(), 1 - Math.min(1, 0.26 / ang)); rig.head.getWorldQuaternion(_wq); setWorldQuat(rig.head, q.multiply(_wq)); }
+    // the head looks up the wall to the hands (or the hold it's going for), not down into the wall the torso leans to: a turn against the
+    // chest of up to 30° up, 15° down, 30° aside, half of it in the neck so neither bends far
+    { const h = rig.head.getWorldPosition(new THREE.Vector3()), hands = pose.limbs.lh.p && pose.limbs.rh.p ? v3(toRender(...pose.limbs.lh.p)).add(v3(toRender(...pose.limbs.rh.p))).multiplyScalar(0.5) : null, la = pose.lookAt ? v3(toRender(...pose.lookAt)) : null, tgt = la && la.y > h.y ? la : hands || la;     // (a foot hold below: the eyes stay up on the hands)
+      if (tgt) {
+        const t = tgt.sub(h).normalize(), cf = F.clone().applyQuaternion(lean), cu = new THREE.Vector3(0, 1, 0).applyQuaternion(lean);
+        const yaw = Math.max(-0.5, Math.min(0.5, Math.atan2(t.dot(R), t.dot(cf)))), pitch = Math.max(-0.26, Math.min(0.52, Math.atan2(t.dot(cu), Math.hypot(t.dot(R), t.dot(cf)))));
+        const dir = cf.clone().multiplyScalar(Math.cos(pitch) * Math.cos(yaw)).addScaledVector(R, Math.cos(pitch) * Math.sin(yaw)).addScaledVector(cu, Math.sin(pitch)).normalize(), q = new THREE.Quaternion().setFromUnitVectors(cf, dir);
+        if (rig.neck) { rig.neck.getWorldQuaternion(_wq); setWorldQuat(rig.neck, new THREE.Quaternion().slerp(q, 0.5).multiply(_wq)); }
+        rig.head.getWorldQuaternion(_wq); setWorldQuat(rig.head, (rig.neck ? new THREE.Quaternion().slerp(q, 0.5) : q).multiply(_wq));
+      }
     }
   } else {
   setWorldQuat(rig.pelvis, tiltP.clone().multiply(yawFrame).multiply(rig.rest.get(rig.pelvis)));
@@ -99,6 +106,17 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, -0.25);
     // the arm is put from its modelled pose every frame (so no roll is carried over from the last one), and where the hand has a grip the elbow
     // swings round the shoulder-to-wrist line to where the forearm needs least roll to bring the palm round: a forearm only turns so far
+    // the shoulder rises with the arm, as a real one does (the collarbone lifts and the shoulder blade turns up, about a third of the lift
+    // above shoulder height): without it the arm reaches up from under the chin, across the face, and the neck vanishes behind the shoulder
+    const cl = rig.clavicles?.[s];
+    if (cl?.userData.qi) {
+      cl.quaternion.copy(cl.userData.qi); cl.updateMatrixWorld(true);
+      const sh0 = ua.getWorldPosition(new THREE.Vector3()), toH = hp.clone().sub(sh0), elev = Math.acos(Math.max(-1, Math.min(1, -toH.y / (toH.length() || 1))));
+      const lift = Math.max(0, Math.min(0.3, (elev - 1.6) * 0.3));
+      if (lift > 0) { const c0 = cl.getWorldPosition(new THREE.Vector3()), d = sh0.clone().sub(c0).normalize(), ax = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0)).normalize();
+        cl.getWorldQuaternion(_wq); setWorldQuat(cl, new THREE.Quaternion().setFromAxisAngle(ax, lift).multiply(_wq)); }
+      shoulder.copy(ua.getWorldPosition(new THREE.Vector3()));
+    }
     const fromRest = () => { for (const b of [ua, la, ha]) if (b.userData.qi || b.userData.q0) b.quaternion.copy(b.userData.qi || b.userData.q0); ua.updateMatrixWorld(true); };      // (from the idle pose's own arm where there is one)
     let pole = elbowPole;
     if (G && (ua.userData.qi || ua.userData.q0)) {

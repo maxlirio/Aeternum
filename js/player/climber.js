@@ -76,7 +76,11 @@ export class Climber {
   }
   right() { const n = this.normal; return [n[2], 0, -n[0]]; }       // your right, facing the wall (forward = -n)
   restEnd(k, pelvis) { const s = isLeft(k) ? -1 : 1, R = this.right(); return isHand(k) ? add(add(pelvis, R, s * 0.25), [0, 0.1, 0]) : add(add(pelvis, R, s * 0.12), [0, -LEG, 0]); }
-  jointOf(k, pelvis, R = this.right()) { const s = isLeft(k) ? -1 : 1; return isHand(k) ? add(add(pelvis, [0, BODY.shoulderUp, 0]), R, s * BODY.shoulderOut) : add(add(pelvis, [0, -BODY.hipDown, 0]), R, s * BODY.hipOut); }
+  // a shoulder or a hip. Hips sat back off the wall, the chest leans in over them (the torso tips toward the wall, up to 21 cm at the shoulders),
+  // as the posed body does: the planner must reach from where the shoulders really are
+  jointOf(k, pelvis, R = this.right()) { const s = isLeft(k) ? -1 : 1; if (!isHand(k)) return add(add(pelvis, [0, -BODY.hipDown, 0]), R, s * BODY.hipOut);
+    const n = this.normal, o = this.face && !this.face.tower ? outOf(this.face, pelvis[0], pelvis[2], pelvis[1]) : 0, lean = clamp(o - 0.24, 0, 0.21);
+    return add(add(add(pelvis, [0, BODY.shoulderUp - lean * lean, 0]), R, s * BODY.shoulderOut), [n[0], 0, n[2]], -lean); }
 
   // Where the body goes for these limb ends: as comfortable as it can be, with each limb within
   // its length. → { p, slack } slack = how far the worst limb is short of its hold (0 = feasible).
@@ -84,9 +88,10 @@ export class Climber {
     const R = this.right(), n = this.normal; let hy = 0, hn = 0, fy = 0, fn = 0, cx = 0, cz = 0, c = 0;
     for (const k of LIMBS) { const e = ends[k]; if (!e) continue; if (isHand(k)) { hy += e[1]; hn++; } else { fy += e[1]; fn++; } cx += e[0]; cz += e[2]; c++; }
     hy /= hn || 1; fy /= fn || 1;
-    const wantY = fn ? Math.min(hy - BODY.shoulderUp - ARM * 0.86, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
-    const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.2 - (hy - fy), 0, 0.5) : 0;     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
-    const off = this.face.tower ? 0.1 : WALL + high * 0.55; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.5 - high * 1.4 : -1e9), cz / c + n[2] * off];
+    let hlo = Infinity; for (const k of ['lh', 'rh']) if (ends[k]) hlo = Math.min(hlo, ends[k][1]); if (hlo === Infinity) hlo = hy;     // (the body hangs from the lower hand: the higher one reaches, the lower one still has its arm long)
+    const wantY = fn ? Math.min(hlo - BODY.shoulderUp - ARM * 0.8, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
+    const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.65 - (hy - fy), 0, 0.5) : 0;     // (1.65 m: hands to feet of a body hanging long; closer than that, the knees bend and the hips sit back, the shoulders stay where they hang)     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
+    const off = this.face.tower ? 0.1 : WALL + high * 0.6; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.32 : -1e9), cz / c + n[2] * off];
     for (let it = 0; it < 10; it++) {
       for (const k of LIMBS) { const e = ends[k]; if (!e) continue;
         const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
