@@ -84,10 +84,10 @@ export class Climber {
     let hlo = Infinity; for (const k of ['lh', 'rh']) if (ends[k]) hlo = Math.min(hlo, ends[k][1]); if (hlo === Infinity) hlo = hy;     // (the body hangs from the lower hand: the higher one reaches, the lower one still has its arm long)
     const wantY = fn ? Math.min(hlo - BODY.shoulderUp - ARM * 0.8, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
     const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.65 - (hy - fy), 0, 0.5) : 0;     // (1.65 m: hands to feet of a body hanging long; closer than that, the knees bend and the hips sit back, the shoulders stay where they hang)     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
-    const off = this.face.tower ? 0.1 : WALL + high * 0.6; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.32 : -1e9), cz / c + n[2] * off];
+    const corner = !this.face.tower && this.atCorner(), off = this.face.tower ? 0.1 : WALL + high * 0.6 + (corner ? 0.15 : 0); let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.32 : -1e9), cz / c + n[2] * off];     // (on an arris the body hangs back off it, so neither arm has to fold up against the shoulder)
     for (let it = 0; it < 10; it++) {
       for (const k of LIMBS) { const e = ends[k]; if (!e) continue;
-        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
+        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : corner || ends[k] && this.limb[k]?.hold?.kind === 'top' ? 0.42 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
         if (d > L) p = add(p, v, (1 - L / d) * 0.7); else if (d < min && d > 1e-4) p = add(p, v, (1 - min / d) * 0.5);
       }
       p = this.offWall(p);
@@ -165,7 +165,7 @@ export class Climber {
       }
       // hands well above the feet: a foot doesn't come up under the hands (you'd squat under them, elbows folded, head down on the wall); a
       // hand reaching up needs less (on a pipe or a corner you can bunch up more)
-      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.strict === false || h.kind === 'pipe' || h.kind === 'corner' || this.face.tower ? tuck : 1.15;     // (unless nothing else will go)
+      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.face.tower ? tuck : this.strict === false ? (h.kind === 'corner' ? 0.85 : tuck) : 1.15;     // (unless nothing else will go; up an arris the feet stay well down too, or the body rides up between the hands and folds the arms)
       if (hand) { for (const F of feet) if (F.hold && h.p[1] - F.hold.p[1] < tuck) return; }
       else for (const H of hands) if (H.hold && H.hold.p[1] - h.p[1] < footTuck) return;
       const over = { [k]: endAt(k, h) }, sol = this.solve(this.ends(over));
@@ -421,6 +421,11 @@ export class Climber {
     let up = [f[0] * lean, 1, f[2] * lean]; const ul = len(up); up = [up[0] / ul, up[1] / ul, up[2] / ul];
     const limbs = {};
     for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null, hold: L.hold || null }; if (limbs[k].grip < 0) limbs[k].grip = 0; }
+    // a hand on its way to a hold swings out round the shoulder, never in past it: in a straight line from a low hold to a high one it would
+    // brush the shoulder and fold the arm flat (an elbow past 150°); it keeps an arm's bent length off it, out to its own side (not back off the wall:
+    // that's behind the body)
+    if (this.state === 'hold') for (const k of ['lh', 'rh']) { const L = limbs[k]; if (!L.moving || L.grip >= 1) continue; const J = this.jointOf(k, this.pelvis, R), v = sub(L.p, J), d = len(v), MIN = 0.42;
+      if (d < MIN) { const side = isLeft(k) ? -1 : 1, out = d > 1e-4 ? v.map(c => c / d) : [R[0] * side, 0, R[2] * side], dir = add(add(out, R, side * 0.6), f, 0.35), dl = len(dir); L.p = add(J, dir, MIN / dl); } }
     return { state: this.state, pelvis: this.pelvis.slice(), right: R, up, forward: f, tilt: clamp((rh.p[1] - lh.p[1]) * 0.22, -0.3, 0.3), hipTilt: clamp((rf.p[1] - lf.p[1]) * 0.18, -0.25, 0.25), lookAt: this.lookAt || null, limbs };
   }
   get feet() { return [this.pelvis[0], this.pelvis[1] - BODY.hipHeight, this.pelvis[2]]; }

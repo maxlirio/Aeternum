@@ -118,7 +118,15 @@ function aimY(bone, dir) {      // turn a bone (its +y runs to the next) so that
 }
 const keyOf = (g, H) => `${g.kind}|${H.s}|${Math.round((g.d ?? 0) * 200)}|${Math.round((g.th ?? 0) * 200)}|${Math.round((g.r ?? 0) * 500)}|${Math.round((g.C?.[0] ?? 0) * 500)}`;
 // the grip's 3D frame: o out of the face, y over the edge, t along it (a right-handed set: t = o × y)
-export function frameOf(g) { const O = new THREE.Vector3(...g.O).normalize(), Y = new THREE.Vector3(...g.Y).normalize(); return { O, Y, T: new THREE.Vector3().crossVectors(O, Y), E: new THREE.Vector3(...g.E) }; }
+// Ys is the face's own way round; Y is the plane the hand is laid out in. On an arris (vertical) that plane is tipped up the edge by CORNER_TILT:
+// a hand reaching up takes a corner pointing up it, the palm on one face and the fingers over the edge on a slant, the wrist straight on the forearm
+// (laid square across it, the hand would point sideways off an upright forearm: the wrist bent 90°, the elbow thrown back behind the body to help).
+// The tip follows the arm (g.tilt, set by whoever puts the arm there: the way the forearm comes up into the corner), so the hand is in line with it.
+// The solid is the same all the way up an arris, so the cross-section in the tipped plane has the same inside and outside.
+const CORNER_TILT = 1.0;
+export function frameOf(g) { const O = new THREE.Vector3(...g.O).normalize(), Ys = new THREE.Vector3(...g.Y).normalize(); let Y = Ys;
+  if (g.kind === 'corner') { const up = new THREE.Vector3().crossVectors(O, Ys); if (up.y < 0) up.negate(); const a = g.tilt ?? CORNER_TILT; Y = Ys.clone().multiplyScalar(Math.cos(a)).addScaledVector(up, Math.sin(a)).normalize(); }
+  return { O, Y, Ys, T: new THREE.Vector3().crossVectors(O, Y), E: new THREE.Vector3(...g.E) }; }
 // Where the wrist will be for this grip, before any arm has reached: [x, y, z] (for the climber's planner, so the body is put where the arm can reach it)
 export function wristFor(g, H) { const P = plan(g, H), f = frameOf(g); return f.E.clone().addScaledVector(f.O, P.palm.W[0]).addScaledVector(f.Y, P.palm.W[1]).addScaledVector(f.T, g.slide || 0).toArray(); }
 function plan(g, H) {
@@ -150,6 +158,23 @@ function handRot(H, g) {
 // For the arm's solver: with the arm where it is now (and the hand at its modelled turn on the forearm), how much roll this grip still asks of the forearm.
 export function rollNeed(H, g) { return rollFor(H, handRot(H, g)); }
 export const FOREARM_ROLL = ROLL;
+// A wrist only bends so far: 70° toward the palm, 60° back, 25° to either side, and it barely turns (the forearm does the turning). The hand's
+// turn on the forearm, from its modelled pose, is split into those and each held to its range. → the bends it was asked for, in degrees (for tests).
+export const WRIST = { flex: 1.22, ext: 1.05, dev: 0.44, twist: 0.17 };
+function limitWrist(H) {
+  const q0 = H.hand.userData.q0, d = q0.clone().invert().multiply(H.hand.quaternion), L = H.local, Fl = L.F.clone().normalize(), Nl = L.N.clone().normalize(), Al = new THREE.Vector3().crossVectors(Fl, Nl).normalize();
+  const r = new THREE.Vector3(d.x, d.y, d.z), pr = Fl.clone().multiplyScalar(r.dot(Fl)), tw = new THREE.Quaternion(pr.x, pr.y, pr.z, d.w); if (tw.lengthSq() < 1e-12) tw.identity(); else tw.normalize();
+  const sw = d.clone().multiply(tw.clone().invert()); if (sw.w < 0) { sw.x = -sw.x; sw.y = -sw.y; sw.z = -sw.z; sw.w = -sw.w; }
+  const sa = 2 * Math.acos(clamp(sw.w, -1, 1)), sv = new THREE.Vector3(sw.x, sw.y, sw.z); if (sv.lengthSq() > 1e-12) sv.normalize().multiplyScalar(sa); else sv.set(0, 0, 0);
+  let twa = 2 * Math.atan2(pr.dot(Fl), d.w); if (twa > Math.PI) twa -= 2 * Math.PI; if (twa < -Math.PI) twa += 2 * Math.PI;
+  const flex = sv.dot(Al), dev = sv.dot(Nl), out = { flex: flex * 57.3, dev: dev * 57.3, twist: twa * 57.3 };
+  const f2 = clamp(flex, -WRIST.ext, WRIST.flex), d2 = clamp(dev, -WRIST.dev, WRIST.dev), t2 = clamp(twa, -WRIST.twist, WRIST.twist);
+  if (f2 !== flex || d2 !== dev || t2 !== twa) {
+    const v = Al.clone().multiplyScalar(f2).addScaledVector(Nl, d2), a = v.length(), q = a > 1e-9 ? new THREE.Quaternion().setFromAxisAngle(v.normalize(), a) : new THREE.Quaternion();
+    H.hand.quaternion.copy(q0).multiply(q.multiply(new THREE.Quaternion().setFromAxisAngle(Fl, t2))); H.hand.updateMatrixWorld(true); out.held = true;
+  }
+  return out;
+}
 // Pose the hand. The wrist bone is moved to exactly where the plan puts it only by the arm (the caller's IK aimed there);
 // here it's turned, and the fingers bent. `amount` opens the hand toward its rest (reaching) and closes it on the hold.
 export function gripHand(H, g, amount = 1) {
@@ -166,6 +191,7 @@ export function gripHand(H, g, amount = 1) {
   }
   // open: the hand turned the same way, fingers barely bent (the rest pose's own curl)
   H.hand.getWorldQuaternion(_p); const cur = _p.clone(); setWorldQuat(H.hand, cur.slerp(Rw, clamp(amount * 1.6, 0, 1)));
+  H.wrist = limitWrist(H);
   for (const fn of FINGERS) {
     const F = H.fingers[fn], pl = P.fingers[fn]; F.bones.forEach((b, i) => { b.quaternion.copy(F.q0[i]); b.updateMatrixWorld(true); });
     const k = clamp((amount - 0.35) / 0.65, 0, 1);
@@ -177,7 +203,7 @@ export function gripHand(H, g, amount = 1) {
     const b0 = T.bones[0]; b0.getWorldQuaternion(_p); _v.set(0, 1, 0).applyQuaternion(_p);
     const tp = _v.clone().addScaledVector(N3, -_v.dot(N3)).normalize(), fp = F3.clone().addScaledVector(N3, -F3.dot(N3)).normalize(), add = Math.acos(clamp(tp.dot(fp), -1, 1)), sg = Math.sign(new THREE.Vector3().crossVectors(tp, fp).dot(N3)) || 1;
     const pts = () => { const out = []; for (let i = 1; i < 3; i++) out.push(T.bones[i].getWorldPosition(new THREE.Vector3())); const e = T.bones[2]; e.getWorldQuaternion(_p); out.push(e.getWorldPosition(new THREE.Vector3()).addScaledVector(_v.set(0, 1, 0).applyQuaternion(_p), T.len[2])); return out; };
-    const penOf = () => { let m = 0; for (const q of pts()) { const r = q.sub(f.E); m = Math.max(m, rt - sd(r.dot(f.O), r.dot(f.Y))); } return m; };
+    const penOf = () => { let m = 0; for (const q of pts()) { const r = q.sub(f.E); m = Math.max(m, rt - sd(r.dot(f.O), r.dot(f.Ys))); } return m; };
     if (g.kind === 'corner' || g.kind === 'pipe') {
       // round a corner or a pipe the thumb isn't laid along the index (that heaps it over the knuckles): it's searched for, its base turned
       // in the palm's plane and pressed toward or away from it, the outer joints bent a little, until it lies on the surface without going in.
@@ -190,7 +216,7 @@ export function gripHand(H, g, amount = 1) {
           if (2 * Math.acos(clamp(Math.abs(qb.dot(p0)), 0, 1)) > 0.87) continue;
           setWorldQuat(b0, qb); [1, 2].forEach(i => T.bones[i].quaternion.copy(T.q0[i]));
           [[1, curl[0]], [2, curl[1]]].forEach(([i, a]) => { const b = T.bones[i]; b.getWorldQuaternion(_p); _v.set(0, 1, 0).applyQuaternion(_p); const ax = new THREE.Vector3().crossVectors(_v, N3).normalize(); setWorldQuat(b, new THREE.Quaternion().setFromAxisAngle(ax, a).multiply(_p)); });
-          let pen = 0, tip = 0, ty = 0; const ps = pts(), tdir = ps[ps.length - 1].clone().sub(ps[0]).normalize(); ps.forEach((q, j) => { const r = q.sub(f.E), d = sd(r.dot(f.O), r.dot(f.Y)) - rt; pen = Math.max(pen, -d); if (j === ps.length - 1) { tip = d; ty = r.dot(f.Y); } });
+          let pen = 0, tip = 0, ty = 0; const ps = pts(), tdir = ps[ps.length - 1].clone().sub(ps[0]).normalize(); ps.forEach((q, j) => { const r = q.sub(f.E), d = sd(r.dot(f.O), r.dot(f.Ys)) - rt; pen = Math.max(pen, -d); if (j === ps.length - 1) { tip = d; ty = r.dot(f.Ys); } });
           const score = pen * 800 + Math.abs(tip) * 25 + (Math.abs(fa) + Math.abs(pa)) * 0.03 + (g.kind === 'corner' ? Math.abs(tdir.dot(f.O)) * 0.6 + Math.max(0, ty) * 4 : 0);     // (on a corner, lying along the face the palm is on, not standing off it or over the edge)
           if (!best || score < best.score) best = { score, fa, pa, pen, tip, q: T.bones.map(b => b.quaternion.clone()) };
         }

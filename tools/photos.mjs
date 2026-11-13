@@ -287,6 +287,30 @@ try {
     await shot('climbstrain-back');
     await ev('(window.__shotCam = null, 1)');
   }
+  if (want('climbjoints')) {
+    // every joint of the arms against what a human one can do, every frame of a corner climb: the wrist's bends, the elbow, the upper arm behind the body, the thumb's turn
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    const R = await ev(`(async () => { const O = ORBIS, H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world; let got = null;
+      const s = O.s; for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 5 || f.y1 - f.y0 < 7) continue; for (const a of [0.6, f.w - 0.6]) { const x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } } if (got) break; }
+        if (got) break; }
+      if (!got) return { none: true };
+      const rig0 = O.avatar.rig, base = {}; for (const sd of ['l', 'r']) { const [ua, la, ha] = rig0.arms[sd], E0 = la.getWorldPosition(new O.camera.position.constructor()), H0 = ha.getWorldPosition(new O.camera.position.constructor()), Rh = rig0.hands[sd], q = Rh.hand.getWorldQuaternion(new O.camera.quaternion.constructor()), Fw = Rh.local.F.clone().applyQuaternion(q), Nw = Rh.local.N.clone().applyQuaternion(q), fa = H0.clone().sub(E0).normalize(); base[sd] = [Math.asin(fa.dot(Nw)) * 57.3, Math.asin(fa.dot(Fw.clone().cross(Nw).normalize())) * 57.3].map(Math.round); }
+      const rig = O.avatar.rig, st = { n: 0, idleWrist: base }, mx = (k, v) => { st[k] = Math.max(st[k] ?? -1e9, v); }, mn = (k, v) => { st[k] = Math.min(st[k] ?? 1e9, v); }, wp = b => b.getWorldPosition(new O.camera.position.constructor());
+      let on = true; const tick = () => { if (!on) return; const W = O.ctrl.wall; if (W && W.state === 'hold') { const P = W.pose(), F = P.forward; st.n++;
+        for (const sd of ['l', 'r']) { const [ua, la, ha] = rig.arms[sd], S = wp(ua), E = wp(la), Hh = wp(ha), u = E.clone().sub(S).normalize(), fl = 180 - S.clone().sub(E).angleTo(Hh.clone().sub(E)) * 57.3, Fv = new u.constructor(F[0], F[1], F[2]);
+          mx('elbowMax', fl); const bh = Math.asin(Math.max(-1, Math.min(1, -u.dot(Fv)))) * 57.3; mx('armBehindDeg', bh); { const row = [sd, P.limbs[sd + 'h'].kind, +P.limbs[sd + 'h'].grip.toFixed(2), W.moving, Math.round(bh), Math.round(fl), +(Hh.y - S.y).toFixed(2), W.state, st.n]; if (bh > (st.wB?.[4] ?? -99)) st.wB = row; if (fl > (st.wE?.[5] ?? 0)) st.wE = row; } if (st.n % 12 === 0) (st.log ||= []).push([sd, P.limbs[sd + 'h'].kind, +P.limbs[sd + 'h'].grip.toFixed(1), W.moving, Math.round(bh), Math.round(fl), +(Hh.y - S.y).toFixed(2), +(P.limbs[sd + 'h'].p[1] - P.pelvis[1]).toFixed(2), +(Math.min(P.limbs.lh.p[1], P.limbs.rh.p[1]) - Math.max(P.limbs.lf.p[1], P.limbs.rf.p[1])).toFixed(2), +Math.hypot(P.limbs[sd + 'h'].p[0] - P.pelvis[0], P.limbs[sd + 'h'].p[2] - P.pelvis[2]).toFixed(2), rig.hands[sd].wrist ? [Math.round(rig.hands[sd].wrist.flex), Math.round(rig.hands[sd].wrist.dev), Math.round(rig.hands[sd].wrist.twist)] : null]); const RH = rig.hands?.[sd];
+          const wb = () => { const Rh = rig.hands[sd], q = Rh.hand.getWorldQuaternion(new O.camera.quaternion.constructor()), Fw = Rh.local.F.clone().applyQuaternion(q), Nw = Rh.local.N.clone().applyQuaternion(q), fa = Hh.clone().sub(E).normalize(), Aw = Fw.clone().cross(Nw).normalize(); return [Math.asin(Math.max(-1, Math.min(1, fa.dot(Nw)))) * 57.3, Math.asin(Math.max(-1, Math.min(1, fa.dot(Aw)))) * 57.3]; };
+          if (P.limbs[sd + 'h'].grip > 0.9) { const [wf, wd] = wb(); mx('wFlexW', wf); mn('wFlexWmin', wf); mx('wDevW', Math.abs(wd)); if (st.n % 12 === 0) (st.wl ||= []).push([sd, Math.round(wf), Math.round(wd)]); }
+          if (RH?.wrist && P.limbs[sd + 'h'].grip > 0.9) { const q = RH.wrist; mx('flexMax', q.flex); mn('flexMin', q.flex); mx('devAbs', Math.abs(q.dev)); mx('twistAbs', Math.abs(q.twist)); if (q.held) st.held = (st.held || 0) + 1;
+            mx('thumbDeg', Math.max(...RH.thumb.bones.map((b, i) => b.quaternion.angleTo(RH.thumb.q0[i]) * 57.3))); } } }
+        requestAnimationFrame(tick); }; tick();
+      const wait = ms => new Promise(r => setTimeout(r, ms)); dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(12000); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(500); on = false;
+      for (const k in st) if (!['log', 'wl', 'wB', 'wE', 'idleWrist'].includes(k)) st[k] = +(+st[k]).toFixed(1); st.up = +(c.pos[1] - got.y0).toFixed(1); return st; })()`);
+    console.log('   joints', JSON.stringify(R));
+  }
   if (want('climbcorner')) {
     // walls are climbed at their corners: up a town building's arris, photographed from behind, the side, wide and at the hands, at three heights
     await load('hour=11');

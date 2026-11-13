@@ -102,8 +102,14 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
     const hp = v3(toRender(...H.p)), shoulder = ua.getWorldPosition(new THREE.Vector3());
     // a real hand: what it's on is felt for, and the wrist goes where that grip needs it, closing in over the last of the reach
     const RH = rig.hands?.[s], G = RH && H.hold && (H.grip ?? 0) > 0 ? gripOfHold(H.hold, s, rig.probe, toRender, rig.fromRender) : null;
-    if (G) { const w = v3(wristFor(G, RH)), e = H.grip >= 1 ? 1 : (H.grip * H.grip * (3 - 2 * H.grip)); hp.lerp(w, e); }
-    const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, -0.25);
+    // on an arris the hand lies up it at the slant the forearm comes in at: first guessed from the shoulder-to-hold line (the elbow hangs below it,
+    // so a little steeper), then, once the arm is on, from the forearm itself, and the arm put on again
+    const hp0 = hp.clone(), cUp = G?.kind === 'corner' ? (() => { const O = v3(G.O), Ys = v3(G.Y), u = new THREE.Vector3().crossVectors(O, Ys); if (u.y < 0) u.negate(); return { Ys, u }; })() : null;
+    const slant = d => Math.max(-0.6, Math.min(1.5, Math.atan2(d.dot(cUp.u), Math.max(0.05, d.dot(cUp.Ys)))));
+    if (cUp) G.tilt = Math.max(-0.6, Math.min(1.5, slant(v3(G.E).sub(shoulder).normalize()) + 0.3));
+    const gripAt = () => { hp.copy(hp0); if (G) { const w = v3(wristFor(G, RH)), e = H.grip >= 1 ? 1 : (H.grip * H.grip * (3 - 2 * H.grip)); hp.lerp(w, e); } };
+    gripAt();
+    const elbowPole = shoulder.clone().addScaledVector(sd, 0.5).addScaledVector(new THREE.Vector3(0, 1, 0), -0.45).addScaledVector(F, 0.05);     // (out to the side and down: never back behind the body, which wrenches the shoulder)
     // the arm is put from its modelled pose every frame (so no roll is carried over from the last one), and where the hand has a grip the elbow
     // swings round the shoulder-to-wrist line to where the forearm needs least roll to bring the palm round: a forearm only turns so far
     // the shoulder rises with the arm, as a real one does (the collarbone lifts and the shoulder blade turns up, about a third of the lift
@@ -123,13 +129,15 @@ export function applyClimbPose(rig, pose, toRender = p => p, grounded = {}) {
       const axis = hp.clone().sub(shoulder).normalize(); let best = null;
       for (const sw of [0, -0.35, 0.35, -0.7, 0.7, -1.05, 1.05]) {
         const pp = elbowPole.clone().sub(shoulder).applyAxisAngle(axis, sw).add(shoulder); fromRest(); solveLimb(ua, la, ha, hp, pp);
-        const need = Math.abs(rollNeed(RH, G)), cost = Math.max(0, need - FOREARM_ROLL * 0.85) * 3 + need * 0.15 + Math.abs(sw) * 0.25, el = la.getWorldPosition(_e), cost2 = cost + Math.max(0, el.dot(F) - hp.dot(F) + 0.06) * 8 + Math.max(0, -(el.clone().sub(shoulder).dot(sd)) - 0.04) * 6 + Math.max(0, el.y - shoulder.y - 0.12) * 4;     // (the elbow not into the wall, not across the chest, not cocked up over the shoulder)
+        const need = Math.abs(rollNeed(RH, G)), cost = Math.max(0, need - FOREARM_ROLL * 0.85) * 3 + need * 0.15 + Math.abs(sw) * 0.25, el = la.getWorldPosition(_e), cost2 = cost + Math.max(0, el.dot(F) - hp.dot(F) + 0.06) * 8 + Math.max(0, -(el.clone().sub(shoulder).dot(sd)) - 0.04) * 6 + Math.max(0, el.y - shoulder.y - 0.12) * 4 + Math.max(0, -(el.clone().sub(shoulder).dot(F)) - 0.03) * 30;     // (the elbow not into the wall, not across the chest, not cocked up over the shoulder, not thrown back behind the body)
         if (!best || cost2 < best.cost) best = { cost: cost2, pp };
       }
       pole = best.pp;
     }
     fromRest();
-    miss = Math.max(miss, solveLimb(ua, la, ha, hp, pole));
+    let mArm = solveLimb(ua, la, ha, hp, pole);
+    if (cUp) { const fd = ha.getWorldPosition(new THREE.Vector3()).sub(la.getWorldPosition(new THREE.Vector3())).normalize(), t = slant(fd); if (Math.abs(t - G.tilt) > 0.04) { G.tilt = t; gripAt(); fromRest(); mArm = solveLimb(ua, la, ha, hp, pole); } }
+    miss = Math.max(miss, mArm);
     const fp = v3(toRender(...Fo.p)), hip = th.getWorldPosition(new THREE.Vector3());
     const kneeUp = Math.max(0, fp.y - hip.y + 0.5);     // (a foot up near hip height: the knee comes up and out, it doesn't go through what's in front)
     const kneePole = hip.clone().addScaledVector(sd, 0.3).addScaledVector(F, 0.5 + kneeUp * 0.6).addScaledVector(new THREE.Vector3(0, 1, 0), 0.1 + kneeUp * 0.45);     // (a foot up near the hip: the knee goes up and toward the wall, not splayed out to the side (that tears the skin at the hip), never back through the body)

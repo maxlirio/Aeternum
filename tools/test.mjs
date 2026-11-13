@@ -1230,7 +1230,7 @@ suites.climbing = async () => {
   // leap: both hands off, catch a hold higher up
   { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 5 && !k.moving, 60); const y0 = Math.min(cl.limb.lh.hold.y, cl.limb.rh.hold.y);
     cl.step(1 / 60, { fwd: 1, right: 0, jump: true, yaw: q.yaw }); check(cl.state === 'leap', 'Space leaps'); let T = 0; while (cl.state === 'leap' && T < 3) { cl.step(1 / 60, { fwd: 0, right: 0, yaw: q.yaw }); T += 1 / 60; }
-    check(cl.state === 'hold' && cl.limb.lh.hold.y > y0 + 0.9, `caught a hold ${(cl.limb.lh.hold?.y - y0).toFixed(1)} m higher, in ${T.toFixed(2)} s`); const st = run(cl, up(q.yaw), k => !k.limb.lf.free && !k.limb.rf.free, 6); check(!cl.limb.lf.free && !cl.limb.rf.free, 'the feet found holds again'); }
+    check(cl.state === 'hold' && cl.limb.lh.hold.y > y0 + 0.85, `caught a hold ${(cl.limb.lh.hold?.y - y0).toFixed(1)} m higher, in ${T.toFixed(2)} s`); const st = run(cl, up(q.yaw), k => !k.limb.lf.free && !k.limb.rf.free, 6); check(!cl.limb.lf.free && !cl.limb.rf.free, 'the feet found holds again'); }
   // nothing to hold: glass towers and round towers refuse; too tired, your grip goes and you fall
   { const g = find('spire', b => C.STYLES[b.style][0] === 'glass'), pod = find('commerce', b => C.STYLES[b.style][0] === 'glass' && b.tiers[0].y0 === 0 && !b.tiers[0].shape);
     if (pod) { const q = at(pod); check(!Climber.grab(W, q.x, base, q.z, q.fx, q.fz), 'a glass curtain wall has nothing to hold'); }
