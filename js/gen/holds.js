@@ -273,5 +273,15 @@ export function holdsNear(world, f, a, y, ra, ry, fn) {
       if (!f.tower && world.solidAt(p[0] + n[0] * 0.32, hy + 0.15, p[2] + n[1] * 0.32, 0.05)) continue;
       fn({ p, n, a: h, y: hy, kind: 'corner', face: f });
     }
+    // beside the arris, a foot pressed flat on the wall (a smear: nothing a hand can take, but a climber on an arete keeps the far foot there,
+    // the near one on the edge, the body on the one face with the edge at its shoulder)
+    if (f.tower || f.w < 2 * SMEAR_IN + 0.6) continue;
+    for (const h of [ins + SMEAR_IN, f.w - ins - SMEAR_IN]) {
+      if (Math.abs(h - a) > ra) continue;
+      const p = pointOn(f, h, hy, -ins), n = f.n;
+      if (world.solidAt(p[0] + n[0] * 0.32, hy + 0.15, p[2] + n[1] * 0.32, 0.05)) continue;
+      fn({ p, n, a: h, y: hy, kind: 'smear', face: f, foot: true });
+    }
   }
 }
+export const SMEAR_IN = 0.5;

@@ -1223,8 +1223,8 @@ suites.climbing = async () => {
   // sideways along a wall, down again and off at the bottom; the same climb at 30 and 120 Hz
   { const m = at(hab, 0, 0.5); check(!Climber.grab(W, m.x, base, m.z, m.fx, m.fz), 'the open wall between corners has nothing to hold');
     const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz); run(cl, up(q.yaw), k => k.pelvis[1] > base + 6, 60);
-    let off = 0; const st = run(cl, { fwd: 0, right: 1, yaw: q.yaw }, k => { for (const K of ['lh', 'rh', 'lf', 'rf']) { const h = k.limb[K].hold; if (h && h.kind !== 'ground' && Math.min(h.a, h.face.w - h.a) > 0.3) off++; } return false; }, 6); good(st, 'sideways at the corner');
-    check(!off, `sideways, every hold stays on the arris: none out on the open wall (${off})`);
+    let off = 0; const st = run(cl, { fwd: 0, right: 1, yaw: q.yaw }, k => { for (const K of ['lh', 'rh', 'lf', 'rf']) { const h = k.limb[K].hold; if (h && h.kind !== 'ground' && Math.min(h.a, h.face.w - h.a) > (h.kind === 'smear' ? 0.6 : 0.3)) off++; } return false; }, 6); good(st, 'sideways at the corner');
+    check(!off, `sideways, every hold stays on the arris (a foot flat on the wall beside it): none out on the open wall (${off})`);
     const sd = run(cl, { fwd: -1, right: 0, yaw: q.yaw }, () => false, 90); good(sd, 'down-climb'); check(cl.done?.kind === 'walk' && Math.abs(cl.done.pos[1] - base) < 0.2, `climbed back down and stepped off (${cl.done?.kind})`); }
   for (const hz of [30, 120]) { const q = at(hab), cl = Climber.grab(W, q.x, base, q.z, q.fx, q.fz), st = run(cl, up(q.yaw), k => k.pelvis[1] > base + 10, 90, hz); good(st, hz + ' Hz'); check(cl.pelvis[1] > base + 10, `${hz} Hz: same climb works`); }
   // leap: both hands off, catch a hold higher up
@@ -1376,12 +1376,12 @@ suites.corners = async () => {
   const t = b.tiers[0], LEN = { h: BODY.upperArm + BODY.foreArm, f: BODY.thigh + BODY.shin };
   const stand = (u, v, tu, tv) => { const [x, z] = c.toWorld(u, v), [xx, zz] = c.toWorld(tu, tv), l = Math.hypot(xx - x, zz - z); return [x, z, (xx - x) / l, (zz - z) / l]; };
   const go = (cl, input, secs) => { let worst = 0, slid = 0, prev = {}; for (let i = 0; i < secs * 60 && !cl.done; i++) { cl.step(1 / 60, input); if (cl.state !== 'hold') continue; for (const k of ['lh', 'rh', 'lf', 'rf']) { const L = cl.limb[k]; if (L.free) continue; const J = cl.jointOf(k, cl.pelvis); worst = Math.max(worst, Math.hypot(L.p[0] - J[0], L.p[1] - J[1], L.p[2] - J[2]) / LEN[k[1]]); } } return worst; };
-  // grab by the corner: a hand and foot on each side of the edge, body turned to it
+  // grab by the corner as an arete is climbed: body on one face, the near hand round the edge, the far one across to it, a foot on the edge and one flat beside it
   const [x, z, fx, fz] = stand(t.r[0] - 0.55, t.r[1] + 0.2, t.r[0] + 2, t.r[1] + 0.2), cl = Climber.grab(W, x, base, z, fx, fz);
   if (check(cl, 'grabbed the wall beside a corner')) {
     go(cl, { fwd: 0, right: 0, yaw: Math.atan2(fx, fz) }, 1.2);
     const fs = new Set(['lh', 'rh'].map(k => cl.limb[k].hold?.face)); check(fs.size === 2, `a hand on each side of the edge (${fs.size} faces)`);
-    const n0 = cl.face.n, dia = Math.abs(cl.normal[0] * n0[0] + cl.normal[2] * n0[1]); check(dia < 0.86, `the body turns to face the arris (${dia.toFixed(2)} along the wall's own normal)`);
+    const n0 = cl.face.n, dia = Math.abs(cl.normal[0] * n0[0] + cl.normal[2] * n0[1]); check(dia > 0.82 && dia < 0.97, `on its face, the chest turned part way to the edge, as on a real arete (${dia.toFixed(2)} along the wall's own normal)`);
     const y0 = cl.pelvis[1], s1 = go(cl, { fwd: 1, right: 0, yaw: Math.atan2(fx, fz) }, 6), up = cl.pelvis[1] - y0; check(up > 4.5, `up the corner: ${up.toFixed(1)} m in 6 s`); check(s1 <= 1.02, `limbs in reach all the way (${s1.toFixed(3)})`);
     const fs2 = new Set(['lh', 'rh', 'lf', 'rf'].map(k => cl.limb[k].hold?.face)); check(fs2.size === 2, 'still straddling the corner at the end of it');
   }

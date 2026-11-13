@@ -226,7 +226,8 @@ try {
     const views = [['headback', 0, 0.75, 1.3, 0.55], ['lelbow', -0.9, 0.55, 0.9, 0.5], ['relbow', 0.9, 0.55, 0.9, 0.5], ['headside', 1.3, 0.6, 0.6, 0.55]];
     for (const [tag, side, up, back, lookUp] of views) {
       await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall, P = W.pose(), n = W.normal, R = W.right(), at = P.pelvis;
-        window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side}, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side}], look: [at[0] + R[0] * ${side} * 0.25, at[1] + ${lookUp}, at[2] + R[2] * ${side} * 0.25] };
+        const sg = '${tag}' === 'arete' ? Math.sign((P.limbs.lh.p[0] + P.limbs.rh.p[0] - 2 * P.pelvis[0]) * R[0] + (P.limbs.lh.p[2] + P.limbs.rh.p[2] - 2 * P.pelvis[2]) * R[2]) || 1 : 1;
+          window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side} * sg, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side} * sg], look: [at[0] + R[0] * ${side} * 0.25, at[1] + ${lookUp}, at[2] + R[2] * ${side} * 0.25] };
         await new Promise(r => setTimeout(r, 600)); return 1; })()`);
       await shot('climbfix-' + tag);
     }
@@ -311,6 +312,39 @@ try {
       for (const k in st) if (!['log', 'wl', 'wB', 'wE', 'idleWrist'].includes(k)) st[k] = +(+st[k]).toFixed(1); st.up = +(c.pos[1] - got.y0).toFixed(1); return st; })()`);
     console.log('   joints', JSON.stringify(R));
   }
+  if (want('climbhands')) {
+    // the hands on an arete, close: where the palm and knuckles are against the edge they hold (straight out, from past the edge, from above), every frame
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    const R = await ev(`(async () => { const O = ORBIS, H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world; let got = null;
+      const s = O.s; for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 5 || f.y1 - f.y0 < 7) continue; for (const a of [0.6, f.w - 0.6]) { const x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } } if (got) break; }
+        if (got) break; }
+      if (!got) return { none: true }; window.__cf = got;
+      const rig = O.avatar.rig, V = O.camera.position.constructor, st = { n: 0, worst: {} }, wp = b => b.getWorldPosition(new V());
+      const edgeOf = h => { const f = h.face, atEnd = h.a > f.w / 2, ea = atEnd ? f.w : 0; return O.toRender(f.o[0] + f.t[0] * ea, h.p[1], f.o[1] + f.t[1] * ea); };
+      let on = true; const tick = () => { if (!on) return; const W = O.ctrl.wall; if (W && W.state === 'hold') { st.n++;
+        for (const sd of ['l', 'r']) { const L = W.limb[sd + 'h'], P = W.pose().limbs[sd + 'h']; if (!L.hold || L.hold.kind !== 'corner' || (P.grip ?? 0) < 0.95 || W.moving === sd + 'h') continue;
+          const E = new V(...edgeOf(L.hold)), RH = rig.hands[sd], kn = wp(RH.fingers.middle.bones[0]), tip = wp(RH.fingers.middle.bones[RH.fingers.middle.bones.length - 1]), pa = wp(RH.hand), f = L.hold.face, n = new V(f.n[0], 0, f.n[1]), t = new V(f.t[0], 0, f.t[1]).multiplyScalar(L.hold.a > f.w / 2 ? 1 : -1);
+          const rel = q => { const d = q.clone().sub(E); return [+d.dot(n).toFixed(3), +d.dot(t).toFixed(3)]; };     // (out of the face, past the edge: + is round the corner)
+          const r = { wrist: rel(pa), knuckle: rel(kn), tip: rel(tip) }, bad = Math.hypot(...r.knuckle);
+          if (bad > (st.worst[sd]?.bad ?? -1)) st.worst[sd] = { bad: +bad.toFixed(3), ...r, at: st.n }; if (st.n % 30 === 0) (st.log ||= []).push([sd, r]); } }
+        requestAnimationFrame(tick); }; tick();
+      const wait = ms => new Promise(r => setTimeout(r, ms)); for (let i = 0; i < 4; i++) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(900); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1400); on = false;
+      { const W = O.ctrl.wall, h = [W.limb.lh.hold, W.limb.rh.hold].find(q => q?.face === W.face && q.kind === 'corner'), f = h.face, sg = h.a > f.w / 2 ? 1 : -1, E = new V(...edgeOf(h)), n = new V(f.n[0], 0, f.n[1]), t = new V(f.t[0], 0, f.t[1]).multiplyScalar(sg), TH = await import('three'), RC = new TH.Raycaster(), skip = new Set(); O.avatar.object?.traverse(m => skip.add(m)); const PR = { ray: (o, d, far) => { RC.set(o, d); RC.far = far; const hit = RC.intersectObjects(O.scene.children, true).find(x => !skip.has(x.object) && x.object.visible && x.object.isMesh); return hit ? { t: hit.distance, name: hit.object.name || hit.object.parent?.name || '' } : null; } }; st.mesh = { faceA: [], faceB: [] };
+        for (let k = -6; k <= 4; k++) { const o = E.clone().addScaledVector(t, k * 0.04).addScaledVector(n, 0.6).add(new V(0, 0.2, 0)), r = PR.ray(o, n.clone().negate(), 1.2); st.mesh.faceA.push([k * 4, r ? +(0.6 - r.t).toFixed(3) : null, r?.name]); }     // (cm along toward the edge (+ past it) → how far out of the face's plane the drawn surface is)
+        for (let k = -6; k <= 4; k++) { const o = E.clone().addScaledVector(n, k * 0.04).addScaledVector(t, 0.6).add(new V(0, 0.2, 0)), r = PR.ray(o, t.clone().negate(), 1.2); st.mesh.faceB.push([k * 4, r ? +(0.6 - r.t).toFixed(3) : null, r?.name]); } }
+      return st; })()`);
+    console.log('   hands', JSON.stringify(R));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; const A = O.avatar; A.__so = A.__so || A.setOpacity; A.__so(1); A.setOpacity = () => {}; return 1; })()`);
+    for (const [tag, out, past, up] of [['out', 0.9, 0.1, 0.1], ['past', 0.35, 0.9, 0.05], ['above', 0.35, 0.15, 0.8]]) {
+      await ev(`(async () => { const W = ORBIS.ctrl.wall, h = W.limb.lh.hold.p[1] > W.limb.rh.hold.p[1] ? W.limb.lh.hold : W.limb.rh.hold, f = h.face, s = h.a > f.w / 2 ? 1 : -1, ea = s > 0 ? f.w : 0, E = [f.o[0] + f.t[0] * ea, h.p[1] - 0.15, f.o[1] + f.t[1] * ea];
+        window.__shotCam = { pos: [E[0] + f.n[0] * ${out} + f.t[0] * s * ${past}, E[1] + ${up}, E[2] + f.n[1] * ${out} + f.t[1] * s * ${past}], look: E }; await new Promise(r => setTimeout(r, 600)); return 1; })()`);
+      await shot(`climbhands-${tag}`);
+    }
+    await ev('(window.__shotCam = null, 1)');
+  }
   if (want('climbcorner')) {
     // walls are climbed at their corners: up a town building's arris, photographed from behind, the side, wide and at the hands, at three heights
     await load('hour=11');
@@ -323,7 +357,7 @@ try {
       if (!got) return { none: true }; window.__cf = got; return { face: got.key, h: +(got.y1 - got.y0).toFixed(1) }; })()`);
     console.log('   corner', JSON.stringify(R));
     await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
-    const views = [['back', 0, 0.3, 3.0], ['side', 2.0, 0.4, 1.4], ['wide', -3.5, 1.0, 7.5], ['hands', 0.4, 1.35, 0.9]];
+    const views = [['back', 0, 0.3, 3.0], ['arete', 2.4, 0.5, 2.4], ['side', 2.0, 0.4, 1.4], ['wide', -3.5, 1.0, 7.5], ['hands', 0.4, 1.35, 0.9]];      // (arete: out past the edge, looking back across it at the climber, as the photos of real ones are taken)
     for (const [step, presses] of [['low', 2], ['mid', 4], ['high', 4]]) {
       await ev(`(async () => { const wait = ms => new Promise(r => setTimeout(r, ms)); for (let i = 0; i < ${presses}; i++) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(900); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1400); return 1; })()`);
       console.log('    game camera', await ev('JSON.stringify({ cur: ORBIS.cam.cur, opacity: ORBIS.avatar?.object?.visible })'));
@@ -331,7 +365,8 @@ try {
       await ev('(() => { const A = ORBIS.avatar; A.__so = A.__so || A.setOpacity; A.__so(1); A.setOpacity = () => {}; return 1; })()');      // (the posed cameras stand where the game's wouldn't: the body stays solid for them)
       for (const [tag, side, up, back] of views) {
         const G = await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall; if (!W) return 'nowall ' + O.ctrl.mode; const P = W.pose(), n = W.normal, R = W.right(), at = '${tag}' === 'hands' ? [(P.limbs.lh.p[0] + P.limbs.rh.p[0]) / 2, (P.limbs.lh.p[1] + P.limbs.rh.p[1]) / 2 - 1.0, (P.limbs.lh.p[2] + P.limbs.rh.p[2]) / 2] : P.pelvis;
-          window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side}, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side}], look: [at[0], at[1] + ('${tag}' === 'hands' ? 1.0 : 0.3), at[2]] };
+          const sg = '${tag}' === 'arete' ? Math.sign((P.limbs.lh.p[0] + P.limbs.rh.p[0] - 2 * P.pelvis[0]) * R[0] + (P.limbs.lh.p[2] + P.limbs.rh.p[2] - 2 * P.pelvis[2]) * R[2]) || 1 : 1;
+          window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side} * sg, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side} * sg], look: [at[0], at[1] + ('${tag}' === 'hands' ? 1.0 : 0.3), at[2]] };
           await new Promise(r => setTimeout(r, 600)); return JSON.stringify({ y: +(O.ctrl.pos[1] - window.__cf.y0).toFixed(1), holds: ['lh', 'rh', 'lf', 'rf'].map(k => P.limbs[k].kind) }); })()`);
         console.log('   ', step, tag, G); await shot(`climbcorner-${step}-${tag}`);
       }

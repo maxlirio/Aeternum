@@ -7,13 +7,15 @@
 // placeholder or a full rig (player/limbik.js).
 //   W/A/S/D climb · Shift faster · Space leap (both hands off, catch a hold further on) · Q let go
 // Proportions are the ADVENTURER body's (metres): the planner must plan for the real reach.
-import { faceAhead, faceBelowEdge, holdsNear, aOf, outOf, facesNear, CORNER_STEP } from '../gen/holds.js';
+import { faceAhead, faceBelowEdge, holdsNear, aOf, outOf, facesNear, CORNER_STEP, SMEAR_IN } from '../gen/holds.js';
 
 export const BODY = { upperArm: 0.294, foreArm: 0.263, palm: 0.09, thigh: 0.45, shin: 0.415, ankle: 0.085,
   shoulderUp: 0.47, shoulderOut: 0.19, hipDown: 0.05, hipOut: 0.10, hipHeight: 0.95 };
 const ARM = BODY.upperArm + BODY.foreArm, LEG = BODY.thigh + BODY.shin;
 const LIMBS = ['lh', 'rh', 'lf', 'rf'], isHand = k => k === 'lh' || k === 'rh', isLeft = k => k === 'lh' || k === 'lf';
 const STRIDE = { hand: 0.62, foot: 0.5 };
+const EDGE_TURN = 0.45;                              // ...and the chest turned this far (rad) toward it
+const EDGE_IN = 0.1;                                // on an arete: the pelvis this far in from the edge, so the edge is at the near shoulder
 const WALL = 0.3;                                   // pelvis stands this far off the wall
 const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -52,8 +54,19 @@ export class Climber {
     const edge = face.tower ? (a < face.w / 2 ? -1 : 1) : a < CORNER_GRAB ? -1 : a > face.w - CORNER_GRAB ? 1 : 0;
     if (!edge) { this.ok = false; return; }
     const R = this.right(), sgn = (face.t[0] * R[0] + face.t[1] * R[2]) > 0 ? 1 : -1, hold = {};       // +a is your right, or your left
-    // At a corner, take it the way a climber does: a hand and a foot on each side of the edge, body square to the arris.
-    {
+    // At a corner, take it the way a climber takes an arete: body on this face with the edge at one shoulder, both hands on the edge one above
+    // the other (the near hand high, the far one crossing to it lower), the near foot on the edge and the far one flat on the wall beside it.
+    if (!face.tower) {
+      const near = edge * sgn > 0 ? ['rh', 'rf'] : ['lh', 'lf'], far = edge * sgn > 0 ? ['lh', 'lf'] : ['rh', 'rf'], side = edge > 0 ? face.next() : face.prev();
+      this.nearHand = near[0]; this.sideFace = side;
+      const pick = (kind, A, want, ry, F = face) => { let b = null, bd = Infinity; holdsNear(world, F, A, want, 0.12, ry, h => { if (h.kind !== kind) return; const d = Math.abs(h.y - want) + 3 * Math.abs(h.a - A); if (d < bd) { bd = d; b = h; } }); return b; };
+      const aHere = edge > 0 ? face.w - 0.05 : 0.05, aSmear = edge > 0 ? face.w - SMEAR_IN : SMEAR_IN;
+      const hR = from[1] + 1.8, fR = Math.max(from[1] + 0.45, hR - 1.45), H1 = pick('corner', edge > 0 ? 0.05 : side.w - 0.05, hR + 0.45, 0.3, side), H2 = pick('corner', aHere, hR, 0.3), F1 = pick('corner', aHere, fR + 0.45, 0.3), F2 = pick('smear', aSmear, fR, 0.3);
+      if (H1 && H2 && F1 && F2) { hold[near[0]] = H1; hold[near[1]] = F1; hold[far[0]] = H2; hold[far[1]] = F2; }
+      else { this.ok = false; return; }
+    }
+    // (steelwork: a hand and a foot on each side of the leg, body square to it)
+    else {
       const near = edge * sgn > 0 ? ['rh', 'rf'] : ['lh', 'lf'], far = edge * sgn > 0 ? ['lh', 'lf'] : ['rh', 'rf'], side = edge > 0 ? face.next() : face.prev(), pickEdge = (f, A, want, ry) => { let b = null, bd = Infinity; holdsNear(world, f, A, want, Math.max(0.8, f.w), ry, h => { if (h.kind !== 'corner') return; const d = Math.abs(h.y - want) + 3 * Math.abs(h.a - A); if (d < bd) { bd = d; b = h; } }); return b; };
       const aHere = edge > 0 ? face.w - 0.05 : 0.05, aThere = edge > 0 ? 0.05 : side.w - 0.05;
       const hR = from[1] + 1.85, fR = Math.max(from[1] + 0.45, hR - 1.5), H1 = pickEdge(side, aThere, hR, 0.5), H2 = pickEdge(face, aHere, hR + 0.45, 0.5), F1 = pickEdge(side, aThere, fR + 0.45, 0.5), F2 = pickEdge(face, aHere, fR, 0.5);
@@ -72,7 +85,7 @@ export class Climber {
   // a shoulder or a hip. Hips sat back off the wall, the chest leans in over them (the torso tips toward the wall, up to 21 cm at the shoulders),
   // as the posed body does: the planner must reach from where the shoulders really are
   jointOf(k, pelvis, R = this.right()) { const s = isLeft(k) ? -1 : 1; if (!isHand(k)) return add(add(pelvis, [0, -BODY.hipDown, 0]), R, s * BODY.hipOut);
-    const n = this.normal, o = this.face && !this.face.tower ? outOf(this.face, pelvis[0], pelvis[2], pelvis[1]) : 0, lean = clamp(o - 0.24, 0, 0.21);
+    const n = this.normal, o = this.face && !this.face.tower ? outOf(this.face, pelvis[0], pelvis[2], pelvis[1]) : 0, lean = this.edgeTurn() ? 0 : clamp(o - 0.24, 0, 0.21);     // (up an arete the body leans back off the edge, not in to the wall)
     return add(add(add(pelvis, [0, BODY.shoulderUp - lean * lean, 0]), R, s * BODY.shoulderOut), [n[0], 0, n[2]], -lean); }
 
   // Where the body goes for these limb ends: as comfortable as it can be, with each limb within
@@ -82,12 +95,17 @@ export class Climber {
     for (const k of LIMBS) { const e = ends[k]; if (!e) continue; if (isHand(k)) { hy += e[1]; hn++; } else { fy += e[1]; fn++; } cx += e[0]; cz += e[2]; c++; }
     hy /= hn || 1; fy /= fn || 1;
     let hlo = Infinity; for (const k of ['lh', 'rh']) if (ends[k]) hlo = Math.min(hlo, ends[k][1]); if (hlo === Infinity) hlo = hy;     // (the body hangs from the lower hand: the higher one reaches, the lower one still has its arm long)
-    const wantY = fn ? Math.min(hlo - BODY.shoulderUp - ARM * 0.8, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0) : hy - BODY.shoulderUp - ARM * 0.97;     // (hanging off nearly straight arms, as a climber rests)
+    const arete = !!this.edgeTurn(); let hhi = -Infinity; for (const k of ['lh', 'rh']) if (ends[k]) hhi = Math.max(hhi, ends[k][1]);
+    const wantY = fn ? (arete ? Math.min(hhi - BODY.shoulderUp - ARM * 0.78, fy + BODY.hipDown + LEG * 0.9) : Math.min(hlo - BODY.shoulderUp - ARM * 0.8, fy + BODY.hipDown + LEG * 0.82 + BODY.ankle * 0)) : hy - BODY.shoulderUp - ARM * 0.97;     // (up an arete: hung from the high hand, the low one in front of the chest; legs long)     // (hanging off nearly straight arms, as a climber rests)
     const high = fn && hn && !this.face.tower && !this.atCorner() ? clamp(1.65 - (hy - fy), 0, 0.5) : 0;     // (1.65 m: hands to feet of a body hanging long; closer than that, the knees bend and the hips sit back, the shoulders stay where they hang)     // feet up near the hands: sit back off them, hips out and down, arms long, knees up (not squatting on them)
-    const corner = !this.face.tower && this.atCorner(), off = this.face.tower ? 0.1 : WALL + high * 0.6 + (corner ? 0.15 : 0); let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.32 : -1e9), cz / c + n[2] * off];     // (on an arris the body hangs back off it, so neither arm has to fold up against the shoulder)
+    const corner = !this.face.tower && this.atCorner(), off = this.face.tower ? 0.1 : this.edgeTurn() ? WALL - 0.08 : WALL + high * 0.6; let p = [cx / c + n[0] * off, Math.max(wantY, fn ? fy + 0.32 : -1e9), cz / c + n[2] * off];
+    if (corner) {     // (on an arete the body sits on its face with the edge at one shoulder, not out over the edge between the hands and feet)
+      const f = this.face, hs = ['lh', 'rh'].map(k => this.limb[k]?.hold).filter(h => h && h.face === f && h.kind === 'corner');
+      if (hs.length) { const aE = hs[0].a, s = aE < f.w / 2 ? 1 : -1, want = aE + s * EDGE_IN, da = want - aOf(f, p[0], p[2]); p = [p[0] + f.t[0] * da, p[1], p[2] + f.t[1] * da]; }
+    }
     for (let it = 0; it < 10; it++) {
       for (const k of LIMBS) { const e = ends[k]; if (!e) continue;
-        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : corner || ends[k] && this.limb[k]?.hold?.kind === 'top' ? 0.42 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
+        const v = sub(e, this.jointOf(k, p, R)), d = len(v), L = (isHand(k) ? ARM : LEG) * 0.985, min = isHand(k) ? (this.face.tower ? 0.2 : corner ? 0.38 : ends[k] && this.limb[k]?.hold?.kind === 'top' ? 0.42 : 0.32) : 0.3;     // (a hand no nearer its shoulder than an elbow bent past a right angle; on steelwork you hug in)     // (a hand no nearer its shoulder than an elbow bent past a right angle)
         if (d > L) p = add(p, v, (1 - L / d) * 0.7); else if (d < min && d > 1e-4) p = add(p, v, (1 - min / d) * 0.5);
       }
       p = this.offWall(p);
@@ -154,28 +172,38 @@ export class Climber {
     const hands = [this.limb.lh, this.limb.rh], feet = [this.limb.lf, this.limb.rf];
     this.candidates(ideal, 0.8, 0.8, h => {
       if (h === L.hold || (L.hold && h.a === L.hold.a && h.y === L.hold.y && h.face === L.hold.face)) return;
-      if (hand && h.kind === 'ground') return;
+      if (hand && (h.kind === 'ground' || h.foot)) return;
+      if (!hand && this.nearHand && !this.face.tower && (h.kind === 'corner' || h.kind === 'smear') && h.kind !== (k[0] === this.nearHand[0] ? 'corner' : 'smear')) return;     // (on an arete the near foot on the edge, the far one flat on the wall beside it)
+      if (this.atCorner() && !this.face.tower && (!right || !hand) && h.kind !== 'top') {     // (up an arete the body stays on its one face: the near hand round the edge on the other side of it, the far one across on this side, the feet on this side)
+        const own = hand && k === this.nearHand && this.sideFace ? this.sideFace : this.face; if (h.face !== own) return; }
       if (other.hold && other.hold.face === h.face && other.hold.a === h.a && other.hold.y === h.y && (hand || h.kind !== 'pipe')) return;      // (both feet can share a bracket)
       const d = sub(h.p, cur), prog = (d[0] * R[0] + d[2] * R[2]) * right + d[1] * up;
       if (L.hold && prog < 0.12 * ml && (right || up)) return;      // it has to get you somewhere
       // left stays left; hands above feet by a body's span; not spreadeagled
       if (other.hold) {
         const sep = dot(sub(h.p, other.hold.p), R) * (isLeft(k) ? -1 : 1), gapY = Math.abs(h.p[1] - other.hold.p[1]);
-        if ((sep < (hand ? 0.1 : 0.04) && h.face === other.hold.face && !(h.kind === 'pipe' && other.hold.kind === 'pipe' && h.a === other.hold.a)) || Math.abs(sep) > (hand ? 1.05 : 1.0) || gapY > 1.2) return;
+        if ((sep < (hand ? 0.1 : 0.04) && h.face === other.hold.face && !((h.kind === 'pipe' || h.kind === 'corner') && h.kind === other.hold.kind && h.a === other.hold.a)) || Math.abs(sep) > (hand ? 1.05 : 1.0) || gapY > 1.2) return;
       }
       // hands well above the feet: a foot doesn't come up under the hands (you'd squat under them, elbows folded, head down on the wall); a
       // hand reaching up needs less (on a pipe or a corner you can bunch up more)
-      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.face.tower ? tuck : this.strict === false ? (h.kind === 'corner' ? 0.85 : tuck) : 1.15;     // (unless nothing else will go; up an arris the feet stay well down too, or the body rides up between the hands and folds the arms)
+      const tuck = h.kind === 'pipe' || h.kind === 'corner' ? 0.44 : 0.55, footTuck = this.face.tower ? tuck : this.strict === false ? (h.kind === 'corner' || h.kind === 'smear' ? 0.85 : tuck) : this.atCorner() ? 0.88 : 1.15;     // (unless nothing else will go; up an arris the feet stay well down too, or the body rides up between the hands and folds the arms)
       if (hand) { for (const F of feet) if (F.hold && h.p[1] - F.hold.p[1] < tuck) return; }
       else for (const H of hands) if (H.hold && H.hold.p[1] - h.p[1] < footTuck) return;
+      if (hand && h.kind === 'corner' && up > 0 && !right && this.atCorner() && other.hold && h.p[1] > other.hold.p[1] + CORNER_STEP + 0.05) return;
+      if (hand && h.kind === 'corner' && other.hold?.kind === 'corner' && this.edgeTurn() && Math.abs(h.p[1] - other.hold.p[1]) < CORNER_STEP * 0.6) return;     // (never level: the two hands on an arete meet over the head)     // (up an arete the hands go one over the other, a step apart: the low one comes up past the high one, never the high one further off)
       const over = { [k]: endAt(k, h) }, sol = this.solve(this.ends(over));
-      if (sol.slack > -0.005) return;     // (not at the very end of an arm: the body has to be able to settle there)
+      if (sol.slack > (hand ? -0.005 : 0.002)) return;     // (a foot coming up is what gives the hands room: it may leave them at full stretch for the moment)
+      // (not at the very end of an arm: the body has to be able to settle there)
       // on a corner, stay on it going up: it's the fast way, the legs of a tower most of all
       const s = len(sub(h.p, ideal)) - 0.25 * prog + (h.kind === 'rail' ? 0.08 : 0) - ((h.kind === 'corner' || h.kind === 'pipe') && up > 0 && !right && this.atCorner() ? 0.45 : 0);
       if (s < bs) { bs = s; best = h; }
     });
     return best ? { k, hold: best } : null;
   }
+  // Up an arete, the chest turns part way to the edge (as a climber's does: the near shoulder back off it, the far one round toward it), not
+  // square to the face, nor to the arris. → the facing [nx, nz], or null when not on one.
+  edgeTurn() { const f = this.face, a0 = this.limb.lh.hold, b0 = this.limb.rh.hold; if (!f || f.tower || !a0 || !b0 || a0.kind !== 'corner' || b0.kind !== 'corner') return null; const a = a0.face === f ? a0 : b0.face === f ? b0 : null; if (!a) return null;
+    const s = a.a < f.w / 2 ? 1 : -1, c = Math.cos(EDGE_TURN), sn = Math.sin(EDGE_TURN), x = f.n[0] * c + f.t[0] * s * sn, z = f.n[1] * c + f.t[1] * s * sn, m = Math.hypot(x, z); return [x / m, z / m]; }
   atCorner() { const { lh, rh } = this.limb; if (lh.hold && rh.hold && lh.hold.face !== rh.hold.face) return true; const h = lh.hold || rh.hold; if (!h) return false; if (h.kind === 'pipe' || h.kind === 'corner') return true; const e = Math.min(h.a, h.face.w - h.a); return e < 0.8 || !!h.face.tower; }
   startMove({ k, hold }, input) {
     const L = this.limb[k], to = endAt(k, hold), dist = len(sub(to, L.p));
@@ -214,7 +242,7 @@ export class Climber {
         let m = this.plan(dir);
         // straight up blocked (a window's glass, a door): edge round it, up and to one side, keeping to that side until the way is clear again
         if (this.detour && (this.pelvis[1] > this.detourY + 1.0 || input.right || input.fwd <= 0)) this.detour = 0;
-        if ((!m || this.detour) && input.fwd > 0 && !input.right) {
+        if ((!m || this.detour) && input.fwd > 0 && !input.right && !(this.atCorner() && !this.face.tower)) {     // (not up an arete: the way round is the edge itself)
           if (!this.detour) { this.detour = this.detourSide(dir.R); this.detourY = this.pelvis[1]; this.detourMiss = 0; }
           const d2 = this.plan({ ...dir, right: this.detour });
           if (d2) { m = d2; this.detourMiss = 0; } else if (!m && ++this.detourMiss > 3) { this.detour = -this.detour; this.detourMiss = 0; }
@@ -229,14 +257,15 @@ export class Climber {
   // which way round: toward the nearest course above that runs on past what's in the way (+1 your right, -1 your left)
   detourSide(R) {
     const { lh, rh } = this.limb, here = lh.hold && rh.hold ? lerp3(lh.hold.p, rh.hold.p, 0.5) : this.pelvis, hy = Math.max(lh.hold?.p[1] ?? here[1], rh.hold?.p[1] ?? here[1]); let best = 0, bd = Infinity;
-    this.candidates([here[0], hy + 0.6, here[2]], 4, 0.45, h => { if (h.kind === 'ground' || h.y <= hy + 0.2 || h.kind === 'sill' || h.kind === 'head') return; const side = dot(sub(h.p, here), R), d = Math.abs(side); if (d > 0.3 && d < bd) { bd = d; best = side > 0 ? 1 : -1; } });
+    this.candidates([here[0], hy + 0.6, here[2]], 4, 0.45, h => { if (h.kind === 'ground' || h.foot || h.y <= hy + 0.2 || h.kind === 'sill' || h.kind === 'head') return; const side = dot(sub(h.p, here), R), d = Math.abs(side); if (d > 0.3 && d < bd) { bd = d; best = side > 0 ? 1 : -1; } });
     return best || 1;
   }
   normalOfMove(L) { return L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : this.normal; }
   updateBody(dt, stiff = 14) {
     // the body's facing follows the hands
     const a = this.limb.lh.hold, b = this.limb.rh.hold;
-    if (a && b) { let nx = a.n[0] + b.n[0], nz = a.n[1] + b.n[1], l = Math.hypot(nx, nz) || 1; const k = 1 - Math.exp(-dt * 5); this.normal = (() => { let x = this.normal[0] + (nx / l - this.normal[0]) * k, z = this.normal[2] + (nz / l - this.normal[2]) * k, m = Math.hypot(x, z) || 1; return [x / m, 0, z / m]; })(); }
+    if (a && b) { let nx = a.n[0] + b.n[0], nz = a.n[1] + b.n[1], l = Math.hypot(nx, nz) || 1;
+      const t = this.edgeTurn(); if (t) { nx = t[0]; nz = t[1]; l = 1; } const k = 1 - Math.exp(-dt * 5); this.normal = (() => { let x = this.normal[0] + (nx / l - this.normal[0]) * k, z = this.normal[2] + (nz / l - this.normal[2]) * k, m = Math.hypot(x, z) || 1; return [x / m, 0, z / m]; })(); }
     // the body glides to where the finished move needs it. (Reach limits are spheres, so the
     // straight path between two reachable poses stays within reach of every planted limb.)
     const ends = this.ends();
@@ -279,7 +308,7 @@ export class Climber {
     let best = null, bs = Infinity;
     const want = add(add(cx, [0, 1, 0], up > 0 ? 1.5 : up < 0 ? -1.4 : 0.2), R, right * 1.5);
     this.candidates(want, 1.3, 1.3, h => {
-      if (h.kind === 'ground' || h.face !== this.face) return;
+      if (h.kind === 'ground' || h.foot || h.face !== this.face) return;
       const dy = h.y - hy, s = len(sub(h.p, want));
       if (Math.hypot(dot(sub(h.p, cx), R), dy) < 0.9 || dy > 2.2 || dy < -2.2) return;
       if (s < bs) { bs = s; best = h; }
@@ -291,7 +320,13 @@ export class Climber {
     if (!other) holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
     if (!other) return false;
     const leftFirst = dot(sub(best.p, other.p), R) < 0;
-    this.beginLeap(leftFirst ? best : other, leftFirst ? other : best);
+    let [L, Rr] = leftFirst ? [best, other] : [other, best];
+    if (best.kind === 'corner' && this.sideFace && !this.face.tower) {      // (up an arete the near hand catches round the edge, on the other side of it)
+      const lo = Math.min(best.y, other.y), hi = Math.max(best.y, other.y), on = this.face === best.face, near = this.nearHand; let round = null;
+      holdsNear(this.world, this.sideFace, best.a > best.face.w / 2 ? 0.05 : this.sideFace.w - 0.05, hi, 0.1, 0.05, h => { if (h.kind === 'corner') round = h; });
+      if (on && round) { const mine = best.y === lo ? best : other; if (near === 'lh') { L = round; Rr = mine; } else { L = mine; Rr = round; } }
+    }
+    this.beginLeap(L, Rr);
     return true;
   }
   // From a corner or a pipe, across open wall to the next corner or pipe your way: on this wall, round to the next, or over the gap to another building.
@@ -320,7 +355,7 @@ export class Climber {
     const backs = [...new Set([this.face, this.limb.lh.hold?.face, this.limb.rh.hold?.face].filter(Boolean))].map(f => [f.n[0], 0, f.n[1]]);
     for (const n of backs) { const faces = new Set(), at = [P[0] + n[0] * MAX * 0.5, P[1], P[2] + n[2] * MAX * 0.5]; facesNear(this.world, at[0], at[1], at[2], MAX * 0.6, f => faces.add(f));
     for (const f of faces) { if (f.n[0] * n[0] + f.n[1] * n[2] > -0.8) continue; const gap = outOf(f, P[0], P[2]); if (gap < 1.2 || gap > MAX) continue;
-      holdsNear(this.world, f, aOf(f, P[0], P[2]), hy - 0.5, 3.2, 1.6, h => { if (h.kind === 'ground') return; const s = Math.abs(h.y - (hy - 0.5)) + Math.abs(h.a - aOf(f, P[0], P[2])) + gap * 0.2 + (h.kind === 'pipe' || h.kind === 'corner' ? -0.3 : 0); if (s < bs) { bs = s; best = h; } }); } }
+      holdsNear(this.world, f, aOf(f, P[0], P[2]), hy - 0.5, 3.2, 1.6, h => { if (h.kind === 'ground' || h.foot) return; const s = Math.abs(h.y - (hy - 0.5)) + Math.abs(h.a - aOf(f, P[0], P[2])) + gap * 0.2 + (h.kind === 'pipe' || h.kind === 'corner' ? -0.3 : 0); if (s < bs) { bs = s; best = h; } }); } }
     if (!best) return null;
     let other = null, od = Infinity; if (best.kind === 'pipe' || best.kind === 'corner') holdsNear(this.world, best.face, best.a, best.y - CORNER_STEP, 0.02, 0.05, h => { if (h.kind === best.kind) other = h; });
     if (!other) holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
@@ -413,6 +448,13 @@ export class Climber {
 
   // ---- the output: IK targets for any skeleton. World space, y up.
   // { pelvis, right, up (spine), forward (into the wall), chest, lookAt, limbs: { lh|rh|lf|rf: { p, n?, grip (0–1), moving } } }
+  // The hold a hand's grip is shaped on. Up an arete the near hand is round the edge, but it takes the edge as a layback does, from this
+  // side: palm on this face at the edge, fingers curled round it (from the far side, the fingers would have to point back at the body).
+  gripHold(k, h) {
+    if (!h || h.kind !== 'corner' || k !== this.nearHand || h.face !== this.sideFace || this.face?.tower) return h || null;
+    if (h.twin === undefined) { const f = this.face, A = h.a > h.face.w / 2 ? 0.05 : f.w - 0.05; let t = null; holdsNear(this.world, f, A, h.y, 0.1, 0.02, q => { if (q.kind === 'corner') t = q; }); h.twin = t; }
+    return h.twin || h;
+  }
   pose() {
     const R = this.right(), f = [-this.normal[0], 0, -this.normal[2]], { lh, rh, lf, rf } = this.limb;
     const hc = lerp3(lh.p, rh.p, 0.5);
@@ -420,7 +462,7 @@ export class Climber {
     const toHands = sub(hc, this.pelvis), lean = this.state === 'top' ? this.topOut.lean ?? 0 : clamp(dot(toHands, f) / Math.max(0.3, toHands[1]), -0.5, 0.5);
     let up = [f[0] * lean, 1, f[2] * lean]; const ul = len(up); up = [up[0] / ul, up[1] / ul, up[2] / ul];
     const limbs = {};
-    for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null, hold: L.hold || null }; if (limbs[k].grip < 0) limbs[k].grip = 0; }
+    for (const k of LIMBS) { const L = this.limb[k]; limbs[k] = { p: L.p.slice(), n: L.hold ? [L.hold.n[0], 0, L.hold.n[1]] : null, grip: L.hold && L.f >= 0.85 ? 1 : L.hold ? (L.f - 0.5) * 2 : 0, moving: this.moving === k, kind: L.hold?.kind || null, hold: this.gripHold(k, L.hold) }; if (limbs[k].grip < 0) limbs[k].grip = 0; }
     // a hand on its way to a hold swings out round the shoulder, never in past it: in a straight line from a low hold to a high one it would
     // brush the shoulder and fold the arm flat (an elbow past 150°); it keeps an arm's bent length off it, out to its own side (not back off the wall:
     // that's behind the body)
