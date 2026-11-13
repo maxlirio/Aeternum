@@ -26,6 +26,7 @@ const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const endAt = (k, h) => isHand(k) ? [h.p[0] + h.n[0] * 0.06, h.p[1] + 0.05, h.p[2] + h.n[1] * 0.06]
   : [h.p[0] + h.n[0] * (h.kind === 'ground' ? 0.3 : 0.14), h.p[1] + BODY.ankle, h.p[2] + h.n[1] * (h.kind === 'ground' ? 0.3 : 0.14)];
 
+const CORNER_GRAB = 1.3;      // how near a corner you have to be standing to take it
 export class Climber {
   // face: the wall; from: [x, y, z] your feet now. Returns null from Climber.grab if nothing's in reach.
   static grab(world, x, y, z, fx, fz, moving = false) {
@@ -46,26 +47,18 @@ export class Climber {
     this.world = world; this.face = face; this.state = 'mount'; this.t = 0; this.done = null;
     this.limb = {}; this.cycle = 0; this.last = null; this.blocked = null; this.slip = 0; this.effort = 0;
     this.normal = [face.n[0], 0, face.n[1]]; this.vel = [0, 0, 0];
-    const a0 = aOf(face, from[0], from[2]), pipeA = a0 < 0.3 || a0 > face.w - 0.3 ? undefined : (face.pipes || []).find(q => Math.abs(q - a0) < 0.6), a = pipeA ?? a0, start = [from[0], from[1] + BODY.hipHeight, from[2]];
-    // hands on the best pair within a jump of where you stand; feet on what's under you
-    const pick = (ideal, want, ra, ry) => { let best = null, bd = Infinity; holdsNear(world, face, ideal, want, ra, ry, h => { if (want > from[1] + 0.8 && h.kind === 'ground') return; const d = Math.hypot(h.a - ideal, h.y - want); if (d < bd) { bd = d; best = h; } }); return best; };
-    const R = this.right(), sgn = (face.t[0] * R[0] + face.t[1] * R[2]) > 0 ? 1 : -1;       // +a is your right, or your left
-    const reach = from[1] + 1.95;
-    const lh = pick(a - sgn * 0.3, reach, 0.6, 0.9), rh = pick(a + sgn * 0.3, reach, 0.6, 0.9);
-    if (!face.tower && pipeA == null && (!lh || !rh || lh === rh || lh.a === rh.a)) { this.ok = false; return; }
-    const footY = Math.max(from[1], Math.min(lh?.y ?? reach, rh?.y ?? reach) - 1.55);
-    const lf = pick(a - sgn * 0.18, footY, 0.5, 0.75), rf = pick(a + sgn * 0.18, footY, 0.5, 0.75);
-    const hold = { lh, rh, lf, rf };
-    // A drainpipe within reach: both hands round it, feet against the wall either side
-    if (pipeA != null) { const onPipe = want => { let b = null, bd = Infinity; holdsNear(world, face, pipeA, want, 0.05, 0.5, h => { if (h.kind === 'pipe' && Math.abs(h.y - want) < bd) { bd = Math.abs(h.y - want); b = h; } }); return b; }; const hi = onPipe(reach), lo = hi && onPipe(hi.y - CORNER_STEP); if (hi && lo) { hold[sgn > 0 ? 'rh' : 'lh'] = hi; hold[sgn > 0 ? 'lh' : 'rh'] = lo; } else if (!lh || !rh || lh === rh || lh.a === rh.a) { this.ok = false; return; } }
+    const a = aOf(face, from[0], from[2]), start = [from[0], from[1] + BODY.hipHeight, from[2]];
+    // a wall is taken at a corner or not at all (steelwork: by its legs)
+    const edge = face.tower ? (a < face.w / 2 ? -1 : 1) : a < CORNER_GRAB ? -1 : a > face.w - CORNER_GRAB ? 1 : 0;
+    if (!edge) { this.ok = false; return; }
+    const R = this.right(), sgn = (face.t[0] * R[0] + face.t[1] * R[2]) > 0 ? 1 : -1, hold = {};       // +a is your right, or your left
     // At a corner, take it the way a climber does: a hand and a foot on each side of the edge, body square to the arris.
-    const edge = pipeA != null ? 0 : face.tower ? (a < face.w / 2 ? -1 : 1) : a < 0.8 ? -1 : a > face.w - 0.8 ? 1 : 0;     // (a tower's way up is its legs)
-    if (edge) {
+    {
       const near = edge * sgn > 0 ? ['rh', 'rf'] : ['lh', 'lf'], far = edge * sgn > 0 ? ['lh', 'lf'] : ['rh', 'rf'], side = edge > 0 ? face.next() : face.prev(), pickEdge = (f, A, want, ry) => { let b = null, bd = Infinity; holdsNear(world, f, A, want, Math.max(0.8, f.w), ry, h => { if (h.kind !== 'corner') return; const d = Math.abs(h.y - want) + 3 * Math.abs(h.a - A); if (d < bd) { bd = d; b = h; } }); return b; };
       const aHere = edge > 0 ? face.w - 0.05 : 0.05, aThere = edge > 0 ? 0.05 : side.w - 0.05;
       const hR = from[1] + 1.85, fR = Math.max(from[1] + 0.45, hR - 1.5), H1 = pickEdge(side, aThere, hR, 0.5), H2 = pickEdge(face, aHere, hR + 0.45, 0.5), F1 = pickEdge(side, aThere, fR + 0.45, 0.5), F2 = pickEdge(face, aHere, fR, 0.5);
       if (H1 && H2 && F1 && F2) { hold[near[0]] = H1; hold[near[1]] = F1; hold[far[0]] = H2; hold[far[1]] = F2; }
-      else if (face.tower) { this.ok = false; return; }
+      else { this.ok = false; return; }
     }
     for (const k of LIMBS) {
       const stand = this.restEnd(k, start);
@@ -294,7 +287,8 @@ export class Climber {
     if (!best) return false;
     // the partner hold on the same row, a shoulder's width away
     let other = null, od = Infinity;
-    holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
+    if (best.kind === 'corner') holdsNear(this.world, best.face, best.a, best.y - CORNER_STEP, 0.02, 0.05, h => { if (h.kind === 'corner') other = h; });     // (up an arris: both hands on it, one a little lower)
+    if (!other) holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
     if (!other) return false;
     const leftFirst = dot(sub(best.p, other.p), R) < 0;
     this.beginLeap(leftFirst ? best : other, leftFirst ? other : best);
@@ -321,10 +315,12 @@ export class Climber {
   }
   // The wall at your back: nearest face looking at this one, within a long jump, with something to catch a little below you.
   leapBack(MAX = 7.5) {
-    const n = this.normal, P = this.pelvis, hy = Math.max(this.limb.lh.hold?.p[1] ?? P[1], this.limb.rh.hold?.p[1] ?? P[1]); let best = null, bs = Infinity;
-    const faces = new Set(), at = [P[0] + n[0] * MAX * 0.5, P[1], P[2] + n[2] * MAX * 0.5]; facesNear(this.world, at[0], at[1], at[2], MAX * 0.6, f => faces.add(f));
+    const P = this.pelvis, hy = Math.max(this.limb.lh.hold?.p[1] ?? P[1], this.limb.rh.hold?.p[1] ?? P[1]); let best = null, bs = Infinity;
+    // (behind either wall you're on: at a corner the body faces the arris, square to neither)
+    const backs = [...new Set([this.face, this.limb.lh.hold?.face, this.limb.rh.hold?.face].filter(Boolean))].map(f => [f.n[0], 0, f.n[1]]);
+    for (const n of backs) { const faces = new Set(), at = [P[0] + n[0] * MAX * 0.5, P[1], P[2] + n[2] * MAX * 0.5]; facesNear(this.world, at[0], at[1], at[2], MAX * 0.6, f => faces.add(f));
     for (const f of faces) { if (f.n[0] * n[0] + f.n[1] * n[2] > -0.8) continue; const gap = outOf(f, P[0], P[2]); if (gap < 1.2 || gap > MAX) continue;
-      holdsNear(this.world, f, aOf(f, P[0], P[2]), hy - 0.5, 1.6, 1.6, h => { if (h.kind === 'ground') return; const s = Math.abs(h.y - (hy - 0.5)) + Math.abs(h.a - aOf(f, P[0], P[2])) + gap * 0.2 + (h.kind === 'pipe' || h.kind === 'corner' ? -0.3 : 0); if (s < bs) { bs = s; best = h; } }); }
+      holdsNear(this.world, f, aOf(f, P[0], P[2]), hy - 0.5, 3.2, 1.6, h => { if (h.kind === 'ground') return; const s = Math.abs(h.y - (hy - 0.5)) + Math.abs(h.a - aOf(f, P[0], P[2])) + gap * 0.2 + (h.kind === 'pipe' || h.kind === 'corner' ? -0.3 : 0); if (s < bs) { bs = s; best = h; } }); } }
     if (!best) return null;
     let other = null, od = Infinity; if (best.kind === 'pipe' || best.kind === 'corner') holdsNear(this.world, best.face, best.a, best.y - CORNER_STEP, 0.02, 0.05, h => { if (h.kind === best.kind) other = h; });
     if (!other) holdsNear(this.world, best.face, best.a, best.y, 0.7, 0.01, h => { const d = Math.abs(Math.abs(h.a - best.a) - 0.45); if (h.a !== best.a && d < od) { od = d; other = h; } });
@@ -381,7 +377,8 @@ export class Climber {
   // hips stay outside the edge until they're above it, so nothing passes through anything.
   stepTop(dt) {
     const q = this.topOut; q.t += dt; this.effort = 1;
-    const f = Math.min(1, q.t / q.dur), n = [q.n[0], 0, q.n[1]], R = this.right(), E = q.edge;
+    const f = Math.min(1, q.t / q.dur), n = [q.n[0], 0, q.n[1]], R = [n[2], 0, -n[0]], E = q.edge;      // (in the wall's own frame: at a corner the body was turned to the arris, and squares up to the wall as it goes over)
+    { q.n0 = q.n0 || this.normal.slice(); const e = ease(clamp(f / 0.45, 0, 1)), xx = q.n0[0] + (n[0] - q.n0[0]) * e, zz = q.n0[2] + (n[2] - q.n0[2]) * e, l = Math.hypot(xx, zz) || 1; this.normal = [xx / l, 0, zz / l]; }
     const at = (out, up, side = 0) => [E[0] + n[0] * out + R[0] * side, q.y + up, E[2] + n[2] * out + R[2] * side];
     const start0 = sub(q.from, E), o0 = start0[0] * n[0] + start0[2] * n[2], y0 = q.from[1] - q.y, endUp = q.stand[1] - q.y + BODY.hipHeight;
     // the hips: [f, out from the edge, up from it]

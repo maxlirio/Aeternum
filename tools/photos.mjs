@@ -287,6 +287,33 @@ try {
     await shot('climbstrain-back');
     await ev('(window.__shotCam = null, 1)');
   }
+  if (want('climbcorner')) {
+    // walls are climbed at their corners: up a town building's arris, photographed from behind, the side, wide and at the hands, at three heights
+    await load('hour=11');
+    for (let i = 0; i < 120 && !(await ev('window.__body ? 1 : 0')); i++) await sleep(500);
+    const R = await ev(`(async () => { const O = ORBIS, H = await import('./js/gen/holds.js'), c = O.ctrl, w = O.world; let got = null;
+      const s = O.s; for (const b of s.buildings) { if (b.type === 'house') continue; const fl = []; const [x0, , z0] = (await import('./js/gen/place.js')).buildingToWorld(s, b, 0, 0, 0); H.facesNear(w, x0, w.groundAt(x0, z0, 1e4).h, z0, 30, f => { if (f.town === b) fl.push(f); });
+        for (const f of fl) { if (f.w < 5 || f.y1 - f.y0 < 7) continue; for (const a of [0.6, f.w - 0.6]) { const x = f.o[0] + f.t[0] * a + f.n[0] * 0.45, z = f.o[1] + f.t[1] * a + f.n[1] * 0.45, y = w.groundAt(x, z, f.y0 + 1).h; if (Math.abs(y - f.y0) > 0.3) continue;
+          c.mode = 'walk'; c.pos = [x, y, z]; c.vel = [0, 0, 0]; c.facing = Math.atan2(-f.n[0], -f.n[1]); if (c.grabWall()) { got = f; break; } } if (got) break; }
+        if (got) break; }
+      if (!got) return { none: true }; window.__cf = got; return { face: got.key, h: +(got.y1 - got.y0).toFixed(1) }; })()`);
+    console.log('   corner', JSON.stringify(R));
+    await ev(`(() => { const O = ORBIS, R = O.renderer, r0 = R.render.bind(R); R.render = (sc, ca) => { const C = window.__shotCam; if (ca === O.camera && C) { ca.position.set(...O.toRender(...C.pos)); ca.lookAt(...O.toRender(...C.look)); ca.updateMatrixWorld(); } return r0(sc, ca); }; return 1; })()`);
+    const views = [['back', 0, 0.3, 3.0], ['side', 2.0, 0.4, 1.4], ['wide', -3.5, 1.0, 7.5], ['hands', 0.4, 1.35, 0.9]];
+    for (const [step, presses] of [['low', 2], ['mid', 4], ['high', 4]]) {
+      await ev(`(async () => { const wait = ms => new Promise(r => setTimeout(r, ms)); for (let i = 0; i < ${presses}; i++) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' })); await wait(900); } dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); await wait(1400); return 1; })()`);
+      console.log('    game camera', await ev('JSON.stringify({ cur: ORBIS.cam.cur, opacity: ORBIS.avatar?.object?.visible })'));
+      await ev('(window.__shotCam = null, (ORBIS.avatar.__so && (ORBIS.avatar.setOpacity = ORBIS.avatar.__so)), 1)'); await sleep(500); await shot(`climbcorner-${step}-game`);
+      await ev('(() => { const A = ORBIS.avatar; A.__so = A.__so || A.setOpacity; A.__so(1); A.setOpacity = () => {}; return 1; })()');      // (the posed cameras stand where the game's wouldn't: the body stays solid for them)
+      for (const [tag, side, up, back] of views) {
+        const G = await ev(`(async () => { const O = ORBIS, W = O.ctrl.wall; if (!W) return 'nowall ' + O.ctrl.mode; const P = W.pose(), n = W.normal, R = W.right(), at = '${tag}' === 'hands' ? [(P.limbs.lh.p[0] + P.limbs.rh.p[0]) / 2, (P.limbs.lh.p[1] + P.limbs.rh.p[1]) / 2 - 1.0, (P.limbs.lh.p[2] + P.limbs.rh.p[2]) / 2] : P.pelvis;
+          window.__shotCam = { pos: [at[0] + n[0] * ${back} + R[0] * ${side}, at[1] + ${up}, at[2] + n[2] * ${back} + R[2] * ${side}], look: [at[0], at[1] + ('${tag}' === 'hands' ? 1.0 : 0.3), at[2]] };
+          await new Promise(r => setTimeout(r, 600)); return JSON.stringify({ y: +(O.ctrl.pos[1] - window.__cf.y0).toFixed(1), holds: ['lh', 'rh', 'lf', 'rf'].map(k => P.limbs[k].kind) }); })()`);
+        console.log('   ', step, tag, G); await shot(`climbcorner-${step}-${tag}`);
+      }
+    }
+    await ev('(window.__shotCam = null, 1)');
+  }
   if (want('climbreal')) {
     // the ADVENTURER body on a real town wall: up it a few holds, then the hands up close (what each is on, and how far its skin is from it)
     await load('hour=11');

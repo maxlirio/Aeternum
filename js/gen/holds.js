@@ -51,13 +51,13 @@ function cityRows(b, y0, y1) {
   rows.push({ y: y1, kind: 'top' });
   return fill([{ y: y0, kind: 'ground' }, ...rows]);
 }
-// Where drainpipes run down a wall: usually one close by a corner, and on a long wall others between the window bays. By the wall's own numbers.
+// Where drainpipes run down a wall: usually one near a corner (set back 1.5 m: the arris is the way up, and a pipe there is in the climber's way), and on a long wall others between the window bays. By the wall's own numbers.
 function pipesOf(f, bay, clear = []) {
   let h = 0; for (const ch of f.key) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
   const out = [], r = k => ((h ^ Math.imul(k + 1, 2654435761)) >>> 0) % 1000 / 1000;
-  if (f.w < 4) return out;
+  if (f.w < 5) return out;
   const free = q => !clear.some(([p0, p1]) => q > p0 - 0.25 && q < p1 + 0.25);    // (a pipe doesn't cross a window or a door)
-  if (r(0) < 0.85) { const e = r(1) < 0.5 ? 0.42 : f.w - 0.42; if (free(e)) out.push(e); }
+  if (r(0) < 0.85) { const e = r(1) < 0.5 ? 1.5 : f.w - 1.5; if (free(e)) out.push(e); }
   const b = bay > 1 ? bay : 4.5, gap = 6 + r(2) * 2; for (let a = gap; a < f.w - 3; a += gap) { const q = Math.round(a / b) * b;   // (the first always: there's something to leap to from the corner)
       let spot = q; if (!free(spot)) { spot = null; for (const d of [0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4]) if (free(q + d)) { spot = q + d; break; } } if (spot != null && spot > 2 && spot < f.w - 2 && !out.includes(spot) && (a === gap || r(3 + out.length) < 0.62)) out.push(spot); }
   return out;
@@ -242,9 +242,13 @@ export function rowSpans(f, row, all = false) {
 // The holds on a face in a box round (a, y). Each is clear of whatever else stands there. A corner is a hold all the way up:
 // a building's arris or a tower's leg is something to wrap your hands round, row or no row.
 export const CORNER_STEP = 0.45;
+// Walls are climbed at their corners only: the open face between them has nothing a hand can take (no sills, rails or pipes),
+// only the arris itself, the parapet's top beside it to pull over, and the ground. CORNER_BAND: how far in from an edge the top still counts.
+export const CORNER_BAND = 0.95;
 export function holdsNear(world, f, a, y, ra, ry, fn) {
   for (const row of f.rows) {
     if (row.y < y - ry || row.y > y + ry) continue;
+    if (row.kind !== 'top' && row.kind !== 'ground') continue;
     const ins = insetAt(f, row.y), a0 = Math.max(0.12 + ins, a - ra), a1 = Math.min(f.w - 0.12 - ins, a + ra);
     const at = []; for (let k = Math.ceil(a0 / STEP_A); k * STEP_A <= a1; k++) at.push(k * STEP_A);
     if (a0 <= 0.15 + ins) at.unshift(0.15 + ins);                     // ...and right up to the corners, to reach round them
@@ -252,15 +256,13 @@ export function holdsNear(world, f, a, y, ra, ry, fn) {
     const sp = rowSpans(f, row);
     for (const h of at) {
       if (sp && !sp.some(([s0, s1]) => h >= s0 + 0.07 && h <= s1 - 0.07)) continue;      // (a sill is only under its window)
+      if (row.kind === 'top' && h > CORNER_BAND + ins && h < f.w - CORNER_BAND - ins) continue;      // (the top is reached only from the corner)
       const p = pointOn(f, h, row.y, -ins), n = f.n;
       if (!f.tower && row.kind !== 'top' && row.kind !== 'ground') { if (world.solidAt(p[0] + n[0] * 0.32, row.y + 0.15, p[2] + n[1] * 0.32, 0.05)) continue; }   // someone else's wall is in the way
       fn({ p, n, a: h, y: row.y, kind: row.kind, face: f });
     }
   }
-  // a drainpipe is a hold all the way up
-  for (const a0 of f.pipes || []) { if (Math.abs(a0 - a) > ra) continue;
-    const y0 = Math.max(f.y0 + 0.4, y - ry), y1 = Math.min(f.y1 - 0.2, y + ry);
-    for (let k = Math.ceil((y0 - f.y0) / CORNER_STEP); f.y0 + k * CORNER_STEP <= y1; k++) { const hy = f.y0 + k * CORNER_STEP, p = pointOn(f, a0, hy, 0.09); if (!f.tower && world.solidAt(p[0] + f.n[0] * 0.25, hy + 0.15, p[2] + f.n[1] * 0.25, 0.05)) continue; fn({ p, n: f.n, a: a0, y: hy, kind: 'pipe', face: f }); } }
+  // (drainpipes are drawn, but not climbed: walls go up by their corners)
   // the corners themselves
   const y0 = Math.max(f.y0 + 0.4, y - ry), y1 = Math.min(f.y1 - 0.15, y + ry);
   for (let k = Math.ceil((y0 - f.y0) / CORNER_STEP); f.y0 + k * CORNER_STEP <= y1; k++) {

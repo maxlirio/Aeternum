@@ -202,7 +202,7 @@ function roomDecor(mb, M, plan, b, rng) {
   }
 }
 
-// The things that make a box read as a lived-in building: downpipes at the corners,
+// The things that make a box read as a lived-in building: downpipes near the corners,
 // balconies on flats, air-conditioning boxes under windows, kitchen extract vents, a
 // stair housing on tall roofs, solar panels on houses. All drawn, none collides.
 function exteriorDetail(mb, M, plan, b, rng, facade, fcol, noRoof = false) {
@@ -232,8 +232,8 @@ function exteriorDetail(mb, M, plan, b, rng, facade, fcol, noRoof = false) {
     for (const o of ops) if (o.kind === 'window') { const y0 = wl.y0 + o.y0, y1 = wl.y0 + o.y1; onFace(wl.side, o.a - 0.12, o.b + 0.12, y1, y1 + 0.13, 0, 0.06, M.concrete, [0.72, 0.72, 0.7]); onFace(wl.side, o.a - 0.09, o.b + 0.09, y0 - 0.07, y0, 0, 0.11, M.concrete, [0.72, 0.72, 0.7]); }
   }
   for (const side of ['front', 'back', 'left', 'right']) { const S = span(side); onFace(side, -0.12, S + 0.12, top - 0.1, top + 0.06, 0, 0.17, M.trim); if (b.type !== 'house') onFace(side, -0.12, S + 0.12, top + 0.34, top + 0.42, -0.04, 0.12, M.metal, [0.6, 0.62, 0.64]); }
-  pipe('front', 0.3); pipe('back', w - 0.3);
-  if (w > 14) { pipe('front', w - 0.3); pipe('back', 0.3); }
+  pipe('front', 1.5); pipe('back', w - 1.5);      // (set back from the corners: the arris is the way up, kept clear for the climber's hands and knees)
+  if (w > 14) { pipe('front', w - 1.5); pipe('back', 1.5); }
   const home = b.type === 'hab' || b.type === 'house';
   for (const wl of plan.walls) {
     if (!wl.exterior) continue;
