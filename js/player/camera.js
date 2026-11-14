@@ -8,10 +8,11 @@ export class FollowCamera {
     dom.addEventListener('mousemove', e => {
       if (document.pointerLockElement !== dom) return;
       if (this.onMouse && this.onMouse(e.movementX, e.movementY)) return;     // (something else — the flight stick — is using the mouse)
-      this.yaw -= e.movementX * 0.0025;
-      this.pitch = Math.max(-0.9, Math.min(1.2, this.pitch + e.movementY * 0.0022));
+      this.yaw -= e.movementX * 0.0025 * this.sens;
+      this.pitch = Math.max(-0.9, Math.min(1.2, this.pitch + e.movementY * 0.0022 * this.sens));
     });
-    dom.addEventListener('wheel', e => { this.dist = Math.max(1.6, Math.min(14, this.dist * (1 + Math.sign(e.deltaY) * 0.1))); }, { passive: true });
+    this.sens = 1;      // (through a scope the mouse turns you less, by the zoom)
+    dom.addEventListener('wheel', e => { if (this.onWheel && this.onWheel(Math.sign(e.deltaY))) return; this.dist = Math.max(1.6, Math.min(14, this.dist * (1 + Math.sign(e.deltaY) * 0.1))); }, { passive: true });
   }
   update(dt, target, toRender) {
     const tx = target[0], ty = target[1] + 1.55, tz = target[2];

@@ -26,10 +26,12 @@ const BARK = {
   pinned: ['Pinned down!', "I can't move!", 'Heads down!'], frag: ['Frag out!', 'Grenade out!'], nade: ['Grenade!', 'Get clear!'], mandown: ['Man down!', "He's down!", 'Lost one!'],
   got: ['Got him!', 'Tango down!', "He's down."], point: ['Taking the point!', 'On the point!'], alone: ['I need support!', 'Anyone left?', 'I need reinforcements!'],
   hit: ["I'm hit!", 'Agh!', 'Hit!'], you: ['Shooter!', 'Watch that one!', 'There, that one!'],
+  tank: ['Tank!', 'Armour!', 'Enemy armour!'], launcher: ['Launcher!', 'Rocket out!', 'Firing AT!'], dismount: ['Dismount!', 'Out, out, out!', 'Go, go, go!'],
 };
+const WIRE_SEG = 2;
 export class Infantry {
   // ground(x, z) → height; resolve(x, z, y) → [x, z] out of anything solid; hooks: hitPlayer(dmg, by, from)
-  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.int = 0; this.phase = 'build'; this.phT = 0; }
+  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.int = 0; this.phase = 'build'; this.phT = 0; }
   // the line along front F: where everything stands. (a: across the border, + toward the enemy; s: along it)
   setup(F) {
     this.F = F; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
@@ -41,29 +43,34 @@ export class Infantry {
     // each side's works: a breastwork of sandbags along its front line, broken where the ground's walked, and walls scattered forward of it toward the objectives
     for (const side of [-1, 1]) {
       for (let s = -SPAN; s < SPAN; s += 12 + r() * 7) if (r() < 0.8) { const a = side * (LINE + Math.sin(s / 60 + side) * 7 + r() * 4), len = 7 + r() * 4;
-        this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.2, by: null, line: true }); }
+        this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.2, by: null, line: true, hp: 420, h: 0.85 }); }
       for (let k = 0; k < 30; k++) { const O = this.obj[k % 3], s = O.s + (r() - 0.5) * 150, a = side * (8 + r() * 42), len = 3 + r() * 3.5;
-        this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.7, by: null }); } }
+        this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.7, by: null, hp: 260, h: 0.85 }); } }
     // between the lines: steel hedgehogs, runs of wire, a few fires
     this.props = [];
     for (let k = 0; k < 22; k++) this.props.push({ kind: 'hedgehog', pos: at((r() - 0.5) * 40, (r() - 0.5) * 2 * SPAN), rot: r() * 6.28 });
     for (let k = 0; k < 7; k++) { const s = -SPAN + r() * 2 * SPAN, a = (r() - 0.5) * 30, L = 10 + r() * 12; this.props.push({ kind: 'wire', pos: at(a, s), a, s, len: L, rot: F.dir + Math.PI / 2 + (r() - 0.5) * 0.4 }); }
     for (const side of [-1, 1]) for (let k = 0; k < 12; k++) { const s = -SPAN + r() * 2 * SPAN, a = side * (LINE + 12 + r() * 3); this.props.push({ kind: 'wire', pos: at(a, s), a, s, len: 14 + r() * 10, rot: F.dir + Math.PI / 2 }); }
     for (let k = 0; k < 6; k++) this.props.push({ kind: 'fire', pos: at((r() - 0.5) * 110, (r() - 0.5) * 2 * SPAN), size: 1 + r() * 2 });
+    // each run of wire in lengths between pickets: a grenade or a shell cuts one, a tank flattens it, and men go through the gap
+    for (const W of this.props) if (W.kind === 'wire') { const n = Math.max(1, Math.round(W.len / WIRE_SEG)); W.segs = []; for (let k = 0; k < n; k++) W.segs.push({ k, s0: (k / n - 0.5) * W.len, s1: ((k + 1) / n - 0.5) * W.len, dead: false }); }
     this.rally = { ours: [-RALLY, 0], theirs: [RALLY, 0] };
     // you come up on a fight already going: each side's men all in, the first at its own sandbags, the rest forward of them
     this.n = 0; for (let k = 0; k < PER_SIDE; k++) for (const side of ['ours', 'theirs']) { const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos); M.pos = at((side === 'ours' ? -1 : 1) * (14 + Math.random() * 36), s0); } }
     this.reinf = 6;
+    this.armor?.setup();
     this.events.push({ type: 'line', F });
   }
-  end() { this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; }
+  end() { this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.armor?.end(); }
   spawn(side) {
     // up from the rally point to near one of the objectives (the first of them straight into their own line)
     const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * 2, a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(a, s);
     const k = this.n++, M = { id: `inf:${side}:${k}`, side, squad: Math.floor(k / 2) % SQUAD, pos: p, facing: side === 'ours' ? this.dir : this.dir + Math.PI, hp: 100, state: 'move', goal: null, cool: 1 + Math.random() * 2, dwell: 0, moving: false, aim: 0, dead: 0,
-      sup: 0, duck: 0, flinch: 0, threat: 0, support: 0, nadeCd: 8 + Math.random() * 20, barkCd: Math.random() * 3, saw: false, fall: 0 };
+      sup: 0, duck: 0, flinch: 0, threat: 0, support: 0, nadeCd: 8 + Math.random() * 20, barkCd: Math.random() * 3, saw: false, fall: 0, at: k % 5 === 2, rk: 2, via: null, routeT: 0 };      // (one man in five carries a launcher)
     this.men.push(M); return M;
   }
+  // the nearest man of `side` to p (within 60 m) says it
+  barkNear(p, side, kind) { let best = null, bd = 60; for (const M of this.men) if (M.hp > 0 && M.side === side) { const d = this.near(M.pos, p); if (d < bd) { bd = d; best = M; } } if (best) this.bark(best, kind); }
   bark(M, kind, force = false) { if (!M || M.hp <= 0 || (!force && M.barkCd > 0)) return; const last = this.lastBark?.[M.side] ?? -9; if (!force && this.t - last < 1.1) return; (this.lastBark ||= {})[M.side] = this.t; M.barkCd = 5 + Math.random() * 4; this.barks.push({ M, text: pick(BARK[kind]), t: 0, kind }); }
   // you, as the sim sees you: { pos, side ('ours' | null), alive }
   step(dt, you) {
@@ -76,7 +83,7 @@ export class Infantry {
     for (const M of this.men) {
       if (M.hp <= 0) { M.dead += dt; continue; }
       M.sup = Math.max(0, M.sup - dt * 0.18); M.flinch = Math.max(0, M.flinch - dt); M.threat = Math.max(0, M.threat - dt); M.support = Math.max(0, M.support - dt); M.nadeCd -= dt; M.barkCd -= dt;
-      const foe = M.side === 'ours' ? 'theirs' : 'ours', inCover = M.state === 'hold' && !!M.goal?.C;
+      const foe = M.side === 'ours' ? 'theirs' : 'ours', inCover = M.state === 'hold' && !!M.goal?.C && !M.goal.C.down;
       // pinned: behind a wall, under fire, he keeps his head down (and comes back up as it eases)
       const pinned = (inCover || M.prone) && (M.sup > 0.5 || M.duck > 0.5 && M.sup > 0.3); M.duck += ((pinned ? 1 : 0) - M.duck) * Math.min(1, dt * 6);      // (down at 0.5, up again once it's eased below 0.3)
       if (pinned && M.sup > 0.85 && Math.random() < dt * 0.08) this.bark(M, "pinned");
@@ -85,25 +92,30 @@ export class Infantry {
       // whom it can see to shoot at: the nearest, but you first if you've been shooting at him
       let tgt = null, td = RANGE;
       for (const E of alive) { if (E.side !== foe) continue; const d = Math.hypot(E.pos[0] - M.pos[0], E.pos[2] - M.pos[2]); if (d < td && this.sees(M.pos, E.pos)) { td = d; tgt = E; } }
-      if (you?.alive && you.side === foe) { const d = Math.hypot(you.pos[0] - M.pos[0], you.pos[2] - M.pos[2]); if (d * (M.threat > 0 ? 0.25 : 0.5) < td && d < RANGE && this.sees(M.pos, you.pos)) { td = d; tgt = 'you'; } }
+      if (you?.alive && you.side === foe && !you.tank) { const d = Math.hypot(you.pos[0] - M.pos[0], you.pos[2] - M.pos[2]); if (d * (M.threat > 0 ? 0.25 : 0.5) < td && d < RANGE && this.sees(M.pos, you.pos)) { td = d; tgt = 'you'; } }
       if (tgt && !M.saw) { M.saw = true; this.bark(M, tgt === 'you' && M.threat > 0 ? 'you' : 'contact'); } if (!tgt) M.saw = false;
       if (tgt === 'you') onYou++;
       // moving: to a wall of its own side on the way to the objective; held there a while if there's someone to fight; then on, then onto the point itself
       // caught in the open under fire: he dives for the nearest wall, or goes flat where he is
       if (M.state === 'move' && M.sup > 0.6 && !M.diving) { M.diving = true; let best = null, bd = 14;
-        for (const C of this.cover) { if (C.by && C.by !== M.id) continue; const d = this.near(C.pos, M.pos); if (d < bd) { bd = d; best = C; } }
-        if (best) { if (M.goal?.C?.by === M.id) M.goal.C.by = null; best.by = M.id; const back = best.side === 'ours' ? -1 : 1; M.goal = { pos: this.at(best.a + back * (M.side === 'ours' ? 1 : -1) * (best.side === M.side ? 1 : -1), best.s + (Math.random() - 0.5) * best.len * 0.6), C: best }; }
+        for (const C of this.cover) { if (C.down || C.by && C.by !== M.id) continue; const d = this.near(C.pos, M.pos); if (d < bd) { bd = d; best = C; } }
+        if (best) { if (M.goal?.C?.by === M.id) M.goal.C.by = null; best.by = M.id; M.goal = { pos: this.at(best.a + (M.side === 'ours' ? -1 : 1) * (best.back || 1), best.s + (Math.random() - 0.5) * best.len * 0.6), C: best }; M.via = null; M.routeT = 0; }
         else { if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = { pos: M.pos.slice(), C: null }; M.prone = true; M.state = 'hold'; M.moving = false; M.dwell = 3 + Math.random() * 3; } }
       if (M.state === 'move') {
-        if (!M.goal) M.goal = this.nextCover(M, want);
-        const g = M.goal.pos, dx = g[0] - M.pos[0], dz = g[2] - M.pos[2], d = Math.hypot(dx, dz);
-        if (d < 1.2) { M.state = 'hold'; M.diving = false; M.dwell = tgt ? 8 + Math.random() * 9 : 1.5 + Math.random() * 2; M.moving = false; if (!M.goal.C && this.near(M.pos, want.pos) < R_OBJ && Math.random() < 0.5) this.bark(M, 'point'); }
-        else { const sp = (tgt && td < 60 ? 4.8 : 3.6) * (M.flinch > 0 ? 0.4 : 1) * dt; M.pos = [M.pos[0] + dx / d * Math.min(sp, d), 0, M.pos[2] + dz / d * Math.min(sp, d)]; M.facing = Math.atan2(dx, dz); M.moving = true;
+        if (!M.goal) { M.goal = this.nextCover(M, want); M.via = null; M.routeT = 0; }
+        // round whatever's between him and it: the end of a wall, the nearest gap in the wire
+        if ((M.routeT -= dt) <= 0) { M.routeT = 0.6; M.via = this.route(M.pos, M.goal.pos); }
+        if (M.via && this.near(M.pos, M.via) < 1.0) { M.via = this.route(M.pos, M.goal.pos); M.routeT = 0.6; if (M.via && this.near(M.pos, M.via) < 1.0) M.via = null; }
+        const g = M.via || M.goal.pos, dx = g[0] - M.pos[0], dz = g[2] - M.pos[2], d = Math.hypot(dx, dz);
+        if (d < 1.2 && !M.via) { M.state = 'hold'; M.diving = false; M.dwell = tgt ? 8 + Math.random() * 9 : 1.5 + Math.random() * 2; M.moving = false; if (!M.goal.C && this.near(M.pos, want.pos) < R_OBJ && Math.random() < 0.5) this.bark(M, 'point'); }
+        else if (d > 1e-3) { const sp = (tgt && td < 60 ? 4.8 : 3.6) * (M.flinch > 0 ? 0.4 : 1) * dt; M.pos = [M.pos[0] + dx / d * Math.min(sp, d), 0, M.pos[2] + dz / d * Math.min(sp, d)]; M.facing = Math.atan2(dx, dz); M.moving = true;
           for (const N of this.men) if (N !== M && N.hp > 0) { const ox = M.pos[0] - N.pos[0], oz = M.pos[2] - N.pos[2], od = Math.hypot(ox, oz); if (od < 0.62 && od > 1e-4) { M.pos[0] += ox / od * (0.62 - od); M.pos[2] += oz / od * (0.62 - od); } }
+          { const q = this.push(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2]), 1.7, 0.3); if (q) { M.pos[0] = q[0]; M.pos[2] = q[1]; } }
           if (this.resolve) { const [rx, rz] = this.resolve(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2])); M.pos[0] = rx; M.pos[2] = rz; }
           M.pos[1] = this.ground(M.pos[0], M.pos[2]); }
       } else if (M.state === 'hold') {
         M.dwell -= dt * (pinned ? 0.15 : 1);      // (pinned, he stays put)
+        if (M.goal?.C?.down) M.dwell = Math.min(M.dwell, 0.3);      // (his wall's gone: he finds another)
         if (M.dwell <= 0 && !(tgt && td < 40) || M.prone && !pinned && M.dwell <= 0) {
           M.prone = false; M.diving = false;
           if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = this.near(M.pos, want.pos) < R_OBJ * 0.6 ? null : this.nextCover(M, want); M.state = M.goal ? 'move' : 'hold'; M.dwell = 4;
@@ -111,6 +123,13 @@ export class Infantry {
           if (M.goal && tgt) { let cov = null; for (const N of alive) if (N !== M && N.side === M.side && N.squad === M.squad && N.state === 'hold' && this.near(N.pos, M.pos) < 30) { N.support = 3; cov = N; } if (cov) { this.bark(M, 'moving'); this.bark(cov, 'covering', true); } }
         }
       }
+      // a launcher, at enemy armour in range: stood still, not pinned, he puts a rocket into it (leading it if it's moving)
+      if (M.at && M.rk > 0 && this.armor && !M.moving && M.flinch <= 0 && !pinned && (M.atCd = (M.atCd ?? 2) - dt) <= 0) {
+        let V = null, vd = 170; const eye = [M.pos[0], M.pos[1] + 1.5, M.pos[2]];
+        for (const E of this.armor.list) { if (E.dead || E.side === M.side) continue; const d = this.near(E.pos, M.pos); if (d > 22 && d < vd && this.armor.sees(eye, [E.pos[0], E.pos[1] + 1.3, E.pos[2]])) { vd = d; V = E; } }
+        if (V && Math.random() < dt * 0.5) { const tf = vd / 115, to = [V.pos[0] + Math.sin(V.facing) * V.speed * tf, V.pos[1] + 1.2, V.pos[2] + Math.cos(V.facing) * V.speed * tf]; M.facing = Math.atan2(to[0] - M.pos[0], to[2] - M.pos[2]);
+          this.armor.rocket([M.pos[0] + Math.sin(M.facing) * 0.6, M.pos[1] + 1.55, M.pos[2] + Math.cos(M.facing) * 0.6], to, M.side, M, 0.006 + vd * 0.00007); M.rk--; M.atCd = 6 + Math.random() * 4; M.cool = 2; this.bark(M, 'launcher', true); }
+        else if (!V) M.atCd = 1; }
       // a grenade, at a man dug in behind a wall (or you, when you've been shooting at him) within throwing range
       if (tgt && !M.moving && M.nadeCd <= 0 && td > 10 && td < 40 && !pinned) { const dug = tgt === 'you' ? M.threat > 0 : tgt.state === 'hold' && tgt.goal?.C;
         if (dug && Math.random() < dt * 0.4) { const tp = tgt === 'you' ? you.pos : tgt.pos; this.throwNade(M, [tp[0] + (Math.random() - 0.5) * 3, 0, tp[2] + (Math.random() - 0.5) * 3]); } }
@@ -120,7 +139,7 @@ export class Infantry {
         const tp = tgt === 'you' ? you.pos : tgt.pos; M.facing = Math.atan2(tp[0] - M.pos[0], tp[2] - M.pos[2]);
         if ((M.cool -= dt * (M.support > 0 ? 1.8 : 1)) <= 0) {
           M.burst = (M.burst || 0) + 1; if (M.burst >= 3 + Math.floor(Math.random() * 2)) { M.burst = 0; M.cool = 1.1 + Math.random() * 1.4; } else M.cool = 0.16 + Math.random() * 0.1;      // (in bursts of three or four)
-          const blind = M.duck > 0.5, tDuck = tgt !== 'you' && tgt.duck > 0.5, covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C;
+          const blind = M.duck > 0.5, tDuck = tgt !== 'you' && tgt.duck > 0.5, covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C && !tgt.goal.C.down;
           let p = (0.32 * (1 - td / RANGE) + 0.06) * (covered ? 0.45 : 1) * (tDuck ? 0.25 : 1) * (blind ? 0.2 : 1) * (M.sup > 0.4 ? 0.6 : 1);
           if (tgt === 'you') { p *= 0.9; if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9, tp[2]])) p *= 0.45; }      // (behind sandbags yourself, they'll hit you far less)
           const hit = Math.random() < p, from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
@@ -174,8 +193,9 @@ export class Infantry {
   nadeAt(N) { const f = Math.min(1, N.age / N.T), h = Math.max(2, Math.hypot(N.to[0] - N.from[0], N.to[2] - N.from[2]) * 0.3); return [N.from[0] + (N.to[0] - N.from[0]) * f, N.from[1] + (N.to[1] - N.from[1]) * f + 4 * h * f * (1 - f), N.from[2] + (N.to[2] - N.from[2]) * f]; }
   explode(N, you) {
     const p = N.to, by = N.by === 'player' ? 'player' : N.side; this.events.push({ type: 'nade', p, R: NADE_R, by });
+    this.armor?.splash(p, NADE_R, 120, by); this.damageCover(p, NADE_R, 90); this.cutWire(p, NADE_R * 0.45);
     for (const M of this.men) if (M.hp > 0) { const d = this.near(M.pos, p); if (d < NADE_R) { const shelter = M.duck > 0.5 && M.goal?.C && this.coverBetween([p[0], p[1] + 0.3, p[2]], [M.pos[0], M.pos[1] + 0.6, M.pos[2]]); this.hurt(M, (130 * (1 - d / NADE_R) + 15) * (shelter ? 0.3 : 1), by, [M.pos[0] - p[0], M.pos[2] - p[2]]); } else if (d < NADE_R * 2.5) M.sup = Math.min(1, M.sup + 0.5); }
-    if (you?.alive) { const d = this.near(you.pos, p); if (d < NADE_R) { const dmg = Math.round((70 * (1 - d / NADE_R) + 8) * (N.by === 'player' ? 0.6 : 1)); this.int += dmg / 50; this.hooks.hitPlayer?.(dmg, N.by === 'player' ? 'your own grenade' : 'a grenade', p); } else if (d < NADE_R * 3) this.int += 0.25; }
+    if (you?.alive && !you.tank) { const d = this.near(you.pos, p); if (d < NADE_R) { const dmg = Math.round((70 * (1 - d / NADE_R) + 8) * (N.by === 'player' ? 0.6 : 1)); this.int += dmg / 50; this.hooks.hitPlayer?.(dmg, N.by === 'player' ? 'your own grenade' : 'a grenade', p); } else if (d < NADE_R * 3) this.int += 0.25; }
   }
   local(p) { const dx = p[0] - this.F.x, dz = p[2] - this.F.z, ux = Math.sin(this.dir), uz = Math.cos(this.dir); return [dx * ux + dz * uz, dx * -uz + dz * ux]; }
   near(p, q) { return Math.hypot(p[0] - q[0], p[2] - q[2]); }
@@ -185,20 +205,20 @@ export class Infantry {
   // (the s direction) at its a, 0.8 m high: a ray low enough meets it, one over the top goes on.
   coverOnRay(o, dir, best) {
     if (!this.F) return null; const [ux, uz] = this.u, [vx, vz] = this.v, dn = dir[0] * ux + dir[2] * uz; if (Math.abs(dn) < 1e-3) return null; let hit = null;
-    for (const C of this.cover) { const t = ((C.pos[0] - o[0]) * ux + (C.pos[2] - o[2]) * uz) / dn; if (t < 0.4 || t > best) continue;
+    for (const C of this.cover) { if (C.down || C.wreck) continue; const t = ((C.pos[0] - o[0]) * ux + (C.pos[2] - o[2]) * uz) / dn; if (t < 0.4 || t > best) continue;
       const qx = o[0] + dir[0] * t, qz = o[2] + dir[2] * t, w = (qx - C.pos[0]) * vx + (qz - C.pos[2]) * vz; if (Math.abs(w) > C.len / 2) continue;
-      const y = o[1] + dir[1] * t; if (y < C.pos[1] + 0.8 && y > C.pos[1] - 0.4) { best = t; hit = { along: t, C }; } }
+      const y = o[1] + dir[1] * t; if (y < C.pos[1] + (C.h || 0.8) && y > C.pos[1] - 0.4) { best = t; hit = { along: t, C }; } }
     return hit;
   }
-  coverBetween(a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; return !!this.coverOnRay(a, [dx / L, dy / L, dz / L], L - 0.3); }
+  coverBetween(a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; return !!this.coverOnRay(a, [dx / L, dy / L, dz / L], L - 0.3) || !!this.armor?.blocks(a, b); }
   // the next wall of its own side toward the objective (behind it, on the side away from the enemy), else the objective itself
   nextCover(M, O) {
     const [a0, s0] = this.local(M.pos), fwd = M.side === 'ours' ? 1 : -1;
     let best = null, bc = Infinity;
-    for (const C of this.cover) { if (C.by && C.by !== M.id) continue; const da = (C.a - a0) * fwd, ds = C.s - s0, toO = Math.hypot(C.a - O.a, C.s - O.s), here = Math.hypot(O.a - a0, O.s - s0);
+    for (const C of this.cover) { if (C.down || C.by && C.by !== M.id) continue; const da = (C.a - a0) * fwd, ds = C.s - s0, toO = Math.hypot(C.a - O.a, C.s - O.s), here = Math.hypot(O.a - a0, O.s - s0);
       if (da < 3 || da > 50 || toO > here - 4) continue; const cost = Math.hypot(da, ds) + toO * 0.6 + (C.side !== M.side ? 18 : 0); if (cost < bc) { bc = cost; best = C; } }
     if (!best) { const j = (Math.random() - 0.5) * R_OBJ, k = (Math.random() - 0.5) * R_OBJ; return { pos: this.at(O.a + j * 0.5, O.s + k), C: null }; }
-    best.by = M.id; const back = M.side === 'ours' ? -1.0 : 1.0, off = (Math.random() - 0.5) * best.len * 0.7; return { pos: this.at(best.a + back, best.s + off), C: best };
+    best.by = M.id; const back = (M.side === 'ours' ? -1.0 : 1.0) * (best.back || 1), off = (Math.random() - 0.5) * best.len * (best.wreck ? 0.4 : 0.7); return { pos: this.at(best.a + back, best.s + off), C: best };
   }
   // dir: [dx, dz] the blow came along (he falls that way)
   hurt(M, dmg, by, dir = null) {
@@ -223,7 +243,7 @@ export class Infantry {
   // what's lying where you stand (within r m): → the kinds picked up
   take(p, r = 1.6) { const got = []; this.drops = this.drops.filter(D => { if (this.near(D.pos, p) < r && Math.abs(D.pos[1] - p[1]) < 2) { got.push(D.kind); return false; } return true; }); return got; }
   // a shell landing: everyone in its reach
-  blast(p, R) { if (!this.F) return; for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]]); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
+  blast(p, R) { if (!this.F) return; this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]]); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
   // your shot along a ray: the first soldier it meets before `best`, → { along, M, head }. A man ducked behind his wall shows only
   // his head and shoulders over it.
   onRay(o, dir, best) {
@@ -234,4 +254,51 @@ export class Infantry {
     return hit;
   }
   drain() { const e = this.events; this.events = []; return e; }
+
+  // ---- the works as solid things
+  segAt(W, S) { const m = (S.s0 + S.s1) / 2; return [W.pos[0] + Math.sin(W.rot) * m, W.pos[2] + Math.cos(W.rot) * m]; }
+  // a wall's bags burst and spill: it's low rubble now, no cover and nothing to stop you
+  breach(C) { if (C.down || C.wreck) return; C.down = true; C.hp = 0; if (C.by) { const M = this.men.find(m => m.id === C.by); if (M) M.routeT = 0; C.by = null; } this.events.push({ type: 'breach', C }); }
+  damageCover(p, R, dmg) { for (const C of this.cover) { if (C.down || C.wreck) continue; const d = this.wallDist(C, p[0], p[2]); if (d < R) { C.hp -= dmg * (1 - d / R); if (C.hp <= 0) this.breach(C); } } }
+  cutWire(p, R) { for (const W of this.props) { if (W.kind !== 'wire' || this.near(W.pos, p) > W.len / 2 + R) continue; for (const S of W.segs) if (!S.dead) { const [x, z] = this.segAt(W, S); if (Math.hypot(x - p[0], z - p[2]) < R + WIRE_SEG / 2) { S.dead = 'cut'; this.events.push({ type: 'wire', W }); } } } }
+  // distance from (x, z) to the line of a wall
+  wallDist(C, x, z) { const [ux, uz] = this.u, [vx, vz] = this.v, dx = x - C.pos[0], dz = z - C.pos[2], w = dx * vx + dz * vz, n = dx * ux + dz * uz; return Math.hypot(Math.max(0, Math.abs(w) - C.len / 2), n); }
+  // Push a body (radius r, h tall, feet at yFeet) at (x, z) out of the works and the hulls: sandbag walls (low: you can jump
+  // over one), wire (too high to jump, and you don't want to), steel hedgehogs, tanks and carriers and their wrecks.
+  // → [x, z] when it moved it, else null. (player/collision.js asks it for you; the men ask it themselves.)
+  push(x, z, yFeet, h = 1.75, r = 0.32) {
+    if (!this.F) return null; const [a, s] = this.local([x, 0, z]); let moved = false;
+    const box = (cx, cz, fx, fz, hl, hw) => {       // an oriented box: fx, fz along its length (hl), hw across
+      const dx = x - cx, dz = z - cz, lu = dx * fx + dz * fz, lv = dx * fz - dz * fx, pu = hl + r - Math.abs(lu), pv = hw + r - Math.abs(lv); if (pu <= 0 || pv <= 0) return;
+      if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true; };
+    if (Math.abs(a) < LINE + 30 && Math.abs(s) < SPAN + 30) {
+      const [ux, uz] = this.u, [vx, vz] = this.v;
+      for (const C of this.cover) { if (C.down || C.wreck || Math.abs(s - C.s) > C.len / 2 + 2 || Math.abs(a - C.a) > 3) continue; if (yFeet > C.pos[1] + (C.h || 0.85) - 0.12 || yFeet + h < C.pos[1]) continue;
+        const sg = C.side === 'ours' ? 1 : -1, n0 = -0.4 * C.curve * sg, th = 0.42 + Math.abs(C.curve) * 0.4; box(C.pos[0] + ux * n0, C.pos[2] + uz * n0, vx, vz, C.len / 2, th); }
+      for (const P of this.props) {
+        if (P.kind === 'hedgehog') { const dx = x - P.pos[0], dz = z - P.pos[2], d = Math.hypot(dx, dz), R = r + 0.95; if (d < R && yFeet < P.pos[1] + 1.45) { const k = d > 1e-6 ? R / d : 0; x = P.pos[0] + (d > 1e-6 ? dx * k : R); z = P.pos[2] + (d > 1e-6 ? dz * k : 0); moved = true; } }
+        else if (P.kind === 'wire') { if (this.near(P.pos, [x, 0, z]) > P.len / 2 + 2 || yFeet > P.pos[1] + 1.3) continue; const fx = Math.sin(P.rot), fz = Math.cos(P.rot);
+          for (const S of P.segs) if (!S.dead) { const [cx, cz] = this.segAt(P, S); box(cx, cz, fx, fz, (S.s1 - S.s0) / 2, 0.55); } } }
+    }
+    if (this.armor) for (const V of this.armor.list) { if (Math.abs(x - V.pos[0]) > V.T.L || Math.abs(z - V.pos[2]) > V.T.L || yFeet > V.pos[1] + (V.dead && V.kind === 'tank' ? 1.6 : V.T.H) - 0.1) continue; box(V.pos[0], V.pos[2], Math.sin(V.facing), Math.cos(V.facing), V.T.L / 2, V.T.W / 2); }
+    return moved ? [x, z] : null;
+  }
+  // the way from p to g round the first thing across it: → a point just past the near end of that wall (or of that unbroken
+  // stretch of wire), else null when the way's clear
+  route(p, g) {
+    const px = p[0], pz = p[2], ex = g[0] - px, ez = g[2] - pz, L = Math.hypot(ex, ez); if (L < 0.5) return null;
+    let bestT = 1, ob = null;
+    const cross = (ax, az, bx, bz) => { const fx = bx - ax, fz = bz - az, den = ex * fz - ez * fx; if (Math.abs(den) < 1e-9) return null; const t = ((ax - px) * fz - (az - pz) * fx) / den, u = ((ax - px) * ez - (az - pz) * ex) / den; return t > 0 && t < bestT && u >= 0 && u <= 1 ? { t, u } : null; };
+    const [vx, vz] = this.v;
+    for (const C of this.cover) { if (C.down || C.wreck) continue; const h = C.len / 2 + 0.3, ax = C.pos[0] - vx * h, az = C.pos[2] - vz * h, bx = C.pos[0] + vx * h, bz = C.pos[2] + vz * h;
+      for (const o of [-0.5, 0.5]) { const q = cross(ax + this.u[0] * o, az + this.u[1] * o, bx + this.u[0] * o, bz + this.u[1] * o); if (q) { bestT = q.t; ob = { a: [ax, az], b: [bx, bz], dir: [vx, vz] }; } } }
+    for (const W of this.props) { if (W.kind !== 'wire') continue; const fx = Math.sin(W.rot), fz = Math.cos(W.rot), h = W.len / 2, ax = W.pos[0] - fx * h, az = W.pos[2] - fz * h, bx = W.pos[0] + fx * h, bz = W.pos[2] + fz * h;
+      const q = cross(ax, az, bx, bz); if (!q) continue; const sAt = (q.u - 0.5) * W.len, k = W.segs.findIndex(S => sAt >= S.s0 && sAt <= S.s1); if (k < 0 || W.segs[k].dead) continue;
+      let i = k, j = k; while (i > 0 && !W.segs[i - 1].dead) i--; while (j < W.segs.length - 1 && !W.segs[j + 1].dead) j++;
+      bestT = q.t; ob = { a: [W.pos[0] + fx * W.segs[i].s0, W.pos[2] + fz * W.segs[i].s0], b: [W.pos[0] + fx * W.segs[j].s1, W.pos[2] + fz * W.segs[j].s1], dir: [fx, fz] }; }
+    if (!ob) return null;
+    const via = e => { const l = Math.hypot(e[0] - px, e[1] - pz) + Math.hypot(g[0] - e[0], g[2] - e[1]); return l; };
+    const useA = via(ob.a) < via(ob.b), E = useA ? ob.a : ob.b, sg = useA ? -1 : 1, x = E[0] + ob.dir[0] * sg * 1.4, z = E[1] + ob.dir[1] * sg * 1.4;
+    return [x, this.ground(x, z), z];
+  }
 }

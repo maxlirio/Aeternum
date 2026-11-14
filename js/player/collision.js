@@ -225,6 +225,8 @@ export class CollisionWorld {
         const fx = V.fx, fz = V.fz, lu = dx * fx + dz * fz, lv = dx * fz - dz * fx, pu = V.hl + r - Math.abs(lu), pv = V.hw + r - Math.abs(lv); if (pu <= 0 || pv <= 0) continue;
         if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true;
       }
+      // the works of a fighting line, and its armour (sim/infantry.js): sandbags you can jump, wire you can't, hedgehogs, hulls
+      if (this.field) { const q = this.field.push(x, z, yFeet, h, r); if (q) { x = q[0]; z = q[1]; moved = true; } }
       // people (and soldiers) standing or walking: you can't go through them any more than through a wall (set each frame by main.js)
       if (you && this.bodies) for (const P of this.bodies) {
         if (yFeet + h < P[1] || yFeet > P[1] + 1.6) continue; const dx = x - P[0], dz = z - P[2], d = Math.hypot(dx, dz), Rr = r + 0.26; if (d >= Rr) continue;

@@ -72,6 +72,30 @@ export class Sound {
     this.noise(v.t, { len: 1.6 + far, f0: 160, f1: 30, type: 'lowpass', q: 0.9, vol: vol * 0.9, attack: 0.01 }, v.g);
     this.tone(v.t, { len: 0.7, f0: 70, f1: 28, type: 'sine', vol: vol * 0.7 }, v.g);
   }
+  // a tank's gun: a hard crack that thumps you in the chest, then the field throwing it back; the light cannon a sharper bark
+  cannon(p, kind = 'shell') {
+    if (!this.ok()) return; const P = this.place(p), big = kind === 'shell', vol = Math.min(1, (big ? 30 : 12) / (P.d + 12)), far = Math.min(1, P.d / 1200); if (vol < 0.01) return;
+    const v = this.chain(P.d / C, P.pan, vol, big ? 2.8 : 1);
+    this.noise(v.t, { len: big ? 0.18 : 0.08, f0: 7000 * (1 - far * 0.85), f1: 300, type: 'lowpass', q: 0.4, vol }, v.g);
+    this.tone(v.t, { len: big ? 0.5 : 0.18, f0: big ? 90 : 160, f1: 30, type: 'sine', vol: vol * (big ? 0.9 : 0.5) }, v.g);
+    this.noise(v.t + 0.02, { len: big ? 2.2 : 0.6, f0: 300, f1: 40, type: 'lowpass', q: 0.8, vol: vol * 0.55, attack: 0.03 }, v.g);
+  }
+  // a launcher: the pop of the charge, then the motor's hiss going away
+  rocket(p) {
+    if (!this.ok()) return; const P = this.place(p), vol = Math.min(0.8, 9 / (P.d + 8)); if (vol < 0.01) return; const v = this.chain(P.d / C, P.pan, vol, 1.4);
+    this.noise(v.t, { len: 0.1, f0: 3000, f1: 300, type: 'lowpass', vol }, v.g); this.noise(v.t + 0.05, { len: 1.1, f0: 2600, f1: 900, type: 'bandpass', q: 0.7, vol: vol * 0.5, attack: 0.05 }, v.g);
+  }
+  // engines: the few nearest, each a low rough drone that rises with how hard it's working. list: [{ id, p, load (0..1) }]
+  engines(list) {
+    if (!this.ok() && !this.eng) return; this.eng ||= new Map(); const X = this.ctx; if (!X) return; const now = X.currentTime, seen = new Set();
+    for (const e of list) { seen.add(e.id); let E = this.eng.get(e.id);
+      if (!E) { const o = X.createOscillator(), o2 = X.createOscillator(), n = X.createBufferSource(), f = X.createBiquadFilter(), g = X.createGain(), p = X.createStereoPanner(), ng = X.createGain();
+        o.type = 'sawtooth'; o2.type = 'square'; n.buffer = this.noiseBuf; n.loop = true; f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 2; g.gain.value = 0; ng.gain.value = 0.35;
+        o.connect(f); o2.connect(f); n.connect(ng); ng.connect(f); f.connect(g); g.connect(p); p.connect(this.out); o.start(); o2.start(); n.start(); E = { o, o2, n, f, g, p }; this.eng.set(e.id, E); }
+      const P = this.place(e.p), vol = Math.min(0.32, 5 / (P.d + 10)) * (0.55 + 0.45 * e.load), hz = 30 + 26 * e.load;
+      E.o.frequency.setTargetAtTime(hz, now, 0.3); E.o2.frequency.setTargetAtTime(hz * 0.5 + 3, now, 0.3); E.f.frequency.setTargetAtTime(160 + 380 * e.load * (1 - Math.min(1, P.d / 400)), now, 0.3); E.g.gain.setTargetAtTime(vol, now, 0.2); E.p.pan.setTargetAtTime(P.pan, now, 0.1); }
+    for (const [id, E] of this.eng) if (!seen.has(id)) { E.g.gain.setTargetAtTime(0, now, 0.15); setTimeout(() => { try { E.o.stop(); E.o2.stop(); E.n.stop(); E.p.disconnect(); } catch { } }, 800); this.eng.delete(id); }
+  }
   // small things: picking something up, a pin pulled
   blip(f = 880) { if (!this.ok()) return; const v = this.chain(0, 0, 0.3, 0.3); this.tone(v.t, { len: 0.08, f0: f, f1: f * 1.5, type: 'triangle', vol: 0.12 }, v.g); this.tone(v.t + 0.08, { len: 0.1, f0: f * 1.5, f1: f * 2, type: 'triangle', vol: 0.1 }, v.g); }
   clink(p) { if (!this.ok()) return; const P = this.place(p), vol = Math.min(0.4, 4 / (P.d + 4)); if (vol < 0.02) return; const v = this.chain(0, P.pan, vol, 0.3); this.tone(v.t, { len: 0.12, f0: 3200, f1: 3000, type: 'triangle', vol: vol * 0.4 }, v.g); this.noise(v.t, { len: 0.06, f0: 4000, type: 'highpass', vol: vol * 0.3 }, v.g); }

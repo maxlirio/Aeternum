@@ -74,6 +74,8 @@ const FORMS = {
     else { const cur = D.mag === 0 ? 0.03 : 0; K.plate([[0.06, y - 0.016], [0.115, y - 0.016], [0.115 + cur, y - 0.12], [0.07 + cur, y - 0.125]], 0.024, M.dark, 0.002); }
     K.plate([[0.012, y - 0.016], [0.04, y - 0.016], [0.04, y - 0.03], [0, y - 0.04], [-0.012, y - 0.034], [0, y - 0.024]], 0.006, M.steel, 0.0005);
     if (D.rail) { K.box(-0.05, L * 0.44, y + h, y + h + 0.006, 0.02, M.dark); for (let i = 0; i < 12; i++) K.box(-0.04 + i * L * 0.038, -0.034 + i * L * 0.038, y + h + 0.006, y + h + 0.01, 0.021, M.dark); }
+    // an underslung launcher for anti-armour rounds: its tube under the handguard, its breech collar
+    if (A.under) { K.tube(L * 0.47, L * 0.85, y - 0.036, 0.02, M.dark); K.tube(L * 0.45, L * 0.5, y - 0.036, 0.023, M.finish); K.box(L * 0.5, L * 0.56, y - 0.02, y - 0.012, 0.012, M.dark); }
     if (D.scope) { const sy = y + h + 0.042; K.tube(-0.03, L * 0.42, sy, 0.019, M.finish); K.tube(L * 0.34, L * 0.46, sy, 0.019, M.finish, 0.026); K.tube(-0.075, -0.025, sy, 0.024, M.finish, 0.019); K.box(0.02, 0.05, y + h, sy, 0.012, M.dark); K.box(L * 0.28, L * 0.31, y + h, sy, 0.012, M.dark); }
     else { K.box(L * 0.82, L * 0.85, by + 0.01, by + 0.038, 0.005, M.steel); K.box(-0.02, 0.01, y + h, y + h + 0.03, 0.016, M.steel); }
     return { muzzle: [0, by, L * (D.brake === 0 ? 1.18 : 1.3)], off: [0, y - 0.015, L * 0.68] };

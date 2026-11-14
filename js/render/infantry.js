@@ -38,8 +38,8 @@ export class InfantryView {
     // sandbags: each one a squashed, rounded sack, laid in two courses with the joints staggered, the wall bowed toward the enemy
     const bag = new THREE.SphereGeometry(0.5, 12, 8); bag.scale(0.62, 0.26, 0.36); { const a = bag.attributes.position; for (let i = 0; i < a.count; i++) { const x = a.getX(i), y = a.getY(i); a.setY(i, Math.sign(y) * Math.min(Math.abs(y), 0.11) + y * 0.15); a.setX(i, x * (1 - 0.15 * Math.abs(y) / 0.13)); } bag.computeVertexNormals(); }
     const bags = []; for (const C of I.cover) { const n = Math.round(C.len / 0.6); for (let row = 0; row < 3; row++) for (let k = 0; k < n - (row === 2 ? 2 : 0); k++) { const f = (k + (row % 2) * 0.5 + (row === 2 ? 1 : 0)) / n - 0.5, s = f * C.len, bow = C.curve * (f * f * 4 - 1) * 0.8, ca = Math.cos(C.face), sa = Math.sin(C.face);
-      const x = C.pos[0] + ca * s + sa * bow, z = C.pos[2] - sa * s + ca * bow; bags.push([x, C.pos[1] + 0.12 + row * 0.25, z, C.face + Math.PI / 2 + f * C.curve * 1.2 + (Math.random() - 0.5) * 0.12]); } }
-    const bm = new THREE.InstancedMesh(bag, plain('canvas'), bags.length); bags.forEach(([x, y, z, a], i) => { q.setFromAxisAngle(up, a); m.compose(P([x, y, z]), q, new THREE.Vector3(1, 1, 1)); bm.setMatrixAt(i, m); bm.setColorAt(i, this.col.setRGB(0.62 + Math.random() * 0.08, 0.55 + Math.random() * 0.06, 0.4)); }); bm.castShadow = bm.receiveShadow = true; g.add(bm);
+      const x = C.pos[0] + ca * s + sa * bow, z = C.pos[2] - sa * s + ca * bow; bags.push([x, C.pos[1] + 0.12 + row * 0.25, z, C.face + Math.PI / 2 + f * C.curve * 1.2 + (Math.random() - 0.5) * 0.12, C, row]); } }
+    const bm = this.bagMesh = new THREE.InstancedMesh(bag, plain('canvas'), bags.length); this.bags = bags; bags.forEach(([x, y, z, a], i) => { q.setFromAxisAngle(up, a); m.compose(P([x, y, z]), q, new THREE.Vector3(1, 1, 1)); bm.setMatrixAt(i, m); bm.setColorAt(i, this.col.setRGB(0.62 + Math.random() * 0.08, 0.55 + Math.random() * 0.06, 0.4)); }); bm.castShadow = bm.receiveShadow = true; g.add(bm);
     // hedgehogs: three steel angles crossed and welded at the middle
     const beam = new THREE.BoxGeometry(0.16, 0.16, 2.3), hh = [], parts = [];
     for (const [rx, ry, rz] of [[0.6, 0, 0], [0, 0.6, Math.PI / 2], [Math.PI / 2, 0.6, 0.6]]) parts.push(beam.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx, ry, rz))));
@@ -47,9 +47,10 @@ export class InfantryView {
     const props = I.props.filter(p => p.kind === 'hedgehog'), hm = new THREE.InstancedMesh(hedge, plain('rust'), props.length); props.forEach((p, i) => { q.setFromAxisAngle(up, p.rot); m.compose(P(p.pos), q, new THREE.Vector3(1, 1, 1)); hm.setMatrixAt(i, m); hm.setColorAt(i, this.col.setRGB(0.7, 0.62, 0.55)); }); hm.castShadow = true; g.add(hm);
     // wire: a coil of rings along each run, on pickets
     const ring = new THREE.TorusGeometry(0.45, 0.012, 4, 20), post = new THREE.CylinderGeometry(0.035, 0.045, 1.2, 6).translate(0, 0.6, 0), rings = [], posts = [];
-    for (const W of I.props.filter(p => p.kind === 'wire')) { const n = Math.round(W.len / 0.32), ca = Math.cos(W.rot), sa = Math.sin(W.rot); for (let k = 0; k < n; k++) { const s = (k / n - 0.5) * W.len, x = W.pos[0] + sa * s, z = W.pos[2] + ca * s; rings.push([x, I.ground(x, z) + 0.45, z, W.rot, k]); if (k % 9 === 0) posts.push([x, I.ground(x, z), z]); } }
-    const rm = new THREE.InstancedMesh(ring, plain('metal'), rings.length); rings.forEach(([x, y, z, a, k], i) => { q.setFromEuler(new THREE.Euler(0.25 * Math.sin(k * 1.7), a, 0.3 * Math.cos(k * 1.3), 'YXZ')); m.compose(P([x, y, z]), q, new THREE.Vector3(1, 1, 1)); rm.setMatrixAt(i, m); rm.setColorAt(i, this.col.setRGB(0.6, 0.58, 0.55)); }); g.add(rm);
-    const pm = new THREE.InstancedMesh(post, plain('wood'), posts.length); posts.forEach(([x, y, z], i) => { m.compose(P([x, y, z]), q.identity(), new THREE.Vector3(1, 1, 1)); pm.setMatrixAt(i, m); pm.setColorAt(i, this.col.setRGB(0.5, 0.42, 0.34)); }); g.add(pm);
+    for (const W of I.props.filter(p => p.kind === 'wire')) { const n = Math.round(W.len / 0.32), ca = Math.cos(W.rot), sa = Math.sin(W.rot); for (let k = 0; k < n; k++) { const s = (k / n - 0.5) * W.len, x = W.pos[0] + sa * s, z = W.pos[2] + ca * s, S = W.segs?.find(S => s >= S.s0 - 1e-6 && s <= S.s1 + 1e-6); rings.push([x, I.ground(x, z) + 0.45, z, W.rot, k, S, s]); if (k % 9 === 0) posts.push([x, I.ground(x, z), z, S]); } }
+    const rm = this.ringMesh = new THREE.InstancedMesh(ring, plain('metal'), rings.length); this.rings = rings; rings.forEach((r, i) => { rm.setColorAt(i, this.col.setRGB(0.6, 0.58, 0.55)); }); g.add(rm);
+    const pm = this.postMesh = new THREE.InstancedMesh(post, plain('wood'), posts.length); this.posts = posts; posts.forEach((r, i) => pm.setColorAt(i, this.col.setRGB(0.5, 0.42, 0.34))); g.add(pm);
+    this.worksSig = -1; this.works(I);
     // the objectives: a tall pole, its flag, a ring marked out on the ground
     this.flags = [];
     for (const O of I.obj) { const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 12, 8).translate(0, 6, 0), plain('metal')); pole.material = pole.material.clone(); pole.material.color.setHex(0x3a3a3a); pole.position.copy(P(O.pos)); g.add(pole);
@@ -61,9 +62,25 @@ export class InfantryView {
       this.flags.push({ O, cloth, mark, base: cloth.geometry.attributes.position.array.slice() }); }
     this.root.add(g);
   }
+  // what's been done to the works: burst walls spill their top two courses about the ground; cut wire falls slack in a heap
+  // at the cut, flattened wire lies squashed into the ground; a post at a cut or under a track goes over
+  works(I) {
+    let sig = 0; for (const C of I.cover) if (C.down) sig++; for (const W of I.props) if (W.segs) for (const S of W.segs) if (S.dead) sig += 1000;
+    if (sig === this.worksSig) return; this.worksSig = sig;
+    const m = this.m, q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1), sc = new THREE.Vector3(), P = p => new THREE.Vector3(...p), up = new THREE.Vector3(0, 1, 0);
+    this.bags.forEach(([x, y, z, a, C, row], i) => { if (!C.down || row === 0) { q.setFromAxisAngle(up, a); m.compose(P([x, y, z]), q, one); }
+      else { const h = hashId(C.i + ':' + i), r1 = (h % 997) / 997, r2 = ((h >> 10) % 991) / 991, ang = r1 * 6.28, d = 0.4 + r2 * 1.1, nx = x + Math.cos(ang) * d, nz = z + Math.sin(ang) * d; e.set((r2 - 0.5) * 0.6, a + r1 * 3, (r1 - 0.5) * 0.5); q.setFromEuler(e); sc.set(1.08, 0.85, 1.05); m.compose(P([nx, I.ground(nx, nz) + 0.07, nz]), q, sc); }
+      this.bagMesh.setMatrixAt(i, m); }); this.bagMesh.instanceMatrix.needsUpdate = true;
+    this.rings.forEach(([x, y, z, a, k, S, s], i) => { const dead = S?.dead;
+      if (!dead) { e.set(0.25 * Math.sin(k * 1.7), a, 0.3 * Math.cos(k * 1.3), 'YXZ'); q.setFromEuler(e); m.compose(P([x, y, z]), q, one); }
+      else if (dead === 'crushed') { e.set(1.35 + 0.15 * Math.sin(k * 2.3), a, 0.2 * Math.cos(k * 1.9), 'YXZ'); q.setFromEuler(e); sc.set(1.25, 1.25, 0.5); m.compose(P([x, I.ground(x, z) + 0.05, z]), q, sc); }
+      else { const f = (s - S.s0) / (S.s1 - S.s0), toEnd = f < 0.5 ? f : 1 - f; e.set(0.9 + 0.3 * Math.sin(k), a + 0.4 * Math.cos(k * 1.3), 0.4 * Math.sin(k * 0.7), 'YXZ'); q.setFromEuler(e); sc.set(1, 1, 1).multiplyScalar(toEnd < 0.2 ? 1 : 0.0001); m.compose(P([x, I.ground(x, z) + 0.2, z]), q, sc); }
+      this.ringMesh.setMatrixAt(i, m); }); this.ringMesh.instanceMatrix.needsUpdate = true;
+    this.posts.forEach(([x, y, z, S], i) => { if (S?.dead) { e.set(1.4, hashId(i + 'p') % 6, 0); q.setFromEuler(e); m.compose(P([x, y + 0.05, z]), q, one); } else m.compose(P([x, y, z]), q.identity(), one); this.postMesh.setMatrixAt(i, m); }); this.postMesh.instanceMatrix.needsUpdate = true;
+  }
   update(I, dt, t) {
     if (!I.F) { this.group.visible = false; if (this.line) this.line.visible = false; return; } this.group.visible = true;
-    if (this.builtFor !== I.F) { this.builtFor = I.F; this.build(I); } this.line.visible = true;
+    if (this.builtFor !== I.F) { this.builtFor = I.F; this.build(I); } this.line.visible = true; this.works(I);
     const rig = this.rig, n = Math.min(MAX, I.men.length);
     for (let i = 0; i < n; i++) {
       const M = I.men[i], L = SIDES[M.side], h = hashId(M.id); let ph = this.gait.get(M.id) || 0; if (M.moving) ph += dt * 6.2; this.gait.set(M.id, ph);

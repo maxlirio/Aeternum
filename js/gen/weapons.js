@@ -17,9 +17,9 @@ export const ARMS = {
   pistol:     { name: 'Slug pistol', dmg: 46, reach: 60, every: 0.35, kg: 1.1, value: 650, form: 'pistol', ranged: true, spread: 0.012 },
   revolver:   { name: 'Heavy revolver', dmg: 72, reach: 70, every: 0.7, kg: 1.5, value: 820, form: 'revolver', ranged: true, spread: 0.009 },
   pulsepistol: { name: 'Pulse pistol', dmg: 38, reach: 85, every: 0.22, kg: 0.9, value: 1250, form: 'pistol', ranged: true, spread: 0.01, energy: true },
-  carbine:    { name: 'Pulse carbine', dmg: 62, reach: 140, every: 0.12, kg: 3.4, value: 1900, form: 'long', ranged: true, spread: 0.02, two: true, energy: true },
+  carbine:    { name: 'Pulse carbine', dmg: 62, reach: 140, every: 0.12, kg: 3.4, value: 1900, form: 'long', ranged: true, spread: 0.02, two: true, energy: true, optic: true, zoom: 4, under: true },
   rifle:      { name: 'Slug rifle', dmg: 88, reach: 220, every: 0.6, kg: 4.0, value: 1600, form: 'long', ranged: true, spread: 0.005, two: true, stock: 'wood' },
-  marksman:   { name: 'Long rifle', dmg: 150, reach: 420, every: 1.5, kg: 6.2, value: 3600, form: 'long', ranged: true, spread: 0.0016, two: true, scope: true },
+  marksman:   { name: 'Long rifle', dmg: 150, reach: 420, every: 1.5, kg: 6.2, value: 3600, form: 'long', ranged: true, spread: 0.0016, two: true, scope: true, zoom: 8 },
   shotgun:    { name: 'Scatter gun', dmg: 90, reach: 34, every: 0.9, kg: 3.6, value: 780, form: 'scatter', ranged: true, spread: 0.02, wide: 2.6, two: true },
   repeater:   { name: 'Field repeater', dmg: 44, reach: 170, every: 0.07, kg: 9, value: 5200, form: 'heavy', ranged: true, spread: 0.032, two: true, energy: true },
 };
@@ -31,7 +31,7 @@ export function armDesign(planet, id) {
   const k = planet.universeSeed.join(':') + '|' + (planet.address?.key || '') + '|' + id; if (memo.has(k)) return memo.get(k);
   const A = ARMS[id], rng = new Rng(derive(planet.seed, 'arms', [hashStr(9, id)])), H = HABITS[cultureOf(planet).key] || HABITS.corporate, r = (a, b) => rng.range(a, b);
   const D = { id, form: A.form, glow: A.glow || A.energy || A.stun ? [[0.35, 0.8, 1], [1, 0.45, 0.15], [0.5, 1, 0.55], [0.85, 0.4, 1]][rng.int(0, 3)] : null, stock: A.stock || H.stock, grip: H.grip, finish: H.finish,
-    len: r(0.85, 1.2), tall: r(0.85, 1.15), slab: r(0.85, 1.2), rake: r(0.12, 0.42), brake: rng.int(0, 2), mag: rng.int(0, 2), rail: rng.next() < 0.6, vents: rng.int(2, 7), edge: rng.int(0, 2), guard: rng.int(0, 2), two: !!A.two, scope: !!A.scope || (A.form === 'long' && rng.next() < 0.3) };
+    len: r(0.85, 1.2), tall: r(0.85, 1.15), slab: r(0.85, 1.2), rake: r(0.12, 0.42), brake: rng.int(0, 2), mag: rng.int(0, 2), rail: rng.next() < 0.6, vents: rng.int(2, 7), edge: rng.int(0, 2), guard: rng.int(0, 2), two: !!A.two, scope: !!A.scope || !!A.optic || (A.form === 'long' && rng.next() < 0.3) };
   memo.set(k, D);
   return D;
 }

@@ -533,6 +533,30 @@ suites.infantry = async () => {
   const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 2, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');     // (from close: from further off, now and then someone else is standing in the way after ten minutes of it)
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
+suites.armor = async () => {
+  // the armour on the line (sim/armor.js) beside the men: five minutes on rolling ground, the line at an angle
+  const { Infantry } = await import('../js/sim/infantry.js'); const { Armor } = await import('../js/sim/armor.js');
+  const ground = (x, z) => 20 + Math.sin(x / 90) * 2 + Math.cos(z / 70) * 2; let hits = 0;
+  const I = new Infantry({ ground, hooks: { hitPlayer: () => hits++ } }), A = I.armor = new Armor(I, { hitPlayer: () => hits++ }); I.setup({ x: 500, z: -300, dir: 0.4, a: { name: 'A' }, b: { name: 'B' } });
+  const n = {}; let bad = 0, inside = 0, far = 0, moved = 0; const start = new Map(A.list.map(V => [V.id, V.pos.slice()]));
+  for (let k = 0; k < 3000; k++) { const you = { pos: [300, ground(300, -300), -300], side: 'ours', alive: true }; I.step(0.1, you); A.step(0.1, you);
+    for (const e of I.drain().concat(A.drain())) n[e.type] = (n[e.type] || 0) + 1;
+    for (const V of A.list) { if (!Number.isFinite(V.pos[0] + V.pos[1] + V.pos[2] + V.turret + V.gun)) bad++; far = Math.max(far, Math.hypot(V.pos[0] - 500, V.pos[2] + 300)); const s0 = start.get(V.id); if (s0 && Math.hypot(V.pos[0] - s0[0], V.pos[2] - s0[2]) > 20) moved++; }
+    // nobody stands in the wire or a wall that's still up (the hulls can roll into men; that's the hull's business)
+    if (k % 10 === 0) { const save = I.armor; I.armor = null; for (const M of I.men) if (M.hp > 0 && I.push(M.pos[0], M.pos[2], M.pos[1], 1.7, 0.15)) inside++; I.armor = save; } }
+  check(!bad, `no hull's position or gun goes bad (${bad})`); check(far < 900, `the armour stays on the line (furthest ${Math.round(far)} m)`); check(moved > 0, 'the armour moves up');
+  check((n.fire || 0) > 30, `the guns fire (${n.fire})`); check((n.vdown || 0) >= 2, `hulls are knocked out (${n.vdown})`); check((n.launch || 0) > 0, `the men's launchers fire (${n.launch})`);
+  check((n.breach || 0) > 0 && (n.wire || 0) > 0, `walls burst and wire's cut or flattened (${n.breach} walls, ${n.wire} lengths)`);
+  check(inside < 40, `men don't stand inside the works (${inside} checks)`);
+  // a round fired at a hull side-on goes through more than one at its front; a rifle hardly marks it
+  const V = A.list.find(v => !v.dead), f = [Math.sin(V.facing), 0, Math.cos(V.facing)], r = [Math.cos(V.facing), 0, -Math.sin(V.facing)];
+  check(A.armour(V, f.map(x => -x)) < A.armour(V, r) && A.armour(V, r) < A.armour(V, f), 'thick at the front, thinner at the side, thin behind');
+  const P = [V.pos[0] + r[0] * 8, V.pos[1] + 1.2, V.pos[2] + r[2] * 8], h = A.onRay(P, r.map(x => -x), 20); check(h?.V === V, 'a shot at a hull finds it');
+  // the works are solid: a body walking into a wire run is pushed out of it
+  const W = I.props.find(p => p.kind === 'wire' && p.segs.every(S => !S.dead)) || I.props.find(p => p.kind === 'wire'), S = W.segs.find(S => !S.dead), [wx, wz] = I.segAt(W, S);
+  if (S) check(!!I.push(wx, wz, ground(wx, wz), 1.75, 0.32), 'you can\'t walk through wire');
+  console.log(`  ${n.fire} rounds from the guns, ${n.launch} launcher rounds, ${n.vdown} hulls knocked out, ${n.breach} walls burst, ${n.wire} lengths of wire cut or flattened`);
+};
 suites.stars = async () => {
   // the stars near home (gen/stars.js) the holo map shows and FTL goes to: the same from the same seed, home where it should be, every world real
   const { starChart, worldPreview, jumpOf, addressOf } = await import('../js/gen/stars.js');
