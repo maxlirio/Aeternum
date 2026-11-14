@@ -176,7 +176,7 @@ export class ArmorView {
       const tl = wrap(V.turret - V.facing); m.turret.rotation.y = tl; m.gunPivot.rotation.x = -(V.gun - V.pitch * Math.cos(tl));
       m.barrel.position.z = -0.38 * V.recoil * (V.kind === 'tank' ? 1 : 0.4);
       m.flash.visible = V.sinceShot < 0.06 && !V.dead; if (m.flash.visible) m.flash.scale.setScalar(0.7 + Math.random() * 0.6);
-      if (m.ramp) m.ramp.rotation.x = -V.ramp * 1.25 - (V.dead ? 0.5 : 0);
+      if (m.ramp) m.ramp.rotation.x = -V.ramp * 2.15 - (V.dead ? 0.5 : 0);      // (down past level until its lip is on the ground: hinge 0.7 m up, ramp 1.25 m long)
       if (V.dead) this.wreck(m, V);
     }
     for (const [id, m] of this.models) if (!live.has(id)) { this.group.remove(m.root); m.root.traverse(o => { if (o.isMesh || o.isInstancedMesh) o.geometry.dispose(); }); this.models.delete(id); }

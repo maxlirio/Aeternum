@@ -67,7 +67,7 @@ export class Controller {
     // desired horizontal velocity in camera space
     let mx = input.right, mz = input.fwd;
     const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-    const sp = (input.run && !input.aim ? RUN : WALK) * speedFactor * (input.aim ? 0.72 : 1);      // (sighting down the gun you walk, and slower)
+    const sp = (input.run && !input.aim && !input.crouch ? RUN : WALK) * speedFactor * (input.aim ? 0.72 : 1) * (input.crouch ? 0.5 : 1);      // (sighting down the gun you walk, and slower; crouched, slower still)
     const sy = Math.sin(input.yaw), cy = Math.cos(input.yaw);
     // forward = (sin yaw, cos yaw); screen-right = forward × up = (-cos yaw, sin yaw)
     const tx = (-mx * cy + mz * sy) * sp, tz = (mx * sy + mz * cy) * sp;

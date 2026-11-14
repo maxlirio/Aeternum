@@ -15,7 +15,7 @@ import { gangsOf } from './gen/gangs.js';
 import { FrontBattle, frontsOf, RANKS } from './sim/front.js';
 import { Infantry } from './sim/infantry.js';
 import { InfantryView } from './render/infantry.js';
-import { Armor, ARMOR } from './sim/armor.js';
+import { Armor } from './sim/armor.js';
 import { ArmorView } from './render/armor.js';
 import { FleetWarView } from './render/fleetwar.js';
 import { noteExplored } from './world/gencache.js';
@@ -308,7 +308,7 @@ async function start(fresh) {
   const fromRender = (x, y, z) => [x + origin[0], y + origin[1], z + origin[2]];
   const ledgeView = new LedgeView(); root.add(ledgeView.group);
   // you: the ADVENTURER body once it has loaded (the placeholder until then, or for good with ?body=placeholder)
-  if (params.get('body') !== 'placeholder') loadAdventurer().then(A => { const old = avatar; A.planet = planet; A.lib = propLib; A.setWorld(probe, fromRender); A.object.position.copy(old.object.position); A.object.quaternion.copy(old.object.quaternion); A.object.visible = old.object.visible; scene.remove(old.object); scene.add(A.object); avatar = A; window.__body = 'adventurer'; }).catch(e => console.warn('body', e));
+  if (params.get('body') !== 'placeholder') loadAdventurer(params.get('body') === 'bare' ? './assets/adventurer.glb' : './assets/adventurer_kit.glb').then(A => { const old = avatar; A.planet = planet; A.lib = propLib; A.setWorld(probe, fromRender); A.object.position.copy(old.object.position); A.object.quaternion.copy(old.object.quaternion); A.object.visible = old.object.visible; scene.remove(old.object); scene.add(A.object); avatar = A; window.__body = 'adventurer'; }).catch(e => console.warn('body', e));
   let inSpace = false, geoAtX = 0, geoAtZ = 0;
   const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
   const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
@@ -429,7 +429,8 @@ async function start(fresh) {
   addEventListener('keydown', e => {
     if (paused) return;
     sound.wake(); keys.add(e.code);
-    if (e.code === 'Space' && !flight && !tankV) jumpQueued = true;
+    if (e.code === 'Space' && !flight && !tankV) { jumpQueued = true; crouched = false; }
+    if (e.code === 'KeyZ' && !flight && !ride && !tankV && ctrl.mode === 'walk') crouched = !crouched;      // (crouch: down behind cover, or moving low)
     if (e.code === 'KeyE' && !tankToggle()) interact();
     if (e.code === 'KeyQ' && onLine() && !tankV && ctrl.mode === 'walk') fireLauncher();
     if (e.code === 'KeyI') showInventory();
@@ -1385,7 +1386,7 @@ async function start(fresh) {
   // a fight on foot: the trigger held, sighting down the gun (aimK eases in), how far the shots wander now (bloom), your issued shield, your grenades
   let trigger = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
   // the sight: how far in it's zoomed (the wheel changes it), your breath (held, the sight steadies, for a few seconds), the way it wanders
-  let rockets = 0, tankV = null, zoomBy = {}, breath = 1, gasp = 0, holding = false, swayT = 0, sway = [0, 0], hidAvatar = false;
+  let crouched = false, crouchK = 0, rockets = 0, tankV = null, zoomBy = {}, breath = 1, gasp = 0, holding = false, swayT = 0, sway = [0, 0], hidAvatar = false;
   const SHIELD = 60, baseFov = camera.fov;
   const scoped = () => aimK > 0.5 && (!!tankV || heldRanged() && !flight && !ride && ctrl.mode === 'walk');
   const zoomRange = () => tankV ? [2, 8, 3.5] : (W => [Math.max(1.5, (W?.zoom || 2) / 2), (W?.zoom || 2) * 1.5, W?.zoom || 2])(WEAPONS[player.weapon]);
@@ -1406,7 +1407,7 @@ async function start(fresh) {
   function tankToggle() {
     if (tankV) { leaveTank(); return true; }
     if (!onLine()) return false;
-    const V = armor.list.find(V => !V.dead && V.side === 'ours' && V.kind === 'tank' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2)); if (!V) return false;
+    const V = armor.list.filter(V => !V.dead && V.side === 'ours' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2)).sort((a, b) => Math.hypot(a.pos[0] - ctrl.pos[0], a.pos[2] - ctrl.pos[2]) - Math.hypot(b.pos[0] - ctrl.pos[0], b.pos[2] - ctrl.pos[2]))[0]; if (!V) return false;
     armor.board(V); tankV = V; aimHeld = false; trigger = false; aimK = 0; chud.log(`You climb into the ${V.T.name}`, 'you'); sound.clink(V.pos); cam.yaw = V.turret; return true;
   }
   function leaveTank() {
@@ -1529,7 +1530,7 @@ async function start(fresh) {
     } else {
       // a shot along the line of sight (camera centre), with a little spread; walls stop it
       const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-      const spr = scoped() ? W.spread * 0.08 * (ctrl.speed > 0.6 ? 4 : 1) + bloom * 0.45 : W.spread * (1 - 0.65 * aimK) * (ctrl.speed > 2.5 ? 1.6 : 1) + bloom; dir.x += (Math.random() - 0.5) * spr * 2; dir.y += (Math.random() - 0.5) * spr * 2; dir.normalize();
+      const spr = (scoped() ? W.spread * 0.08 * (ctrl.speed > 0.6 ? 4 : 1) + bloom * 0.45 : W.spread * (1 - 0.65 * aimK) * (ctrl.speed > 2.5 ? 1.6 : 1) + bloom) * (crouched && ctrl.speed < 0.6 ? 0.7 : 1); dir.x += (Math.random() - 0.5) * spr * 2; dir.y += (Math.random() - 0.5) * spr * 2; dir.normalize();
       const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]];
       let wall = W.reach;
       for (let d = 1.5; d < W.reach; d += 0.4) if (world.solidAt(wo[0] + dir.x * d, wo[1] + dir.y * d, wo[2] + dir.z * d, 0.02)) { wall = d; break; }
@@ -1592,6 +1593,28 @@ async function start(fresh) {
   // the great ships in the fight (sim/fleetwar.js): Anvil's lasers and missiles, Bastion's fighters, Sable's bombing runs. What lands, wrecks.
   planet.craters = [...store.deltas].filter(([k]) => k.startsWith('crater/')).map(([, v]) => v);
   const groundY = (x, z) => Math.max(world.groundAt(x, z, 1e5).h, cloudW ? -1e9 : planet.seaLevel);
+  // What the fog has swallowed whole isn't drawn: FogExp2 at density d leaves exp(-(d·r)²) of a thing at r, under a quarter of a
+  // percent past 2.45/d, so it would come out the fog's own colour anyway. Only for the big far groups (the great ships, the city,
+  // towns, outposts, rocks, trees), only for what the fog colours (lit windows and nav lights carry on through it), and through
+  // layers, so nothing else that hides or shows these is crossed. (The home fleet and town were 5 M triangles a frame from the line.)
+  const FOG_GROUPS = /^(fleet|city|towns|outposts|rocks|flora|settlement:|town-far:)/, _fs = new THREE.Sphere(); let fogT = 0;
+  function fogCull() {
+    const f = scene.fog; if (!f?.density || (fogT = (fogT + 1) % 8)) return; const D = 2.45 / f.density, cp = camera.position;
+    const visit = g => g.traverse(o => { if (!o.isMesh || o.isSkinnedMesh) return; const ms = [].concat(o.material); if (!ms.every(m => m.fog === true)) { o.layers.mask = 1; return; }
+      let S; if (o.isInstancedMesh) { if (!o.count) return; if (!o.boundingSphere || o.userData.fogV !== o.instanceMatrix.version || o.userData.fogN !== o.count) { o.computeBoundingSphere(); o.userData.fogV = o.instanceMatrix.version; o.userData.fogN = o.count; } S = o.boundingSphere; }      // (instances: the sphere round all of them)
+      else { if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); S = o.geometry.boundingSphere; }
+      _fs.copy(S).applyMatrix4(o.matrixWorld); o.layers.mask = _fs.center.distanceTo(cp) - _fs.radius > D ? 0 : 1; });
+    for (const c of scene.children) { if (FOG_GROUPS.test(c.name)) visit(c); else if (!c.name && c.isGroup) for (const k of c.children) if (FOG_GROUPS.test(k.name) || !k.name && k.isGroup) visit(k); }
+  }
+  // The great ships, what's on them, and the docked ships were drawn whether or not they were in view (frustumCulled off): 5-6 M
+  // triangles a frame in the home town. Their shaders don't move vertices, so culling them by their bounds is safe; an instanced
+  // mesh's bound (round all its instances) is remade whenever its instances move or change in number.
+  function cullFix() {
+    for (const c of scene.children) { if (c.name !== 'fleet' && c.name !== 'ships') continue;
+      c.traverse(o => { if (!o.isMesh || o.isSkinnedMesh) return; if (o.userData.noCull) return; if (window.__noCullFix) { o.frustumCulled = false; return; }      // (the switch: to compare against the old way)
+        if (o.isInstancedMesh) { if (o.userData.cv !== o.instanceMatrix.version || o.userData.cn !== o.count) { if (o.count) o.computeBoundingSphere(); o.userData.cv = o.instanceMatrix.version; o.userData.cn = o.count; } if (!o.count) return; }
+        o.frustumCulled = true; }); }
+  }
   // what the armour does that you see and hear: its guns, the blasts, hits on it, it brewing up; engines and tracks; wrecks burning
   function armorFx(dt) {
     const me = ctrl.pos, dist = p => Math.hypot(p[0] - me[0], p[2] - me[2]);
@@ -1826,9 +1849,13 @@ async function start(fresh) {
         if (sc) input.run = false;
         swayT += dt; { const A = sc && !tankV ? (0.0011 + (ctrl.speed > 0.6 ? 0.0045 : 0) + (player.fatigue || 0) * 0.002 + (now - hurtT < 1 ? 0.004 : 0)) * (holding ? 0.12 : gasp > 0 ? 2.4 : 1) : tankV && sc ? 0.0003 + Math.abs(tankV.speed) * 0.0006 : 0;
           sway = [(Math.sin(swayT * 1.3) + 0.6 * Math.sin(swayT * 0.37 + 1)) * A, (0.5 * Math.sin(swayT * 2.6) + 0.4 * Math.sin(swayT * 0.53)) * A + (holding ? 0 : Math.sin(swayT * 1.9) * A * 0.4)]; }
+        // crouched: down behind whatever's in front of you; to fire, you come up just far enough to see over it
+        if (ctrl.mode !== 'walk' || flight || ride || tankV) crouched = false;
+        { const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), wall = crouched && (aimHeld || trigger) && (world.solidAt(ctrl.pos[0] + fx * 0.9, ctrl.pos[1] + 0.7, ctrl.pos[2] + fz * 0.9, 0.1) || !!infantry.F && !!infantry.push(ctrl.pos[0] + fx * 0.9, ctrl.pos[2] + fz * 0.9, ctrl.pos[1], 0.9, 0.05));
+          crouchK += ((crouched ? (wall ? 0.45 : 1) : 0) - crouchK) * Math.min(1, dt * 8); avatar.crouch?.(crouchK); input.crouch = crouched; if (crouched) input.run = false; }
         const W = WEAPONS[player.weapon]; bloom *= Math.exp(-dt * 3.5);
         input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || now - lastFired < 0.9) ? (window.__faceYaw ?? cam.yaw) : undefined;      // (__faceYaw: photographs from the side)
-        gunK += ((input.face != null ? 1 : 0) - gunK) * Math.min(1, dt * 14); avatar.aimGun?.(gunK, cam.pitch);
+        gunK += ((input.face != null ? 1 : crouched && armed ? 0.6 : 0) - gunK) * Math.min(1, dt * 14); avatar.aimGun?.(gunK, input.face != null ? cam.pitch : 0.15);      // (crouched, the gun's held up ready, level, as riflemen hold it waiting)
         // the shield: down to nothing, it waits for a few quiet seconds, then comes back up
         if (onLine()) { if (now - hurtT > 4 && shield < SHIELD) { if (shield <= 0) sound.shieldUp(); shield = Math.min(SHIELD, shield + dt * 30); } } }
       if (flight) {
@@ -2095,11 +2122,11 @@ async function start(fresh) {
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
       else { rideCamY = null;
         if (tankV) { const d0 = cam.dist; cam.dist = 11; cam.update(dt, [tankV.pos[0], tankV.pos[1] + 1.3, tankV.pos[2]], toRender); cam.dist = d0; }
-        else cam.update(dt, ctrl.pos, toRender);
+        else cam.update(dt, crouchK > 0.01 ? [ctrl.pos[0], ctrl.pos[1] - 0.5 * crouchK, ctrl.pos[2]] : ctrl.pos, toRender);
         // through the sight: the eye at it, looking where you aim (and where its wander takes it)
         if (scoped()) { const y = cam.yaw + sway[0], pt = cam.pitch + sway[1], d = [Math.sin(y) * Math.cos(pt), -Math.sin(pt), Math.cos(y) * Math.cos(pt)];
           let e; if (tankV) { const V = tankV, b = armor.pivot(V), fx = Math.sin(V.turret), fz = Math.cos(V.turret); e = [b[0] + fx * 2.2, b[1] + 0.5, b[2] + fz * 2.2]; }
-          else e = [ctrl.pos[0] + Math.sin(y) * 0.12, ctrl.pos[1] + (ctrl.grounded && ctrl.feel ? 1.6 - (ctrl.feel.sink || 0) : 1.6), ctrl.pos[2] + Math.cos(y) * 0.12];
+          else e = [ctrl.pos[0] + Math.sin(y) * 0.12, ctrl.pos[1] + (ctrl.grounded && ctrl.feel ? 1.6 - (ctrl.feel.sink || 0) : 1.6) - 0.52 * crouchK, ctrl.pos[2] + Math.cos(y) * 0.12];
           const a = toRender(...e), b2 = toRender(e[0] + d[0], e[1] + d[1], e[2] + d[2]); camera.position.set(...a); camera.lookAt(...b2); camera.updateMatrixWorld(); }
       }
     }
@@ -2133,7 +2160,7 @@ async function start(fresh) {
       else if (infantry.F && (!F || d > 3400 || !onFoot)) infantry.end();
       if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
       const side = infantry.F && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
-      const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV };
+      const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: crouchK };
       infantry.step(dt, you); infantryView.update(infantry, dt, t); armor.step(dt, you); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos);
       if (tankV && (tankV.dead || !infantry.F)) { const V = tankV; leaveTank(); if (V.dead) { hurtPlayer(35, 'your tank brewing up'); chud.log(`Your ${V.T.name} is knocked out: you bail out`, 'bad'); } }
       if (infantry.F) armorFx(dt);
@@ -2240,7 +2267,7 @@ async function start(fresh) {
       else if (rpn) ui.showPrompt(shipIsYours(rpn.sh, player) ? `<kbd>E</kbd> ${rpn.down ? 'Raise' : 'Lower'} the ramp — the ${esc(rpn.sh.name)}` : rpn.down ? `The ${esc(rpn.sh.name)} · ${esc(rpn.sh.ownerName)}${rpn.sh.forSale ? ` · for sale, ${PRICES[rpn.sh.model]} cr` : ''}` : `The ${esc(rpn.sh.name)} · ramp locked · hold <kbd>F</kbd> force`);
       else if (ride) { const k = Math.round(Math.abs(ride.speed) * 3.6), L = roadLimit; ui.showPrompt(`<b${L && k > L + 8 ? ' style="color:#ff7a66"' : ''}>${k} km/h</b>${L ? ` <span style="display:inline-block;margin-left:8px;min-width:22px;padding:1px 5px;border:2px solid #e0453a;border-radius:12px;background:#fff;color:#111;font-weight:700;text-align:center">${L}</span>` : ''}`); }
       else if (hotwire > 0) {}
-      else if (onLine() && !tankV && armor.list.some(V => !V.dead && V.side === 'ours' && V.kind === 'tank' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2))) ui.showPrompt(`The ${ARMOR.tank.name} · climb in`);
+      else if (onLine() && !tankV && armor.list.some(V => !V.dead && V.side === 'ours' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2))) { const V = armor.list.find(V => !V.dead && V.side === 'ours' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2)); ui.showPrompt(`The ${V.T.name} · climb in`); }
       else if (tankV) ui.showPrompt(null);
       else if (nv && (di < 0 || Math.hypot(nv.pos[0] - ctrl.pos[0], nv.pos[2] - ctrl.pos[2]) < doorDist)) ui.showPrompt(isYours(nv, player) ? `<kbd>E</kbd> ${typeOf(nv).kind === 'bike' ? 'Ride' : 'Drive'} your ${typeOf(nv).name.toLowerCase()}` : nv.forSale ? `<kbd>E</kbd> ${typeOf(nv).name} for sale — ${typeOf(nv).price} cr` : `${esc(nv.ownerName)}'s ${typeOf(nv).name.toLowerCase()} · hold <kbd>F</kbd> hotwire`);
       else if (ctrl.mode === 'seat') ui.showPrompt(null);
@@ -2303,10 +2330,10 @@ async function start(fresh) {
       if (ftlOut && ((ftlOut.t += dt) > 1.2 && terrain.pending < 3 || ftlOut.t > 30)) {
         renderer.compile(scene, camera); ftl.dispose(); window.__ftlDone = performance.now(); ftl = null; paused = false; ui.hush = false; ftlFlash(1100); if (ftlOut.say) ui.toast(ftlOut.say, '', 10000); ftlOut = null;
       }
-    } else { renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
+    } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, get state() { return { shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();

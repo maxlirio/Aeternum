@@ -141,7 +141,7 @@ export class Infantry {
           M.burst = (M.burst || 0) + 1; if (M.burst >= 3 + Math.floor(Math.random() * 2)) { M.burst = 0; M.cool = 1.1 + Math.random() * 1.4; } else M.cool = 0.16 + Math.random() * 0.1;      // (in bursts of three or four)
           const blind = M.duck > 0.5, tDuck = tgt !== 'you' && tgt.duck > 0.5, covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C && !tgt.goal.C.down;
           let p = (0.32 * (1 - td / RANGE) + 0.06) * (covered ? 0.45 : 1) * (tDuck ? 0.25 : 1) * (blind ? 0.2 : 1) * (M.sup > 0.4 ? 0.6 : 1);
-          if (tgt === 'you') { p *= 0.9; if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9, tp[2]])) p *= 0.45; }      // (behind sandbags yourself, they'll hit you far less)
+          if (tgt === 'you') { const low = you.low || 0; p *= 0.9 * (1 - 0.25 * low); if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9 - 0.5 * low, tp[2]])) p *= 0.45 - 0.25 * low; }      // (crouched behind a wall, there's hardly anything of you to hit)      // (behind sandbags yourself, they'll hit you far less)
           const hit = Math.random() < p, from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
           const miss = blind ? 6 : 3.2, to = hit ? [tp[0], tp[1] + 1.1, tp[2]] : [tp[0] + (Math.random() - 0.5) * miss, tp[1] + 0.2 + Math.random() * 2.2, tp[2] + (Math.random() - 0.5) * miss];
           this.shots.push({ from, to, side: M.side, t: this.t, hit, n: ++this.shotN, at: tgt === 'you' ? 'you' : null });

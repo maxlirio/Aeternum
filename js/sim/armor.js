@@ -90,7 +90,7 @@ export class Armor {
   gunDir(V) { const ce = Math.cos(V.gun); return [Math.sin(V.turret) * ce, Math.sin(V.gun), Math.cos(V.turret) * ce]; }
 
   // ---- your tank
-  board(V) { if (V.dead || V.side !== 'ours' || V.kind !== 'tank') return false; V.crew = 'player'; V.goal = null; V.tgt = null; return true; }
+  board(V) { if (V.dead || V.side !== 'ours') return false; V.crew = 'player'; V.goal = null; V.tgt = null; return true; }
   leave(V) { V.crew = 'ai'; V.drive = null; V.aimPt = null; V.mgOn = false; V.fire = false; }
   // what you're telling it: fwd/right -1..1, the point you're looking at, the gun and the machine gun
   control(V, { fwd, right, aim, fire, mg }) { V.drive = { fwd, right }; V.aimPt = aim; V.fire = fire; V.mgOn = mg; }
@@ -166,7 +166,7 @@ export class Armor {
   tgtPoint(V) {
     const t = V.tgt; if (!t) return null;
     if (t.V) { if (t.V.dead) { V.tgt = null; return null; } const E = t.V, f = Math.sin(E.facing) * E.speed, g = Math.cos(E.facing) * E.speed, d = this.I.near(E.pos, V.pos), tf = d / V.T.round.vel; return [E.pos[0] + f * tf, E.pos[1] + 1.2, E.pos[2] + g * tf]; }
-    if (t.you) { const y = this.you; if (!y?.alive) { V.tgt = null; return null; } return [y.pos[0], y.pos[1] + 1.0, y.pos[2]]; }
+    if (t.you) { const y = this.you; if (!y?.alive) { V.tgt = null; return null; } return [y.pos[0], y.pos[1] + 1.0 - 0.45 * (y.low || 0), y.pos[2]]; }
     if (t.M) { if (t.M.hp <= 0) { V.tgt = null; return null; } return [t.M.pos[0], t.M.pos[1] + (t.M.duck > 0.5 ? 0.5 : 0.9), t.M.pos[2]]; }
     return null;
   }
@@ -209,7 +209,11 @@ export class Armor {
     const c = V.drive || { fwd: 0, right: 0 }; V.halt = false;
     if (V.aimPt) this.lay(V, V.aimPt, dt);
     if (V.fire && V.reload <= 0) this.fireGun(V, 0.0006);
-    if (V.mgOn && V.mgCool <= 0) { V.mgCool = 0.085; this.yourCoax(V); }
+    if (V.mgOn && V.mgCool <= 0 && V.T.mg) { V.mgCool = 0.085; this.yourCoax(V); }
+    // a carrier you're driving: stop, and the squad in the back gets out
+    if (V.kind === 'apc') { V.stillT = Math.abs(V.speed) < 0.4 ? (V.stillT || 0) + dt : 0;
+      if (V.carry > 0 && V.stillT > 1.2) { V.ramp = Math.min(1, V.ramp + dt * 1.2); if (V.ramp >= 1 && (V.dropT = (V.dropT || 0) - dt) <= 0) { V.dropT = 0.45; V.carry--; const M = this.I.spawn(V.side); M.pos = this.rear(V, 0.8, (Math.random() - 0.5) * 1.6); M.goal = null; M.state = 'move'; M.facing = V.facing; if (V.carry === V.T.carry - 1) this.I.bark(M, 'dismount', true); } }
+      else V.ramp = Math.max(0, V.ramp - dt * 0.8); }
   }
   yourCoax(V) {
     const I = this.I, from = this.muzzle(V), g = this.gunDir(V), j = () => (Math.random() - 0.5) * 0.012, dir = [g[0] + j(), g[1] + j(), g[2] + j()], L = Math.hypot(...dir); for (let i = 0; i < 3; i++) dir[i] /= L;
@@ -310,7 +314,7 @@ export class Armor {
       const v = this.onRay(o, dir, best, R.age < 0.2 ? R.from : null, R.by === 'player' ? null : R.side); if (v) { best = v.along; hit = { V: v.V }; }
       const w = I.coverOnRay(o, dir, best); if (w) { best = w.along; hit = { C: w.C }; }
       const m = I.onRay(o, dir, best); if (m && m.M.hp > 0) { best = m.along; hit = { M: m.M }; }
-      if (you?.alive && !you.tank && R.side !== you.side) { const px = you.pos[0] - o[0], py = you.pos[1] + 1 - o[1], pz = you.pos[2] - o[2], al = px * dir[0] + py * dir[1] + pz * dir[2]; if (al > 0 && al < best && Math.hypot(px - dir[0] * al, py - dir[1] * al, pz - dir[2] * al) < 0.45) { best = al; hit = { you: true }; } }
+      if (you?.alive && !you.tank && R.side !== you.side) { const px = you.pos[0] - o[0], py = you.pos[1] + 1 - 0.45 * (you.low || 0) - o[1], pz = you.pos[2] - o[2], al = px * dir[0] + py * dir[1] + pz * dir[2]; if (al > 0 && al < best && Math.hypot(px - dir[0] * al, py - dir[1] * al, pz - dir[2] * al) < 0.45) { best = al; hit = { you: true }; } }
       for (let k = 1; k <= 4; k++) { const d = best * k / 4, x = o[0] + dir[0] * d, z = o[2] + dir[2] * d; if (I.ground(x, z) > o[1] + dir[1] * d) { best = d; hit = { ground: true }; break; } }
       const p = [o[0] + dir[0] * best, o[1] + dir[1] * best, o[2] + dir[2] * best];
       if (hit) { this.impact(R, p, dir, hit, you); continue; }

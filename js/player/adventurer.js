@@ -26,7 +26,7 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
     arms: { l: [by.upperarm_l, by.lowerarm_l, by.hand_l], r: [by.upperarm_r, by.lowerarm_r, by.hand_r] }, legs: { l: [by.thigh_l, by.calf_l, by.foot_l], r: [by.thigh_r, by.calf_r, by.foot_r] },
     toe: { l: by.ball_l, r: by.ball_r } });
   rig.handBones = {}; for (const s of ['l', 'r']) rig.handBones[s] = { hand: by['hand_' + s], index: fing('index', s), middle: fing('middle', s), ring: fing('ring', s), pinky: fing('pinky', s), thumb: fing('thumb', s) };
-  rig.hands = { l: captureHand(rig, 'l', [body]), r: captureHand(rig, 'r', [body]) };
+  const flesh = skinned.filter(m => /body|glove/i.test(m.name)); rig.hands = { l: captureHand(rig, 'l', flesh), r: captureHand(rig, 'r', flesh) };      // (in gloves, the glove is the surface that grips)
   // the clips, and how fast each one walks (the planted foot's travel against the hips, over a cycle)
   const mixer = new THREE.AnimationMixer(root), clip = n => g.animations.find(a => a.name === n), act = {};
   for (const a of g.animations) { act[a.name] = mixer.clipAction(a); }
@@ -38,7 +38,8 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
   rig.clavicles = { l: by.clavicle_l, r: by.clavicle_r };
   for (const G of gaits) { G.a.play(); G.a.weight = 0; G.a.enabled = true; }
   const mats = []; root.traverse(o => { if (o.isMesh) for (const m of [].concat(o.material)) { if (!mats.includes(m)) { m.userData.t0 = m.transparent; m.userData.d0 = m.depthWrite; mats.push(m); } } });
-  let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null, gunUp = 0, gunPitch = 0, ranged = false;
+  let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null, gunUp = 0, gunPitch = 0, ranged = false, crouchK = 0;
+  const pelvis0 = by.pelvis?.position.clone();
   // the gun up to the eye: the aiming clips' upper body only (spine, arms, head), laid over whatever the legs are doing, turned up or down
   // with where you look. (Weighted well over the gait's 1 so the arms hold the gun, not swing.)
   const UPPER = /^(spine|neck|head|jaw|eye|clavicle|upperarm|lowerarm|hand|index|middle|ring|pinky|thumb|socket_(hand|forearm|shoulder|chest|head))/;
@@ -87,12 +88,25 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
     // the head down and over onto the stock, the right eye behind the sights
     for (const [b, f, r] of [[by.spine_03, 0.08, 0.04], [by.neck_01, 0.3, 0.1], [by.head, 0.22, 0.16]]) if (b) { const q0 = b.getWorldQuaternion(new THREE.Quaternion()), tilt = new THREE.Quaternion().setFromAxisAngle(right, -f * k).multiply(new THREE.Quaternion().setFromAxisAngle(fwd, r * k)); setWorldQuat(b, tilt.multiply(q0)); b.updateMatrixWorld(true); }
   }
+  // Crouched: the hips down and back, the feet where they were (the legs bent to reach them, knees out over the toes), the back
+  // bent forward over them, the way a rifleman crouches behind cover or moves low.
+  function crouchLegs(k) {
+    if (!by.pelvis || !by.thigh_l) return; root.updateMatrixWorld(true);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(wq)); fwd.y = 0; fwd.normalize(); const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
+    const feet = ['l', 'r'].map(s => ({ s, p: by['foot_' + s].getWorldPosition(new THREE.Vector3()), q: by['foot_' + s].getWorldQuaternion(new THREE.Quaternion()) }));
+    const pw = by.pelvis.getWorldPosition(new THREE.Vector3()).addScaledVector(UP, -0.4 * k).addScaledVector(fwd, -0.1 * k);
+    by.pelvis.position.copy(by.pelvis.parent.worldToLocal(pw)); by.pelvis.updateMatrixWorld(true);
+    for (const F of feet) { const th = by['thigh_' + F.s], side = F.s === 'l' ? -1 : 1, pole = th.getWorldPosition(new THREE.Vector3()).addScaledVector(fwd, 1.2).addScaledVector(right, side * 0.25);
+      solveLimb(th, by['calf_' + F.s], by['foot_' + F.s], F.p, pole); setWorldQuat(by['foot_' + F.s], F.q); }
+    if (by.spine_01) { const q = by.spine_01.getWorldQuaternion(new THREE.Quaternion()); setWorldQuat(by.spine_01, new THREE.Quaternion().setFromAxisAngle(right, -0.32 * k).multiply(q)); }
+    if (by.neck_01) { const q = by.neck_01.getWorldQuaternion(new THREE.Quaternion()); setWorldQuat(by.neck_01, new THREE.Quaternion().setFromAxisAngle(right, 0.22 * k).multiply(q)); }      // (head back up, eyes level)
+  }
   const handAxes = {};
   { root.updateMatrixWorld(true); for (const s of ['l', 'r']) { const h = by['hand_' + s], m = by['middle_01_' + s], i = by['index_01_' + s], pk = by['pinky_01_' + s]; if (!h || !m || !i || !pk) continue;
     const hp = h.getWorldPosition(new THREE.Vector3()), hq = h.getWorldQuaternion(new THREE.Quaternion()).invert(), loc = b => b.getWorldPosition(new THREE.Vector3()).sub(hp).applyQuaternion(hq);
     const F = loc(m).normalize(), across = loc(i).sub(loc(pk)).normalize(), N = new THREE.Vector3().crossVectors(across, F).multiplyScalar(s === 'l' ? 1 : -1); N.addScaledVector(F, -N.dot(F)).normalize();
     handAxes[s] = { frame: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(F, N, new THREE.Vector3().crossVectors(F, N))), palm: loc(m).multiplyScalar(0.55).addScaledVector(N, 0.025) }; } }
-  const resetBones = () => { for (const b of Object.values(by)) if (b.isBone) b.quaternion.copy(b.userData.q0); };
+  const resetBones = () => { for (const b of Object.values(by)) if (b.isBone) b.quaternion.copy(b.userData.q0); if (pelvis0) by.pelvis.position.copy(pelvis0); };
   const api = {
     object: root, rig, isPlaceholder: false,
     // world hooks for the hands: what to probe, and how to get from render space back to the world
@@ -109,6 +123,7 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
     },
     // k 0..1 how far the gun's up; pitch the camera's (+ looking down)
     aimGun(k, pitch) { gunUp = k; gunPitch = pitch; },
+    crouch(k) { crouchK = k; },
     punch() { const a = act.punch_jab || act.strike_straight_r_1; if (!a) return; oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.2; a.play(); },
     // a grenade lobbed; a round taken in the chest (a jolt, not the whole clip: you keep fighting)
     throwIt() { const a = act.throw; if (!a) return; if (oneShot) oneShot.stop(); oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.6; a.play(); },
@@ -127,6 +142,7 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
       if (oneShot && !oneShot.isRunning()) { oneShot.stop(); oneShot = null; }
       mixer.update(dt);
       root.updateMatrixWorld(true);
+      if (crouchK > 0.01 && !pose && !climb && grounded) crouchLegs(crouchK);
       if (ranged && !pose && !climb && gunUp > 0.02) shoulderGun(gunUp);
       if (pose === 'sit') {      // thighs level, shins down, hands on the knees
         const f = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(_q)), down = new THREE.Vector3(0, -1, 0);
