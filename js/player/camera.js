@@ -4,7 +4,7 @@
 export class FollowCamera {
   constructor(camera, world, dom) {
     this.camera = camera; this.world = world;
-    this.yaw = 0; this.pitch = 0.25; this.dist = 4.2; this.cur = 4.2;
+    this.yaw = 0; this.pitch = 0.25; this.dist = 4.2; this.cur = 4.2; this.aimK = 0;      // aimK: 0..1 sighting down a gun (in closer over the shoulder)
     dom.addEventListener('mousemove', e => {
       if (document.pointerLockElement !== dom) return;
       if (this.onMouse && this.onMouse(e.movementX, e.movementY)) return;     // (something else — the flight stick — is using the mouse)
@@ -18,14 +18,14 @@ export class FollowCamera {
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const dx = -Math.sin(this.yaw) * cp, dy = sp, dz = -Math.cos(this.yaw) * cp;
     // shoulder offset to the right
-    const rx = Math.cos(this.yaw) * -0.45, rz = -Math.sin(this.yaw) * -0.45;
-    let free = this.dist;
-    for (let d = 0.3; d <= this.dist; d += 0.15) {
-      const f = d / this.dist;
+    const sh = 0.45 + 0.2 * this.aimK, rx = Math.cos(this.yaw) * -sh, rz = -Math.sin(this.yaw) * -sh, dist = this.dist * (1 - 0.5 * this.aimK);
+    let free = dist;
+    for (let d = 0.3; d <= dist; d += 0.15) {
+      const f = d / dist;
       if (this.world.solidAt(tx + rx * f + dx * d, ty + dy * d, tz + rz * f + dz * d, 0.2)) { free = Math.max(0.4, d - 0.25); break; }
     }
     this.cur = free < this.cur - 1.2 ? free : free < this.cur ? this.cur + (free - this.cur) * Math.min(1, dt * 16) : this.cur + (free - this.cur) * Math.min(1, dt * 3);     // (a wall's a snap in; grazing a bump is not)
-    const f = this.cur / this.dist;
+    const f = this.cur / dist;
     const p = toRender(tx + rx * f + dx * this.cur, ty + dy * this.cur, tz + rz * f + dz * this.cur);
     this.camera.position.set(p[0], p[1], p[2]);
     const l = toRender(tx + rx * f, ty, tz + rz * f);

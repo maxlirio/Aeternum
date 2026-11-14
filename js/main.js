@@ -83,6 +83,8 @@ import { SurfaceProbe } from './render/probe.js';
 import { LedgeView } from './render/ledges.js';
 import { ShipDamage } from './render/damage.js';
 import { FlightHud } from './ui/flighthud.js';
+import { CombatHud } from './ui/combathud.js';
+import { Sound } from './render/sound.js';
 import { laddersIn } from './gen/climb.js';
 import { SPEEDER, typeOf } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
@@ -268,7 +270,7 @@ async function start(fresh) {
   let propView = propLib ? new PropView(propLib) : null;
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
-  const shipDamage = new ShipDamage(shipView); shipView.damage = shipDamage; const hud = new FlightHud();
+  const shipDamage = new ShipDamage(shipView); shipView.damage = shipDamage; const hud = new FlightHud(), chud = new CombatHud(), sound = new Sound();
   if (arriving) tunnelUp(propLib);
   const capitalView = new CapitalView(scene, propLib); setTimeout(() => capitalView.load(), 2500);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
@@ -424,14 +426,14 @@ async function start(fresh) {
   let paused = false, forceHold = 0, jumpQueued = false, lastSave = performance.now();
   addEventListener('keydown', e => {
     if (paused) return;
-    keys.add(e.code);
+    sound.wake(); keys.add(e.code);
     if (e.code === 'Space' && !flight) jumpQueued = true;
     if (e.code === 'KeyE') interact();
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
     if (e.code === 'KeyR') attack();
     if (e.code === 'KeyF' && myCraft) { if (myCraft.lockT < 1.2 || !war.fireMissile(myCraft)) ui.toast(myCraft.missiles ? (myCraft.lock && myCraft.lockT > 1.2 ? 'Reloading.' : 'No lock: keep a target ahead of you, from behind, for a second.') : 'No missiles left.', 'warn', 2000); else if (myCraft.lockT < 1.2) {} }
-    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft); else if (e.code === 'KeyG') grabOrThrow();
+    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft); else if (e.code === 'KeyG' && onLine()) throwGrenade(); else if (e.code === 'KeyG') grabOrThrow();
     if (e.code === 'KeyX' && flight) { flight.assist = !flight.assist; ui.toast(flight.assist ? 'Flight assist on: wings level themselves, the hover holds height.' : 'Flight assist <b>off</b>. Nothing will catch you.', flight.assist ? '' : 'warn', 4000); }
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
@@ -442,7 +444,12 @@ async function start(fresh) {
   });
   addEventListener('keyup', e => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
-  renderer.domElement.addEventListener('click', () => { if (paused) return; if (document.pointerLockElement === renderer.domElement) attack(); else renderer.domElement.requestPointerLock?.(); });
+  renderer.domElement.addEventListener('click', () => { sound.wake(); if (paused) return; if (document.pointerLockElement === renderer.domElement) { if (!heldRanged()) attack(); } else renderer.domElement.requestPointerLock?.(); });
+  // a gun: held down, it keeps firing; the other button brings it up to your eye
+  renderer.domElement.addEventListener('mousedown', e => { if (paused || document.pointerLockElement !== renderer.domElement || flight || ride) return; if (e.button === 0 && heldRanged()) { trigger = true; attack(); } if (e.button === 2) aimHeld = true; });
+  addEventListener('mouseup', e => { if (e.button === 0) trigger = false; if (e.button === 2) aimHeld = false; });
+  renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('blur', () => { trigger = false; aimHeld = false; });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
@@ -1063,22 +1070,22 @@ async function start(fresh) {
       ui.toast(take ? `${esc(G.name)} close round you and go through your pockets: <b>${take} cr</b> gone.` : `${esc(G.name)} close round you, find nothing worth taking, and shove you on your way.`, 'bad', 8000); hurtPlayer(take ? 6 : 12, G.name); }
   }
   // ---- soldiering (sim/front.js): enlisted with your town's nation, flown to the front in an issued fighter
-  const onLand = F => { const x = F.x - Math.sin(F.dir) * 340, z = F.z - Math.cos(F.dir) * 340; return !cloudW && landY(x, z) > planet.seaLevel + 0.5 && landY(F.x, F.z) > planet.seaLevel + 1; };
+  const onLand = F => { const x = F.x - Math.sin(F.dir) * 150, z = F.z - Math.cos(F.dir) * 150; return !cloudW && landY(x, z) > planet.seaLevel + 0.5 && landY(F.x, F.z) > planet.seaLevel + 1; };
   // ?auto=line: enlisted and on the line at once; a world whose nation has no war on land hands on to the next world
   function lineStart() {
     const nat = townSociety(planet, s)?.nation, F = nat && frontsOf(planet, nat).find(onLand);
     if (!F) { const n = +(params.get('planet') || 0) + 1; if (n < 24) { params.set('planet', n); ui.loading(`No war on land here: on to world ${n}…`, 0); location.replace('?' + params); } else ui.toast('No world nearby has a war on land.', 'warn'); return; }
-    player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 185);      // (set down just behind your own sandbags, the fight in front of you)
+    player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 72);      // (set down just behind your own sandbags, the fight in front of you)
   }
-  async function deployFlow(foot = false, back = 340) {
+  async function deployFlow(foot = false, back = 150) {
     const S = player.soldier, nat = townSociety(planet, s)?.nation; if (!S || !nat) return;
     const Fs = frontsOf(planet, nat); if (!Fs.length) { ui.toast('Nowhere to send you: there\'s no fighting on our borders today.', 'warn'); return; }
     if (foot) {      // a transport sets you down at your side's rally point, behind the sandbags, with an issued carbine
       const F = Fs.find(onLand) || Fs[0], ux = Math.sin(F.dir), uz = Math.cos(F.dir), x = F.x - ux * back, z = F.z - uz * back;
       if (cloudW || landY(x, z) <= planet.seaLevel + 0.5) { ui.toast('The line here is over water: there\'s no fighting on foot. You could fly.', 'warn'); return; }
-      if (!inventoryOf(player).some(q => q.id === 'carbine')) giveItem(player, 'carbine'); player.weapon = 'carbine'; player.footDuty = { x: F.x, z: F.z, rx: x, rz: z }; store.touchPlayer();
+      if (!inventoryOf(player).some(q => q.id === 'carbine')) giveItem(player, 'carbine'); player.weapon = 'carbine'; player.footDuty = { x: F.x, z: F.z, rx: F.x - ux * 150, rz: F.z - uz * 150 }; store.touchPlayer(); kit();      // (rx, rz: the rally point, where the medics bring you and you're resupplied)
       ctrl.mode = 'walk'; ctrl.pos = [x, landY(x, z) + 0.1, z]; ctrl.vel = [0, 0, 0]; ctrl.facing = F.dir; cam.yaw = F.dir;
-      ui.toast(`<b>On the line.</b> A transport drops you ${back < 300 ? 'just behind the sandbags of the' : 'at the'} ${esc(nat.name)} ${back < 300 ? 'line' : 'rally point'} with a carbine and a squad. Three objectives stand on the border with ${esc(F.b.name)}: hold ours, take theirs.`, '', 11000); return;
+      ui.toast(`<b>On the line.</b> A transport drops you ${back < 120 ? 'just behind the sandbags of the' : 'at the'} ${esc(nat.name)} ${back < 120 ? 'line' : 'rally point'} with a carbine and a squad. Three objectives stand on the border with ${esc(F.b.name)}: hold ours, take theirs.`, '', 11000); return;
     }
     const F = Fs[0], sh = { id: 'issued:' + Math.floor(clock.now()), model: ['interceptor', 'striker', 'warden'][S.rank % 3], name: `${nat.name} ${RANKS[S.rank]} ${player.name.split(' ').pop()}`, colour: 4 };
     const x = F.x - Math.sin(F.dir) * 6000, z = F.z - Math.cos(F.dir) * 6000, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel) + 900;
@@ -1156,7 +1163,7 @@ async function start(fresh) {
     const say = `<b>Out of FTL</b> over <b>${esc(planet.name)}</b>${H.to.system !== 0 || H.fromName ? `, from ${esc(H.fromName)}` : ''}. ${esc(townSociety(planet, homeS)?.nation?.name || 'Its people')} have a town below.`;
     if (ftl) { paused = true; keys.clear(); ftlOut = { t: 0, say }; } else ui.toast(say, '', 10000);
   }
-  function soldierKill() { const S = player.soldier; S.kills = (S.kills || 0) + 1; const pay = 120 + 40 * S.rank; player.credits = (player.credits ?? 0) + pay; if (S.kills % 5 === 0 && S.rank < RANKS.length - 1) { S.rank++; ui.toast(`Promoted: <b>${RANKS[S.rank]}</b>.`, '', 7000); } store.touchPlayer(); ui.toast(`Kill confirmed. <b>${pay} cr</b>.`, '', 3000); }
+  function soldierKill() { const S = player.soldier; S.kills = (S.kills || 0) + 1; const pay = 120 + 40 * S.rank; player.credits = (player.credits ?? 0) + pay; if (S.kills % 5 === 0 && S.rank < RANKS.length - 1) { S.rank++; ui.toast(`Promoted: <b>${RANKS[S.rank]}</b>.`, '', 7000); } store.touchPlayer(); if (onLine()) chud.log(`+${pay} cr`, 'you'); else ui.toast(`Kill confirmed. <b>${pay} cr</b>.`, '', 3000); }
   function endDeployment() {
     leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk';
     const hq = pop.buildingByKey.get(polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [s.cx, s.h, s.cz]; ctrl.pos = [at[0], s.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0];
@@ -1346,9 +1353,14 @@ async function start(fresh) {
     flash.position.set(...toRender(...from)); flash.intensity = 25;
   }
   function scare(at, t) { for (const a of agents) { if (String(a.id).startsWith('tr:') || a.pose === 'lie') continue; if (Math.hypot(a.pos[0] - at[0], a.pos[2] - at[2]) < 40 && !fleeing.has(a.id)) fleeing.set(a.id, { pos: a.pos.slice(), until: t + 25 + Math.random() * 15 }); } }
-  function hurtPlayer(dmg, by) {
+  function hurtPlayer(dmg, by, from = null) {
+    const line = onLine(); hurtT = performance.now() / 1000; let shielded = false;
+    if (line && shield > 0) { const take = Math.min(shield, dmg); shield -= take; dmg -= take; shielded = dmg <= 0; if (shield <= 0) sound.shieldDown(); }
+    if (from) { let a = cam.yaw - Math.atan2(from[0] - ctrl.pos[0], from[2] - ctrl.pos[2]); a = Math.atan2(Math.sin(a), Math.cos(a)); chud.hurt(a, shielded); }
+    sound.hurt(shielded); fx.shake = Math.max(fx.shake, shielded ? 0.15 : 0.35); if (!shielded) avatar.flinch?.();
+    if (dmg <= 0) return;
     player.hp = Math.max(0, player.hp - dmg); store.touchPlayer();
-    ui.toast(`You're hit${by ? ` — ${esc(by)}` : ''}. <small>${Math.round(player.hp)}% health</small>`, 'bad', 2500);
+    if (!line) ui.toast(`You're hit${by ? ` — ${esc(by)}` : ''}. <small>${Math.round(player.hp)}% health</small>`, 'bad', 2500);
     if (player.hp > 0) return;
     const t = clock.now();
     if (pursuit && pursuit.state !== 'return') {          // shot down by the law: you wake in their cell
@@ -1358,7 +1370,7 @@ async function start(fresh) {
       ui.toast(`You go down. You wake up in the ${esc(polity.securityName)} cell, patched up, your weapons gone.`, 'bad', 12000);
     } else if (player.footDuty && infantry.F) {           // down on the line: the medics carry you back behind it
       const R = player.footDuty; ctrl.pos = [R.rx, landY(R.rx, R.rz) + 0.1, R.rz]; ctrl.vel = [0, 0, 0]; clock.advance(planet.dayLength / 48);
-      ui.toast('You go down. Medics drag you back to the rally point and patch you up.', 'bad', 9000);
+      ui.toast('You go down. Medics drag you back to the rally point and patch you up.', 'bad', 9000); kit();
     } else {                                              // anything else: you come round where you fell, an hour later
       clock.advance(planet.dayLength / 24); ui.toast('You go down. You come round an hour later, hurting.', 'bad', 9000);
     }
@@ -1366,6 +1378,20 @@ async function start(fresh) {
   }
   // ---- violence (sim/processes/combat.js): what's in your hand, and what happens when you use it
   let lastAttack = -1e9;
+  // a fight on foot: the trigger held, sighting down the gun (aimK eases in), how far the shots wander now (bloom), your issued shield, your grenades
+  let trigger = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
+  const SHIELD = 60, baseFov = camera.fov;
+  const heldRanged = () => { const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : null; return !!(id && WEAPONS[id]?.ranged); };
+  const onLine = () => !!(player.footDuty && infantry.F && ctrl.mode === 'walk' && !flight && !ride);
+  const kit = () => { shield = SHIELD; nades = 3; };
+  function throwGrenade() {
+    if (nades <= 0) { sound.blip(260); return; }
+    const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir); const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]], h = Math.hypot(dir.x, dir.z) || 1;
+    // where it comes down: where you're looking, if that's the ground within a throw, else as far as the angle you're looking up throws it
+    let reach = Math.max(8, Math.min(32, 18 + dir.y * 45)); for (let d = 2; d < 40; d += 0.5) { const x = wo[0] + dir.x * d, y = wo[1] + dir.y * d, z = wo[2] + dir.z * d; if (y <= landY(x, z) + 0.2) { reach = Math.min(32, Math.hypot(x - ctrl.pos[0], z - ctrl.pos[2])); break; } }
+    nades--; const to = [ctrl.pos[0] + dir.x / h * reach, 0, ctrl.pos[2] + dir.z / h * reach];
+    infantry.throwYours([ctrl.pos[0] + Math.sin(ctrl.facing) * 0.4, ctrl.pos[1] + 1.8, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.4], to); avatar.throwIt?.(); sound.clink(ctrl.pos); lastFired = performance.now() / 1000;
+  }
   const bodies = [];                 // the dead, where they fell: { id, person, pos, facing, until }
   const downAt = new Map();          // someone knocked down stays where they fell: id → { pos, facing }
   const tracer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0 }));
@@ -1467,7 +1493,7 @@ async function start(fresh) {
     } else {
       // a shot along the line of sight (camera centre), with a little spread; walls stop it
       const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
-      dir.x += (Math.random() - 0.5) * W.spread * 2; dir.y += (Math.random() - 0.5) * W.spread * 2; dir.normalize();
+      const spr = W.spread * (1 - 0.65 * aimK) * (ctrl.speed > 2.5 ? 1.6 : 1) + bloom; dir.x += (Math.random() - 0.5) * spr * 2; dir.y += (Math.random() - 0.5) * spr * 2; dir.normalize();
       const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]];
       let wall = W.reach;
       for (let d = 1.5; d < W.reach; d += 0.4) if (world.solidAt(wo[0] + dir.x * d, wo[1] + dir.y * d, wo[2] + dir.z * d, 0.02)) { wall = d; break; }
@@ -1486,14 +1512,20 @@ async function start(fresh) {
         for (const D of wrecks.list.values()) if (!D.ride && D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) list.push({ id: D.id, D, T: D, pos: D.pos });
         const q = shotVehicles(wo, [dir.x, dir.y, dir.z], best, W, list);
         if (q) { best = q.along; const D = q.D || crashRec(q.id, q.v, q.T), hp = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best]; wrecks.shot(D, W.dmg, toLocal(D, ...hp), dirLocal(D, dir.x, dir.y, dir.z)); fx.sparks(hp, 8, 4); target = null; } }
+      const wallHit = infantry.F && infantry.coverOnRay(wo, [dir.x, dir.y, dir.z], best);      // (sandbags stop it)
+      if (wallHit) { best = wallHit.along; fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 6, [0.62, 0.56, 0.44]); }
       const man = infantry.F && infantry.onRay(wo, [dir.x, dir.y, dir.z], best);
-      if (man) { best = man.along; target = null; infantry.hurt(man.M, W.dmg, 'player'); fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 4, [0.45, 0.12, 0.1]); }
+      if (man) { best = man.along; target = null; if (man.M.hp > 0) { const kill = infantry.hurt(man.M, W.dmg * (man.head ? 1.8 : 1), 'player', [dir.x, dir.z]); chud.hit(kill); sound.hit(kill); } fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 4, [0.45, 0.12, 0.1]); }
+      if (infantry.F) infantry.heard(wo, [dir.x, dir.y, dir.z], best);
       const shot = fauna?.onRay(wo, [dir.x, dir.y, dir.z], best);
       if (shot) { best = shot.along; target = null; fauna.hurt(shot.A, W.dmg); }
       hitPoint = [wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best];
       const g = tracer.geometry.attributes.position, hp = toRender(...hitPoint), hand = toRender(ctrl.pos[0] + Math.sin(ctrl.facing) * 0.5, ctrl.pos[1] + 1.35, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.5);
       g.setXYZ(0, ...hand); g.setXYZ(1, ...hp); g.needsUpdate = true; tracer.material.opacity = 0.9;
       flash.position.set(...hand); flash.intensity = 25;
+      // the kick: the muzzle climbs (less with it to your eye), and the next shots wander further until you let it settle
+      cam.pitch = Math.max(-0.9, cam.pitch - (0.008 + Math.random() * 0.006) * (1 - 0.45 * aimK)); cam.yaw += (Math.random() - 0.5) * 0.005; bloom = Math.min(W.spread * 2.5, bloom + W.spread * 0.4);
+      sound.shot(null, { energy: !!W.energy }); fx.shake = Math.max(fx.shake, 0.1); lastFired = performance.now() / 1000;
     }
     if (!target) {       // no one there: a passer-by in the city, a window, whatever's in the way
       const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), at = hitPoint || [ctrl.pos[0] + fx * (W.reach + 0.3), ctrl.pos[1] + 1.2, ctrl.pos[2] + fz * (W.reach + 0.3)];
@@ -1535,8 +1567,8 @@ async function start(fresh) {
   const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);      // (the land itself, loaded or not: the line can be a long way off)
   let aloft = false;      // (flying more than 300 m up: set each frame)
   const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)
-  const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by) => hurtPlayer(d, by) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
-  const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
+  const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
+  const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); sound.boom(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
   let myCraft = null, raid = null, firing = false;
   function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
@@ -1715,6 +1747,15 @@ async function start(fresh) {
         run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92, exhausted: player.fatigue > 0.985, drop: keys.has('KeyQ'),
       };
       jumpQueued = false;
+      { const now = performance.now() / 1000, armed = heldRanged() && !flight && !ride && ctrl.mode === 'walk';
+        if (armed && trigger) attack();
+        aimK += ((armed && aimHeld ? 1 : 0) - aimK) * Math.min(1, dt * 12); cam.aimK = aimK;
+        const fov = baseFov * (1 - 0.3 * aimK); if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
+        const W = WEAPONS[player.weapon]; bloom *= Math.exp(-dt * 3.5);
+        input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || now - lastFired < 0.9) ? (window.__faceYaw ?? cam.yaw) : undefined;      // (__faceYaw: photographs from the side)
+        gunK += ((input.face != null ? 1 : 0) - gunK) * Math.min(1, dt * 14); avatar.aimGun?.(gunK, cam.pitch);
+        // the shield: down to nothing, it waits for a few quiet seconds, then comes back up
+        if (onLine()) { if (now - hurtT > 4 && shield < SHIELD) { if (shield <= 0) sound.shieldUp(); shield = Math.min(SHIELD, shield + dt * 30); } } }
       if (flight) {
         // the stick: mouse moves it, it springs back to centre; arrow keys too (Up = nose down, like a stick)
         stick[0] *= Math.exp(-dt * 2.5); stick[1] *= Math.exp(-dt * 2.5);
@@ -2009,7 +2050,21 @@ async function start(fresh) {
         if (e.type === 'line') ui.toast(`<b>The line.</b> Sandbags and wire where ${esc(e.F.a.name)} meets ${esc(e.F.b.name)}: soldiers of both sides, three objectives on the border.`, 'bad', 9000);
         if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (e.you && side) { const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
         if (e.type === 'lost') ui.toast(`<b>${e.O.name} objective lost</b> to ${esc(infantry.F.b.name)}.`, 'bad', 5000);
-        if (e.type === 'down' && e.by === 'player') { if (e.M.side === 'theirs' && player.soldier) soldierKill(); else if (e.M.side === 'ours') ui.toast('That was one of ours.', 'bad', 4000); }
+        if (e.type === 'down' && e.by === 'player') { if (e.M.side === 'theirs' && player.soldier) { chud.log(`You put down a ${infantry.F.b.name} rifleman`, 'you'); soldierKill(); } else if (e.M.side === 'ours') ui.toast('That was one of ours.', 'bad', 4000); }
+        else if (e.type === 'down' && Math.hypot(e.M.pos[0] - ctrl.pos[0], e.M.pos[2] - ctrl.pos[2]) < 70) chud.log(e.M.side === 'ours' ? `${infantry.F.a.name} soldier down` : `${infantry.F.b.name} soldier down`, e.M.side === 'ours' ? 'bad' : '');
+        if (e.type === 'nade') { fx.blast(e.p, 2.2); fx.dustRing(e.p, e.R * 0.8); sound.boom(e.p, 3.5); const d = Math.hypot(e.p[0] - ctrl.pos[0], e.p[2] - ctrl.pos[2]); fx.shake = Math.max(fx.shake, Math.max(0, 0.7 - d / 40)); }
+      }
+      if (infantry.F) {
+        // what you hear of it: every shot from where it was fired (the nearest few each moment), the snap of the ones that come close
+        for (const S of infantry.shots) { if (S.n <= lastHeard) continue; lastHeard = Math.max(lastHeard, S.n);
+          const d = Math.hypot(S.from[0] - ctrl.pos[0], S.from[2] - ctrl.pos[2]); if (d < 260 && (shotsHeard += 1) < 14) sound.shot(S.from);
+          const ax = S.to[0] - S.from[0], az = S.to[2] - S.from[2], L = Math.hypot(ax, az) || 1, f = Math.max(0, Math.min(1.15, ((ctrl.pos[0] - S.from[0]) * ax + (ctrl.pos[2] - S.from[2]) * az) / (L * L))), off = Math.hypot(S.from[0] + ax * f - ctrl.pos[0], S.from[2] + az * f - ctrl.pos[2]);
+          if (!S.hit && off < 3 && d > 4) { sound.crack([S.from[0] + ax * f, 0, S.from[2] + az * f]); infantry.felt(0.05); fx.shake = Math.max(fx.shake, 0.08); } }
+        shotsHeard = Math.max(0, shotsHeard - dt * 14);
+        // what they dropped, if you walk over it
+        for (const k of infantry.take(ctrl.pos)) { if (k === 'cell') { shield = SHIELD; player.hp = Math.min(100, player.hp + 20); chud.log('Cell: shield and health up', 'you'); sound.blip(700); } else { nades = Math.min(5, nades + 1); chud.log('Grenade', 'you'); sound.blip(520); } store.touchPlayer(); }
+        // back at the rally point you're issued what you've used
+        const R = player.footDuty; if (R && Math.hypot(ctrl.pos[0] - R.rx, ctrl.pos[2] - R.rz) < 12 && nades < 3) { nades = 3; chud.log('Resupplied', 'you'); }
       } }
     fleetWar.step(dt, raid); { const fe = fleetWar.drain(); fleetWarView.update(dt, fleetWar, toRender, groundY, fe, camera);
       for (const e of fe) { const C = fleet.find(c => c.model === e.C); if (!C) continue;
@@ -2134,6 +2189,11 @@ async function start(fresh) {
     }
     if (performance.now() - lastSave > 10000) { lastSave = performance.now(); save(); }
     waterTick -= dt; if (waterTick <= 0) { waterTick = 1.5; const [wx0, wz0] = ctrl.pos; let nearW = ctrl.pos[1] < planet.seaLevel + 90; for (const r of [150, 450, 900]) for (let k = 0; k < 8 && !nearW; k++) { const a = k * 0.785; if ((flight ? rawHeight : surfaceHeight)(planet, wx0 + Math.cos(a) * r, wz0 + Math.sin(a) * r) < planet.seaLevel + 1) nearW = true; } sea.waterNear = nearW; }
+    // a fight on foot, as you see and hear it (ui/combathud.js, render/sound.js)
+    { const line = onLine(), armed = heldRanged() && !flight && !ride && ctrl.mode === 'walk'; sound.listen(ctrl.pos, cam.yaw);
+      const barks = []; if (line) for (const b of infantry.barks) { const M = b.M; if (Math.hypot(M.pos[0] - ctrl.pos[0], M.pos[2] - ctrl.pos[2]) > 70) continue; const v = new THREE.Vector3(...toRender(M.pos[0], M.pos[1] + 2.1, M.pos[2])).project(camera); if (v.z > 1 || Math.abs(v.x) > 1.1 || Math.abs(v.y) > 1.1) continue; barks.push({ x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight, text: b.text, side: M.side, life: 2.2 - b.t }); }
+      const W = WEAPONS[player.weapon];
+      chud.draw({ on: !paused && (line || armed), armed: armed && (document.pointerLockElement === renderer.domElement || params.has('auto')), spread: (W?.spread || 0.02) * (1 - 0.65 * aimK) * (ctrl.speed > 2.5 ? 1.6 : 1) + bloom, fov: camera.fov * Math.PI / 180, aiming: aimK > 0.5, hp: player.hp, shield: line ? shield : 0, shieldMax: line ? SHIELD : 0, nades: line ? nades : 0, obj: line ? infantry.obj : null, barks }, dt); }
     if (fx.shake > 0.01) { const k = fx.shake * fx.shake * 0.28, T = performance.now() * 0.05; camera.position.x += Math.sin(T * 1.13) * k; camera.position.y += Math.sin(T * 1.71 + 1) * k; camera.position.z += Math.sin(T * 0.93 + 2) * k; }
     if (!params.has('norefl') && !cloudW) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3 || !!ringHere();     // (in a ring everything's turning: a map a frame stale shakes everyone in it)     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
@@ -2148,7 +2208,7 @@ async function start(fresh) {
     } else { renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), get state() { return { shield, nades, aimK, bloom, hp: player.hp }; } }, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();

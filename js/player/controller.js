@@ -67,17 +67,18 @@ export class Controller {
     // desired horizontal velocity in camera space
     let mx = input.right, mz = input.fwd;
     const ml = Math.hypot(mx, mz); if (ml > 1) { mx /= ml; mz /= ml; }
-    const sp = (input.run ? RUN : WALK) * speedFactor;
+    const sp = (input.run && !input.aim ? RUN : WALK) * speedFactor * (input.aim ? 0.72 : 1);      // (sighting down the gun you walk, and slower)
     const sy = Math.sin(input.yaw), cy = Math.cos(input.yaw);
     // forward = (sin yaw, cos yaw); screen-right = forward × up = (-cos yaw, sin yaw)
     const tx = (-mx * cy + mz * sy) * sp, tz = (mx * sy + mz * cy) * sp;
     const accel = this.grounded ? 12 : 2.5;
     this.vel[0] += (tx - this.vel[0]) * Math.min(1, accel * dt);
     this.vel[2] += (tz - this.vel[2]) * Math.min(1, accel * dt);
-    if (ml > 0.01) {
-      const want = Math.atan2(tx, tz);
+    // you turn the way you go; with a gun up, the way you're looking (and you move sideways and back as you need to)
+    const want = input.face ?? (ml > 0.01 ? Math.atan2(tx, tz) : null);
+    if (want != null) {
       let d = want - this.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.facing += d * Math.min(1, 10 * dt);
+      this.facing += d * Math.min(1, (input.face != null ? 20 : 10) * dt);
     }
     if (this.grounded && input.jump) {
       // walking into something you could pull yourself onto: climb it instead of jumping

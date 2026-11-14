@@ -24,6 +24,12 @@ export class InfantryView {
     this.flash = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffd08a, size: 0.5, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.flash.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); this.flash.frustumCulled = false; this.group.add(this.flash);
     this.col = new THREE.Color(); this.gait = new Map(); this.line = null; this.m = new THREE.Matrix4();
+    // grenades in the air: a ribbed steel egg with its lever; and what the dead dropped: cells glowing blue, grenades olive
+    const egg = new THREE.SphereGeometry(0.055, 10, 8); egg.scale(1, 1.3, 1);
+    this.nadeIm = new THREE.InstancedMesh(egg, new THREE.MeshStandardMaterial({ color: 0x4c5432, roughness: 0.6, metalness: 0.4 }), 16); this.nadeIm.count = 0; this.nadeIm.frustumCulled = false; this.group.add(this.nadeIm);
+    const cell = new THREE.CylinderGeometry(0.07, 0.07, 0.24, 12).rotateZ(Math.PI / 2);
+    this.cellIm = new THREE.InstancedMesh(cell, new THREE.MeshStandardMaterial({ color: 0x60c8ff, emissive: 0x2a90ff, emissiveIntensity: 1.6, roughness: 0.3 }), 48); this.cellIm.count = 0; this.cellIm.frustumCulled = false; this.group.add(this.cellIm);
+    this.dropNade = new THREE.InstancedMesh(egg, this.nadeIm.material, 48); this.dropNade.count = 0; this.dropNade.frustumCulled = false; this.group.add(this.dropNade);
   }
   // the lines' works, built once per front
   build(I) {
@@ -63,6 +69,7 @@ export class InfantryView {
       const M = I.men[i], L = SIDES[M.side], h = hashId(M.id); let ph = this.gait.get(M.id) || 0; if (M.moving) ph += dt * 6.2; this.gait.set(M.id, ph);
       rig.root.position.set(...this.toRender(...M.pos)); rig.root.rotation.set(0, M.facing, 0); rig.root.scale.setScalar(0.95 + (h % 10) / 100);
       soldierPose(rig, M, ph);
+      if (M.hp <= 0) { const lying = M.dead >= FALL; rig.root.rotation.set(0, M.fall + Math.PI, 0); rig.root.rotateX(-Math.PI / 2 * (lying ? 1 : rig.fallTilt || 0)); }      // (he faced the one who shot him, and goes over backwards)
       rig.root.updateMatrixWorld(true);
       for (const im of this.meshes) { const part = rig.parts[this.meshes.indexOf(im)]; im.setMatrixAt(i, part.mesh.matrixWorld); im.setColorAt(i, this.col.setHex(im.userData.kind === 'skin' ? SKIN[h % SKIN.length] : L[im.userData.kind])); }
       this.m.copy(rig.gunSock.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0);
@@ -73,6 +80,9 @@ export class InfantryView {
     const tp = this.tr.geometry.attributes.position, tc = this.tr.geometry.attributes.color, fp = this.flash.geometry.attributes.position; let k = 0;
     for (const S of I.shots) { if (k >= MAX) break; const age = (I.t - S.t) / 0.25, f0 = Math.min(1, age * 1.4), f1 = Math.min(1, f0 + 0.18), A = S.from, B = S.to, a = this.toRender(A[0] + (B[0] - A[0]) * f0, A[1] + (B[1] - A[1]) * f0, A[2] + (B[2] - A[2]) * f0), b = this.toRender(A[0] + (B[0] - A[0]) * f1, A[1] + (B[1] - A[1]) * f1, A[2] + (B[2] - A[2]) * f1), c = S.side === 'ours' ? [1, 0.85, 0.5] : [1, 0.55, 0.35], w = 1 - age;
       tp.setXYZ(2 * k, ...a); tp.setXYZ(2 * k + 1, ...b); tc.setXYZ(2 * k, c[0] * w, c[1] * w, c[2] * w); tc.setXYZ(2 * k + 1, c[0] * w, c[1] * w, c[2] * w); fp.setXYZ(k, ...(age < 0.3 ? this.toRender(...A) : [0, -1e4, 0])); k++; }
+    { let n = 0; for (const N of I.nades) { if (n >= 16) break; const p = I.nadeAt(N); this.m.makeRotationFromEuler(new THREE.Euler(N.age * 9, N.age * 5, 0)); this.m.setPosition(...this.toRender(...p)); this.nadeIm.setMatrixAt(n++, this.m); } this.nadeIm.count = n; this.nadeIm.instanceMatrix.needsUpdate = true;
+      let c = 0, g = 0; for (const D of I.drops) { const bob = 0.12 + Math.sin(t * 3 + D.pos[0]) * 0.05; this.m.makeRotationY(t * 1.5 + D.pos[2]); this.m.setPosition(...this.toRender(D.pos[0], D.pos[1] + bob, D.pos[2])); if (D.kind === 'cell' && c < 48) this.cellIm.setMatrixAt(c++, this.m); else if (g < 48) this.dropNade.setMatrixAt(g++, this.m); }
+      this.cellIm.count = c; this.dropNade.count = g; this.cellIm.instanceMatrix.needsUpdate = this.dropNade.instanceMatrix.needsUpdate = true; }
     this.tr.geometry.setDrawRange(0, k * 2); this.flash.geometry.setDrawRange(0, k); tp.needsUpdate = tc.needsUpdate = fp.needsUpdate = true;
     // flags: the holder's colour, blending as it's taken; the cloth stirs
     for (const Fl of this.flags) { const p = Fl.O.prog, c = this.col.copy(FLAG.none).lerp(p > 0 ? FLAG.ours : FLAG.theirs, Math.abs(p)); Fl.cloth.material.color.copy(c); Fl.mark.material.color.copy(c);
@@ -82,12 +92,27 @@ export class InfantryView {
 
 // a soldier's pose: walking or running with the carbine at the ready, up to the shoulder to fire, or down
 export function soldierPose(rig, M, ph) {
-  applyPose(rig, { mode: M.hp <= 0 ? 'lie' : 'walk', phase: ph, blend: M.moving ? 1 : 0, k: M.moving ? 0.8 : 0 });
-  if (M.hp <= 0) { if (rig.gunSock) rig.gunSock.visible = false; return; }
-  const a = M.moving ? 0.25 : 0.3 + 0.7 * M.aim;      // at the ready running (muzzle down, across the body), up into the shoulder to fire
+  const falling = M.hp <= 0 && M.dead < FALL;
+  applyPose(rig, { mode: M.hp <= 0 && !falling ? 'lie' : 'walk', phase: ph, blend: M.moving ? 1 : 0, k: M.moving ? 0.8 : 0 });
+  if (M.hp <= 0) {
+    if (rig.gunSock) rig.gunSock.visible = false;
+    if (falling) {      // the knees go, then he goes over the way the round pushed him (render: the root turned about the feet)
+      const f = M.dead / FALL, e = f * f; rig.hips.position.y = 0.95 - 0.25 * Math.min(1, f * 2); rig.legL.upper.rotation.x = rig.legR.upper.rotation.x = -0.5 * Math.min(1, f * 2); rig.legL.lower.rotation.x = rig.legR.lower.rotation.x = 0.9 * Math.min(1, f * 2);
+      rig.torso.rotation.x = -0.3 * f; rig.armL.upper.rotation.z = 0.5 * f; rig.armR.upper.rotation.z = -0.5 * f; rig.fallTilt = e;
+    }
+    return;
+  }
+  rig.fallTilt = 0;
+  const a = M.moving ? 0.25 : 0.3 + 0.7 * M.aim * (1 - 0.6 * (M.duck || 0));      // at the ready running (muzzle down, across the body), up into the shoulder to fire
+  // ducked behind the wall: down on his heels, back bent, the gun held up and over it
+  const d = M.duck || 0;
+  if (d > 0.01) { rig.hips.position.y = 0.95 - 0.47 * d; rig.legL.upper.rotation.x = -1.35 * d; rig.legR.upper.rotation.x = -0.9 * d; rig.legL.lower.rotation.x = 2.0 * d; rig.legR.lower.rotation.x = 1.6 * d; }
   holdLong(rig, a);
-  rig.torso.rotation.y = -0.22 * a; rig.torso.rotation.x = 0.06 + (M.moving ? 0.12 : 0.04 * a);
+  rig.torso.rotation.y = -0.22 * a; rig.torso.rotation.x = 0.06 + (M.moving ? 0.12 : 0.04 * a) + 0.35 * d;
+  // hit: thrown back a little at the shoulders
+  if (M.flinch > 0) { const k = M.flinch / 0.28; rig.torso.rotation.x -= 0.45 * k; rig.torso.rotation.z = (((M.id.length * 7) % 2) ? 0.2 : -0.2) * k; }
 }
+const FALL = 0.55;
 const hashId = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function mergeGeo(list) {
   const pos = [], nor = [], uv = []; for (const g0 of list) { const g = g0.index ? g0.toNonIndexed() : g0; pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); uv.push(...g.attributes.uv.array); }
