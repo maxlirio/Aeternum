@@ -31,6 +31,9 @@ export class Infantry {
     for (const side of [-1, 1]) for (let k = 0; k < 14; k++) { const s = -SPAN + r() * 2 * SPAN, a = side * (165 + r() * 4); this.props.push({ kind: 'wire', pos: at(a, s), a, s, len: 18 + r() * 14, rot: F.dir + Math.PI / 2 }); }
     for (let k = 0; k < 7; k++) this.props.push({ kind: 'fire', pos: at((r() - 0.5) * 240, (r() - 0.5) * 2 * SPAN), size: 1 + r() * 2 });      // (what's burning out there: wrecks, stores, a field)
     this.rally = { ours: [-330, 0], theirs: [330, 0] };
+    // you come up on a fight already going: each side's men all in, the first at its own sandbags, the rest forward of them toward the objectives
+    this.n = 0; for (let k = 0; k < PER_SIDE; k++) for (const side of ['ours', 'theirs']) { const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos), a = (side === 'ours' ? -1 : 1) * (60 + Math.random() * 80), q = this.at(a, s0); M.pos = q; } }
+    this.reinf = 9;
     this.events.push({ type: 'line', F });
   }
   end() { this.F = null; this.men = []; this.shots = []; }

@@ -144,8 +144,9 @@ const esc = v => String(v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 const ui = new UI();
 // ?planet=N (and ?system=M): load another world of this universe instead of home: the developer's switch until there's a way to fly there.
 // Each world keeps its own save slot, so nothing done on one is laid over another.
+if (params.get('auto') === 'line' && !params.has('planet') && !params.has('seed')) params.set('planet', 7);      // (?auto=line: the first world of the default seed whose nation is at war on land)
 const WORLD = params.has('planet') ? new Address([['galaxy', 0], ['sector', 0, 0, 0], ['system', +params.get('system') || 0], ['body', +params.get('planet') || 0]]) : HOMEWORLD;
-const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || (WORLD === HOMEWORLD ? 'main' : `world-${params.get('system') || 0}-${params.get('planet')}`));
+const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || (params.get('auto') === 'line' ? 'line' : WORLD === HOMEWORLD ? 'main' : `world-${params.get('system') || 0}-${params.get('planet')}`));
 const store = new WorldStore(backend);
 window.ORBIS = { store, ready: false };
 window.__started = true;      // (the code all loaded and linked: from here on, failures have their own handling)
@@ -161,6 +162,7 @@ async function boot() {
   }
   if (choice === 'restore') return restoreFlow();
   if (choice === 'arrive') { const H = ftlHandoff(); if (H && (!has || !store.player)) { store.create(H.universe, EPOCH, Date.now()); store.meta.nextCharacter = 1; return start({ fresh: true }); } return start(null); }     // (out of FTL: a world you've been to, or a new one in the same universe)
+  if (choice === 'line') return start(newUniverse());      // (?auto=line: a new soldier, straight onto the line on foot, in a slot of its own)
   if (choice === 'new' || !has || !store.player) return start(newUniverse());
   return start(null);
 }
@@ -177,7 +179,7 @@ function ftlHandoff() {
 }
 function ftlClear() { for (const S of ['sessionStorage', 'localStorage']) { try { window[S].removeItem('orbis-ftl'); } catch { } } if (location.hash.startsWith('#ftl=')) history.replaceState(null, '', location.pathname + location.search); }
 function newUniverse() {
-  const fixed = params.get('seed');
+  const fixed = params.get('seed') || (params.get('auto') === 'line' ? '00c0ffee00b0a7e5' : null);
   const words = fixed ? null : crypto.getRandomValues(new Uint32Array(2));
   const hex = fixed ? seedHex(seedFromHex(fixed.padStart(16, '0').slice(0, 16))) : seedHex(makeSeed(words[0], words[1]));
   store.create(hex, EPOCH, Date.now());
@@ -1061,15 +1063,22 @@ async function start(fresh) {
       ui.toast(take ? `${esc(G.name)} close round you and go through your pockets: <b>${take} cr</b> gone.` : `${esc(G.name)} close round you, find nothing worth taking, and shove you on your way.`, 'bad', 8000); hurtPlayer(take ? 6 : 12, G.name); }
   }
   // ---- soldiering (sim/front.js): enlisted with your town's nation, flown to the front in an issued fighter
-  async function deployFlow(foot = false) {
+  const onLand = F => { const x = F.x - Math.sin(F.dir) * 340, z = F.z - Math.cos(F.dir) * 340; return !cloudW && landY(x, z) > planet.seaLevel + 0.5 && landY(F.x, F.z) > planet.seaLevel + 1; };
+  // ?auto=line: enlisted and on the line at once; a world whose nation has no war on land hands on to the next world
+  function lineStart() {
+    const nat = townSociety(planet, s)?.nation, F = nat && frontsOf(planet, nat).find(onLand);
+    if (!F) { const n = +(params.get('planet') || 0) + 1; if (n < 24) { params.set('planet', n); ui.loading(`No war on land here: on to world ${n}…`, 0); location.replace('?' + params); } else ui.toast('No world nearby has a war on land.', 'warn'); return; }
+    player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 185);      // (set down just behind your own sandbags, the fight in front of you)
+  }
+  async function deployFlow(foot = false, back = 340) {
     const S = player.soldier, nat = townSociety(planet, s)?.nation; if (!S || !nat) return;
     const Fs = frontsOf(planet, nat); if (!Fs.length) { ui.toast('Nowhere to send you: there\'s no fighting on our borders today.', 'warn'); return; }
     if (foot) {      // a transport sets you down at your side's rally point, behind the sandbags, with an issued carbine
-      const F = Fs[0], ux = Math.sin(F.dir), uz = Math.cos(F.dir), x = F.x - ux * 340, z = F.z - uz * 340;
+      const F = Fs.find(onLand) || Fs[0], ux = Math.sin(F.dir), uz = Math.cos(F.dir), x = F.x - ux * back, z = F.z - uz * back;
       if (cloudW || landY(x, z) <= planet.seaLevel + 0.5) { ui.toast('The line here is over water: there\'s no fighting on foot. You could fly.', 'warn'); return; }
       if (!inventoryOf(player).some(q => q.id === 'carbine')) giveItem(player, 'carbine'); player.weapon = 'carbine'; player.footDuty = { x: F.x, z: F.z, rx: x, rz: z }; store.touchPlayer();
       ctrl.mode = 'walk'; ctrl.pos = [x, landY(x, z) + 0.1, z]; ctrl.vel = [0, 0, 0]; ctrl.facing = F.dir; cam.yaw = F.dir;
-      ui.toast(`<b>On the line.</b> A transport drops you at the ${esc(nat.name)} rally point with a carbine and a squad. Three objectives stand on the border with ${esc(F.b.name)}: hold ours, take theirs.`, '', 11000); return;
+      ui.toast(`<b>On the line.</b> A transport drops you ${back < 300 ? 'just behind the sandbags of the' : 'at the'} ${esc(nat.name)} ${back < 300 ? 'line' : 'rally point'} with a carbine and a squad. Three objectives stand on the border with ${esc(F.b.name)}: hold ours, take theirs.`, '', 11000); return;
     }
     const F = Fs[0], sh = { id: 'issued:' + Math.floor(clock.now()), model: ['interceptor', 'striker', 'warden'][S.rank % 3], name: `${nat.name} ${RANKS[S.rank]} ${player.name.split(' ').pop()}`, colour: 4 };
     const x = F.x - Math.sin(F.dir) * 6000, z = F.z - Math.cos(F.dir) * 6000, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel) + 900;
@@ -1688,7 +1697,7 @@ async function start(fresh) {
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
   if (fresh) {
     const par = player.family.parents.map(id => pop.byId.get(id));
-    if (params.get('auto') !== 'arrive') ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
+    if (params.get('auto') !== 'arrive' && params.get('auto') !== 'line') ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
   }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
@@ -2142,6 +2151,7 @@ async function start(fresh) {
   window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
+  if (params.get('auto') === 'line') lineStart();
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
 
