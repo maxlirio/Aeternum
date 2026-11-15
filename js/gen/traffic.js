@@ -125,7 +125,7 @@ function linkCars(planet, t, x, z, R, delayOf, res) {
 export function struckBy(v, x, y, z, r = 0.32) {
   const T = TYPES[v.type] || TYPES.speeder, dx = x - v.pos[0], dz = z - v.pos[2], fx = Math.sin(v.facing), fz = Math.cos(v.facing);
   if (y + 1.7 < v.pos[1] || y > v.pos[1] + T.H) return false;
-  return Math.abs(dx * fx + dz * fz) <= T.L / 2 + r && Math.abs(dx * fz - dz * fx) <= T.W / 2 + r;
+  return Math.abs(dx * fx + dz * fz) <= T.L / 2 + r + 0.08 && Math.abs(dx * fz - dz * fx) <= T.W / 2 + r + 0.08;      // (a touch past its box: the box keeps you just outside it)
 }
 
 // Air traffic: ships crossing the sky over a town on straight lanes at a few altitudes,

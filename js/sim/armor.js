@@ -13,9 +13,9 @@
 //    Launchers (some of the men carry one, and so do you) and the guns of other tanks are what kill it.
 // You can climb into one of your own side's tanks and fight it yourself.
 const SPEC = {
-  tank: { name: 'Warden', L: 7.4, W: 3.6, H: 2.45, top: 8.5, accel: 2.2, turn: 0.5, trav: 0.75, elev: 0.45, hp: 1400, arm: { front: 0.3, side: 0.75, rear: 1.35 },
+  tank: { name: 'Warden', climb: 1.0, L: 7.4, W: 3.6, H: 2.45, top: 8.5, accel: 2.2, turn: 0.5, trav: 0.75, elev: 0.45, hp: 1400, arm: { front: 0.3, side: 0.75, rear: 1.35 },
     reload: 6.5, round: { kind: 'shell', vel: 620, dmg: 380, R: 5.2, he: 150 }, mg: true, range: 430, gunY: 1.98, pivot: 0.2, gunL: 6.5, minE: -0.14, maxE: 0.35 },
-  apc: { name: 'Drover', L: 7.0, W: 2.9, H: 2.35, top: 11, accel: 3.2, turn: 0.65, trav: 1.3, elev: 0.8, hp: 420, arm: { front: 0.55, side: 0.9, rear: 1.2 },
+  apc: { name: 'Drover', climb: 0.6, L: 7.0, W: 2.9, H: 2.35, top: 11, accel: 3.2, turn: 0.65, trav: 1.3, elev: 0.8, hp: 420, arm: { front: 0.55, side: 0.9, rear: 1.2 },
     reload: 0.28, burst: 5, rest: 2.6, round: { kind: 'ac', vel: 900, dmg: 60, R: 1.8, he: 55 }, mg: false, range: 300, gunY: 2.3, pivot: 0.5, gunL: 3.4, minE: -0.15, maxE: 0.6, carry: 6 },
 };
 export const ARMOR = SPEC;
@@ -243,34 +243,55 @@ export class Armor {
         if (V.kind === 'apc' && V.state === 'drop') want = 0;
       }
     }
+    // what it drives on: the land and the rocks lying on it (a low one it climbs, a tall one stops it)
+    const gnd = this.footing(V);
     // slope: up a rise it slows
-    const fx = Math.sin(V.facing), fz = Math.cos(V.facing), hf = I.ground(V.pos[0] + fx * T.L * 0.45, V.pos[2] + fz * T.L * 0.45), hb = I.ground(V.pos[0] - fx * T.L * 0.45, V.pos[2] - fz * T.L * 0.45);
+    const fx = Math.sin(V.facing), fz = Math.cos(V.facing), hf = gnd(V.pos[0] + fx * T.L * 0.45, V.pos[2] + fz * T.L * 0.45), hb = gnd(V.pos[0] - fx * T.L * 0.45, V.pos[2] - fz * T.L * 0.45);
     const slope = (hf - hb) / (T.L * 0.9) * Math.sign(V.speed || 1); if (slope > 0.2) want *= Math.max(0.3, 1 - (slope - 0.2) * 2);
     // too steep ahead (a tank gives up at about 30°): it won't go on up it
-    { const sg = Math.sign(want || V.speed || 1), x2 = V.pos[0] + fx * sg * (T.L / 2 + 2.5), z2 = V.pos[2] + fz * sg * (T.L / 2 + 2.5), rise = (I.ground(x2, z2) - (sg > 0 ? hf : hb)) / 2.5; if (rise > 0.6) { if (Math.sign(want) === sg) want = 0; if (Math.sign(V.speed) === sg) V.speed *= 0.5; V.steerT = 0; } }
+    { const sg = Math.sign(want || V.speed || 1), x2 = V.pos[0] + fx * sg * (T.L / 2 + 2.5), z2 = V.pos[2] + fz * sg * (T.L / 2 + 2.5), rise = (Math.max(...[-0.38, 0, 0.38].map(k => gnd(x2 + fz * k * T.W, z2 - fx * k * T.W, true))) - (sg > 0 ? gnd(V.pos[0] + fx * T.L * 0.45, V.pos[2] + fz * T.L * 0.45, true) : gnd(V.pos[0] - fx * T.L * 0.45, V.pos[2] - fz * T.L * 0.45, true))) / 2.5; if (rise > 0.6) { if (Math.sign(want) === sg) want = 0; if (Math.sign(V.speed) === sg) V.speed *= 0.5; V.steerT = 0; } }
     const acc = Math.abs(want) > Math.abs(V.speed) ? T.accel : T.accel * 2.2; V.speed += Math.max(-acc * dt, Math.min(acc * dt, want - V.speed));
     V.yawRate += (turn - V.yawRate) * Math.min(1, dt * 4); V.facing += V.yawRate * dt;
     let nx = V.pos[0] + Math.sin(V.facing) * V.speed * dt, nz = V.pos[2] + Math.cos(V.facing) * V.speed * dt;
     // hard things: hedgehogs, other hulls
     for (const P of I.props) { if (P.kind !== 'hedgehog') continue; const R = T.W / 2 + 0.9, dx = nx - P.pos[0], dz = nz - P.pos[2], d = Math.hypot(dx, dz); if (d < R + T.L / 2) { const [u, w] = this.toLocalAt(nx, nz, V.facing, P.pos[0], P.pos[2]); if (Math.abs(u) < T.W / 2 + 0.9 && Math.abs(w) < T.L / 2 + 0.9) { const k = (R + T.L / 2 - d) / (d || 1) * 0.15; nx += dx * k; nz += dz * k; V.speed *= 0.6; } } }
+    // a rock too tall to climb is as hard as a hull: it stops you and you go round it
+    for (const q of V.rk) { if (q.top <= T.climb) continue; const [u, w] = this.toLocalAt(nx, nz, V.facing, q.x, q.z), R = q.r * 0.8, ou = Math.abs(u) - T.W / 2 - R, ow = Math.abs(w) - T.L / 2 - R; if (ou < 0 && ow < 0) { const dx = nx - q.x, dz = nz - q.z, d = Math.hypot(dx, dz) || 1, k = Math.min(-ou, -ow) / d; nx += dx * k; nz += dz * k; V.speed *= 0.4; } }
+    // and everything else in the world that's solid: buildings, outposts, cars and wrecks, trees (a small tree it knocks down)
+    if (this.hooks.solid && (Math.abs(V.speed) > 0.05 || Math.abs(V.yawRate) > 0.02)) {
+      const sf = Math.sin(V.facing), cf = Math.cos(V.facing), r = T.W / 2, sg = Math.sign(V.speed || 1);
+      if (Math.abs(V.speed) > 1.2) this.hooks.fell?.(nx + sf * T.L * 0.5 * sg, nz + cf * T.L * 0.5 * sg, T.W / 2 + 0.8, V.facing, V.pos[1]);
+      for (const k of [1, 0, -1]) { const ox = sf * k * (T.L / 2 - r), oz = cf * k * (T.L / 2 - r), [rx, rz] = this.hooks.solid(nx + ox, nz + oz, V.pos[1] + T.climb, r, T.H - T.climb);
+        const mx = rx - (nx + ox), mz = rz - (nz + oz); if (mx * mx + mz * mz > 1e-6) { nx += mx; nz += mz; V.speed *= 0.5; V.steerT = 0; } } }
     for (const E of this.list) { if (E === V) continue; const dx = nx - E.pos[0], dz = nz - E.pos[2], d = Math.hypot(dx, dz), R = (T.L + E.T.L) * 0.32 + 0.4; if (d < R && d > 1e-3) { const k = (R - d) / d * 0.5; nx += dx * k; nz += dz * k; V.speed *= 0.7; } }
     V.dist += Math.hypot(nx - V.pos[0], nz - V.pos[2]) * Math.sign(V.speed || 1);
-    V.pos = [nx, I.ground(nx, nz), nz];
-    // the hull sits on the ground under it: nose up a rise, a lean across a slope
-    const hl = I.ground(nx - Math.cos(V.facing) * T.W * 0.45, nz + Math.sin(V.facing) * T.W * 0.45), hr = I.ground(nx + Math.cos(V.facing) * T.W * 0.45, nz - Math.sin(V.facing) * T.W * 0.45);
-    const h2f = I.ground(nx + Math.sin(V.facing) * T.L * 0.45, nz + Math.cos(V.facing) * T.L * 0.45), h2b = I.ground(nx - Math.sin(V.facing) * T.L * 0.45, nz - Math.cos(V.facing) * T.L * 0.45);
-    V.pos[1] = Math.max(V.pos[1], (h2f + h2b + hl + hr) / 4);
-    V.pitch += (Math.atan2(h2f - h2b, T.L * 0.9) - V.pitch) * Math.min(1, dt * 5); V.roll += (Math.atan2(hl - hr, T.W * 0.9) - V.roll) * Math.min(1, dt * 5);
+    // the hull rests on the highest things under its tracks: nose up a rise or a rock, a lean across a slope
+    const cf = Math.cos(V.facing), sf = Math.sin(V.facing), au = T.W * 0.4; let f = -Infinity, bk = -Infinity, l = -Infinity, r = -Infinity; const pts = [];
+    for (const w of [-0.48, -0.24, 0, 0.24, 0.48]) for (const u of [-au, au]) { const W = w * T.L, y = gnd(nx + sf * W + cf * u, nz + cf * W - sf * u); pts.push([u, W, y]); if (w > 0.1) f = Math.max(f, y); if (w < -0.1) bk = Math.max(bk, y); if (u < 0) l = Math.max(l, y); else r = Math.max(r, y); }
+    const sp = (f - bk) / (T.L * 0.72), sr = (l - r) / (2 * au); let cy = Math.max((f + bk) / 2, (l + r) / 2, gnd(nx, nz) - 0.3);
+    for (const [u, W, y] of pts) cy = Math.max(cy, y - (W * sp - u * sr) - 0.2);      // nothing under it pokes up through the belly
+    V.pos = [nx, cy, nz];
+    V.pitch += (Math.atan(sp) - V.pitch) * Math.min(1, dt * 6); V.roll += (Math.atan(sr) - V.roll) * Math.min(1, dt * 6);
     if (Math.abs(V.speed) > 0.5) this.crush(V);
+  }
+  // the ground a hull rides on near V: the land, and the rocks on it (looked up again when it has moved on)
+  footing(V) {
+    const I = this.I;
+    if (!V.rk || Math.hypot(V.pos[0] - V.rkAt[0], V.pos[2] - V.rkAt[1]) > 4) { V.rkAt = [V.pos[0], V.pos[2]]; V.rk = [];
+      this.hooks.rocks?.(V.pos[0], V.pos[2], V.T.L / 2 + 22, q => { const g = q.g ?? I.ground(q.x, q.z); V.rk.push({ x: q.x, z: q.z, r: q.r, y: g + q.top, top: q.top, flat: q.flat }); }); }
+    const rk = V.rk;
+    const climb = V.T.climb;
+    return (x, z, tall = false) => { let h = I.ground(x, z); for (const q of rk) { if (tall && q.top <= climb) continue; const d2 = ((x - q.x) ** 2 + (z - q.z) ** 2) / (q.r * q.r); if (d2 >= 1) continue; const y = q.flat ? q.y - q.top * Math.max(0, (Math.sqrt(d2) - 0.7) / 0.3) : q.y - q.top * (1 - Math.sqrt(1 - d2)); if (y > h) h = y; } return h; };
   }
   toLocalAt(x0, z0, f, x, z) { const dx = x - x0, dz = z - z0, fx = Math.sin(f), fz = Math.cos(f); return [dx * fz - dz * fx, dx * fx + dz * fz]; }
   // the heading near `want` with the clearest 12 m ahead of it
   clearHeading(V, want) {
-    const I = this.I, T = V.T; let best = want, bc = Infinity;
+    const I = this.I, T = V.T, gnd = this.footing(V); let best = want, bc = Infinity;
     for (const off of [0, 0.2, -0.2, 0.4, -0.4, 0.65, -0.65, 0.95, -0.95, 1.3, -1.3]) { const h = want + off, fx = Math.sin(h), fz = Math.cos(h); let block = 0;
-      let hPrev = I.ground(V.pos[0] + fx * 1, V.pos[2] + fz * 1);
-      for (let d = 3; d <= 14; d += 2.75) { const x = V.pos[0] + fx * d, z = V.pos[2] + fz * d, hh = I.ground(x, z); if ((hh - hPrev) / 2.75 > 0.5) block += 4; hPrev = hh;
+      let hPrev = gnd(V.pos[0] + fx * 1, V.pos[2] + fz * 1, true);
+      for (let d = 3; d <= 14; d += 2.75) { const x = V.pos[0] + fx * d, z = V.pos[2] + fz * d, hh = gnd(x, z, true); if ((hh - hPrev) / 2.75 > 0.5) block += 4; hPrev = hh;
         for (const P of I.props) if (P.kind === 'hedgehog' && Math.hypot(P.pos[0] - x, P.pos[2] - z) < T.W / 2 + 1.4) block += 3;
+        if (this.hooks.solid) { const [rx, rz] = this.hooks.solid(x, z, hh + T.climb, T.W / 2, T.H - T.climb); if (Math.hypot(rx - x, rz - z) > 0.05) block += 3; }
         for (const E of this.list) if (E !== V && Math.hypot(E.pos[0] - x, E.pos[2] - z) < (T.W + E.T.L) / 2 + 0.6) block += E.dead ? 3 : 1.5;
         for (const C of I.cover) if (!C.down && !C.wreck && C.side === V.side && C.line && this.nearWall(C, x, z) < T.W / 2 + 0.4) block += 1; }
       const cost = block * 10 + Math.abs(off) * 3; if (cost < bc) { bc = cost; best = h; } }

@@ -8,7 +8,7 @@ import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { settlementNear } from '../gen/settlement.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
-import { rocksNear } from '../gen/rocks.js';
+import { rocksNear, ledgesNear, outOfRock } from '../gen/rocks.js';
 import { towerOf } from '../gen/towers.js';
 import { deckAt, railHold } from '../gen/surface.js';
 import { sitesNear } from '../gen/outposts.js';
@@ -117,8 +117,10 @@ export class CollisionWorld {
       }
     }
     if (b.footing) for (const q of [[0, 0, b.w, 0.2], [0, b.d - 0.2, b.w, b.d], [0, 0, 0.2, b.d], [b.w - 0.2, 0, b.w, b.d]]) walls.push([...q, -4, 0, -1]);   // (what it stands on, where the ground falls away)
-    const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]).concat(plan.solids || []);
-    c = { b, plan, walls, props };
+    const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h + (p.kind === 'tvstand' ? 0.85 : 0)]).concat(plan.solids || []);      // (a stand's solid up to the top of the screen on it)
+    // the chairs and the small things on tables and shelves: solid to you (people walking to a chair to sit in it go into it)
+    const soft = plan.props.filter(p => p.soft && p.h > 0.05 && p.x1 > p.x0 && p.z1 > p.z0).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]);
+    c = { b, plan, walls, props, soft };
     this.cols.set(b.key, c);
     return c;
   }
@@ -255,6 +257,7 @@ export class CollisionWorld {
         };
         for (const wbox of c.walls) test(wbox, wbox[6] >= 0);
         for (const pbox of c.props) test(pbox, false);
+        if (you) for (const pbox of c.soft) test(pbox, false);
       }
       // tree trunks and boulders out in the open (gen/flora.js): circles
       if (this.flora) sitesNear(this.planet, x, z, 14, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) {     // the country's barns and masts (gen/outposts.js)
@@ -277,13 +280,11 @@ export class CollisionWorld {
         x = p.x + ux * R; z = p.z + uz * R; moved = true;
       });
       // rocks: you can get over a low one (a step, a jump); a big one you go round
-      if (this.flora) rocksNear(this.planet, x, z, r + 2, q => {
-        if (yFeet > q.y + q.top || yFeet + h < q.y) return;
-        const dx = x - q.x, dz = z - q.z, d = Math.hypot(dx, dz), R = r + q.r;
-        if (d >= R) return;
-        const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
-        x = q.x + ux * R; z = q.z + uz * R; moved = true;
-      });
+      const rock = q => {
+        if (yFeet > q.g + q.top - 0.05 || yFeet + h < q.y) return;
+        const o = outOfRock(q, x, z, r); if (o) { x = o[0]; z = o[1]; moved = true; }
+      };
+      if (this.flora) { rocksNear(this.planet, x, z, r + 2, rock); ledgesNear(this.planet, x, z, r + 2, rock); }      // (and the rock standing out of a steep hillside)
       if (!moved) break;
     }
     return [x, z];

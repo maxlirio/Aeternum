@@ -3,6 +3,7 @@
 //   world/ persistent changes            sim/   time, scheduler, processes
 //   render/ three.js views of gen data   player/ motion, camera, collision
 import * as THREE from 'three';
+import { rocksNear, ledgesNear } from './gen/rocks.js';
 import { seedHex, seedFromHex, makeSeed, hashStr } from './core/hash.js';
 import { HOMEWORLD, Address } from './core/address.js';
 import { setTownCulture } from './render/materials.js';
@@ -25,7 +26,7 @@ import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address, regionOf } from './gen/settlement.js';
 import { voyageAt, VOYAGES } from './gen/voyages.js';
 import { openHoloMap } from './ui/holomap.js';
-import { FtlTunnel, ftlFlash, ftlStreaks } from './render/ftl.js';
+import { FtlTunnel, ftlFlash } from './render/ftl.js';
 import { starChart, jumpOf, addressOf } from './gen/stars.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
@@ -193,7 +194,7 @@ function newUniverse() {
 
 async function start(fresh) {
   // out of FTL: the tunnel goes on round your ship while this world is built, and it's left only when the ground under you is there
-  const arriving = params.get('auto') === 'arrive' && !!ftlHandoff(); let ftl = null, ftlOut = null, ftlPumpOff = false, ftl2d = arriving ? ftlStreaks() : null; if (arriving) ui.hush = true;
+  const arriving = params.get('auto') === 'arrive' && !!ftlHandoff(); let ftl = null, ftlOut = null, ftlPumpOff = false; if (arriving) ui.hush = true;
   ui.loading('Generating the world…', 0);
   // ---- renderer (first: coming out of FTL, the tunnel's drawn with it from the start), and the built models, loading while the world's worked out
   const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
@@ -204,9 +205,10 @@ async function start(fresh) {
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.prepend(renderer.domElement);
   const libP = params.has('boxprops') ? Promise.resolve(null) : loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
-  const tunnelUp = lib => { if (ftl) return; const H = ftlHandoff(); ftl = new FtlTunnel(renderer); ftl.ship(new ShipView(lib), H.ship.model, H.ship.colour); ftl.speed = 1; ftl.render(0.016); ftl2d?.stop(); ftl2d = null;
-    let lp = performance.now(); const pump = now => { if (ftlPumpOff || !ftl) return; ftl.render(Math.min(0.05, (now - lp) / 1000)); lp = now; requestAnimationFrame(pump); }; requestAnimationFrame(pump); };     // (while the world's being built: the frame loop takes over when it starts)
-  if (arriving) libP.then(tunnelUp);
+  // coming out of FTL: the tunnel from the first frame, your ship in it as soon as its model's loaded
+  if (arriving) { const H = ftlHandoff(); ftl = new FtlTunnel(renderer); ftl.speed = 1; ftl.render(0.016);
+    libP.then(lib => { if (ftl && lib) ftl.ship(new ShipView(lib), H.ship.model, H.ship.colour); });
+    let lp = performance.now(); const pump = now => { if (ftlPumpOff || !ftl) return; ftl.render(Math.min(0.05, (now - lp) / 1000)); lp = now; requestAnimationFrame(pump); }; requestAnimationFrame(pump); }     // (while the world's being built: the frame loop takes over when it starts)
   const U = seedFromHex(store.meta.universe);
   const planet = makePlanet(U, WORLD); setTownCulture(cultureOf(planet).key);      // (this world's people face their towns their own way)
   // s, pop, polity, ctx and the like below are the town you're in. homeS and homeCtx stay where you started.
@@ -273,7 +275,7 @@ async function start(fresh) {
   const vehView = new VehicleView(propLib); scene.add(vehView.group);
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const shipDamage = new ShipDamage(shipView); shipView.damage = shipDamage; const hud = new FlightHud(), chud = new CombatHud(), sound = new Sound();
-  if (arriving) tunnelUp(propLib);
+  if (arriving && ftl && !ftl.shipG.children.length) { const H = ftlHandoff(); if (H) ftl.ship(shipView, H.ship.model, H.ship.colour); }      // (your ship in the tunnel, if it isn't yet)
   const capitalView = new CapitalView(scene, propLib); setTimeout(() => capitalView.load(), 2500);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
   const ringView = new RingView(scene, propLib, planet, flora);
@@ -800,7 +802,7 @@ async function start(fresh) {
   const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
   // On foot, a vehicle's in your way like anything else, and you can get up onto one: its box stops at its roof.
   function carsSolid() {     // (out to 70 m: as far as people are walking about near you, sim/jostle.js)
-    const me = ctrl.pos, out = [], add = (x, y, z, facing, T, roof = false, speed = 0) => { if (Math.abs(x - me[0]) > 70 || Math.abs(z - me[2]) > 70 || Math.abs(y - me[1]) > 12) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * 0.47, hw: T.W * 0.47, h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5, roof, vx: fx * (speed || 0), vz: fz * (speed || 0) }); };
+    const me = ctrl.pos, out = [], add = (x, y, z, facing, T, roof = false, speed = 0) => { if (Math.abs(x - me[0]) > 70 || Math.abs(z - me[2]) > 70 || Math.abs(y - me[1]) > 12) return; const fx = Math.sin(facing), fz = Math.cos(facing); out.push({ x, y, z, fx, fz, hl: T.L * (speed ? 0.47 : 0.5), hw: T.W * (speed ? 0.47 : 0.5), h: T.H * 0.92, reach: Math.hypot(T.L, T.W) * 0.5, roof, vx: fx * (speed || 0), vz: fz * (speed || 0) }); };
     for (const v of vehicles) { const D = wrecks.get(v.id); add(D ? D.pos[0] : v.pos[0], D ? D.pos[1] : v.pos[1], D ? D.pos[2] : v.pos[2], D ? D.facing : v.facing, typeOf(v), true); }
     for (const D of wrecks.list.values()) if (D.kind !== 'ship' && !vehicles.some(v => v.id === D.id)) add(D.pos[0], D.pos[1], D.pos[2], D.facing, D, true);
     for (const v of lastTraffic) if (!trafficGone.has(v.id)) add(v.pos[0], v.pos[1], v.pos[2], v.facing, typeOf(v), true, (v.speed || 0) * cityTraffic.life.rateOf(v.id));
@@ -1656,7 +1658,13 @@ async function start(fresh) {
   let aloft = false;      // (flying more than 300 m up: set each frame)
   const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)
   const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
-  const armor = new Armor(infantry, { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), knock: (vx, vz) => ctrl.knock(vx, vz, 2.5, 0.9) }), armorView = new ArmorView(scene, toRender);      // (sim/armor.js: tanks and carriers on the same line)
+  // what a hull drives on besides the land: the rocks lying about, and the rock standing out of a steep hillside
+  const armorRocks = (x, z, R, fn) => { const f = q => fn({ x: q.x, z: q.z, r: q.r, g: q.g, top: q.top, flat: q.shape === 'slab' || q.deep !== undefined }); rocksNear(planet, x, z, R, f); ledgesNear(planet, x, z, R, f); };
+  // everything else solid a hull meets: buildings, outposts, trees, cars and wrecks (the world's own collision, less the line's works and the hulls, which sim/armor.js does itself)
+  const armorSolid = (x, z, y, r, h) => { const F = world.field; world.field = null; try { return world.resolve(x, z, y, r, h); } finally { world.field = F; } };
+  // a tree in the way of a hull going at it goes down (as one in a car's way does)
+  const armorFell = (x, z, R, facing, y) => { let n = 0; floraNear(planet, x, z, R, p => { if (!p.solid || p.felled || Math.abs(p.y - y) > 3 || p.size > 16) return; felledOf(planet).set(fellKey(p), +facing.toFixed(2)); p.felled = { a: facing }; n++; fx.dust([p.x, p.y + 0.2, p.z], 16, [0.32, 0.28, 0.2]); }); if (n) { store.patchDelta('felled', { list: [...felledOf(planet).entries()] }); flora.at = null; } return n; };
+  const armor = new Armor(infantry, { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), knock: (vx, vz) => ctrl.knock(vx, vz, 2.5, 0.9), rocks: armorRocks, solid: armorSolid, fell: armorFell }), armorView = new ArmorView(scene, toRender);      // (sim/armor.js: tanks and carriers on the same line)
   infantry.armor = armor; world.field = infantry;      // (the works and the hulls are solid: player/collision.js)
   const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); sound.boom(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);

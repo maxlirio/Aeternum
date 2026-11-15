@@ -104,15 +104,3 @@ export function ftlFlash(ms = 700, peak = 1) {
 }
 
 // before there's a renderer: the same streaks drawn flat on a canvas, so the page shows the tunnel from its first moment (main.js boot)
-export function ftlStreaks() {
-  const cv = document.createElement('canvas'); cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:70;pointer-events:none;background:#01030a'; document.body.append(cv);
-  const g = cv.getContext('2d'), d = Math.min(2, devicePixelRatio || 1), W = innerWidth, H = innerHeight; cv.width = W * d; cv.height = H * d; g.scale(d, d);
-  const st = Array.from({ length: 700 }, () => ({ a: Math.random() * 6.283, r: Math.random() ** 0.5 * Math.hypot(W, H) / 2 + 4, h: 205 + Math.random() * 50 })); let on = true;
-  const step = () => {
-    if (!on) return; g.fillStyle = 'rgba(1,3,10,0.5)'; g.fillRect(0, 0, W, H);
-    for (const s of st) { s.r *= 1.06; if (s.r > Math.hypot(W, H)) s.r = 4 + Math.random() * 40; const len = 4 + s.r * 0.25, x = W / 2 + Math.cos(s.a) * s.r, y = H / 2 + Math.sin(s.a) * s.r;
-      g.strokeStyle = `hsla(${s.h},90%,82%,0.85)`; g.lineWidth = 0.6 + s.r / 600; g.beginPath(); g.moveTo(x, y); g.lineTo(x - Math.cos(s.a) * len, y - Math.sin(s.a) * len); g.stroke(); }
-    requestAnimationFrame(step);
-  };
-  step(); return { stop() { on = false; cv.style.transition = 'opacity 400ms'; cv.style.opacity = '0'; setTimeout(() => cv.remove(), 450); } };
-}

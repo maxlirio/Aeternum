@@ -24,9 +24,11 @@ export function rockTile(planet, ti, tj) {
     if (ny < 0.62) return;          // nothing rests on a cliff
     const c = mainLand(planet, x, z), shape = sp, tall = shape === 'pillar' ? size * (2 + 2.2 * r(9)) : shape === 'slab' ? size * (0.3 + 0.25 * r(9)) : size * (0.65 + 0.5 * r(9));
     const sink = (size > 2.5 ? 0.24 : 0.12) + 0.75 * (1 - ny);     // sat in the ground, not on it
-    out.push({ x, z, y: s.h - tall * sink, shape, rock: c.T.rock, moss: c.T.soft.moss || c.T.soft.peat ? 1 : c.kind === 'meadow' || c.kind === 'moor' || c.kind === 'karst' ? 0.3 : 0,
+    out.push({ x, z, y: s.h - tall * sink, g: s.h, shape, rock: c.T.rock, moss: c.T.soft.moss || c.T.soft.peat ? 1 : c.kind === 'meadow' || c.kind === 'moor' || c.kind === 'karst' ? 0.3 : 0,
       v: Math.floor(r(10) * VARIANTS), size, tall, rot: r(11) * 6.283, tilt: (r(12) - 0.5) * (shape === 'pillar' ? 0.1 : 0.4), tint: r(13),
-      r: shape === 'pillar' ? size * 0.72 : size * (shape === 'slab' ? 0.8 : 0.72), top: tall * (1 - sink) * (shape === 'slab' ? 0.95 : 0.8) });
+      top: tall * (1 - sink) * (shape === 'slab' ? 0.95 : 0.8) });
+    // its solid footprint: the drawn stone's own oval (render/rocks.js scales a unit block by size across, size·(0.75 + 0.4·tint) deep), turned with it
+    const q = out[out.length - 1], k = shape === 'pillar' ? 0.9 : 1.05; q.ax = size * k; q.az = size * (0.75 + 0.4 * q.tint) * k; q.r = Math.max(q.ax, q.az);
   };
   // small stones and boulders, 8 m apart at most
   for (let b = 0; b < 12; b++) for (let a = 0; a < 12; a++) {
@@ -60,7 +62,8 @@ export function ledgeTile(planet, ti, tj) {
     const bed = (s.h + 7 * Math.sin(x / 83 + 1.3) * Math.sin(z / 71)) / 3.1, course = bed - Math.floor(bed); if (course > 0.55) continue;    // in courses: a band of them, then soil and scree
     const e = 2.5, gx = (surfaceAt(planet, x + e, z).h - surfaceAt(planet, x - e, z).h) / (2 * e), gz = (surfaceAt(planet, x, z + e).h - surfaceAt(planet, x, z - e).h) / (2 * e), sl = Math.hypot(gx, gz); if (sl < 0.35) continue;
     const size = 0.7 + 2.5 * r(3) ** 2, tall = size * (0.4 + 0.45 * r(4));
-    out.push({ x, z, y: s.h - tall * 0.58, shape: 'boulder', rock: mainLand(planet, x, z).T.rock, v: Math.floor(r(5) * VARIANTS), size, tall, deep: size * (0.55 + 0.3 * r(6)), gx, gz, across: Math.atan2(gx, gz) + (r(7) - 0.5) * 0.5, tint: r(8), moss: 0 });
+    out.push({ x, z, y: s.h - tall * 0.58, g: s.h, top: tall * 0.42, shape: 'boulder', rock: mainLand(planet, x, z).T.rock, v: Math.floor(r(5) * VARIANTS), size, tall, deep: size * (0.55 + 0.3 * r(6)), gx, gz, across: Math.atan2(gx, gz) + (r(7) - 0.5) * 0.5, tint: r(8), moss: 0 });
+    { const q = out[out.length - 1]; q.ax = size * 0.95; q.az = q.deep * 0.8 * 0.95; q.rot = q.across; q.r = Math.max(q.ax, q.az); }      // (solid: its own oval, turned across the slope as it's drawn)
   }
   ledges.set(ck, out); if (ledges.size > 1200) ledges.delete(ledges.keys().next().value);
   return out;
@@ -70,4 +73,18 @@ export function ledgeTile(planet, ti, tj) {
 export function rocksNear(planet, x, z, R, fn) {
   const reach = R + 8, t0 = Math.floor((x - reach) / TILE), t1 = Math.floor((x + reach) / TILE), u0 = Math.floor((z - reach) / TILE), u1 = Math.floor((z + reach) / TILE);
   for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const q of rockTile(planet, ti, tj)) { const d = R + q.r; if ((q.x - x) ** 2 + (q.z - z) ** 2 <= d * d) fn(q); }
+}
+
+// The rock standing out of steep hillsides near (x, z), as solid things: g the ground at it, top how far it stands above that.
+export function ledgesNear(planet, x, z, R, fn) {
+  const reach = R + 3, t0 = Math.floor((x - reach) / TILE), t1 = Math.floor((x + reach) / TILE), u0 = Math.floor((z - reach) / TILE), u1 = Math.floor((z + reach) / TILE);
+  for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const q of ledgeTile(planet, ti, tj)) { const d = R + q.r; if ((q.x - x) ** 2 + (q.z - z) ** 2 <= d * d) fn(q); }
+}
+
+// Is (x, z) within `pad` of rock q's oval footprint? → the point pushed out to its edge, or null.
+export function outOfRock(q, x, z, pad) {
+  const c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0), dx = x - q.x, dz = z - q.z, lx = dx * c - dz * sn, lz = dx * sn + dz * c, A = (q.ax ?? q.r) + pad, B = (q.az ?? q.r) + pad, e = Math.hypot(lx / A, lz / B);
+  if (e >= 1) return null;
+  const k = e > 1e-6 ? 1 / e : 0, ox = e > 1e-6 ? lx * k : A, oz = e > 1e-6 ? lz * k : 0;
+  return [q.x + ox * c + oz * sn, q.z - ox * sn + oz * c];
 }
