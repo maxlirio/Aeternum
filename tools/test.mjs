@@ -533,6 +533,35 @@ suites.infantry = async () => {
   const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 2, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');     // (from close: from further off, now and then someone else is standing in the way after ten minutes of it)
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
+suites.lineage = async () => {
+  // one life is one life (sim/lineage.js): when going down kills, what's handed on, and how the war hardens
+  const L = await import('../js/sim/lineage.js'); const { newCharacter } = await import('../js/gen/character.js'); const { getPopulation } = await import('../js/gen/population.js');
+  const P = { wounds: 0, credits: 1000, weapon: 'carbine', inventory: [{ id: 'carbine', n: 1 }], skills: { admin: 0.5, trade: 0.2, tech: 0.1 }, family: { household: 3 }, soldier: { nation: 1, rank: 2, kills: 7 }, serial: 1, name: 'A B', surname: 'B', given: 'A', age: 30 };
+  check(!L.fate(P, 100, 40).dead, 'a hit you live through');
+  check(!L.fate(P, 20, 45).dead, 'down but not overkill: you live');
+  check(L.fate(P, 20, 55).dead && L.fate(P, 20, 55).why === 'overkill', 'a hit well past what was left kills');
+  check(L.fate(P, 20, 25, { line: true, foesNear: 2, friendsNear: 0 }).why === 'left', 'down on the line with the enemy close and no one near: left on the field');
+  check(!L.fate(P, 20, 25, { line: true, foesNear: 2, friendsNear: 1 }).dead, 'down with your own near: dragged back');
+  check(!L.fate(P, 20, 90, { arrested: true }).dead, 'the law wants you alive');
+  check(L.fate({ wounds: L.MAX_WOUNDS }, 10, 12).why === 'wounds', 'worn down by old wounds');
+  check(L.hpCap({ wounds: 2 }) === 80 && L.hpCap({ wounds: 99 }) === 50, 'wounds cap your health, never under half');
+  const E = L.estate(P, { admin: 0.3, trade: 0.2, tech: 0.1 });
+  check(E.credits === 650 && E.heirloom === 'carbine' && E.skills.admin === 0.05 && !E.skills.trade && E.soldier.rank === 1, `estate: ${JSON.stringify(E)}`);
+  // the heir: born into the household, a real member of the family's surname, with what's handed on
+  const planet = makePlanet(uni(7), HOMEWORLD), s = getSettlement(planet, 0, 0), pop = getPopulation(planet, s);
+  const first = newCharacter(uni(7), planet, s, pop, 1, 0), hh = pop.households.find(h => h.id === first.family.household);
+  const heir = newCharacter(uni(7), planet, s, pop, 2, 100, { household: first.family.household });
+  check(heir.surname === hh.surname && heir.family.household === hh.id && heir.name !== first.name, `the heir is of the same family: ${first.name} → ${heir.name}`);
+  L.inherit(heir, { ...E, household: hh.id }); check(heir.weapon === 'carbine' && heir.inventory.some(x => x.id === 'carbine' && x.heirloom) && heir.soldier?.rank === 1 && heir.heirOf === 1, 'the heir has the gun, the place in the regiment and the money');
+  const ep = L.epitaph(P, { t: 500, cause: 'a grenade', why: 'left', place: 'X', planetName: 'Y', days: 3.4 }); check(ep.days === 3 && /left on the field/.test(ep.cause) && ep.kills === 7, 'epitaph');
+  check(L.warStage([], 0) === 0 && L.warStage([1, 2], 25) === 4 && L.warStage(new Array(20), 0) === 6, 'the war hardens with lives and days, to a limit');
+  const p3 = L.pressOf(3); check(p3.men > 1.4 && p3.tanks === 1 && p3.aim > 1.1, 'and harder means more of them, armour and better shots');
+  // a hardened line fields more of them
+  const { Infantry } = await import('../js/sim/infantry.js'); const g = () => 0, F = { x: 0, z: 0, dir: 0, a: { name: 'A' }, b: { name: 'B' } };
+  const I0 = new Infantry({ ground: g }); I0.setup(F); const I3 = new Infantry({ ground: g }); I3.press = p3; I3.setup(F);
+  const n = (I, side) => I.men.filter(M => M.side === side).length; check(n(I3, 'theirs') > n(I0, 'theirs') && n(I3, 'ours') === n(I0, 'ours'), `their line thickens: ${n(I0, 'theirs')} → ${n(I3, 'theirs')}, ours ${n(I3, 'ours')}`);
+};
+
 suites.armor = async () => {
   // the armour on the line (sim/armor.js) beside the men: five minutes on rolling ground, the line at an angle
   const { Infantry } = await import('../js/sim/infantry.js'); const { Armor } = await import('../js/sim/armor.js');

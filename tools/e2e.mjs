@@ -32,7 +32,7 @@ try {
     await send('Runtime.enable');
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/?slot=${slot}&still&${q}` });
     let t = '';
-    for (let i = 0; i < 480; i++) { await sleep(500); t = await ev('document.title').catch(e => 'evalerr'); if (t === 'READY') return true; if (t.startsWith('ERROR')) break; }
+    for (let i = 0; i < 480; i++) { await sleep(500); t = await ev('document.title').catch(e => 'evalerr'); if (t === 'READY') { await ev('ORBIS.mortal = false, 1'); return true; } if (t.startsWith('ERROR')) break; }      // (mortal off: the suites below hurt you on purpose; only [death] lets it kill)
     console.log('   title:', t, errs.slice(0, 3)); return false;
   };
   console.log('[new life]');
@@ -428,7 +428,7 @@ try {
   check(gs.none || (gs.running > 0 && gs.frames > 5), `a shot near people: ${gs.running} run from it, and the game keeps drawing (${gs.frames} frames)`);
   const gf = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms));
-    P.custody = null; P.warrant = null; P.hp = 100;
+    P.custody = null; P.warrant = null; P.hp = 100; P.wounds = 0;
     P.inventory.push({ id: 'pistol', n: 1 }); P.weapon = 'pistol';
     const t = O.clock.now(); O.ctx.onServe(t); const pu = O.getPursuit(); if (!pu) return { none: true };
     // stand 18 m from the officer, out in the open where there's a clear line
@@ -489,7 +489,7 @@ try {
   check(wi.inside, `walked in off the street into a ${wi.label} (${wi.room}; ${wi.live} walk-in buildings built nearby) — HUD: ${wi.place}`);
   const hit = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/traffic.js');
-    P.hp = 100; P.custody = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
+    P.hp = 100; P.wounds = 0; P.custody = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
     // stand in the road, in the path of the nearest car in town
     // step out right in front of a moving car: too close for it to stop
     let v = null; for (let i = 0; i < 80 && !v; i++) { v = T.trafficNear(O.planet, O.s, O.clock.now(), O.s.cx, O.s.cz, 1e5).find(q => !q.parked && !q.id.includes('|') && Math.hypot(q.pos[0] - O.s.cx, q.pos[2] - O.s.cz) < 400); if (!v) { O.clock.advance(30); await wait(100); } }
@@ -502,7 +502,7 @@ try {
   console.log('[sandbox]');
   const sb = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, c = O.city, wait = ms => new Promise(r => setTimeout(r, ms)), key = (k, up = true) => { dispatchEvent(new KeyboardEvent('keydown', { code: k })); if (up) dispatchEvent(new KeyboardEvent('keyup', { code: k })); }, FL = await import('./js/gen/cityfleet.js'), G = await import('./js/gen/city.js'), V = await import('./js/gen/vehicles.js'), out = {};
-    P.hp = 100; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
+    P.hp = 100; P.wounds = 0; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0;
     const [bx, bz] = c.toWorld(G.lineAt(c, 0, 1), G.lineAt(c, 1, -2) + 20); O.ctrl.pos = [bx, c.h + 0.3, bz]; O.ctrl.vel = [0, 0, 0];
     for (let i = 0; i < 300 && !(O.getMayhem() && O.cityTraffic.ready >= O.cityTraffic.n); i++) { O.ctrl.pos = [bx, c.h + 0.3, bz]; await wait(200); }
     const M = O.getMayhem(), F = O.cityTraffic.fleet, t0 = O.clock.now(), q = {};
@@ -516,7 +516,7 @@ try {
     key('KeyE'); await wait(300); out.jumpedOut = !O.getRide2() && O.ctrl.mode === 'walk'; out.car = O.getVehicles().some(v => v.id === sky.id);
     for (let i = 0; i < 100 && !O.ctrl.grounded; i++) await wait(100); out.hpAfterFall = Math.round(P.hp);
     // a passer-by: grab, throw
-    P.hp = 100; P.heat = null; const W = await import('./js/gen/citytraffic.js'); let w = null; const [wx, wz] = c.toWorld(G.lineAt(c, 0, 4) + 14, G.lineAt(c, 1, 3) + 40); O.ctrl.pos = [wx, c.h + 0.3, wz]; O.ctrl.vel = [0, 0, 0]; await wait(500);
+    P.hp = 100; P.wounds = 0; P.heat = null; const W = await import('./js/gen/citytraffic.js'); let w = null; const [wx, wz] = c.toWorld(G.lineAt(c, 0, 4) + 14, G.lineAt(c, 1, 3) + 40); O.ctrl.pos = [wx, c.h + 0.3, wz]; O.ctrl.vel = [0, 0, 0]; await wait(500);
     for (let i = 0; i < 30 && !w; i++) { w = W.cityWalkers(c, O.clock.now(), O.ctrl.pos[0], O.ctrl.pos[2], 80, 20).filter(x => !M.out.has(x.id))[0]; if (!w) await wait(200); }
     if (w) { const tw = () => W.cityWalkers(c, O.clock.now() + 0.1, w.pos[0], w.pos[2], 12, 40).find(x => x.id === w.id); let n = tw(); O.ctrl.pos = [n.pos[0] - 1, n.pos[1], n.pos[2]]; O.ctrl.facing = Math.PI / 2; O.ctrl.vel = [0, 0, 0]; await wait(30); key('KeyG'); out.grabbed = !!M.carry; const p0 = M.carry?.pos?.slice(); await wait(200); key('KeyG'); out.thrown = M.bodies.some(b => b.id === w.id); await wait(1800); const b = M.bodies.find(x => x.id === w.id); out.landed = b && !b.flying; out.flew = b ? Math.round(Math.hypot(b.pos[0] - p0[0], b.pos[2] - p0[2]) * 10) / 10 : 0; out.heat3 = +M.heat(O.clock.now()).toFixed(1); }
     // smash something
@@ -538,7 +538,7 @@ try {
   console.log('[walking into the country]');
   const cw = await ev(`(async () => {
     const O = ORBIS, P = O.store.player, out = {}, wait = ms => new Promise(r => setTimeout(r, ms)), T = await import('./js/gen/surface.js'), OP = await import('./js/gen/outposts.js'), key = (k, on) => dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code: k })), tap = k => { key(k, true); key(k, false); };
-    P.hp = 100; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0; if (O.getRide2?.()) tap('KeyE');
+    P.hp = 100; P.wounds = 0; P.custody = null; P.heat = null; O.ctrl.mode = 'walk'; O.ctrl.stun = 0; if (O.getRide2?.()) tap('KeyE');
     let S0 = null, bd = 1e12; for (let i = -22; i <= 22; i++) for (let j = -22; j <= 22; j++) for (const S of OP.sitesInTile(O.planet, i, j)) if (S.kind === 'village' && S.items.some(q => /^gb_cottage_/.test(q.k))) { const d = Math.hypot(S.x - O.s.cx, S.z - O.s.cz); if (d < bd) { bd = d; S0 = S; } }
     if (!S0) return { none: 1 };
     const it = S0.items.find(q => /^gb_cottage_/.test(q.k)), c = Math.cos(it.rot), s = Math.sin(it.rot), at = (u, v) => [it.x + u * c + v * s, it.z - u * s + v * c], f = it.box[1], lead = (it.stoop ? it.stoop.n * it.stoop.run : 0) + 1.5;
@@ -571,7 +571,7 @@ try {
   // ---- crashes: a real car, driven at a real wall
   console.log('[crashes]');
   const cr = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), out = {}, key = (c, d = true) => { document.dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { code: c, bubbles: true })); dispatchEvent(new KeyboardEvent(d ? 'keydown' : 'keyup', { code: c })); };
-    const P = O.store.player; P.hp = 100; P.heat = null; const C = O.city, G = await import('./js/gen/city.js'); const [u, v] = [G.lineAt(C, 0, 2), G.lineAt(C, 1, 2)], [x, z] = C.toWorld(u, v), y = C.h + 0.3;
+    const P = O.store.player; P.hp = 100; P.wounds = 0; P.heat = null; const C = O.city, G = await import('./js/gen/city.js'); const [u, v] = [G.lineAt(C, 0, 2), G.lineAt(C, 1, 2)], [x, z] = C.toWorld(u, v), y = C.h + 0.3;
     // a straight street, a block ahead: find the wall by driving at it
     const yaw = Math.atan2(...C.toWorld(u + 40, v).map((q, i) => q - [x, z][i])) + 0.75; O.ctrl.pos = [x, y, z]; await wait(1500);
     const car = O.getVehicles().find(q => q.type === 'sedan') || O.getVehicles().find(q => q.type !== 'speeder' && !q.fly); const id = car.id, keep = car.pos.slice(); car.pos = [x, y, z]; car.facing = yaw; O.ctrl.pos = [x + 1, y, z]; O.ctrl.mode = 'walk'; await wait(200);
@@ -587,10 +587,10 @@ try {
     { O.setRideForTest(null); O.ctrl.mode = 'walk'; O.ctrl.stun = 0; const T = await import('./js/gen/surface.js'), Vq = await import('./js/gen/vehicles.js'), v = O.getVehicles().find(q => q.id !== id && !O.wrecks.get(q.id) && Vq.typeOf(q).L > 3 && !q.fly), ty = Vq.typeOf(v), fx = Math.sin(v.facing), fz = Math.cos(v.facing), sx = -fz, sz = fx, px = v.pos[0] + sx * (ty.W / 2 + 1.4), pz = v.pos[2] + sz * (ty.W / 2 + 1.4), hold0 = O.ctrl.pos; O.ctrl.pos = [px, v.pos[1] + 0.1, pz]; O.ctrl.vel = [0, 0, 0]; await wait(400); O.ctrl.pos = [v.pos[0] + sx * 0.1, v.pos[1] + 0.1, v.pos[2] + sz * 0.1]; O.ctrl.vel = [0, 0, 0]; await wait(500); out.walkStopped = Math.abs((O.ctrl.pos[0] - v.pos[0]) * sx + (O.ctrl.pos[2] - v.pos[2]) * sz); out.alongCar = Math.abs((O.ctrl.pos[0] - v.pos[0]) * fx + (O.ctrl.pos[2] - v.pos[2]) * fz); out.carHw = ty.W / 2; out.carHl = ty.L / 2;
       O.ctrl.pos = [v.pos[0], v.pos[1] + ty.H + 0.3, v.pos[2]]; O.ctrl.vel = [0, 0, 0]; O.ctrl.grounded = false; await wait(700); out.onRoof = O.ctrl.pos[1] - v.pos[1]; out.carH = ty.H; O.ctrl.pos = hold0; O.ctrl.vel = [0, 0, 0]; await wait(200); }
     // thrown off a bike
-    { const [bx, bz] = C.toWorld(u + 3, v + 3), Rb = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'tb', pos: [bx, y, bz], facing: yaw }); P.hp = 100; O.setRideForTest(Rb); Rb.speed = 30; for (let i = 0; i < 300 && O.getRide2(); i++) await wait(40); out.thrown = !O.getRide2(); out.bikeHurt = P.hp < 100; await wait(400); O.ctrl.mode = 'walk'; }
+    { const [bx, bz] = C.toWorld(u + 3, v + 3), Rb = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'tb', pos: [bx, y, bz], facing: yaw }); P.hp = 100; P.wounds = 0; O.setRideForTest(Rb); Rb.speed = 30; for (let i = 0; i < 300 && O.getRide2(); i++) await wait(40); out.thrown = !O.getRide2(); out.bikeHurt = P.hp < 100; await wait(400); O.ctrl.mode = 'walk'; }
     // a ship flown into the ground
     { const sh = O.getShips().find(x => !x.field && !x.fleet) || O.getShips()[0], ox = O.ctrl.pos[0],      // (a pad-sized ship: a big field ship's hull takes a lot more)
-      oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; out.shipHp = Ds?.hp; out.shipDepth = Ds?.hits?.map(h => h.depth); await wait(400); P.hp = 100; }
+      oz = O.ctrl.pos[2], F = new O.Flight(O.world, O.planet, sh, [ox, O.world.groundAt(ox, oz, 9999).h + 28, oz], 1); P.hp = 100; P.wounds = 0; F.onGround = false; F.assist = false; F.hover = 0; F.throttle = 0; F.vel = [0, -70, 0]; O.wrecks.rnd = () => 0.99; O.setFlightForTest(F); for (let i = 0; i < 200 && O.getFlight(); i++) await wait(40); const Ds = O.wrecks.get('ship:' + sh.id); out.shipOut = !O.getFlight(); out.shipHits = Ds?.hits?.length; out.shipDead = Ds?.dead; out.shipHp = Ds?.hp; out.shipDepth = Ds?.hits?.map(h => h.depth); await wait(400); P.hp = 100; P.wounds = 0; }
     return out; })()`);
   check(cr.walkStopped >= cr.carHw * 0.9 || cr.alongCar >= cr.carHl * 0.9, `a parked car pushes you out of it (${cr.walkStopped?.toFixed(2)} m from its centre line, half its width ${cr.carHw?.toFixed(2)})`);
   check(cr.onRoof > cr.carH * 0.8, `stood on its roof (${cr.onRoof?.toFixed(2)} m up a ${cr.carH} m car)`);
@@ -600,6 +600,18 @@ try {
   check(cr.model && cr.moved > 20, `the model's own metal moved (${cr.moved} points)`);
   check(cr.hurt, 'and it hurt');
   check(cr.fire && cr.blew && cr.burnt > 0.3, 'set alight it went up and left a burnt wreck');
+  console.log('[death]');
+  { const before = await ev(`(async () => { const O = ORBIS, P = O.store.player, { giveItem } = await import('./js/sim/processes/use.js');
+      giveItem(P, 'carbine', 1); P.weapon = 'carbine'; P.credits = 1000; P.hp = 100; P.wounds = 0; P.custody = null; P.warrant = null; O.ctrl.mode = 'walk'; O.mortal = true;
+      const pos = O.ctrl.pos.slice(); O.hurtPlayer(250, 'a test shell'); for (let i = 0; i < 60 && !document.querySelector('.panel.death'); i++) await new Promise(r => setTimeout(r, 100));
+      const D = document.querySelector('.panel.death'); return { name: P.name, surname: P.surname, serial: P.serial, pos, panel: !!D, text: D?.textContent || '', heir: !!D?.querySelector('[data-a=heir]') }; })()`);
+    check(before.panel && /test shell/.test(before.text) && before.heir, `dead: the epitaph and an heir offered — "${before.text.slice(0, 90)}"`);
+    await ev(`document.querySelector('.panel.death [data-a=heir]')?.click(), 1`);
+    let after = null; for (let i = 0; i < 480 && !after; i++) { await sleep(500); after = await ev(`document.title === 'READY' && ORBIS.store?.player?.heirOf ? (() => { const O = ORBIS, P = O.store.player; O.mortal = false; return { name: P.name, surname: P.surname, heirOf: P.heirOf, weapon: P.weapon, credits: P.credits, line: O.store.meta.lineage?.length, stone: O.store.getDelta('fallen/${before.serial}'), solid: (O.world.stones || []).length, died: O.store.events.some(e => e.type === 'player_died') }; })() : null`).catch(() => null); }
+    check(after && after.heirOf === before.serial && after.surname === before.surname && after.name !== before.name, `the next of the line: ${before.name} → ${after?.name}`);
+    check(after && after.weapon === 'carbine' && after.credits >= 650 && after.line === 1 && after.died, `inherits the gun and the estate, and the world remembers (${JSON.stringify(after && { w: after.weapon, cr: after.credits, line: after.line })})`);
+    check(after?.stone && after.solid >= 1, 'a stone stands where they fell, and it is solid');
+  }
   console.log('[errors]'); check(errs.length === 0, 'no page exceptions ' + errs.slice(0, 3).join(' | '));
   // clean up the slot
   await ev(`(async () => { await new Promise(r => { const q = indexedDB.deleteDatabase('orbis-${slot}'); q.onsuccess = q.onerror = q.onblocked = r; }); return 1; })()`).catch(() => {});

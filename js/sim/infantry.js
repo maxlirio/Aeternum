@@ -31,7 +31,7 @@ const BARK = {
 const WIRE_SEG = 2;
 export class Infantry {
   // ground(x, z) → height; resolve(x, z, y) → [x, z] out of anything solid; hooks: hitPlayer(dmg, by, from)
-  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.int = 0; this.phase = 'build'; this.phT = 0; }
+  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.int = 0; this.phase = 'build'; this.phT = 0; this.press = { men: 1, tanks: 0, aim: 1 }; }      // (press: how hard the war's gone, sim/lineage.js pressOf: their numbers, armour, aim)
   // the line along front F: where everything stands. (a: across the border, + toward the enemy; s: along it)
   setup(F) {
     this.F = F; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
@@ -56,7 +56,7 @@ export class Infantry {
     for (const W of this.props) if (W.kind === 'wire') { const n = Math.max(1, Math.round(W.len / WIRE_SEG)); W.segs = []; for (let k = 0; k < n; k++) W.segs.push({ k, s0: (k / n - 0.5) * W.len, s1: ((k + 1) / n - 0.5) * W.len, dead: false }); }
     this.rally = { ours: [-RALLY, 0], theirs: [RALLY, 0] };
     // you come up on a fight already going: each side's men all in, the first at its own sandbags, the rest forward of them
-    this.n = 0; for (let k = 0; k < PER_SIDE; k++) for (const side of ['ours', 'theirs']) { const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos); M.pos = at((side === 'ours' ? -1 : 1) * (14 + Math.random() * 36), s0); } }
+    this.n = 0; for (let k = 0; k < Math.round(PER_SIDE * this.press.men); k++) for (const side of ['ours', 'theirs']) { if (side === 'ours' && k >= PER_SIDE) continue; const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos); M.pos = at((side === 'ours' ? -1 : 1) * (14 + Math.random() * 36), s0); } }
     this.reinf = 6;
     this.armor?.setup();
     this.events.push({ type: 'line', F });
@@ -64,7 +64,7 @@ export class Infantry {
   end() { this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.armor?.end(); }
   spawn(side) {
     // up from the rally point to near one of the objectives (the first of them straight into their own line)
-    const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * 2, a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(a, s);
+    const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * (1 + this.press.men), a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(a, s);
     const k = this.n++, M = { id: `inf:${side}:${k}`, side, squad: Math.floor(k / 2) % SQUAD, pos: p, facing: side === 'ours' ? this.dir : this.dir + Math.PI, hp: 100, state: 'move', goal: null, cool: 1 + Math.random() * 2, dwell: 0, moving: false, aim: 0, dead: 0,
       sup: 0, duck: 0, flinch: 0, threat: 0, support: 0, nadeCd: 8 + Math.random() * 20, barkCd: Math.random() * 3, saw: false, fall: 0, at: k % 5 === 2, rk: 2, via: null, routeT: 0 };      // (one man in five carries a launcher)
     this.men.push(M); return M;
@@ -79,7 +79,7 @@ export class Infantry {
     const alive = this.men.filter(m => m.hp > 0), foeOfYou = you?.side === 'ours' ? 'theirs' : you?.side === 'theirs' ? 'ours' : null; let onYou = 0;
     this.director(dt);
     // reinforcements: each side keeps its strength up (theirs as the director allows), the side holding more of the line a little stronger
-    if ((this.reinf -= dt) <= 0) { this.reinf = 7; for (const side of ['ours', 'theirs']) { const held = this.obj.filter(o => o.owner === side).length, cap = side === foeOfYou ? this.cap() : 1, want = Math.round((PER_SIDE + held) * cap), have = alive.filter(m => m.side === side).length; for (let k = have; k < Math.min(want, have + 4); k++) this.spawn(side); } }
+    if ((this.reinf -= dt) <= 0) { this.reinf = 7; for (const side of ['ours', 'theirs']) { const held = this.obj.filter(o => o.owner === side).length, cap = side === foeOfYou ? this.cap() : 1, want = Math.round((PER_SIDE * (side === 'theirs' ? this.press.men : 1) + held) * cap), have = alive.filter(m => m.side === side).length; for (let k = have; k < Math.min(want, have + 4); k++) this.spawn(side); } }
     for (const M of this.men) {
       if (M.hp <= 0) { M.dead += dt; continue; }
       M.sup = Math.max(0, M.sup - dt * 0.18); M.flinch = Math.max(0, M.flinch - dt); M.threat = Math.max(0, M.threat - dt); M.support = Math.max(0, M.support - dt); M.nadeCd -= dt; M.barkCd -= dt;
@@ -140,7 +140,7 @@ export class Infantry {
         if ((M.cool -= dt * (M.support > 0 ? 1.8 : 1)) <= 0) {
           M.burst = (M.burst || 0) + 1; if (M.burst >= 3 + Math.floor(Math.random() * 2)) { M.burst = 0; M.cool = 1.1 + Math.random() * 1.4; } else M.cool = 0.16 + Math.random() * 0.1;      // (in bursts of three or four)
           const blind = M.duck > 0.5, tDuck = tgt !== 'you' && tgt.duck > 0.5, covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C && !tgt.goal.C.down;
-          let p = (0.32 * (1 - td / RANGE) + 0.06) * (covered ? 0.45 : 1) * (tDuck ? 0.25 : 1) * (blind ? 0.2 : 1) * (M.sup > 0.4 ? 0.6 : 1);
+          let p = (0.32 * (1 - td / RANGE) + 0.06) * (covered ? 0.45 : 1) * (tDuck ? 0.25 : 1) * (blind ? 0.2 : 1) * (M.sup > 0.4 ? 0.6 : 1) * (M.side === 'theirs' ? this.press.aim : 1);
           if (tgt === 'you') { const low = you.low || 0; p *= 0.9 * (1 - 0.25 * low); if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9 - 0.5 * low, tp[2]])) p *= 0.45 - 0.25 * low; }      // (crouched behind a wall, there's hardly anything of you to hit)      // (behind sandbags yourself, they'll hit you far less)
           const hit = Math.random() < p, from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
           const miss = blind ? 6 : 3.2, to = hit ? [tp[0], tp[1] + 1.1, tp[2]] : [tp[0] + (Math.random() - 0.5) * miss, tp[1] + 0.2 + Math.random() * 2.2, tp[2] + (Math.random() - 0.5) * miss];

@@ -29,7 +29,7 @@ export class Armor {
   setup() {
     const I = this.I; this.list = []; this.rounds = []; this.respawn = { ours: 30, theirs: 30 };
     for (const side of ['ours', 'theirs']) { const sg = side === 'ours' ? -1 : 1;
-      for (let k = 0; k < WANT.tank; k++) this.spawn('tank', side, sg * (I.LINE + 16 + Math.random() * 8), (k ? 1 : -1) * (40 + Math.random() * 60));
+      for (let k = 0; k < WANT.tank + (side === 'theirs' ? I.press?.tanks || 0 : 0); k++) this.spawn('tank', side, sg * (I.LINE + 16 + Math.random() * 8), (k ? 1 : -1) * (40 + Math.random() * 60));
       this.spawn('apc', side, sg * (I.LINE + 26), (Math.random() - 0.5) * 160); }
   }
   end() { this.list = []; this.rounds = []; }
@@ -100,7 +100,7 @@ export class Armor {
     // each side keeps its armour up (theirs only while the director lets it: sim/infantry.js)
     for (const side of ['ours', 'theirs']) { if ((this.respawn[side] -= dt) > 0) continue; const foeOfYou = you?.side === 'ours' ? 'theirs' : 'ours';
       if (side === foeOfYou && I.cap() < 1 && Math.random() < 0.7) { this.respawn[side] = 5; continue; } const sg = side === 'ours' ? -1 : 1;
-      for (const kind of ['tank', 'apc']) if (this.list.filter(V => !V.dead && V.side === side && V.kind === kind).length < WANT[kind]) { this.spawn(kind, side, sg * (I.RALLY + 20), (Math.random() - 0.5) * 300); this.respawn[side] = 35; break; } }
+      for (const kind of ['tank', 'apc']) if (this.list.filter(V => !V.dead && V.side === side && V.kind === kind).length < WANT[kind] + (kind === 'tank' && side === 'theirs' ? I.press?.tanks || 0 : 0)) { this.spawn(kind, side, sg * (I.RALLY + 20), (Math.random() - 0.5) * 300); this.respawn[side] = 35; break; } }
     for (const V of this.list) {
       if (V.dead) { V.deadT += dt; continue; }
       V.reload -= dt; V.mgCool -= dt; V.recoil = Math.max(0, V.recoil - dt * 2.2); V.sinceShot += dt;

@@ -49,6 +49,21 @@ export class UI {
       });
     });
   }
+  // you're dead: who you were, how it ended, the line so far; and who takes it up
+  death({ name, age, cause, place, planet, days, rank, kills, line, stage, heir, stranger }) {
+    const e = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const past = (line || []).slice(0, -1).slice(-6).reverse().map(L => `<li><b>${e(L.name)}</b>, ${L.age} · ${e(L.cause)} · ${e(L.place)}${L.kills ? ` · ${L.kills} kills` : ''}</li>`).join('');
+    return new Promise(res => {
+      const p = this.panel(`<p class="fine">${e(planet)} · ${e(place)}</p><h1>${e(name)}</h1>
+        <p class="lede">Dead at ${age}: ${e(cause)}.</p>
+        <p class="fine">${days} lived${rank ? ` · ${e(rank)}` : ''}${kills ? ` · ${kills} kill${kills === 1 ? '' : 's'}` : ''}. What they did stays done: the world goes on with it.</p>
+        ${past ? `<p class="fine">Before them:</p><ul class="fine">${past}</ul>` : ''}
+        ${stage ? `<p class="fine">The war has hardened${stage > 2 ? ' a great deal' : ''}: more of them on the line${stage >= 2 ? ', and more armour' : ''}.</p>` : ''}
+        ${heir ? `<button data-a="heir" class="primary">${e(heir.label)}<small>${e(heir.note)}</small></button>` : ''}
+        ${stranger ? `<button data-a="stranger" class="${heir ? '' : 'primary'}">${e(stranger.label)}<small>${e(stranger.note)}</small></button>` : ''}`, 'title death');
+      p.addEventListener('click', ev => { const a = ev.target.dataset.a; if (a) res(a); });
+    });
+  }
   loading(text, frac) {
     if (this.hush) return;      // (coming out of FTL: the tunnel's showing, not a progress bar)
     if (!this.current?.classList.contains('loading')) this.panel(`<p class="ltext"></p><div class="progress"><b></b></div>`, 'loading');
@@ -213,6 +228,7 @@ export function describeEvent(e, planet) {
     case 'arrested': return `${when} ${e.by ? esc(e.by) + ' of ' : ''}${esc(e.authority)} arrested ${esc(e.whoName)}${e.resisted ? ' after a chase' : ''}. ${e.paid ? `${e.paid} cr in fines taken; ` : ''}held ${e.hours} h.`;
     case 'released': return `${when} ${esc(e.whoName)} was released from the ${esc(e.authority)} cell.`;
     case 'fines_paid': return `${when} ${esc(e.whoName)} paid ${e.amount} cr in fines${e.cleared ? '; the warrant was withdrawn' : ''}.`;
+    case 'player_died': return `${when} <b>${esc(e.name)}</b> died at ${esc(e.settlementName || 'the front')}: ${esc(e.cause)}.`;
     case 'died': return `${when} ${who(e)} ${e.cause === 'killed' ? 'was killed' : 'died'}, aged ${e.age}.`;
     case 'assault': return `${when} ${esc(e.byName)} ${e.killed ? 'killed' : 'attacked'} ${esc(e.victimName)}. ${e.witnesses?.filter(w => !w.victim).length ? `Seen by ${e.witnesses.filter(w => !w.victim).length}.` : 'No one else saw.'}`;
     case 'body_found': return `${when} ${esc(e.victimName)} was found dead.`;
@@ -227,7 +243,7 @@ export function describeEvent(e, planet) {
     case 'household_left': return `${when} The ${esc(e.surname)} household${e.rel ? ` (${esc(e.rel)})` : ''} — ${e.n} ${e.n === 1 ? 'person' : 'people'} — left town.`;
     case 'household_arrived': return `${when} ${e.rel ? esc(e.rel[0].toUpperCase() + e.rel.slice(1)) + ': the' : 'The'} ${esc(e.surname)} ${e.n === 1 ? 'household' : 'family'} moved into ${esc(e.toName)}, new in town.`;
     case 'children_left': return `${when} ${e.n === 1 ? 'The child' : `The ${e.n} children`} of the ${esc(e.surname)} household went to live with relatives elsewhere.`;
-    case 'life_began': return `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
+    case 'life_began': return e.heirOf ? `${when} ${esc(e.name)} takes up the life ${esc(e.heirOf)} left, in ${esc(e.place)}.` : `${when} The life of ${esc(e.name)} in ${esc(e.place)} begins.`;
     default: return `${when} ${esc(e.type)}`;
   }
 }

@@ -5,12 +5,14 @@ import { Rng } from '../core/prng.js';
 import { derive } from '../core/hash.js';
 import { givenName } from './names.js';
 
-export function newCharacter(universeSeed, planet, s, pop, serial, t) {
+// opts.household: born into that household (the next of a line whose last died: a younger sibling or a cousin come of age)
+export function newCharacter(universeSeed, planet, s, pop, serial, t, opts = {}) {
   const rng = new Rng(derive(universeSeed, 'character', [serial]));
   // parents: a household with at least one adult old enough to be a parent of a 19+ year old
-  const candidates = pop.households.filter(h => h.members.some(id => pop.byId.get(id).age >= 39));
-  const hh = rng.pick(candidates);
-  const members = hh.members.map(id => pop.byId.get(id));
+  const candidates = pop.households.filter(h => h.members.some(id => pop.byId.get(id)?.age >= 39));
+  const kin = opts.household != null ? pop.households.find(h => h.id === opts.household && h.members.some(id => pop.byId.get(id))) : null;
+  const hh = kin || rng.pick(candidates);
+  const members = hh.members.map(id => pop.byId.get(id)).filter(Boolean);
   const eldest = Math.max(...members.map(m => m.age));
   const age = rng.int(19, Math.max(19, Math.min(46, eldest - 18)));
   const parents = members.filter(m => m.age >= age + 18 && m.role === 'adult');
