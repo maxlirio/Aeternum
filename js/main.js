@@ -311,11 +311,13 @@ async function start(fresh) {
   const towns = new TownStreamer(planet, root, propLib, homeS), riverFeed = new RiverFeed(planet, { onExplore: (ci, cj) => { if (noteExplored(store.player, ci, cj)) store.touchPlayer(); } }),      // (where you've been goes in the save; what was worked out there in world/gencache.js)
     roadView = new RoadView(planet, root), globeView = new GlobeView(planet, scene); globeView.fromCache(riverFeed?.cache); terrain.useCache(riverFeed?.cache);
   // what a climber's hands feel for (render/probe.js): the walls of the towns, sites and rooms near you
+  // what a body's limbs stop against when a take throws it about (player/contact.js): the ground under it (floors, decks, roofs), and what's built
+  const bodyContact = { floor: (x, y, z) => { const W = fromRender(x, y, z); return world.groundAt(W[0], W[2], W[1]).h - origin[1]; }, solid: (x, y, z) => { const W = fromRender(x, y, z); return world.solidAt(W[0], W[1], W[2], 0.02, false); } };
   const probe = new SurfaceProbe(() => [town.group, ...[...towns.full.values()].map(T => T.town?.group), outposts.group, siteRooms?.group, cityRooms?.group, ledgeView?.group]);
   const fromRender = (x, y, z) => [x + origin[0], y + origin[1], z + origin[2]];
   const ledgeView = new LedgeView(); root.add(ledgeView.group);
   // you: the ADVENTURER body once it has loaded (the placeholder until then, or for good with ?body=placeholder)
-  if (params.get('body') !== 'placeholder') loadAdventurer(params.get('body') === 'bare' ? './assets/adventurer.glb' : './assets/adventurer_kit.glb').then(A => { const old = avatar; A.planet = planet; A.lib = propLib; A.setWorld(probe, fromRender); A.object.position.copy(old.object.position); A.object.quaternion.copy(old.object.quaternion); A.object.visible = old.object.visible; scene.remove(old.object); scene.add(A.object); avatar = A; window.__body = 'adventurer'; }).catch(e => console.warn('body', e));
+  if (params.get('body') !== 'placeholder') loadAdventurer(params.get('body') === 'bare' ? './assets/adventurer.glb' : './assets/adventurer_kit.glb').then(A => { const old = avatar; A.planet = planet; A.lib = propLib; A.setWorld(probe, fromRender); A.setContact?.(bodyContact); A.object.position.copy(old.object.position); A.object.quaternion.copy(old.object.quaternion); A.object.visible = old.object.visible; scene.remove(old.object); scene.add(A.object); avatar = A; window.__body = 'adventurer'; }).catch(e => console.warn('body', e));
   let inSpace = false, geoAtX = 0, geoAtZ = 0;
   const world = new CollisionWorld(planet, s, (b, id) => { const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); return !!T?.doorView && T.doorView.isPassable(T.doorIndex.get(b.key + '#' + id)); });   // (a town not built yet keeps its doors shut)
   const b2w = (b, ...at) => buildingToWorld(world.townOf(b), b, ...at);
@@ -463,7 +465,7 @@ async function start(fresh) {
   renderer.domElement.addEventListener('mousedown', e => { if (paused || document.pointerLockElement !== renderer.domElement || flight || ride) return; if (e.button === 0 && (heldRanged() || tankV)) { trigger = true; if (!tankV) attack(); } if (e.button === 2) aimHeld = true; });
   addEventListener('mouseup', e => { if (e.button === 0) trigger = false; if (e.button === 2) aimHeld = false; });
   renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
-  addEventListener('blur', () => { trigger = false; aimHeld = false; });
+  addEventListener('blur', () => { trigger = false; wantShot = false; aimHeld = false; });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
@@ -1437,7 +1439,7 @@ async function start(fresh) {
   // ---- violence (sim/processes/combat.js): what's in your hand, and what happens when you use it
   let lastAttack = -1e9;
   // a fight on foot: the trigger held, sighting down the gun (aimK eases in), how far the shots wander now (bloom), your issued shield, your grenades
-  let trigger = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
+  let trigger = false, wantShot = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
   // the sight: how far in it's zoomed (the wheel changes it), your breath (held, the sight steadies, for a few seconds), the way it wanders
   let proned = false, proneK = 0, lastStun = 0;      // prone (X on foot): down on your front behind the rifle
   let crouched = false, crouchK = 0, rockets = 0, tankV = null, zoomBy = {}, breath = 1, gasp = 0, holding = false, swayT = 0, sway = [0, 0], hidAvatar = false;
@@ -1481,7 +1483,9 @@ async function start(fresh) {
     // where it comes down: where you're looking, if that's the ground within a throw, else as far as the angle you're looking up throws it
     let reach = Math.max(8, Math.min(32, 18 + dir.y * 45)); for (let d = 2; d < 40; d += 0.5) { const x = wo[0] + dir.x * d, y = wo[1] + dir.y * d, z = wo[2] + dir.z * d; if (y <= landY(x, z) + 0.2) { reach = Math.min(32, Math.hypot(x - ctrl.pos[0], z - ctrl.pos[2])); break; } }
     nades--; const to = [ctrl.pos[0] + dir.x / h * reach, 0, ctrl.pos[2] + dir.z / h * reach];
-    infantry.throwYours([ctrl.pos[0] + Math.sin(ctrl.facing) * 0.4, ctrl.pos[1] + 1.8, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.4], to); avatar.throwIt?.(); sound.clink(ctrl.pos); lastFired = performance.now() / 1000;
+    // the throw first (the wind-up), the grenade away when the hand lets it go
+    const rel = avatar.throwIt?.() || 0; lastFired = performance.now() / 1000;
+    setTimeout(() => { infantry.throwYours([ctrl.pos[0] + Math.sin(ctrl.facing) * 0.4, ctrl.pos[1] + (crouched ? 1.3 : 1.8), ctrl.pos[2] + Math.cos(ctrl.facing) * 0.4], to); sound.clink(ctrl.pos); }, rel * 1000);
   }
   const bodies = [];                 // the dead, where they fell: { id, person, pos, facing, until }
   const downAt = new Map();          // someone knocked down stays where they fell: id → { pos, facing }
@@ -1568,6 +1572,8 @@ async function start(fresh) {
   function attack() {
     if (paused || ctrl.mode !== 'walk' || ride || flight) return;
     const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = WEAPONS[id];
+    // a long gun at your side comes up to the shoulder first; the round goes when it's there (a click while it's coming up still fires, then)
+    if (W.ranged && W.two && !tankV && gunK < 0.8) { wantShot = true; return; } wantShot = false;
     const now = performance.now() / 1000; if (now - lastAttack < W.every) return; lastAttack = now;
     const t = clock.now(); if (W.ranged) { lastShotAt = t; scare(ctrl.pos, t); fauna?.scare(ctrl.pos[0], ctrl.pos[2], W.reach); }
     let target = null, hitPoint = null;
@@ -1590,8 +1596,8 @@ async function start(fresh) {
       const o = camera.position.clone(), dir = new THREE.Vector3(); camera.getWorldDirection(dir);
       const spr = (scoped() ? W.spread * 0.08 * (ctrl.speed > 0.6 ? 4 : 1) + bloom * 0.45 : W.spread * (1 - 0.65 * aimK) * (ctrl.speed > 2.5 ? 1.6 : 1) + bloom) * (crouched && ctrl.speed < 0.6 ? 0.7 : 1); dir.x += (Math.random() - 0.5) * spr * 2; dir.y += (Math.random() - 0.5) * spr * 2; dir.normalize();
       const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]];
-      let wall = W.reach;
-      for (let d = 1.5; d < W.reach; d += 0.4) if (world.solidAt(wo[0] + dir.x * d, wo[1] + dir.y * d, wo[2] + dir.z * d, 0.02)) { wall = d; break; }
+      // what's in the way stops it: the land, walls, cars, stones, trees, rocks (CollisionWorld.hardAt)
+      let wall = world.rayHard(wo, [dir.x, dir.y, dir.z], W.reach, 0.15, 1.2) ?? W.reach;
       let best = wall;
       for (const a of agents) {
         if (String(a.id).startsWith('tr:') || bodies.some(b => b.id === a.id)) continue;
@@ -1770,7 +1776,7 @@ async function start(fresh) {
   const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);      // (the land itself, loaded or not: the line can be a long way off)
   let aloft = false;      // (flying more than 300 m up: set each frame)
   const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)
-  const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
+  const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), hard: (o, d, far) => world.rayHard(o, d, far, 0.3, 0.5) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
   // what a hull drives on besides the land: the rocks lying about, and the rock standing out of a steep hillside
   const armorRocks = (x, z, R, fn) => { const f = q => fn({ x: q.x, z: q.z, r: q.r, g: q.g, top: q.top, flat: q.shape === 'slab' || q.deep !== undefined }); rocksNear(planet, x, z, R, f); ledgesNear(planet, x, z, R, f); };
   // everything else solid a hull meets: buildings, outposts, trees, cars and wrecks (the world's own collision, less the line's works and the hulls, which sim/armor.js does itself)
@@ -1966,7 +1972,7 @@ async function start(fresh) {
       };
       jumpQueued = false;
       { const now = performance.now() / 1000, armed = heldRanged() && !flight && !ride && ctrl.mode === 'walk' && !tankV;
-        if (armed && trigger) attack();
+        if (armed && (trigger || wantShot)) attack();
         // the sight: right button held, the gun comes up and your eye goes to it (the view closes in over the shoulder, then you're
         // looking through it); the mouse moves you less the more it's zoomed; it wanders with your breathing, more moving or tired,
         // and holding your breath (Shift) steadies it for a few seconds, then you have to breathe
@@ -1984,10 +1990,12 @@ async function start(fresh) {
         { const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), wall = crouched && (aimHeld || trigger) && (world.solidAt(ctrl.pos[0] + fx * 0.9, ctrl.pos[1] + 0.7, ctrl.pos[2] + fz * 0.9, 0.1) || !!infantry.F && !!infantry.push(ctrl.pos[0] + fx * 0.9, ctrl.pos[2] + fz * 0.9, ctrl.pos[1], 0.9, 0.05));
           crouchK += ((crouched ? (wall ? 0.45 : 1) : 0) - crouchK) * Math.min(1, dt * 8); avatar.crouch?.(crouchK); input.crouch = crouched; if (crouched) input.run = false; }
         const W = WEAPONS[player.weapon]; bloom *= Math.exp(-dt * 3.5);
-        input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || now - lastFired < 0.9) ? (window.__faceYaw ?? cam.yaw) : undefined;
+        if (!armed) wantShot = false;
+        input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || wantShot || now - lastFired < 1.5) ? (window.__faceYaw ?? cam.yaw) : undefined;      // (kept up a moment after the last shot, then back down to your side)
         if (scrap && !armed && !input.face) input.face = Math.atan2(scrap.pos[0] - ctrl.pos[0], scrap.pos[2] - ctrl.pos[2]);      // (squared up to someone: you face them, and step round them)
         avatar.guard?.(!!scrap && !armed);      // (__faceYaw: photographs from the side)
-        gunK += ((input.face != null ? 1 : crouched && armed ? 0.6 : 0) - gunK) * Math.min(1, dt * 14); avatar.aimGun?.(gunK, input.face != null ? cam.pitch : 0.15);      // (crouched, the gun's held up ready, level, as riflemen hold it waiting)
+        { const want = input.face != null ? 1 : crouched && armed ? 0.6 : 0; gunK += (want - gunK) * Math.min(1, dt * (want > gunK ? 9 : 4.5)); }      // (up to the shoulder in about a third of a second; down again slower)
+        avatar.aimGun?.(gunK, input.face != null ? cam.pitch : 0.15);      // (crouched, the gun's held up ready, level, as riflemen hold it waiting)
         // the shield: down to nothing, it waits for a few quiet seconds, then comes back up
         if (onLine()) { if (now - hurtT > 4 && shield < SHIELD) { if (shield <= 0) sound.shieldUp(); shield = Math.min(SHIELD, shield + dt * 30); } } }
       if (flight) {
@@ -2113,13 +2121,15 @@ async function start(fresh) {
     { const v = ctrl.vel || [0, 0, 0], a = Math.atan2(v[0], v[2]) - ctrl.facing; avatar.moveDir?.(Math.atan2(Math.sin(a), Math.cos(a))); }
     if ((ctrl.stun || 0) > 0.3 && !(lastStun > 0) && avatar.knockedDown) avatar.knockedDown(ctrl.stun + 0.6); lastStun = ctrl.stun || 0;
     avatar.setProne?.(proneK > 0.5);
-    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded && !avatar.knockedDown ? 'lie' : null);
+    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride || dying ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded && !avatar.knockedDown ? 'lie' : null);
     avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
     if (!aloft) { pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); if (!params.has('noledges')) ledgeView.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); }     // (from a ship well up, the things only seen from close by wait)
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
-    if (ctrl.landed > 6.5 && !flight && !ride && performance.now() > landSafeAt) avatar.land?.(ctrl.landed);      // (down from a height: the recorded landing)
+    if (ctrl.jumped && !flight && !ride) avatar.jump?.();      // (the recorded jump: down, off, the legs drawn up)
+    if (ctrl.landed > 2.5 && !flight && !ride && performance.now() > landSafeAt) avatar.land?.(ctrl.landed);      // (and down again: the recorded landing, harder the further you fell)
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
+    ctrl.frame();      // (what the steps since the last frame did, read: cleared for the next's)
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
     voyageTick(t);
     capitalView.day.value = sky.state.day ?? 1; capitalView.update(fleet, toRender, camera.position, t);
@@ -2326,6 +2336,7 @@ async function start(fresh) {
         for (const S of infantry.shots) { if (S.n <= lastHeard) continue; lastHeard = Math.max(lastHeard, S.n);
           const d = Math.hypot(S.from[0] - ctrl.pos[0], S.from[2] - ctrl.pos[2]); if (d < 260 && (shotsHeard += 1) < 14) sound.shot(S.from);
           const ax = S.to[0] - S.from[0], az = S.to[2] - S.from[2], L = Math.hypot(ax, az) || 1, f = Math.max(0, Math.min(1.15, ((ctrl.pos[0] - S.from[0]) * ax + (ctrl.pos[2] - S.from[2]) * az) / (L * L))), off = Math.hypot(S.from[0] + ax * f - ctrl.pos[0], S.from[2] + az * f - ctrl.pos[2]);
+          if (S.stop && Math.hypot(S.to[0] - ctrl.pos[0], S.to[2] - ctrl.pos[2]) < 120) fx.dust(S.to, 3, [0.6, 0.55, 0.45]);      // (the round into what was in its way: a puff off it)
           if (!S.hit && off < 3 && d > 4) { sound.crack([S.from[0] + ax * f, 0, S.from[2] + az * f]); infantry.felt(0.05); fx.shake = Math.max(fx.shake, 0.08); } }
         shotsHeard = Math.max(0, shotsHeard - dt * 14);
         // what they dropped, if you walk over it
@@ -2482,7 +2493,7 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; } };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();

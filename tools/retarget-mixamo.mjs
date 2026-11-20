@@ -22,6 +22,7 @@ const CLIPS = {
   'Hook Punch': { id: 'hook' }, 'Jumping Down': { id: 'jump_down' }, 'Prone Firing Rifle': { id: 'prone_fire', loop: true, prone: true }, 'Rifle Aiming Idle': { id: 'rifle_aim', loop: true },
   'Sitting Dazed': { id: 'dazed', loop: true, hold: true }, 'Sprint Forward': { id: 'sprint', loop: true, inPlace: true }, 'Stable Sword Inward Slash': { id: 'slash' },
   'Strafe': { id: 'strafe', loop: true, inPlace: true, mirror: true }, 'Taking Punch': { id: 'punched' }, 'Throw Grenade': { id: 'grenade' },
+  'Grenade Throw': { id: 'nade_stand' }, 'Throw Grenade-2': { id: 'nade_crouch' },
 };
 // Mixamo → this body
 const MAP = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'head' };

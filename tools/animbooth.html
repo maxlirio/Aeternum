@@ -4,12 +4,12 @@
 <script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
 </head><body><div id="lab"></div>
 <script type="module">
-// tools/animbooth.html?clips=a,b,c[&side=1]: each clip (rows) at five moments (columns), on the ADVENTURER body and the people's capsule rig
+// tools/animbooth.html?clips=a,b,c[&side=1][&cols=n&t0=s&t1=s]: each clip (rows) at five moments (columns), on the ADVENTURER body and the people's capsule rig
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadMixamo, clipFor, poseCrowd, infoOf } from '../js/player/mixamo.js';
 import { buildRig } from '../js/player/avatar.js';
-const P = new URLSearchParams(location.search), ids = (P.get('clips') || 'sprint').split(','), side = P.has('side'), COLS = 5;
+const P = new URLSearchParams(location.search), ids = (P.get('clips') || 'sprint').split(','), side = P.has('side'), COLS = +(P.get('cols') || 5);
 const W = innerWidth, H = innerHeight, cw = W / COLS, rh = H / ids.length;
 const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(W, H); renderer.setScissorTest(true); document.body.prepend(renderer.domElement);
 const scene = new THREE.Scene(); scene.add(new THREE.HemisphereLight(0xdde6ff, 0x3a3228, 1.6)); const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
@@ -26,7 +26,7 @@ const lab = document.getElementById('lab');
 ids.forEach((id, r) => {
   const I = infoOf(id), A = mixer.clipAction(clipFor(id)); A.play();
   for (let c = 0; c < COLS; c++) {
-    const t = I.dur * c / (COLS - 1) * 0.999;
+    const t0 = +(P.get('t0') || 0), t1 = Math.min(I.dur * 0.999, +(P.get('t1') || I.dur)), t = t0 + (t1 - t0) * c / (COLS - 1);      // (&t0=&t1=: a stretch of it)
     mixer.setTime(t); body.updateMatrixWorld(true);
     rig.hips.position.set(0, 0.95, 0); poseCrowd(rig, id, t);
     const x = c * cw, y = H - (r + 1) * rh;

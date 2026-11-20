@@ -129,6 +129,7 @@ export function soldierPose(rig, M, ph, now = 0, mv = null) {
       rig.fallTilt = 0; let placed = false, hands = false;
       if (M.stab != null && now - M.stab < 1.3) { placed = take('bayonet', 0.55 + (now - M.stab) * 1.6); hands = true; }
       else if (M.prone) { const thr = M.throwT != null && now - M.throwT < 1.4; placed = thr ? take('grenade', 0.5 + (now - M.throwT) * 1.5) : take('prone_fire', M.firedT != null && now - M.firedT < 0.8 ? (now * 1.2) % 0.83 : 0); hands = !thr; if (thr && rig.gunSock) rig.gunSock.visible = false; }
+      else if (M.throwT != null && now - M.throwT < 1.1) { placed = take(M.duck > 0.3 ? 'nade_crouch' : 'nade_stand', 1.75 + (now - M.throwT) * 1.4); if (rig.gunSock) rig.gunSock.visible = false; }      // (a grenade from cover, ducked or standing: the recorded throws, from just before they let go)
       else if (M.moving && mv && mv.back < -0.5) placed = take('rifle_back', (ph / 6.2 * 1.3) % 1.27);
       else if (M.moving && mv && mv.v > 3.6) placed = take('sprint', (ph / 6.2 * (mv.v / 7.05) * 2) % 0.5);
       else if (!M.moving && !(M.duck > 0.3)) placed = take(M.firedT != null && now - M.firedT < 0.5 ? 'rifle_fire' : 'rifle_aim', (now + (M.id.length % 7)) % 3);

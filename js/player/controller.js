@@ -50,10 +50,11 @@ export class Controller {
   mantleTo(to, dur) { this.mode = 'mantle'; this.mantle = { from: this.pos.slice(), to, t: 0, dur }; this.vel = [0, 0, 0]; }
 
   // input: { fwd, right, run, jump, yaw, tired } — yaw is the camera heading
+  // (landed, jumped: what happened over the frame's steps; the game clears them once it's read them, frame())
+  frame() { this.landed = 0; this.jumped = false; }
   step(dt, input, speedFactor = 1) {
     this.climbing = false;
     if (this.stun > 0) { this.stun -= dt; input = { ...input, fwd: 0, right: 0, run: false, jump: false }; }      // knocked over: no say in the matter
-    this.landed = 0;
     if (this.mode === 'wall') return this.stepWall(dt, input);
     if (this.mode === 'mantle') return this.stepMantle(dt);
     if (this.mode === 'ladder') return this.stepLadder(dt, input, speedFactor);
@@ -86,7 +87,7 @@ export class Controller {
       if (ledge) { this.mantleTo([ledge.x, ledge.top, ledge.z], (0.45 + 0.4 * (ledge.top - y)) / speedFactor); return; }
       // a wall too high for that: start climbing it
       if (ml > 0.01 && this.grabWall()) return;
-      this.vel[1] = JUMP; this.grounded = false;
+      this.vel[1] = JUMP; this.grounded = false; this.jumped = true;
     }
     if (this.spin) {
       // in a spin ring (gen/rings.js): what holds you down is the floor turning under you. It pulls less the higher you are (nearer the axle),
@@ -136,7 +137,7 @@ export class Controller {
     // deep water holds you up: you swim at the surface, and a fall into it is only a splash
     const wy = !g.where && w.planet ? this.waterAt(x, z, g.h) : null;
     if (wy !== null && y <= wy - SWIM_DEPTH + 0.02) { y += (wy - SWIM_DEPTH - y) * Math.min(1, 12 * dt); if (y < wy - SWIM_DEPTH - 1.2) y = wy - SWIM_DEPTH - 1.2; if (this.vel[1] < 0) this.vel[1] *= Math.exp(-dt * 9); if (this.vel[1] > -0.2) this.vel[1] = 0; this.grounded = true; this.swimming = true; }
-    else if (y <= g.h) { this.swimming = false; if (!this.grounded && this.vel[1] < 0) this.landed = -this.vel[1]; y = g.h; this.vel[1] = 0; this.grounded = true; }
+    else if (y <= g.h) { this.swimming = false; if (!this.grounded && this.vel[1] < 0) this.landed = Math.max(this.landed, -this.vel[1]); y = g.h; this.vel[1] = 0; this.grounded = true; }
     else if (this.grounded && !this.swimming && this.vel[1] <= 0 && this.pos[1] - g.h < 0.55) { y = g.h; this.vel[1] = 0; } // follow stairs / slopes down
     else { if (this.swimming && wy !== null) { y = wy - SWIM_DEPTH; this.vel[1] = 0; this.grounded = true; } else { this.grounded = false; this.swimming = false; } }
     this.speed = Math.hypot(x - this.pos[0], z - this.pos[2]) / Math.max(dt, 1e-6);

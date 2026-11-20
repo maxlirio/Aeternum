@@ -149,10 +149,15 @@ export class Infantry {
           M.burst = (M.burst || 0) + 1; if (M.burst >= 3 + Math.floor(Math.random() * 2)) { M.burst = 0; M.cool = 1.1 + Math.random() * 1.4; } else M.cool = 0.16 + Math.random() * 0.1;      // (in bursts of three or four)
           const blind = M.duck > 0.5, tDuck = tgt !== 'you' && tgt.duck > 0.5, covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C && !tgt.goal.C.down;
           let p = (0.32 * (1 - td / RANGE) + 0.06) * (covered ? 0.45 : 1) * (tDuck ? 0.25 : 1) * (blind ? 0.2 : 1) * (M.sup > 0.4 ? 0.6 : 1) * (M.side === 'theirs' ? this.press.aim : 1);
-          if (tgt === 'you') { const low = you.low || 0; p *= 0.9 * (1 - 0.25 * low); if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9 - 0.5 * low, tp[2]])) p *= 0.45 - 0.25 * low; }      // (crouched behind a wall, there's hardly anything of you to hit)      // (behind sandbags yourself, they'll hit you far less)
-          const hit = Math.random() < p, from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
-          const miss = blind ? 6 : 3.2, to = hit ? [tp[0], tp[1] + 1.1, tp[2]] : [tp[0] + (Math.random() - 0.5) * miss, tp[1] + 0.2 + Math.random() * 2.2, tp[2] + (Math.random() - 0.5) * miss];
-          this.shots.push({ from, to, side: M.side, t: this.t, hit, n: ++this.shotN, at: tgt === 'you' ? 'you' : null }); M.firedT = this.t;
+          if (tgt === 'you') { const low = you.low || 0; p *= 0.9 * (1 - 0.25 * low); }
+          const from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
+          // a hit is a round that gets to some part of him: whatever's in the line first (sandbags, a hull, a wall, a tree, a rock, the ground) takes it instead.
+          // Behind a wall only what shows over it can be hit; crouched or flat behind one, often nothing does.
+          const sink = tgt === 'you' ? Math.max(0.18, 1 - 0.42 * (you.low || 0)) : tgt.duck > 0.5 ? 0.55 : 1, parts = [1.1, 1.5, 0.5].map(h => [tp[0], tp[1] + h * sink, tp[2]]);
+          let hit = Math.random() < p, to = null, stop = false;
+          if (hit) { to = parts.find(q => this.blockAt(from, q) == null) || null; if (!to) { hit = false; stop = true; const q = parts[0], L = this.blockAt(from, q); to = this.along(from, q, L); } }
+          if (!to) { const miss = blind ? 6 : 3.2, q = [tp[0] + (Math.random() - 0.5) * miss, tp[1] + 0.2 + Math.random() * 2.2, tp[2] + (Math.random() - 0.5) * miss], L = this.blockAt(from, q); to = L == null ? q : this.along(from, q, L); stop = L != null; }
+          this.shots.push({ from, to, side: M.side, t: this.t, hit, stop, n: ++this.shotN, at: tgt === 'you' ? 'you' : null }); M.firedT = this.t;
           // being shot at is what pins a man: hits and near misses, and more from men covering a move
           if (tgt !== 'you') { tgt.sup = Math.min(1, tgt.sup + (hit ? 0.3 : 0.14) * (M.support > 0 ? 1.6 : 1)); for (const N of alive) if (N !== tgt && N.side === foe && this.near(N.pos, to) < 4) N.sup = Math.min(1, N.sup + 0.07); }
           if (hit) { const dmg = 30 + Math.random() * 22; if (tgt === 'you') { this.int += dmg * 0.5 / 55; this.hooks.hitPlayer?.(Math.round(dmg * 0.5), `a ${this.F.b.name} rifleman`, M.pos); } else if (this.hurt(tgt, dmg, M.side, [tp[0] - M.pos[0], tp[2] - M.pos[2]])) this.bark(M, 'got'); }
@@ -218,6 +223,13 @@ export class Infantry {
       const y = o[1] + dir[1] * t; if (y < C.pos[1] + (C.h || 0.8) && y > C.pos[1] - 0.4) { best = t; hit = { along: t, C }; } }
     return hit;
   }
+  // how far from a toward b the first thing in the way is (sandbags, armour, and whatever the world has that's solid: hooks.hard), or null if it's clear
+  blockAt(a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1, d = [dx / L, dy / L, dz / L]; let best = null;
+    const c = this.coverOnRay(a, d, L - 0.3); if (c) best = c.along;
+    const h = this.armor?.onRay(a, d, (best ?? L) - 0.4); if (h) best = h.along;
+    const w = this.hooks.hard?.(a, d, (best ?? L) - 0.35); if (w != null) best = w;
+    return best; }
+  along(a, b, t) { const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; return [a[0] + dx / L * t, a[1] + dy / L * t, a[2] + dz / L * t]; }
   coverBetween(a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; return !!this.coverOnRay(a, [dx / L, dy / L, dz / L], L - 0.3) || !!this.armor?.blocks(a, b); }
   // the next wall of its own side toward the objective (behind it, on the side away from the enemy), else the objective itself
   nextCover(M, O) {

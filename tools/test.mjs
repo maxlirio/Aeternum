@@ -533,6 +533,20 @@ suites.infantry = async () => {
   const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 2, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');     // (from close: from further off, now and then someone else is standing in the way after ten minutes of it)
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
+suites.cover = async () => {
+  // a round stops in what's in its way (sim/infantry.js blockAt): sandbags, and whatever the world says is solid (hooks.hard)
+  const { Infantry } = await import('../js/sim/infantry.js');
+  const wall = { h: 0, hard: null }, I = new Infantry({ ground: () => 0, hooks: { hard: (o, d, far) => wall.hard?.(o, d, far) ?? null } });
+  I.F = { x: 0, z: 0 }; I.u = [1, 0]; I.v = [0, 1]; I.cover = [{ pos: [10, 0, 0], len: 4, h: 0.85 }];
+  const from = [0, 1.42, 0];
+  check(I.blockAt(from, [10.5, 0.5, 0]) != null, 'legs behind the sandbags: the round goes into the bags');
+  check(Math.abs(I.blockAt(from, [10.5, 0.5, 0]) - 10) < 0.05, 'and stops at them, not past');
+  check(I.blockAt(from, [10.5, 1.5, 0]) == null, 'a head over the top: clear');
+  check(I.blockAt(from, [10.5, 1.5, 3]) == null, 'off the end of the wall: clear');
+  wall.hard = (o, d, far) => far > 5 ? 5 : null;      // a wall 5 m out, of the world's
+  check(Math.abs((I.blockAt(from, [10.5, 1.5, 0]) ?? -1) - 5) < 0.01, "the world's own solids stop it too");
+  check(I.blockAt(from, [4, 1.5, 0]) == null, 'short of the wall: clear');
+};
 suites.lineage = async () => {
   // one life is one life (sim/lineage.js): when going down kills, what's handed on, and how the war hardens
   const L = await import('../js/sim/lineage.js'); const { newCharacter } = await import('../js/gen/character.js'); const { getPopulation } = await import('../js/gen/population.js');

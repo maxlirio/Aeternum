@@ -312,9 +312,9 @@ export class CollisionWorld {
   }
 
   // Is the point inside solid geometry (camera collision)?
-  solidAt(x, y, z, pad = 0.15) {
+  solidAt(x, y, z, pad = 0.15, ground = true) {      // (ground false: only what's built, not the land)
     if (y > SPACE) return false;
-    if (y < surfaceHeight(this.planet, x, z) + 0.15) return true;
+    if (ground && y < surfaceHeight(this.planet, x, z) + 0.15) return true;
     let hit = false;
     this.cityNear(x, z, pad, (box, u, v) => { if (!hit && y > box[4] - pad && y < box[5] + pad && inBox(box, u, v, pad)) hit = true; });
     if (hit) return true;
@@ -333,6 +333,28 @@ export class CollisionWorld {
       }
     }
     return false;
+  }
+
+  // Is this point inside anything a round would stop in: the land, a wall or floor, a standing car, a memorial stone, a tree's
+  // trunk, a rock? (What resolve() keeps bodies out of, as points.)
+  hardAt(x, y, z) {
+    if (y > SPACE) return false;
+    if (y < surfaceHeight(this.planet, x, z)) return true;
+    if (this.solidAt(x, y, z, 0.02, false)) return true;
+    if (this.carBoxes) for (const V of this.carBoxes) { const dx = x - V.x, dz = z - V.z; if (Math.abs(dx) > V.reach || Math.abs(dz) > V.reach || y > V.y + V.h || y < V.y) continue; if (Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) return true; }
+    if (this.stones) for (const S of this.stones) if (y >= S.y && y <= S.y + S.h && Math.hypot(x - S.x, z - S.z) < S.r) return true;
+    if (!this.flora) return false;
+    let hit = false;
+    floraNear(this.planet, x, z, 1.4, p => { if (!hit && p.solid && !p.felled && y >= p.y && y <= p.y + Math.max(2.5, p.size) && Math.hypot(x - p.x, z - p.z) < p.solid) hit = true; });
+    if (hit) return true;
+    const rock = q => { if (!hit && y >= q.y && y <= q.g + q.top && outOfRock(q, x, z, 0)) hit = true; };
+    rocksNear(this.planet, x, z, 2, rock); if (!hit) ledgesNear(this.planet, x, z, 2, rock);
+    return hit;
+  }
+  // The first thing a round from o (a point) along dir (unit) meets within `far`: how far along, or null. Sampled every `step`.
+  rayHard(o, dir, far, step = 0.2, from = 0.3) {
+    for (let d = from; d < far; d += step) if (this.hardAt(o[0] + dir[0] * d, o[1] + dir[1] * d, o[2] + dir[2] * d)) return d;
+    return null;
   }
 
   // Which building/floor/room is this point in (for HUD, lights, interaction)?
