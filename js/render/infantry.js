@@ -2,6 +2,7 @@
 // (the same gun model the player carries, render/weapons.js), aiming when he fires; their tracers; the sandbag walls, steel
 // hedgehogs and coils of wire of the two lines; the objectives' flags, in the colour of whoever holds them.
 import * as THREE from 'three';
+import { lib, poseCrowd } from '../player/mixamo.js';
 import { buildRig, applyPose, holdLong } from '../player/avatar.js';
 import { armParts } from './weapons.js';
 import { townSurface } from './materials.js';
@@ -23,7 +24,7 @@ export class InfantryView {
     this.tr.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 6), 3)); this.tr.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAX * 6), 3)); this.tr.frustumCulled = false; this.group.add(this.tr);
     this.flash = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffd08a, size: 0.5, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.flash.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); this.flash.frustumCulled = false; this.group.add(this.flash);
-    this.col = new THREE.Color(); this.gait = new Map(); this.line = null; this.m = new THREE.Matrix4();
+    this.col = new THREE.Color(); this.gait = new Map(); this.last = new Map(); this.vel = new Map(); this.line = null; this.m = new THREE.Matrix4();
     // grenades in the air: a ribbed steel egg with its lever; and what the dead dropped: cells glowing blue, grenades olive
     const egg = new THREE.SphereGeometry(0.055, 10, 8); egg.scale(1, 1.3, 1);
     this.nadeIm = new THREE.InstancedMesh(egg, new THREE.MeshStandardMaterial({ color: 0x4c5432, roughness: 0.6, metalness: 0.4 }), 16); this.nadeIm.count = 0; this.nadeIm.frustumCulled = false; this.group.add(this.nadeIm);
@@ -85,8 +86,10 @@ export class InfantryView {
     for (let i = 0; i < n; i++) {
       const M = I.men[i], L = SIDES[M.side], h = hashId(M.id); let ph = this.gait.get(M.id) || 0; if (M.moving) ph += dt * 6.2; this.gait.set(M.id, ph);
       rig.root.position.set(...this.toRender(...M.pos)); rig.root.rotation.set(0, M.facing, 0); rig.root.scale.setScalar(0.95 + (h % 10) / 100);
-      soldierPose(rig, M, ph);
-      if (M.hp <= 0) { const lying = M.dead >= FALL; rig.root.rotation.set(0, M.fall + Math.PI, 0); rig.root.rotateX(-Math.PI / 2 * (lying ? 1 : rig.fallTilt || 0)); }      // (he faced the one who shot him, and goes over backwards)
+      // how fast and which way he's going (for the recorded sprint and the backward walk)
+      { const L0 = this.last.get(M.id); this.last.set(M.id, [M.pos[0], M.pos[2]]); if (L0 && dt > 0) { const vx = (M.pos[0] - L0[0]) / dt, vz = (M.pos[2] - L0[1]) / dt, v = Math.hypot(vx, vz); const S = this.vel.get(M.id) || { v: 0, back: 0 }; S.v += (v - S.v) * Math.min(1, dt * 5); S.back = v > 0.4 ? (vx * Math.sin(M.facing) + vz * Math.cos(M.facing)) / v : S.back; this.vel.set(M.id, S); } }
+      const ok = soldierPose(rig, M, ph, I.t, this.vel.get(M.id));
+      if (M.hp <= 0 && !ok) { const lying = M.dead >= FALL; rig.root.rotation.set(0, M.fall + Math.PI, 0); rig.root.rotateX(-Math.PI / 2 * (lying ? 1 : rig.fallTilt || 0)); }      // (no recorded fall: he faced the one who shot him, and goes over backwards)
       rig.root.updateMatrixWorld(true);
       for (const im of this.meshes) { const part = rig.parts[this.meshes.indexOf(im)]; im.setMatrixAt(i, part.mesh.matrixWorld); im.setColorAt(i, this.col.setHex(im.userData.kind === 'skin' ? SKIN[h % SKIN.length] : L[im.userData.kind])); }
       this.m.copy(rig.gunSock.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0);
@@ -107,8 +110,34 @@ export class InfantryView {
   }
 }
 
-// a soldier's pose: walking or running with the carbine at the ready, up to the shoulder to fire, or down
-export function soldierPose(rig, M, ph) {
+// a soldier's pose, from the recorded takes (player/mixamo.js) where there's one for it: dead (the way the round took him), flat on his
+// front firing, the bayonet, a grenade from the ground, hit, sprinting, backing off; the rifleman's stance aiming or firing. The arms then
+// put on the gun (holdLong), except flat or lunging, where the take's own hands hold it. → true if a take placed him (dead: its fall)
+const DOWN_T = new THREE.Vector3(), _hr = new THREE.Vector3(), _hl = new THREE.Vector3(), _m4 = new THREE.Matrix4();
+function gunInHands(rig) {      // the gun from the right hand toward the left (prone, the bayonet: the take's hands are on it)
+  const G = rig.gunSock || (rig.gunSock = (() => { const g = new THREE.Group(); rig.torso.add(g); return g; })()); G.visible = true; rig.root.updateMatrixWorld(true);
+  _hr.set(0, -0.36, 0).applyMatrix4(rig.armR.lower.matrixWorld); _hl.set(0, -0.36, 0).applyMatrix4(rig.armL.lower.matrixWorld);
+  const inv = _m4.copy(rig.torso.matrixWorld).invert(), a = _hr.clone().applyMatrix4(inv), b = _hl.clone().applyMatrix4(inv), d = b.clone().sub(a).normalize();
+  G.position.copy(a); G.quaternion.setFromUnitVectors(DOWN_T.set(0, 0, 1), d); G.updateMatrix();
+}
+export function soldierPose(rig, M, ph, now = 0, mv = null) {
+  if (lib) {
+    const take = (id, t, w = 1) => { applyPose(rig, { mode: 'stand', phase: 0, blend: 0, k: 0 }); return poseCrowd(rig, id, t, w); };
+    if (M.hp <= 0) { const k = M.fall != null ? Math.cos(M.fall - M.facing) : -1, id = M.diedBy === 'blast' || (M.id.length * 13) % 5 === 0 ? 'dying' : k > 0 ? 'death_back' : 'death_front';      // (the round going his way: shot from behind)
+      if (take(id, M.dead * (id === 'dying' ? 1.3 : 1))) { if (rig.gunSock) rig.gunSock.visible = false; rig.fallTilt = 0; return true; } }
+    else {
+      rig.fallTilt = 0; let placed = false, hands = false;
+      if (M.stab != null && now - M.stab < 1.3) { placed = take('bayonet', 0.55 + (now - M.stab) * 1.6); hands = true; }
+      else if (M.prone) { const thr = M.throwT != null && now - M.throwT < 1.4; placed = thr ? take('grenade', 0.5 + (now - M.throwT) * 1.5) : take('prone_fire', M.firedT != null && now - M.firedT < 0.8 ? (now * 1.2) % 0.83 : 0); hands = !thr; if (thr && rig.gunSock) rig.gunSock.visible = false; }
+      else if (M.moving && mv && mv.back < -0.5) placed = take('rifle_back', (ph / 6.2 * 1.3) % 1.27);
+      else if (M.moving && mv && mv.v > 3.6) placed = take('sprint', (ph / 6.2 * (mv.v / 7.05) * 2) % 0.5);
+      else if (!M.moving && !(M.duck > 0.3)) placed = take(M.firedT != null && now - M.firedT < 0.5 ? 'rifle_fire' : 'rifle_aim', (now + (M.id.length % 7)) % 3);
+      if (placed) {
+        if (hands) gunInHands(rig); else holdLong(rig, M.moving ? 0.25 : 0.3 + 0.7 * M.aim);
+        if (M.flinch > 0) { const k = M.flinch / 0.28; poseCrowd(rig, (M.id.length % 2) ? 'hit_a' : 'hit_b', (1 - k) * 0.6 + 0.3, 0.6 * k); if (!hands) holdLong(rig, 0.3 + 0.7 * M.aim); }
+        return true; }
+    }
+  }
   const falling = M.hp <= 0 && M.dead < FALL;
   applyPose(rig, { mode: M.hp <= 0 && !falling ? 'lie' : 'walk', phase: ph, blend: M.moving ? 1 : 0, k: M.moving ? 0.8 : 0 });
   if (M.hp <= 0) {

@@ -241,6 +241,9 @@ export class Armor {
         else { turn = Math.max(-T.turn, Math.min(T.turn, e * 2)); want = T.top * Math.max(0.15, Math.cos(Math.min(1.5, Math.abs(e)))) * Math.min(1, d / 18); }
         if (V.halt) want = 0;
         if (V.kind === 'apc' && V.state === 'drop') want = 0;
+        // our own drivers look out for you: on foot (or flat on the ground) in the way ahead of the hull, they stop for you
+        { const y = this.you; if (V.side === 'ours' && y?.alive && !y.tank && want !== 0) { const [r, f] = this.toLocal(V, y.pos[0], y.pos[2]), ahead = f * Math.sign(want);
+          if (Math.abs(r) < T.W / 2 + 1.4 && ahead > -T.L / 2 && ahead < T.L / 2 + 4 + Math.abs(V.speed) * 1.2) want = 0; } }
       }
     }
     // what it drives on: the land and the rocks lying on it (a low one it climbs, a tall one stops it)

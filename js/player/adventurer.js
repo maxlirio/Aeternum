@@ -9,14 +9,16 @@ import { captureRest, applyClimbPose, solveLimb } from './limbik.js';
 import { captureHand } from './grasp.js';
 import { armObject } from '../render/weapons.js';
 import { WEAPONS } from '../sim/processes/combat.js';
+import { loadMixamo, clipFor, infoOf } from './mixamo.js';
 
-const GAITS = [['idle', 0], ['walk', 1.45], ['jog', 3.4], ['run', 5.8]];      // (m/s each clip covers: measured from the feet at load, these if it can't be)
+const GAITS = [['idle', 0], ['walk', 1.45], ['jog', 3.4], ['run', 5.8], ['sprint', 7.05]];      // (m/s each clip covers: measured from the feet at load, these if it can't be)
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _p = new THREE.Quaternion();
 function setWorldQuat(b, q) { b.parent.getWorldQuaternion(_p).invert(); b.quaternion.copy(_p).multiply(q); b.updateMatrixWorld(true); }
 function aim(bone, child, dir) { bone.getWorldPosition(_v); const c = child.getWorldPosition(new THREE.Vector3()).sub(_v).normalize(); _q.setFromUnitVectors(c, dir); bone.getWorldQuaternion(_p); setWorldQuat(bone, _q.multiply(_p).clone()); }
 
 export async function loadAdventurer(url = './assets/adventurer.glb') {
-  const g = await new GLTFLoader().loadAsync(url), root = g.scene, by = {};
+  const [g] = await Promise.all([new GLTFLoader().loadAsync(url), loadMixamo().catch(e => console.warn('recorded clips', e))]), root = g.scene, by = {};
+  for (const id of ['sprint', 'rifle_back', 'strafe_l', 'strafe_r', 'rifle_aim', 'rifle_fire', 'rifle_draw', 'bayonet', 'slash', 'hook', 'grenade', 'hit_a', 'hit_b', 'punched', 'land_hard', 'jump_down', 'get_up', 'dazed', 'death_front', 'death_back', 'dying', 'prone_fire', 'fight_a', 'fight_b']) { const c = clipFor(id); if (c && !g.animations.some(a => a.name === id)) g.animations.push(c); }      // (the recorded takes: player/mixamo.js)
   root.traverse(o => { if (o.name && !by[o.name]) by[o.name] = o; if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
   root.traverse(o => { if (o.isBone) o.userData.q0 = o.quaternion.clone(); });
   const skinned = []; root.traverse(o => { if (o.isSkinnedMesh) skinned.push(o); });
@@ -38,15 +40,38 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
   rig.clavicles = { l: by.clavicle_l, r: by.clavicle_r };
   for (const G of gaits) { G.a.play(); G.a.weight = 0; G.a.enabled = true; }
   const mats = []; root.traverse(o => { if (o.isMesh) for (const m of [].concat(o.material)) { if (!mats.includes(m)) { m.userData.t0 = m.transparent; m.userData.d0 = m.depthWrite; mats.push(m); } } });
-  let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null, gunUp = 0, gunPitch = 0, ranged = false, crouchK = 0;
-  const pelvis0 = by.pelvis?.position.clone();
+  let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null, gunUp = 0, gunPitch = 0, ranged = false, crouchK = 0, moveAng = 0, guard = false, long = false, prone = false, proneFire = 0, firing = 0, side = 0;
+  // The recorded takes (player/mixamo.js) played over the body: a stretch of one (from..to s, at a rate), the whole body or the upper half, weighted, eased in and out;
+  // held on its last frame (a death), or let go. still: the hips kept over the feet (a stumble or a landing mustn't carry the body off from where you are).
+  const takes = [];
+  const play = (id, o = {}) => { const c = clip(id); if (!c) return null; const A = o.upper ? (upperActs[id] ||= upperOf(id)) : act[id]; if (!A) return null;
+    for (const T of takes) if (T.A === A || (!o.upper && !T.upper && !T.hold)) T.out = true;
+    const T = { id, A, from: o.from || 0, t: o.from || 0, to: o.to ?? c.duration, rate: o.rate || 1, w: o.w ?? 1, k: 0, upper: !!o.upper, hold: !!o.hold, still: !!o.still, loop: !!o.loop, out: false, done: o.done || null };
+    A.play(); A.enabled = true; A.timeScale = 0; A.weight = 0; takes.push(T); return T; };
+  const upperActs = {};
+  const fullK = () => takes.reduce((m, T) => T.upper ? m : Math.max(m, T.k * T.w), 0);
+  function stepTakes(dt) {
+    for (const T of takes) { if (!T.out) { T.t += dt * T.rate; if (T.t >= T.to) { if (T.loop) T.t = T.t - T.to + (T.from || 0); else if (T.hold) T.t = T.to - 1e-3; else { T.t = T.to - 1e-3; T.out = true; T.done?.(); } } }
+      T.k = Math.max(0, Math.min(1, T.k + (T.out ? -1 : 1) * dt * (T.hold ? 4 : 7))); T.A.time = T.t; T.A.weight = T.k * T.w * (T.upper ? 4 : 1); }
+    for (let i = takes.length - 1; i >= 0; i--) if (takes[i].out && takes[i].k <= 0) { takes[i].A.weight = 0; takes[i].A.stop(); takes.splice(i, 1); } }
+  const stillHips = () => { const k = takes.reduce((m, T) => T.still ? Math.max(m, T.k) : m, 0); if (k <= 0 || !pelvis0) return; const P = by.pelvis.position, up = upAxis;
+    for (const a of ['x', 'y', 'z']) if (a !== up) P[a] += (pelvis0[a] - P[a]) * k; };
+  const pelvis0 = by.pelvis?.position.clone(), upAxis = pelvis0 ? ['x', 'y', 'z'].reduce((m, a) => Math.abs(pelvis0[a]) > Math.abs(pelvis0[m]) ? a : m, 'x') : 'y';      // (the pelvis's height is along whichever of its axes it stands furthest out on)
   // the gun up to the eye: the aiming clips' upper body only (spine, arms, head), laid over whatever the legs are doing, turned up or down
   // with where you look. (Weighted well over the gait's 1 so the arms hold the gun, not swing.)
   const UPPER = /^(spine|neck|head|jaw|eye|clavicle|upperarm|lowerarm|hand|index|middle|ring|pinky|thumb|socket_(hand|forearm|shoulder|chest|head))/;
   const upperOf = n => { const c = clip(n); if (!c) return null; const A = mixer.clipAction(new THREE.AnimationClip(n + '_upper', c.duration, c.tracks.filter(t => UPPER.test(t.name.split('.')[0])))); A.play(); A.weight = 0; return A; };
   const aimA = { mid: upperOf('pistol_aim'), up: upperOf('pistol_aim_up'), down: upperOf('pistol_aim_down') };
   const socket = by.socket_hand_r || by.hand_r, held = new THREE.Group(); socket.add(held);
-  const setGait = (speed, dt) => {      // the two clips either side of this speed, in step with it
+  const dirGaits = { back: act.rifle_back, l: act.strafe_l, r: act.strafe_r }; for (const A of Object.values(dirGaits)) if (A) { A.play(); A.weight = 0; A.timeScale = 0; }
+  let dirPh = 0, guardUp = null; setTimeout(() => { guardUp = upperOf('strafe_l'); if (guardUp) guardUp.timeScale = 0; }, 0);
+  const setGait = (speed, dt) => {      // the two clips either side of this speed, in step with it; going backwards with a long gun, or sideways with your fists up, their own clips
+    const back = (long || guard) && speed > 0.35 && Math.cos(moveAng) < -0.55 ? 1 : 0, sideways = guard && !ranged && speed > 0.35 && Math.abs(Math.sin(moveAng)) > 0.75 ? (Math.sin(moveAng) > 0 ? 'l' : 'r') : null;
+    const D = back ? dirGaits.back : sideways ? dirGaits[sideways] : null;
+    for (const [k, A] of Object.entries(dirGaits)) if (A) { const w = A === D ? 1 : 0; A.weight += (w - A.weight) * Math.min(1, dt * 10); }
+    // backing off with your fists up: the walk back's legs, the boxer's guard above them
+    if (guardUp) { guardUp.time = 0.3; guardUp.weight += ((back && guard ? 4 : 0) - guardUp.weight) * Math.min(1, dt * 10); }
+    if (D) { const I = infoOf(back ? 'rifle_back' : 'strafe_' + sideways); dirPh = (dirPh + dt * speed / Math.max(0.5, I?.speed || 1) / D.getClip().duration) % 1; D.time = dirPh * D.getClip().duration; for (const G of gaits) G.a.weight += (0 - G.a.weight) * Math.min(1, dt * 10); return; }
     let i = 0; while (i < gaits.length - 2 && speed > gaits[i + 1].v) i++;
     const A = gaits[i], B = gaits[i + 1], f = B ? THREE.MathUtils.clamp((speed - A.v) / (B.v - A.v), 0, 1) : 0;
     for (const G of gaits) { const w = G === A ? 1 - f : G === B ? f : 0; G.a.weight += (w - G.a.weight) * Math.min(1, dt * 10); }
@@ -117,17 +142,39 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
       for (const m of mats) { m.transparent = o < 0.99 || m.userData.t0; m.opacity = o; m.depthWrite = o >= 0.99 ? m.userData.d0 : false; }
     },
     setHeld(id) {
-      if (heldId === id) return; heldId = id; held.clear(); const W = id && WEAPONS[id];
+      if (heldId === id) return; const was = heldId && WEAPONS[heldId], W = id && WEAPONS[id];
+      // a long gun put away: the recorded put-back over the shoulder, the gun in the hand until it's there
+      if (was?.ranged && was.two && !(W?.ranged && W.two) && clip('rifle_draw') && !this._stowing) { this._stowing = true; play('rifle_draw', { from: 3.3, to: 5.6, rate: 1.9, upper: true, done: () => { this._stowing = false; heldId = '__stowed'; this.setHeld(id); } }); return; }
+      if (this._stowing) return;
+      heldId = id; held.clear();
+      if (W?.ranged && W.two && !(was?.ranged && was.two) && clip('rifle_draw')) play('rifle_draw', { from: 0.5, to: 3.1, rate: 1.9, upper: true });      // (and one taken up: off the back, into the hands)
+      long = !!(W && W.ranged && W.two);
       aimIdle = W && id !== 'fists' ? (W.ranged ? act.pistol_idle : act.sword_idle) || null : null; ranged = !!(W && W.ranged);
       if (id && this.planet && W && id !== 'fists') held.add(armObject(this.planet, id));
     },
     // k 0..1 how far the gun's up; pitch the camera's (+ looking down)
     aimGun(k, pitch) { gunUp = k; gunPitch = pitch; },
     crouch(k) { crouchK = k; },
-    punch() { const a = act.punch_jab || act.strike_straight_r_1; if (!a) return; oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.2; a.play(); },
+    punch() { side ^= 1; if (side && clip('hook')) { play('hook', { from: 0.45, to: 1.75, rate: 1.7, upper: true }); return; } const a = act.punch_jab || act.strike_straight_r_1; if (!a) return; oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.2; a.play(); },
+    // a blow with what's in your hand: fists, a blade (an inward slash), a long gun (the bayonet, or the muzzle, driven in)
+    melee(id) { const W = WEAPONS[id]; if (!W || id === 'fists') return this.punch(); if (W.ranged && W.two) play('bayonet', { from: 0.55, to: 2.5, rate: 1.6, still: true }); else play('slash', { from: 0.3, to: 1.9, rate: 1.5, upper: true }); },
+    moveDir(a) { moveAng = a; },
+    guard(on) { guard = !!on; },      // (fists up, squared up to someone: you step round them sideways)
+    weights() { const o = {}; for (const A of mixer._actions) if (A.weight > 0.05 && mixer._isActiveAction(A)) o[A.getClip().name] = +A.weight.toFixed(2); if (window.__dbg) Object.assign(o, { _guard: guard, _ang: +moveAng.toFixed(2), _ranged: ranged }); return o; },      // (what's playing: for the tests)      // which way you're going, against the way you face (+ to your left)
+    fired() { firing = 0.35; proneFire = 0.4; },
+    setProne(on) { prone = !!on; },
+    // down from a height: a long drop's hard landing, or a jump down's crouched one
+    land(v) { if (v > 12) play('land_hard', { from: 0.05, rate: 1.1, still: true }); else play('jump_down', { from: 1.85, rate: 1.25, still: true }); },
+    // knocked over: up off the ground over `sec` seconds
+    knockedDown(sec = 3) { const I = infoOf('get_up'); if (!I) return; play('get_up', { from: 1.6, to: 6.6, rate: Math.max(1, Math.min(3.2, 5 / sec)), still: true }); },
+    // killed: the way the shot (or whatever it was) took you; held there
+    die(kind = 'dying') { for (const T of takes) T.out = true; play(kind, { hold: true, rate: kind === 'dying' ? 1.4 : 1 }); },
+    revive() { for (const T of takes) T.out = true; },
     // a grenade lobbed; a round taken in the chest (a jolt, not the whole clip: you keep fighting)
-    throwIt() { const a = act.throw; if (!a) return; if (oneShot) oneShot.stop(); oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.6; a.play(); },
-    flinch() { const a = act.hit_chest; if (!a || oneShot) return; oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 0.55; a.timeScale = 1.8; a.play(); },
+    throwIt() { if (prone && clip('grenade')) { play('grenade', { from: 0.5, to: 2.6, rate: 1.5, still: true }); return; } const a = act.throw; if (!a) return; if (oneShot) oneShot.stop(); oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 1; a.timeScale = 1.6; a.play(); },
+    flinch(kind = null) { if (prone || takes.some(T => !T.upper && !T.out && T.k * T.w > 0.5 && !/^(hit_a|hit_b|punched)$/.test(T.id))) return; if (kind === 'punch' && clip('punched')) { play('punched', { from: 0.9, to: 2.5, rate: 1.4, w: 0.85, still: true }); return; }
+      const id = Math.random() < 0.5 ? 'hit_a' : 'hit_b'; if (clip(id)) { play(id, id === 'hit_a' ? { from: 0.35, to: 1.5, rate: 1.6, w: 0.6, still: true } : { rate: 1.2, w: 0.55, still: true }); return; }
+      const a = act.hit_chest; if (!a || oneShot) return; oneShot = a; a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = false; a.weight = 0.55; a.timeScale = 1.8; a.play(); },
     update(dt, speed, grounded, climb = null, pose = null) {
       if (onWall) { onWall = false; root.quaternion.identity(); }
       if (climb && !pose) return;       // (the climber puts every joint; climb() comes after this)
@@ -136,14 +183,28 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
       if (pose === 'sit' || pose === 'lie') { for (const G of gaits) G.a.weight = G.n === 'idle' ? 1 : 0; }
       else if (pose === 'swim') setGait(Math.min(speed, 1.4), dt);
       else setGait(grounded ? speed : 0, dt);
-      if (aimIdle && !pose) { aimIdle.play(); aimIdle.weight += ((speed < 0.3 ? 1 : 0) * (1 - gunUp) - aimIdle.weight) * Math.min(1, dt * 6); }
+      // a long gun ready (the recorded rifleman's stance, firing when you are); else the weapon's own idle
+      { const up = long && gunUp > 0.3, want = up ? (firing > 0 ? act.rifle_fire : act.rifle_aim) || aimIdle : aimIdle; for (const A of [act.rifle_aim, act.rifle_fire, aimIdle]) if (A && A !== want) A.weight += (0 - A.weight) * Math.min(1, dt * 6);
+        if (want && !pose) { want.play(); want.weight += ((speed < 0.3 ? 1 : 0) * (up ? 1 : 1 - gunUp) - want.weight) * Math.min(1, dt * 6); } }
+      firing = Math.max(0, firing - dt);
+      // prone: down on your front, the rifle in front of you (the recorded take, its shots played while you fire)
+      if (prone && !pose && !climb) { if (!takes.some(T => T.id === 'prone_fire' && !T.out)) play('prone_fire', { loop: true, rate: 0, still: true }); const P = takes.find(T => T.id === 'prone_fire' && !T.out); if (P) P.rate = proneFire > 0 ? 1 : 0; proneFire = Math.max(0, proneFire - dt); }
+      else for (const T of takes) if (T.id === 'prone_fire') T.out = true;
+      stepTakes(dt);
+      { const f = fullK(); if (f > 0) for (const G of gaits) G.a.weight *= 1 - f; for (const A of Object.values(dirGaits)) if (A) A.weight *= 1 - f; for (const A of [act.rifle_aim, act.rifle_fire, aimIdle]) if (A) A.weight *= 1 - f; }
       if (aimA.mid) { const w = ranged && !pose ? gunUp * 5 : 0, up = Math.max(0, Math.min(1, -gunPitch / 0.55)), down = Math.max(0, Math.min(1, gunPitch / 0.55));
         aimA.mid.weight = w * (1 - up - down); if (aimA.up) aimA.up.weight = w * up; if (aimA.down) aimA.down.weight = w * down; }
       if (oneShot && !oneShot.isRunning()) { oneShot.stop(); oneShot = null; }
-      mixer.update(dt);
+      mixer.update(dt); stillHips();
       root.updateMatrixWorld(true);
-      if (crouchK > 0.01 && !pose && !climb && grounded) crouchLegs(crouchK);
-      if (ranged && !pose && !climb && gunUp > 0.02) shoulderGun(gunUp);
+      const busy = fullK() > 0.5;      // (a take with the whole body: a fall, a death, prone, a draw's reach; the IK keeps out of it)
+      if (crouchK > 0.01 && !pose && !climb && grounded && !busy) crouchLegs(crouchK);
+      if (ranged && !pose && !climb && gunUp > 0.02 && !busy && !takes.some(T => T.upper && T.id === 'rifle_draw' && !T.out)) shoulderGun(gunUp);
+      // in a take with the whole body (flat on your front, the bayonet) the take's own hands hold a long gun: it lies from the right hand to the left
+      held.quaternion.identity();
+      if (long && busy && by.hand_l) { root.updateMatrixWorld(true); const r = by.hand_r.getWorldPosition(new THREE.Vector3()), l = by.hand_l.getWorldPosition(new THREE.Vector3()), d = l.sub(r), n = d.length();
+        if (n > 0.15 && n < 1) { d.normalize(); const X = new THREE.Vector3().crossVectors(UP, d).normalize(), Y = new THREE.Vector3().crossVectors(d, X), want = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, d));
+          held.quaternion.copy(socket.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(want)); } }
       if (pose === 'sit') {      // thighs level, shins down, hands on the knees
         const f = new THREE.Vector3(0, 0, 1).applyQuaternion(root.getWorldQuaternion(_q)), down = new THREE.Vector3(0, -1, 0);
         root.position.y -= 0.45; root.updateMatrixWorld(true);

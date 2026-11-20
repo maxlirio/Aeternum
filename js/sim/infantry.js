@@ -31,10 +31,10 @@ const BARK = {
 const WIRE_SEG = 2;
 export class Infantry {
   // ground(x, z) → height; resolve(x, z, y) → [x, z] out of anything solid; hooks: hitPlayer(dmg, by, from)
-  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.int = 0; this.phase = 'build'; this.phT = 0; this.press = { men: 1, tanks: 0, aim: 1 }; }      // (press: how hard the war's gone, sim/lineage.js pressOf: their numbers, armour, aim)
+  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.stabs = []; this.int = 0; this.phase = 'build'; this.phT = 0; this.press = { men: 1, tanks: 0, aim: 1 }; }      // (press: how hard the war's gone, sim/lineage.js pressOf: their numbers, armour, aim)
   // the line along front F: where everything stands. (a: across the border, + toward the enemy; s: along it)
   setup(F) {
-    this.F = F; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
+    this.F = F; this.men = []; this.shots = []; this.stabs = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
     const ux = Math.sin(F.dir), uz = Math.cos(F.dir), px = -uz, pz = ux, r = rnd(Math.round(F.x * 7 + F.z * 13));
     const at = (a, s) => { const x = F.x + ux * a + px * s, z = F.z + uz * a + pz * s; return [x, this.ground(x, z), z]; };
     this.at = at; this.dir = F.dir; this.u = [ux, uz]; this.v = [px, pz];
@@ -78,11 +78,19 @@ export class Infantry {
     for (const b of this.barks) b.t += dt; this.barks = this.barks.filter(b => b.t < 2.2 && b.M.hp > 0);
     const alive = this.men.filter(m => m.hp > 0), foeOfYou = you?.side === 'ours' ? 'theirs' : you?.side === 'theirs' ? 'ours' : null; let onYou = 0;
     this.director(dt);
+    // bayonet thrusts landing: on whoever's still there in front of the blade
+    for (const S of this.stabs) if (this.t >= S.at && S.M.hp > 0) { S.done = true; if (S.E) { if (S.E.hp > 0 && this.near(S.E.pos, S.M.pos) < 2.2) this.hurt(S.E, 85, S.M.side, [S.E.pos[0] - S.M.pos[0], S.E.pos[2] - S.M.pos[2]]); }
+      else if (you?.alive && this.near(you.pos, S.M.pos) < 2.1) this.hooks.hitPlayer?.(40, `a ${this.F.b.name} bayonet`, S.M.pos); }
+    this.stabs = this.stabs.filter(S => !S.done && S.M.hp > 0);
     // reinforcements: each side keeps its strength up (theirs as the director allows), the side holding more of the line a little stronger
     if ((this.reinf -= dt) <= 0) { this.reinf = 7; for (const side of ['ours', 'theirs']) { const held = this.obj.filter(o => o.owner === side).length, cap = side === foeOfYou ? this.cap() : 1, want = Math.round((PER_SIDE * (side === 'theirs' ? this.press.men : 1) + held) * cap), have = alive.filter(m => m.side === side).length; for (let k = have; k < Math.min(want, have + 4); k++) this.spawn(side); } }
     for (const M of this.men) {
       if (M.hp <= 0) { M.dead += dt; continue; }
-      M.sup = Math.max(0, M.sup - dt * 0.18); M.flinch = Math.max(0, M.flinch - dt); M.threat = Math.max(0, M.threat - dt); M.support = Math.max(0, M.support - dt); M.nadeCd -= dt; M.barkCd -= dt;
+      M.sup = Math.max(0, M.sup - dt * 0.18); M.flinch = Math.max(0, M.flinch - dt); M.threat = Math.max(0, M.threat - dt); M.support = Math.max(0, M.support - dt); M.nadeCd -= dt; M.barkCd -= dt; M.stabCd = (M.stabCd || 0) - dt;
+      // at arm's length with one of theirs: the bayonet (a lunge and a thrust; it lands a moment after it starts)
+      if (M.stabCd <= 0 && !M.prone) { let E = null; for (const N of alive) if (N.side !== M.side && N.hp > 0 && Math.hypot(N.pos[0] - M.pos[0], N.pos[2] - M.pos[2]) < 1.8) { E = N; break; }
+        const youNear = !E && you?.alive && !you.tank && you.side && you.side !== M.side && Math.hypot(you.pos[0] - M.pos[0], you.pos[2] - M.pos[2]) < 1.7;
+        if (E || youNear) { M.stab = this.t; M.stabCd = 2.6 + Math.random(); const tp = E ? E.pos : you.pos; M.facing = Math.atan2(tp[0] - M.pos[0], tp[2] - M.pos[2]); this.stabs.push({ M, E, at: this.t + 0.45 }); } }
       const foe = M.side === 'ours' ? 'theirs' : 'ours', inCover = M.state === 'hold' && !!M.goal?.C && !M.goal.C.down;
       // pinned: behind a wall, under fire, he keeps his head down (and comes back up as it eases)
       const pinned = (inCover || M.prone) && (M.sup > 0.5 || M.duck > 0.5 && M.sup > 0.3); M.duck += ((pinned ? 1 : 0) - M.duck) * Math.min(1, dt * 6);      // (down at 0.5, up again once it's eased below 0.3)
@@ -144,7 +152,7 @@ export class Infantry {
           if (tgt === 'you') { const low = you.low || 0; p *= 0.9 * (1 - 0.25 * low); if (this.coverBetween([M.pos[0], M.pos[1] + 1.4, M.pos[2]], [tp[0], tp[1] + 0.9 - 0.5 * low, tp[2]])) p *= 0.45 - 0.25 * low; }      // (crouched behind a wall, there's hardly anything of you to hit)      // (behind sandbags yourself, they'll hit you far less)
           const hit = Math.random() < p, from = [M.pos[0] + Math.sin(M.facing) * 0.7, M.pos[1] + (blind ? 1.0 : 1.42), M.pos[2] + Math.cos(M.facing) * 0.7];
           const miss = blind ? 6 : 3.2, to = hit ? [tp[0], tp[1] + 1.1, tp[2]] : [tp[0] + (Math.random() - 0.5) * miss, tp[1] + 0.2 + Math.random() * 2.2, tp[2] + (Math.random() - 0.5) * miss];
-          this.shots.push({ from, to, side: M.side, t: this.t, hit, n: ++this.shotN, at: tgt === 'you' ? 'you' : null });
+          this.shots.push({ from, to, side: M.side, t: this.t, hit, n: ++this.shotN, at: tgt === 'you' ? 'you' : null }); M.firedT = this.t;
           // being shot at is what pins a man: hits and near misses, and more from men covering a move
           if (tgt !== 'you') { tgt.sup = Math.min(1, tgt.sup + (hit ? 0.3 : 0.14) * (M.support > 0 ? 1.6 : 1)); for (const N of alive) if (N !== tgt && N.side === foe && this.near(N.pos, to) < 4) N.sup = Math.min(1, N.sup + 0.07); }
           if (hit) { const dmg = 30 + Math.random() * 22; if (tgt === 'you') { this.int += dmg * 0.5 / 55; this.hooks.hitPlayer?.(Math.round(dmg * 0.5), `a ${this.F.b.name} rifleman`, M.pos); } else if (this.hurt(tgt, dmg, M.side, [tp[0] - M.pos[0], tp[2] - M.pos[2]])) this.bark(M, 'got'); }
@@ -185,7 +193,7 @@ export class Infantry {
   }
   throwNade(M, to) {
     const from = [M.pos[0], M.pos[1] + 1.6, M.pos[2]], d = Math.hypot(to[0] - from[0], to[2] - from[2]); to[1] = this.ground(to[0], to[2]) + 0.12;
-    this.nades.push({ from, to, age: 0, T: 0.9 + d / 22, side: M.side, by: M }); M.nadeCd = 22 + Math.random() * 20; this.bark(M, 'frag', true); this.scatter(to, M.side);
+    this.nades.push({ from, to, age: 0, T: 0.9 + d / 22, side: M.side, by: M }); M.throwT = this.t; M.nadeCd = 22 + Math.random() * 20; this.bark(M, 'frag', true); this.scatter(to, M.side);
   }
   // yours, thrown from `from` to land at `to` (they see it coming, most of them): → the grenade
   throwYours(from, to) { to[1] = this.ground(to[0], to[2]) + 0.12; const d = Math.hypot(to[0] - from[0], to[2] - from[2]), N = { from, to, age: 0, T: 0.9 + d / 22, side: 'ours', by: 'player' }; this.nades.push(N); this.scatter(to, 'ours', 0.55); return N; }

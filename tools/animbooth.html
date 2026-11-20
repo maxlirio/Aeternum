@@ -1,0 +1,53 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Clip booth</title>
+<style>html,body{margin:0;background:#20242a;color:#ddd;font:12px system-ui} canvas{display:block} #lab{position:fixed;inset:0;pointer-events:none} #lab div{position:absolute;padding:2px 4px;background:#0008}</style>
+<script type="importmap">{ "imports": { "three": "../vendor/three/build/three.module.js", "three/addons/": "../vendor/three/addons/" } }</script>
+</head><body><div id="lab"></div>
+<script type="module">
+// tools/animbooth.html?clips=a,b,c[&side=1]: each clip (rows) at five moments (columns), on the ADVENTURER body and the people's capsule rig
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { loadMixamo, clipFor, poseCrowd, infoOf } from '../js/player/mixamo.js';
+import { buildRig } from '../js/player/avatar.js';
+const P = new URLSearchParams(location.search), ids = (P.get('clips') || 'sprint').split(','), side = P.has('side'), COLS = 5;
+const W = innerWidth, H = innerHeight, cw = W / COLS, rh = H / ids.length;
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setSize(W, H); renderer.setScissorTest(true); document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.add(new THREE.HemisphereLight(0xdde6ff, 0x3a3228, 1.6)); const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(3, 6, 4); scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: 0x55585c })); floor.rotation.x = -Math.PI / 2; scene.add(floor);
+const grid = new THREE.GridHelper(40, 40, 0x777777, 0x666666); grid.position.y = 0.002; scene.add(grid);
+await loadMixamo('../assets/anims/mixamo');
+const g = await new GLTFLoader().loadAsync('../assets/adventurer_kit.glb'), body = g.scene; scene.add(body);
+body.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+const mixer = new THREE.AnimationMixer(body);
+const mats = { suit: new THREE.MeshStandardMaterial({ color: 0x46505a }), pad: new THREE.MeshStandardMaterial({ color: 0x2a2e33 }), skin: new THREE.MeshStandardMaterial({ color: 0xb48a6e }), hair: new THREE.MeshStandardMaterial({ color: 0x2a2e33 }), accent: new THREE.MeshStandardMaterial({ color: 0xc98b2a }) };
+const rig = buildRig(mats); scene.add(rig.root); rig.root.position.x = 1.3;
+const cam = new THREE.PerspectiveCamera(30, cw / rh, 0.1, 100);
+const lab = document.getElementById('lab');
+ids.forEach((id, r) => {
+  const I = infoOf(id), A = mixer.clipAction(clipFor(id)); A.play();
+  for (let c = 0; c < COLS; c++) {
+    const t = I.dur * c / (COLS - 1) * 0.999;
+    mixer.setTime(t); body.updateMatrixWorld(true);
+    rig.hips.position.set(0, 0.95, 0); poseCrowd(rig, id, t);
+    const x = c * cw, y = H - (r + 1) * rh;
+    const pel = body.getObjectByName('pelvis').getWorldPosition(new THREE.Vector3());
+    const mid = new THREE.Vector3(0.65, Math.max(0.6, pel.y * 0.9), pel.z);
+    if (side) cam.position.set(mid.x + 5.2, mid.y + 0.6, mid.z); else cam.position.set(mid.x + 2.2, mid.y + 0.9, mid.z + 4.6);
+    cam.aspect = cw / rh; cam.updateProjectionMatrix(); cam.lookAt(mid);
+    renderer.setViewport(x, y, cw, rh); renderer.setScissor(x, y, cw, rh); renderer.render(scene, cam);
+    const d = document.createElement('div'); d.style.left = x + 'px'; d.style.top = (r * rh) + 'px'; d.textContent = `${id} ${t.toFixed(2)}s`; lab.append(d);
+  }
+  A.stop();
+});
+if (P.has('pair')) {      // ?pair=a,b&gap=1.2: two people face to face, the two clips in step (top view and side view at 6 moments)
+  const [ia, ib] = P.get('pair').split(','), gap = +(P.get('gap') || 1.2), dur = infoOf(ia).dur; body.visible = false; rig.root.visible = false;
+  const mk = c => { const m = { suit: new THREE.MeshStandardMaterial({ color: c }), pad: new THREE.MeshStandardMaterial({ color: 0x222222 }), skin: new THREE.MeshStandardMaterial({ color: 0xb48a6e }), hair: new THREE.MeshStandardMaterial({ color: 0x222222 }), accent: new THREE.MeshStandardMaterial({ color: c }) }; const r = buildRig(m); scene.add(r.root); return r; };
+  const A = mk(0xc04040), B = mk(0x4060c0); A.root.position.set(0, 0, -gap / 2); B.root.position.set(0, 0, gap / 2); B.root.rotation.y = Math.PI;
+  renderer.clear(); lab.innerHTML = '';
+  for (let k = 0; k < 12; k++) { const t = dur * (k % 6) / 5 * 0.999, top = k >= 6; A.hips.position.set(0, 0.95, 0); B.hips.position.set(0, 0.95, 0); poseCrowd(A, ia, t); poseCrowd(B, ib, t);
+    const w = W / 6, h = H / 2, x = (k % 6) * w, y = top ? 0 : h; cam.aspect = w / h; cam.updateProjectionMatrix();
+    if (top) { cam.position.set(0, 6, 0.01); cam.lookAt(0, 0, 0); } else { cam.position.set(4.5, 1.3, 0); cam.lookAt(0, 0.9, 0); }
+    renderer.setViewport(x, y, w, h); renderer.setScissor(x, y, w, h); renderer.render(scene, cam);
+    const d = document.createElement('div'); d.style.left = x + 'px'; d.style.top = (top ? h : 0) + 'px'; d.textContent = `${ia}/${ib} ${t.toFixed(2)}s`; lab.append(d); } }
+document.title = 'READY';
+</script></body></html>

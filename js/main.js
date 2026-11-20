@@ -31,6 +31,7 @@ import { starChart, jumpOf, addressOf } from './gen/stars.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { MemorialView } from './render/memorials.js';
+import { loadMixamo, infoOf as clipInfo } from './player/mixamo.js';
 import { fate, epitaph, estate, inherit, hpCap, warStage, pressOf, MAX_WOUNDS } from './sim/lineage.js';
 import { occupation } from './gen/population.js';
 import { livePopulation, refreshLife, townContext } from './world/town.js';
@@ -438,7 +439,8 @@ async function start(fresh) {
     if (paused) return;
     sound.wake(); keys.add(e.code);
     if (e.code === 'Space' && !flight && !tankV) { jumpQueued = true; crouched = false; }
-    if (e.code === 'KeyZ' && !flight && !ride && !tankV && ctrl.mode === 'walk') crouched = !crouched;      // (crouch: down behind cover, or moving low)
+    if (e.code === 'KeyZ' && !flight && !ride && !tankV && ctrl.mode === 'walk') { crouched = !crouched; proned = false; }
+    if (e.code === 'KeyX' && !flight && !ride && !tankV && ctrl.mode === 'walk') { proned = !proned; if (proned) crouched = false; }      // (prone: flat behind your rifle; get up with it again, or by moving off)      // (crouch: down behind cover, or moving low)
     if (e.code === 'KeyE' && !tankToggle()) interact();
     if (e.code === 'KeyQ' && onLine() && !tankV && ctrl.mode === 'walk') fireLauncher();
     if (e.code === 'KeyI') showInventory();
@@ -1375,7 +1377,7 @@ async function start(fresh) {
     const line = onLine(); hurtT = performance.now() / 1000; let shielded = false;
     if (line && shield > 0) { const take = Math.min(shield, dmg); shield -= take; dmg -= take; shielded = dmg <= 0; if (shield <= 0) sound.shieldDown(); }
     if (from) { let a = cam.yaw - Math.atan2(from[0] - ctrl.pos[0], from[2] - ctrl.pos[2]); a = Math.atan2(Math.sin(a), Math.cos(a)); chud.hurt(a, shielded); }
-    sound.hurt(shielded); fx.shake = Math.max(fx.shake, shielded ? 0.15 : 0.35); if (!shielded) avatar.flinch?.();
+    sound.hurt(shielded); fx.shake = Math.max(fx.shake, shielded ? 0.15 : 0.35); if (!shielded) avatar.flinch?.(/punch|fist|beat|gang|crew|thug/i.test(by || '') ? 'punch' : null);
     if (dmg <= 0 || dying) return;
     const hp0 = player.hp; player.hp = Math.max(0, player.hp - dmg); store.touchPlayer();
     if (!line) ui.toast(`You're hit${by ? ` — ${esc(by)}` : ''}. <small>${Math.round(player.hp)}% health</small>`, 'bad', 2500);
@@ -1384,7 +1386,7 @@ async function start(fresh) {
     // whether it's the end (sim/lineage.js): overkill, left on the field, or worn out by old wounds
     { const near = (side, r) => infantry.F ? infantry.men.filter(M => M.hp > 0 && M.side === side && Math.hypot(M.pos[0] - ctrl.pos[0], M.pos[2] - ctrl.pos[2]) < r).length : 0;
       const F = fate(player, hp0, dmg, { line, arrested: !!(pursuit && pursuit.state !== 'return'), foesNear: near('theirs', 25), friendsNear: near('ours', 15) });
-      if (F.dead && window.ORBIS.mortal !== false) { dieFlow(by, F.why); return; } }
+      if (F.dead && window.ORBIS.mortal !== false) { dieFlow(by, F.why, from); return; } }
     player.wounds = (player.wounds || 0) + 1;      // (you live, and carry it after)
     if (pursuit && pursuit.state !== 'return') {          // shot down by the law: you wake in their cell
       const cell = arrest(ctx, t, { resisted: true, by: pursuit.person.name });
@@ -1397,12 +1399,15 @@ async function start(fresh) {
     } else {                                              // anything else: you come round where you fell, an hour later
       clock.advance(planet.dayLength / 24); ui.toast('You go down. You come round an hour later, hurting.', 'bad', 9000);
     }
-    player.hp = 35; player.fatigue = Math.min(1, player.fatigue + 0.4); store.touchPlayer();
+    player.hp = 35; player.fatigue = Math.min(1, player.fatigue + 0.4); store.touchPlayer(); proned = false; crouched = false; ctrl.stun = Math.max(ctrl.stun || 0, 3.2);      // (you come round on the ground, and get up off it)
     if (!line) ui.toast(player.wounds >= MAX_WOUNDS ? `That one will stay with you. <b>You won't survive going down again.</b>` : `It leaves its mark: a wound you'll carry. <small>${hpCap(player)}% health at most now</small>`, 'warn', 7000); else chud.log(player.wounds >= MAX_WOUNDS ? "You won't survive going down again" : `Wounded: ${hpCap(player)}% at most now`, 'bad');
   }
   // ---- death: one life is one life (sim/lineage.js). The universe goes on and keeps what you did; the next of your line takes it up
-  async function dieFlow(by, why) {
+  async function dieFlow(by, why, from = null) {
     if (dying) return; dying = true; paused = true; keys.clear(); document.exitPointerLock?.();
+    // how you go down (the recorded takes): shot from in front, from behind, or anything else (a blast, a crash, the wounds)
+    { let kind = 'dying'; if (from && !/blast|explosion|grenade|shell|crash|fall|landing|fire/i.test(by || '')) { const a = Math.atan2(from[0] - ctrl.pos[0], from[2] - ctrl.pos[2]) - ctrl.facing; kind = Math.cos(a) > 0 ? 'death_front' : 'death_back'; }
+      proned = false; crouched = false; avatar.die?.(kind); }
     const t = clock.now(), P = player, here = currentTown?.s || s;
     const days = (t - (P.created ?? EPOCH)) / planet.dayLength, E = epitaph(P, { t, cause: by || 'wounds', why, place: here.name, planetName: planet.name, days });
     const est = estate(P, P.startSkills);
@@ -1415,7 +1420,7 @@ async function start(fresh) {
     let heir = null; try { heir = kin ? newCharacter(U, planet, homeS, homePop, serial, t, { household: est.household }) : null; } catch (e) { console.warn('heir', e); }
     const stranger = (() => { try { return newCharacter(U, planet, homeS, homePop, serial, t); } catch { return null; } })();
     const left = (store.meta.lineage || []).length, stage = warStage(store.meta.lineage, (t - EPOCH) / planet.dayLength);
-    await new Promise(r => setTimeout(r, 1800));      // (a moment where you fell)
+    await new Promise(r => setTimeout(r, 3200));      // (a moment where you fell: long enough to see yourself go down)
     const yrs = n => `${n} day${n === 1 ? '' : 's'}`, W = est.heirloom ? ITEMS[est.heirloom]?.name : null;
     const pick = await ui.death({
       name: P.name, age: P.age, cause: E.cause, place: here.name, planet: planet.name, days: yrs(E.days), rank: P.soldier ? RANKS[P.soldier.rank] : null, kills: E.kills, line: store.meta.lineage, stage,
@@ -1434,6 +1439,7 @@ async function start(fresh) {
   // a fight on foot: the trigger held, sighting down the gun (aimK eases in), how far the shots wander now (bloom), your issued shield, your grenades
   let trigger = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
   // the sight: how far in it's zoomed (the wheel changes it), your breath (held, the sight steadies, for a few seconds), the way it wanders
+  let proned = false, proneK = 0, lastStun = 0;      // prone (X on foot): down on your front behind the rifle
   let crouched = false, crouchK = 0, rockets = 0, tankV = null, zoomBy = {}, breath = 1, gasp = 0, holding = false, swayT = 0, sway = [0, 0], hidAvatar = false;
   const SHIELD = 60, baseFov = camera.fov;
   const scoped = () => aimK > 0.5 && (!!tankV || heldRanged() && !flight && !ride && ctrl.mode === 'walk');
@@ -1565,6 +1571,10 @@ async function start(fresh) {
     const now = performance.now() / 1000; if (now - lastAttack < W.every) return; lastAttack = now;
     const t = clock.now(); if (W.ranged) { lastShotAt = t; scare(ctrl.pos, t); fauna?.scare(ctrl.pos[0], ctrl.pos[2], W.reach); }
     let target = null, hitPoint = null;
+    // a long gun with an enemy close enough to touch, and you not sighting: the bayonet, not a shot (the recorded take)
+    if (W.ranged && W.two && !aimHeld && infantry.F) { const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing);
+      const M = infantry.men.find(M => M.hp > 0 && M.side === 'theirs' && Math.hypot(M.pos[0] - ctrl.pos[0], M.pos[2] - ctrl.pos[2]) < 2.2 && ((M.pos[0] - ctrl.pos[0]) * fx + (M.pos[2] - ctrl.pos[2]) * fz) > 0.4);
+      if (M) { avatar.melee?.(player.weapon); setTimeout(() => { if (M.hp > 0 && Math.hypot(M.pos[0] - ctrl.pos[0], M.pos[2] - ctrl.pos[2]) < 2.6) { const k = infantry.hurt(M, 95, 'player', [fx, fz]); chud.hit(k); sound.hit(k); chud.log(k ? 'Bayonet' : 'Bayonet: he\'s still up', 'you'); } }, 380); return; } }
     if (!W.ranged) {
       let bd = W.reach + 0.4;
       for (const a of agents) {
@@ -1572,7 +1582,7 @@ async function start(fresh) {
         const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz);
         if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.4 && (dx * Math.sin(ctrl.facing) + dz * Math.cos(ctrl.facing)) / (d || 1) > 0.5) { bd = d; target = a; }
       }
-      avatar.punch?.();
+      if (avatar.melee) avatar.melee(player.weapon && WEAPONS[player.weapon] ? player.weapon : 'fists'); else avatar.punch?.();
       const beast = !target && fauna?.inReach(ctrl.pos[0], ctrl.pos[1], ctrl.pos[2], ctrl.facing, W.reach);
       if (beast) { fauna.hurt(beast, W.dmg); return; }
     } else {
@@ -1612,7 +1622,7 @@ async function start(fresh) {
       flash.position.set(...hand); flash.intensity = 25;
       // the kick: the muzzle climbs (less with it to your eye), and the next shots wander further until you let it settle
       cam.pitch = Math.max(-0.9, cam.pitch - (0.008 + Math.random() * 0.006) * (1 - 0.35 * aimK)); cam.yaw += (Math.random() - 0.5) * 0.005; bloom = Math.min(W.spread * 2.5, bloom + W.spread * 0.4);
-      sound.shot(null, { energy: !!W.energy }); fx.shake = Math.max(fx.shake, 0.1); lastFired = performance.now() / 1000;
+      sound.shot(null, { energy: !!W.energy }); fx.shake = Math.max(fx.shake, 0.1); lastFired = performance.now() / 1000; avatar.fired?.();
     }
     if (!target) {       // no one there: a passer-by in the city, a window, whatever's in the way
       const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), at = hitPoint || [ctrl.pos[0] + fx * (W.reach + 0.3), ctrl.pos[1] + 1.2, ctrl.pos[2] + fz * (W.reach + 0.3)];
@@ -1633,9 +1643,39 @@ async function start(fresh) {
     if (cop && !pursuit) startPursuit(pop.byId.get(cop.id), res.killed ? `you killed ${p.name}` : `you attacked ${p.name}`);
     if (res.killed) { bodies.push({ id: p.id, person: p, pos: downAt.get(p.id).pos, facing: downAt.get(p.id).facing, until: t + planet.dayLength / 24 }); downAt.delete(p.id);
       ui.toast(`<b>${esc(p.name)}</b> is dead.${seen.length ? ` <b>${seen.length} saw it.</b>` : ''}`, 'bad', 8000); }
-    else ui.toast(`You hit ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 2500);
+    else { ui.toast(`You hit ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 2500);
+      if (!res.down) { acting.set(p.id, { id: 'punched', from: 0.9, rate: 1.4, t0: t, until: t + 1.6 / 1.4, pos: target.pos.slice(), facing: Math.atan2(ctrl.pos[0] - target.pos[0], ctrl.pos[2] - target.pos[2]) });
+        // hit with fists or a blade, some hit back: the guard up, coming at you with hooks, until one of you is down or you're away
+        const W2 = WEAPONS[id]; if ((!W2 || !W2.ranged) && !isOfficer(p) && !scrap && Math.random() < 0.6) { scrap = { id: p.id, name: p.given || p.name, pos: target.pos.slice(), until: t + 25, next: t + 1.6 }; ui.toast(`<b>${esc(known(store, p.id) ? p.name : nameFor(p))}</b> puts their fists up.`, 'warn', 3000); } } }
   }
 
+  // ---- people in the recorded takes (player/mixamo.js poseCrowd, render/crowd.js): getting up, a blow taken, dead, fist fights
+  const DEATHS = ['death_front', 'death_back', 'dying'], diedAt = new Map(), acting = new Map();      // acting: id → { id: take, from, rate, t0, until, pos, facing }
+  let scrap = null, brawl = null, nextBrawl = 0;      // scrap: someone you hit squaring up to you; brawl: two of them going at it
+  loadMixamo().catch(() => {});
+  function actPeople(t, dt) {
+    for (const [k, A] of acting) if (t > A.until) { if (A.then === 'up') acting.set(k, { id: 'get_up', from: 1.6, rate: 1.3, t0: t, until: t + 5 / 1.3, pos: A.pos, facing: A.facing }); else acting.delete(k); }
+    // squaring up to you: the boxer's guard, closing in, a hook every second or two
+    if (scrap) { const a = agents.find(x => x.id === scrap.id), d = a ? Math.hypot(scrap.pos[0] - ctrl.pos[0], scrap.pos[2] - ctrl.pos[2]) : 99;
+      if (!a || a.pose === 'lie' || isDown(store, scrap.id, t) || bodies.some(b => b.id === scrap.id) || d > 9 || t > scrap.until || flight || ride) { if (a && d > 9) ui.toast(`${esc(scrap.name)} lets you go.`, '', 2500); scrap = null; }
+      else { const f = Math.atan2(ctrl.pos[0] - scrap.pos[0], ctrl.pos[2] - scrap.pos[2]); if (d > 1.3) { const k = Math.min(d - 1.2, dt * 1.6); scrap.pos[0] += Math.sin(f) * k; scrap.pos[2] += Math.cos(f) * k; scrap.pos[1] = world.groundAt(scrap.pos[0], scrap.pos[2], scrap.pos[1] + 1).h; }
+        if (t >= scrap.next) { scrap.next = t + 1.4 + Math.random() * 1.2; scrap.swing = t; if (d < 1.7) setTimeout(() => { if (scrap && Math.hypot(scrap.pos[0] - ctrl.pos[0], scrap.pos[2] - ctrl.pos[2]) < 1.9) hurtPlayer(5 + Math.random() * 7, `a punch from ${scrap.name}`, scrap.pos); }, 420); }
+        const sw = t - (scrap.swing ?? -9); acting.set(scrap.id, sw < 1.0 ? { id: 'hook', from: 0.6, rate: 1.7, t0: scrap.swing, until: t + 0.1, pos: scrap.pos, facing: f } : { id: Math.sin(t * 0.8) > 0 ? 'strafe_l' : 'strafe_r', from: 0, rate: 0.6, t0: 0, until: t + 0.1, pos: scrap.pos, facing: f, loop: true }); } }
+    // two of them going at it (Fist Fight A against B, in step, face to face), till one of them's down
+    if (brawl) { const A = agents.find(x => x.id === brawl.a), B = agents.find(x => x.id === brawl.b), el = t - brawl.t0;
+      if (!A || !B || el > brawl.dur) { if (A && B) { const L = Math.random() < 0.5 ? brawl.a : brawl.b, P = L === brawl.a ? brawl.pa : brawl.pb; acting.set(L, { id: 'dazed', from: 0, rate: 1, t0: t, until: t + 20, pos: P, facing: L === brawl.a ? brawl.f : brawl.f + Math.PI, then: 'up' }); } brawl = null; }
+      else { acting.set(brawl.a, { id: 'fight_a', from: 0, rate: 1, t0: brawl.t0, until: t + 0.1, pos: brawl.pa, facing: brawl.f }); acting.set(brawl.b, { id: 'fight_b', from: 0, rate: 1, t0: brawl.t0, until: t + 0.1, pos: brawl.pb, facing: brawl.f + Math.PI }); } }
+    else if (t > nextBrawl && !flight && agents.length > 6) { nextBrawl = t + 90 + Math.random() * 150;
+      const free = agents.filter(a => !a.bKey && a.person && a.person.age >= 18 && a.pose !== 'lie' && a.pose !== 'sit' && !acting.has(a.id) && !String(a.id).startsWith('tr:') && !isOfficer(a.person) && Math.hypot(a.pos[0] - ctrl.pos[0], a.pos[2] - ctrl.pos[2]) < 45);
+      let pair = null; for (const a of free) { const b = free.find(b => b !== a && Math.hypot(b.pos[0] - a.pos[0], b.pos[2] - a.pos[2]) < 6 && !world.solidAt((a.pos[0] + b.pos[0]) / 2, a.pos[1] + 1, (a.pos[2] + b.pos[2]) / 2, 0.9) && (pop.gangOf?.(a.person.id)?.id !== pop.gangOf?.(b.person.id)?.id || !pop.gangOf?.(a.person.id))); if (b) { pair = [a, b]; break; } }
+      if (pair) { const [a, b] = pair, mid = [(a.pos[0] + b.pos[0]) / 2, a.pos[1], (a.pos[2] + b.pos[2]) / 2], f = Math.atan2(b.pos[0] - a.pos[0], b.pos[2] - a.pos[2]), g = 0.65;
+        const pa = [mid[0] - Math.sin(f) * g, 0, mid[2] - Math.cos(f) * g], pb = [mid[0] + Math.sin(f) * g, 0, mid[2] + Math.cos(f) * g]; pa[1] = world.groundAt(pa[0], pa[2], mid[1] + 1).h; pb[1] = world.groundAt(pb[0], pb[2], mid[1] + 1).h;
+        brawl = { a: a.id, b: b.id, pa, pb, f, t0: t, dur: (clipInfo('fight_a')?.dur || 4.6) * 0.98 }; if (Math.hypot(mid[0] - ctrl.pos[0], mid[2] - ctrl.pos[2]) < 30) ui.toast(`A fight breaks out: <b>${esc(a.person.given)}</b> and <b>${esc(b.person.given)}</b> go at each other.`, 'warn', 5000); } }
+    // and what they're acting out, laid over where the day had them
+    for (const a of agents) { const A = acting.get(a.id); if (!A || a.activity === 'dead') continue;
+      if (A.pos) { a.pos = A.pos.slice(); a.moving = false; } if (A.facing != null) a.facing = A.facing; const I = clipInfo(A.id); if (!I) continue;
+      a.clip = { id: A.id, t: A.loop ? (t * A.rate) % I.dur : A.from + (t - A.t0) * A.rate }; if (A.id === 'dazed' || A.id === 'get_up') a.pose = 'lie'; }
+  }
   // ---- running people down: whatever you're driving (a car, a bike, a tank) hits whoever's in front of it as hard as it's going and as heavy as it is
   const hitBy = new Map();      // id → when: each person's hit once per pass, not every frame they're under it
   function runOver(t) {
@@ -1938,11 +1978,15 @@ async function start(fresh) {
         swayT += dt; { const A = sc && !tankV ? (0.0011 + (ctrl.speed > 0.6 ? 0.0045 : 0) + (player.fatigue || 0) * 0.002 + (now - hurtT < 1 ? 0.004 : 0)) * (holding ? 0.12 : gasp > 0 ? 2.4 : 1) : tankV && sc ? 0.0003 + Math.abs(tankV.speed) * 0.0006 : 0;
           sway = [(Math.sin(swayT * 1.3) + 0.6 * Math.sin(swayT * 0.37 + 1)) * A, (0.5 * Math.sin(swayT * 2.6) + 0.4 * Math.sin(swayT * 0.53)) * A + (holding ? 0 : Math.sin(swayT * 1.9) * A * 0.4)]; }
         // crouched: down behind whatever's in front of you; to fire, you come up just far enough to see over it
-        if (ctrl.mode !== 'walk' || flight || ride || tankV) crouched = false;
+        if (ctrl.mode !== 'walk' || flight || ride || tankV) { crouched = false; proned = false; }
+        if (proned && (input.fwd || input.right || input.jump)) { proned = false; crouched = true; }      // (moving off: up into a crouch)
+        proneK += ((proned ? 1 : 0) - proneK) * Math.min(1, dt * 4); if (proneK > 0.05) { input.fwd = 0; input.right = 0; input.run = false; }
         { const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), wall = crouched && (aimHeld || trigger) && (world.solidAt(ctrl.pos[0] + fx * 0.9, ctrl.pos[1] + 0.7, ctrl.pos[2] + fz * 0.9, 0.1) || !!infantry.F && !!infantry.push(ctrl.pos[0] + fx * 0.9, ctrl.pos[2] + fz * 0.9, ctrl.pos[1], 0.9, 0.05));
           crouchK += ((crouched ? (wall ? 0.45 : 1) : 0) - crouchK) * Math.min(1, dt * 8); avatar.crouch?.(crouchK); input.crouch = crouched; if (crouched) input.run = false; }
         const W = WEAPONS[player.weapon]; bloom *= Math.exp(-dt * 3.5);
-        input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || now - lastFired < 0.9) ? (window.__faceYaw ?? cam.yaw) : undefined;      // (__faceYaw: photographs from the side)
+        input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || now - lastFired < 0.9) ? (window.__faceYaw ?? cam.yaw) : undefined;
+        if (scrap && !armed && !input.face) input.face = Math.atan2(scrap.pos[0] - ctrl.pos[0], scrap.pos[2] - ctrl.pos[2]);      // (squared up to someone: you face them, and step round them)
+        avatar.guard?.(!!scrap && !armed);      // (__faceYaw: photographs from the side)
         gunK += ((input.face != null ? 1 : crouched && armed ? 0.6 : 0) - gunK) * Math.min(1, dt * 14); avatar.aimGun?.(gunK, input.face != null ? cam.pitch : 0.15);      // (crouched, the gun's held up ready, level, as riflemen hold it waiting)
         // the shield: down to nothing, it waits for a few quiet seconds, then comes back up
         if (onLine()) { if (now - hurtT > 4 && shield < SHIELD) { if (shield <= 0) sound.shieldUp(); shield = Math.min(SHIELD, shield + dt * 30); } } }
@@ -2066,11 +2110,15 @@ async function start(fresh) {
       avatar.object.rotation.set(0, ride.facing, 0);
     }
     avatar.setHeld?.(player.weapon && inventoryOf(player).some(x => x.id === player.weapon) && !ride && !flight && ctrl.mode !== 'seat' ? player.weapon : null);
-    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded ? 'lie' : null);
+    { const v = ctrl.vel || [0, 0, 0], a = Math.atan2(v[0], v[2]) - ctrl.facing; avatar.moveDir?.(Math.atan2(Math.sin(a), Math.cos(a))); }
+    if ((ctrl.stun || 0) > 0.3 && !(lastStun > 0) && avatar.knockedDown) avatar.knockedDown(ctrl.stun + 0.6); lastStun = ctrl.stun || 0;
+    avatar.setProne?.(proneK > 0.5);
+    avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded && !avatar.knockedDown ? 'lie' : null);
     avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
     if (!aloft) { pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); if (!params.has('noledges')) ledgeView.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); }     // (from a ship well up, the things only seen from close by wait)
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
+    if (ctrl.landed > 6.5 && !flight && !ride && performance.now() > landSafeAt) avatar.land?.(ctrl.landed);      // (down from a height: the recorded landing)
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
     voyageTick(t);
@@ -2101,11 +2149,12 @@ async function start(fresh) {
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
-    for (const a of agents) {           // knocked down: lying where they fell until they get up
+    for (const a of agents) {           // knocked down: on the ground, dazed, where they fell until they get up (and then they get up off it)
       const dn = isDown(store, a.id, t) && downAt.get(a.id);
-      if (dn) { a.pos = dn.pos.slice(); a.facing = dn.facing; a.pose = 'lie'; a.moving = false; a.activity = 'hurt, on the ground'; }
-      else if (downAt.has(a.id) && !isDown(store, a.id, t)) downAt.delete(a.id);
+      if (dn) { a.pos = dn.pos.slice(); a.facing = dn.facing; a.pose = 'lie'; a.moving = false; a.activity = 'hurt, on the ground'; a.clip = { id: 'dazed', t: t - (dn.t0 ??= t) }; }
+      else if (downAt.has(a.id) && !isDown(store, a.id, t)) { const d = downAt.get(a.id); if (d.t0 != null) acting.set(a.id, { id: 'get_up', from: 1.6, rate: 1.3, t0: t, until: t + 5 / 1.3, pos: d.pos.slice(), facing: d.facing }); downAt.delete(a.id); }
     }
+    actPeople(t, dt);
     for (const a of agents) {          // bystanders running from gunfire: away from you, then back to their day
       const fl = fleeing.get(a.id); if (!fl) continue;
       if (fl.until < t || a.pose === 'lie') { fleeing.delete(a.id); continue; }
@@ -2119,7 +2168,7 @@ async function start(fresh) {
       r.life = 0; hurtPlayer(10, 'raider fire'); scare(ctrl.pos, t); break;
     }
     for (let i = bodies.length - 1; i >= 0; i--) if (bodies[i].until < t) bodies.splice(i, 1);
-    agents = agents.filter(a => !bodies.some(b => b.id === a.id) && !mayhem?.holds(a.id)).concat(bodies.map(b => ({ id: b.id, person: b.person, age: b.person.age, pos: b.pos.slice(), facing: b.facing, pose: 'lie', moving: false, activity: 'dead' })));
+    agents = agents.filter(a => !bodies.some(b => b.id === a.id) && !mayhem?.holds(a.id)).concat(bodies.map(b => ({ id: b.id, person: b.person, age: b.person.age, pos: b.pos.slice(), facing: b.facing, pose: 'lie', moving: false, activity: 'dead', clip: { id: DEATHS[hashStr(1, String(b.id)) % 3], t: t - (diedAt.get(b.id) ?? diedAt.set(b.id, t).get(b.id)) } })));
     tracer.material.opacity = Math.max(0, tracer.material.opacity - dt * 9); flash.intensity = Math.max(0, flash.intensity - dt * 400);
     if (pursuit) {
       const ev = paused ? null : pursuit.update(t, dt, { pos: ctrl.pos, speed: ctrl.speed }, world, s);
@@ -2221,11 +2270,11 @@ async function start(fresh) {
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
       else { rideCamY = null;
         if (tankV) { const d0 = cam.dist; cam.dist = 11; cam.update(dt, [tankV.pos[0], tankV.pos[1] + 1.3, tankV.pos[2]], toRender); cam.dist = d0; }
-        else cam.update(dt, crouchK > 0.01 ? [ctrl.pos[0], ctrl.pos[1] - 0.5 * crouchK, ctrl.pos[2]] : ctrl.pos, toRender);
+        else cam.update(dt, crouchK > 0.01 || proneK > 0.01 ? [ctrl.pos[0], ctrl.pos[1] - 0.5 * crouchK - 1.15 * proneK, ctrl.pos[2]] : ctrl.pos, toRender);
         // through the sight: the eye at it, looking where you aim (and where its wander takes it)
         if (scoped()) { const y = cam.yaw + sway[0], pt = cam.pitch + sway[1], d = [Math.sin(y) * Math.cos(pt), -Math.sin(pt), Math.cos(y) * Math.cos(pt)];
           let e; if (tankV) { const V = tankV, b = armor.pivot(V), fx = Math.sin(V.turret), fz = Math.cos(V.turret); e = [b[0] + fx * 2.2, b[1] + 0.5, b[2] + fz * 2.2]; }
-          else e = [ctrl.pos[0] + Math.sin(y) * 0.12, ctrl.pos[1] + (ctrl.grounded && ctrl.feel ? 1.6 - (ctrl.feel.sink || 0) : 1.6) - 0.52 * crouchK, ctrl.pos[2] + Math.cos(y) * 0.12];
+          else e = [ctrl.pos[0] + Math.sin(y) * 0.12, ctrl.pos[1] + (ctrl.grounded && ctrl.feel ? 1.6 - (ctrl.feel.sink || 0) : 1.6) - 0.52 * crouchK - 1.3 * proneK, ctrl.pos[2] + Math.cos(y) * 0.12];
           const a = toRender(...e), b2 = toRender(e[0] + d[0], e[1] + d[1], e[2] + d[2]); camera.position.set(...a); camera.lookAt(...b2); camera.updateMatrixWorld(); }
       }
     }
@@ -2259,7 +2308,7 @@ async function start(fresh) {
       else if (infantry.F && (!F || d > 3400 || !onFoot)) infantry.end();
       if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
       const side = infantry.F && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
-      const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: crouchK };
+      const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: Math.max(crouchK, proneK * 1.6) };
       infantry.step(dt, you); infantryView.update(infantry, dt, t); armor.step(dt, you); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos);
       if (tankV && (tankV.dead || !infantry.F)) { const V = tankV; leaveTank(); if (V.dead) { hurtPlayer(35, 'your tank brewing up'); chud.log(`Your ${V.T.name} is knocked out: you bail out`, 'bad'); } }
       if (infantry.F) armorFx(dt);
@@ -2433,7 +2482,7 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; } };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();

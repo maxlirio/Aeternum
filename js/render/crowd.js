@@ -4,6 +4,7 @@
 // the whole crowd). Swap this module to change how people look; nothing else changes.
 import * as THREE from 'three';
 import { buildRig, applyPose } from '../player/avatar.js';
+import { poseCrowd } from '../player/mixamo.js';
 import { Rng } from '../core/prng.js';
 import { seedFromString } from '../core/hash.js';
 
@@ -50,9 +51,11 @@ export class CrowdView {
       rig.root.position.set(a.pos[0], a.pos[1], a.pos[2]);
       rig.root.rotation.set(0, a.facing, 0);
       rig.root.scale.setScalar(L.scale * child);
-      applyPose(rig, { mode: a.moving ? 'walk' : a.pose === 'lie' ? 'lie' : a.pose === 'sit' ? 'sit' : 'stand', phase: ph, blend: a.moving ? 1 : 0, k: 0 });
+      // a recorded take (player/mixamo.js): a fall, getting up, a blow, a fight; laid over the standing pose
+      const acted = a.clip && (applyPose(rig, { mode: 'stand', phase: ph, blend: 0, k: 0 }), poseCrowd(rig, a.clip.id, a.clip.t, a.clip.w ?? 1));
+      if (!acted) applyPose(rig, { mode: a.moving ? 'walk' : a.pose === 'lie' ? 'lie' : a.pose === 'sit' ? 'sit' : 'stand', phase: ph, blend: a.moving ? 1 : 0, k: 0 });
       if (a.q) rig.root.quaternion.copy(a.q);      // (someone standing on a curved floor, in a spin ring: up is toward the axle)
-      if (a.pose === 'lie' && !a.moving) { // lie centred on the anchor, on its back
+      if (a.pose === 'lie' && !a.moving && !acted) { // lie centred on the anchor, on its back
         rig.root.position.x += Math.sin(a.facing) * 0.87 * child; rig.root.position.z += Math.cos(a.facing) * 0.87 * child; rig.root.position.y += 0.14;
       }
       if (a.pose === 'sit' && !a.moving) { rig.root.position.x -= Math.sin(a.facing) * 0.12; rig.root.position.z -= Math.cos(a.facing) * 0.12; }
