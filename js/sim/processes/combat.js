@@ -20,8 +20,9 @@ export function healthOf(store, planet, id, t) {
 export const isDown = (store, id, t) => (store.getDelta(hurtKey(id))?.downUntil ?? -1) > t;
 
 // A hit on resident p for dmg at time t. → { hp, down, killed }
-export function strike(ctx, p, weapon, t, witnesses = []) {
-  const { store, planet, pop, s } = ctx, W = WEAPONS[weapon] || WEAPONS.fists;
+// dmg: a blow not from a weapon in the hand (run down by what you're driving: main.js runOver)
+export function strike(ctx, p, weapon, t, witnesses = [], dmg = null) {
+  const { store, planet, pop, s } = ctx, W = dmg !== null ? { dmg } : WEAPONS[weapon] || WEAPONS.fists;
   const before = healthOf(store, planet, p.id, t), hp = Math.max(0, before - W.dmg);
   const down = hp > 0 && (hp < 35 || !!W.stun);
   store.patchDelta(hurtKey(p.id), { hp, t, downUntil: down ? t + (W.stun ? W.stun * 6 : 60 + 240 * (1 - hp / 35)) : undefined });

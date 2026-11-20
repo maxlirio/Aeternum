@@ -431,6 +431,7 @@ async function start(fresh) {
 
   // ---- input
   const keys = new Set();
+  let bootHold = null;      // (set once the world's up: below)
   let dying = false;      // (dead: sim/lineage.js, dieFlow; nothing more is saved over the death)
   let paused = false, forceHold = 0, jumpQueued = false, lastSave = performance.now();
   addEventListener('keydown', e => {
@@ -469,6 +470,7 @@ async function start(fresh) {
     else if (flight) { store.patchDelta(shipKey(flight.ship.id), { flying: true, at: { c: flight.pos.slice(), facing: flight.facing } }); player.piloting = flight.ship.id; player.pos = flight.pos.slice(); }
     else player.pos = ctrl.pos.slice();
     if (!flight) player.piloting = null;
+    { const L = !flight && !ride ? world.locate(...ctrl.pos) : null; player.aboard = L?.b?.type === 'ship' ? L.b.key : null; }      // (so it's there to stand in when you come back: below, at boot)
     player.facing = ctrl.facing;
     store.meta.gameTime = clock.now(); store.meta.realTime = Date.now();
     store.touchPlayer(); store.dirty.meta = true;
@@ -794,7 +796,7 @@ async function start(fresh) {
   // ---- crashes (sim/crash.js: what happens; render/wrecks.js and fx.js: what it looks like)
   const fx = new FX(); root.add(fx.group);
   const thrustView = new ThrustView(scene, shipView, fx);
-  const trafficGone = new Set();
+  const trafficGone = new Set(), outSince = new Map(); let goneAtBoot = null;
   const wrecks = new Crashes({ ground: (x, z, y) => Math.max(world.groundAt(x, z, y).h, planet.seaLevel), load: id => store.getDelta('wreck/' + id) || null, save: (id, d) => store.patchDelta('wreck/' + id, d) });
   const wreckView = new WreckView(D => {
     if (D.kind === 'ship') { const M = shipView.models?.[D.model]; if (!M) return null; const { W, D: dp } = M.L; return { prims: M.hullPrims, fit: new THREE.Matrix4().makeRotationY(Math.PI / 2).multiply(new THREE.Matrix4().makeTranslation(-W / 2, 0, -dp / 2)) }; }
@@ -804,6 +806,7 @@ async function start(fresh) {
   shipView.hidden = sh => { const D = wrecks.get('ship:' + sh.id); return !!D && (D.hits.length > 0 || D.burnt > 0); };
   { const fel = store.getDelta('felled'); if (fel?.list) for (const [k, a] of fel.list) felledOf(planet).set(k, a); }
   for (const [k, v] of store.deltas) if (k.startsWith('wreck/') && (v.type || v.kind === 'ship') && v.pos) { const id = k.slice(6), D = wrecks.of(id, v); if (id.startsWith('tr:') || id.startsWith('city:')) trafficGone.add(id); }      // what's still lying where you left it
+  goneAtBoot = new Set(trafficGone);      // (those were crashed long ago: their drivers are long gone)
   const kindOf = T => T.kind === 'bike' ? 'bike' : 'car';
   const crashRec = (id, v, T = typeOf(v)) => wrecks.of(id, { kind: kindOf(T), L: T.L, W: T.W, H: T.H, type: v.type || T.id, colour: v.colour ?? 0, pos: v.pos, facing: v.facing, pitch: v.pitch, roll: v.roll });
   // On foot, a vehicle's in your way like anything else, and you can get up onto one: its box stops at its roof.
@@ -993,6 +996,8 @@ async function start(fresh) {
       }
     }
   }
+  // loading aboard a ship: it's there to stand in. Its town's fleet is counted, and a cargo run due while you were away waits (as it would with you aboard)
+  { const A = player.aboard; if (A && !player.piloting) { const q = townOfKey(planet, A); if (q) fleetTowns.add(q); const sh = allShips(clock.now()).find(x => x.id === A); if (sh && onRun(sh) && sh.trip) holdRun(store, sh); } }
   syncShips();
   sched.add(TIER.NEAR, { update: syncShips });
   // ---- the Meridian's spin rings (gen/rings.js). Each is walked as a flat strip laid out over the ship, its ends the same place; it's only
@@ -1631,6 +1636,33 @@ async function start(fresh) {
     else ui.toast(`You hit ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 2500);
   }
 
+  // ---- running people down: whatever you're driving (a car, a bike, a tank) hits whoever's in front of it as hard as it's going and as heavy as it is
+  const hitBy = new Map();      // id → when: each person's hit once per pass, not every frame they're under it
+  function runOver(t) {
+    const V = tankV ? { pos: tankV.pos, facing: tankV.facing, speed: tankV.speed, L: tankV.T.L, W: tankV.T.W, kg: 3, name: `your ${tankV.T.name}` } : ride && !ride.dead ? { pos: ride.pos, facing: ride.facing, speed: ride.speed, L: ride.T.L, W: ride.T.W, kg: ride.T.L > 5.5 ? 1.6 : ride.T.kind === 'bike' ? 0.6 : 1, name: `your ${ride.T.name.toLowerCase()}` } : null;
+    if (!V || Math.abs(V.speed) < 2.5) return;
+    const fx = Math.sin(V.facing), fz = Math.cos(V.facing), sp = Math.abs(V.speed), sg = Math.sign(V.speed), now = performance.now();
+    for (const [k, w] of hitBy) if (now - w > 2500) hitBy.delete(k);
+    const under = p => { const dx = p[0] - V.pos[0], dz = p[2] - V.pos[2], u = dx * fx + dz * fz, v = dx * fz - dz * fx; return Math.abs(u) < V.L / 2 + 0.35 && Math.abs(v) < V.W / 2 + 0.3 && Math.abs(p[1] - V.pos[1]) < 2.5 && u * sg > -V.L / 4; };
+    const dmg = Math.min(250, sp * sp * 0.5 * V.kg), fling = (p, dead) => [fx * sg * sp * 0.6 + (Math.random() - 0.5), 1.5 + sp * 0.12, fz * sg * sp * 0.6 + (Math.random() - 0.5)];
+    let hit = 0;
+    // the townsfolk about: a real resident, hurt or killed, with whoever saw it
+    for (const a of agents) { if (a.pose === 'lie' || a.bKey || String(a.id).startsWith('tr:') || !a.person || hitBy.has(a.id) || bodies.some(b => b.id === a.id) || !under(a.pos)) continue;
+      hitBy.set(a.id, now); hit++; const p = a.person, here = world.locate(...ctrl.pos), seen = residents.witnesses(t, ctrl.pos, here?.b?.key || null, here?.k ?? null).filter(w => w.id !== p.id && !bodies.some(b => b.id === w.id));
+      const fall = [a.pos[0] + fx * sg * Math.min(6, sp * 0.4), a.pos[1], a.pos[2] + fz * sg * Math.min(6, sp * 0.4)]; downAt.set(p.id, { pos: fall, facing: V.facing });
+      const res = strike(ctx, p, 'vehicle', t, seen, dmg); if (res.incident) lodgeIncident(ctx, res.incident);
+      if (!res.killed && !res.down && sp > 5.5) { store.patchDelta('hurt/' + p.id, { downUntil: t + 60 + sp * 12 }); res.down = true; }      // (struck by a car you're knocked off your feet, however much of you is left)
+      const cop = seen.find(w => isOfficer(pop.byId.get(w.id))); if (cop && !pursuit) startPursuit(pop.byId.get(cop.id), res.killed ? `you ran down and killed ${p.name}` : `you ran down ${p.name}`);
+      if (res.killed) { bodies.push({ id: p.id, person: p, pos: fall, facing: V.facing, until: t + planet.dayLength / 24 }); downAt.delete(p.id); ui.toast(`You ran down <b>${esc(p.name)}</b>. They're dead.${seen.length ? ` <b>${seen.length} saw it.</b>` : ''}`, 'bad', 8000); }
+      else ui.toast(`You ran into ${esc(known(store, p.id) ? p.name : nameFor(p))}${res.down ? ' — they go down' : ''}. <small>${Math.round(res.hp)}% health</small>`, 'bad', 3000); }
+    // passers-by in the city: thrown
+    if (mayhem) for (const w of peopleNear(t, V.pos[0], V.pos[2], V.L, 12).concat(mayhem.crowd ? mayhem.crowd().filter(c => !c.flying && c.pose !== 'lie') : [])) { if (!w?.pos || mayhem.out.has(w.id) || hitBy.has(w.id) || !under(w.pos)) continue;
+      hitBy.set(w.id, now); hit++; const dead = dmg > 60; mayhem.out.add(w.id); mayhem.thrown({ id: w.id, name: w.name || 'A passer-by', pos: w.pos.slice(), vel: fling(w.pos, dead), age: w.age, facing: w.facing, dead });
+      const n = mayhem.crime(t, dead ? 'ran someone down' : 'hit someone with a vehicle', dead ? 3.5 : 1.2, w.pos); ui.toast(`You hit a passer-by${dead ? ' — they don\'t get up' : ''}.${n ? ` <b>${n} saw.</b>` : ''}`, 'bad', 3500); }
+    // soldiers on the line
+    if (infantry.F) for (const M of infantry.men) { if (M.hp <= 0 || hitBy.has(M.id) || !under(M.pos)) continue; hitBy.set(M.id, now); hit++; const k = infantry.hurt(M, dmg, 'player', [fx * sg, fz * sg]); if (onLine() || tankV) chud.log(k ? `Ran down a ${M.side === 'theirs' ? infantry.F.b.name : 'friendly'} soldier` : 'Hit a soldier', M.side === 'theirs' ? 'you' : 'bad'); }
+    if (hit) { sound.hit?.(true); fx.shake = Math.max(fx.shake, Math.min(0.5, 0.1 + sp * 0.015) / V.kg); if (ride) ride.speed *= Math.max(0.55, 1 - 0.18 / V.kg); }
+  }
   // ---- air combat (sim/aircombat.js): your ship in the fight, raids, and Civic Security's fighters
   const war = new AirWar(world, planet), combatView = new CombatView(scene);
   // the great ships in the fight (sim/fleetwar.js): Anvil's lasers and missiles, Bastion's fighters, Sable's bombing runs. What lands, wrecks.
@@ -1869,6 +1901,7 @@ async function start(fresh) {
 
   // ---- loop
   ui.closePanel(); ui.showHud(true);
+  if (!fresh && !flight && !ride && ctrl.mode === 'walk') bootHold = { x: ctrl.pos[0], y: ctrl.pos[1], z: ctrl.pos[2], until: performance.now() + 12000 };
   if (report && (report.elapsed > 60 || report.events.length)) { paused = true; await ui.away(report, planet); paused = false; }
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
   if (fresh?.heir) { const A = player.after || {}; ui.toast(`<b>${esc(A.name || 'They')}</b> was buried two days ago${A.place ? ` — they fell at ${esc(A.place)}` : ''}. ${player.heirOf ? `You are <b>${esc(player.name)}</b>, ${player.age}, of the same family. What they left is yours${player.weapon ? `, ${esc(ITEMS[player.weapon]?.name || 'their gun')} with it` : ''}.` : `You are <b>${esc(player.name)}</b>, ${player.age}, of ${esc(s.name)}: you knew of them. Nothing is yours but your own.`}`, '', 14000); }
@@ -1950,7 +1983,12 @@ async function start(fresh) {
         carsSolid();
         { const V = ctrl.where?.V; if (V && ctrl.grounded && (V.vx || V.vz)) { const [nx, nz] = world.resolve(ctrl.pos[0] + V.vx * dt, ctrl.pos[2] + V.vz * dt, ctrl.pos[1]); ctrl.pos = [nx, ctrl.pos[1], nz]; } }     // standing on something moving
         { const rb = ringHere(); ctrl.spin = rb ? spinOf(world, rb) : null; }
-        for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
+        if (bootHold) {      // just loaded: if the floor you were saved on isn't there yet (a deck, a ship, a town still building), you wait where you were for it
+          const gap = bootHold.y - world.groundAt(bootHold.x, bootHold.z, bootHold.y + 0.3).h;
+          if (gap > 1.5 && performance.now() < bootHold.until) { ctrl.pos = [bootHold.x, bootHold.y, bootHold.z]; ctrl.vel = [0, 0, 0]; }
+          else { if (gap > 30) { const hb = homeS.buildings.find(b => b.key === player.home); if (hb) { ctrl.pos = doorstep(homeS, hb, buildingPlan(planet, homeS, hb)).pos.slice(); ctrl.vel = [0, 0, 0]; ui.toast("Where you were isn't there any more. You find your way home.", 'warn', 7000); } } bootHold = null; }
+        }
+        if (!bootHold) for (let sub = 0, n = Math.ceil(dt / (1 / 120)); sub < n; sub++) ctrl.step(dt / n, input, moveSpeedFactor(player));
         { const rb = ringHere(); if (rb) ctrl.pos = wrapRing(world, rb, ctrl.pos); }     // round the ring and back where you started
         const hard = mayhem?.afterStep(t, dt, ctrl);
         if (hard > 9) hurtPlayer(Math.min(120, (hard - 8.5) ** 2 * 0.9), 'a hard landing');
@@ -2140,10 +2178,16 @@ async function start(fresh) {
         }
       }
     }
-    const riders = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 160, cityTraffic.life.delayOf).filter(v => !v.parked).map(v => {   // the riders of passing traffic (seated, a little behind the bike's centre)
+    const riders = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 160, cityTraffic.life.delayOf).filter(v => !v.parked && !trafficGone.has(v.id)).map(v => {   // the riders of passing traffic (seated, a little behind the bike's centre); a car wrecked or taken has no one driving it on
       const fx = Math.sin(v.facing), fz = Math.cos(v.facing);
       const T = typeOf(v); return { id: v.id, age: 30, pose: 'sit', moving: false, facing: v.facing, pos: toRender(v.pos[0] + fx * T.seat[0], v.pos[1] + T.seat[1] - 0.5, v.pos[2] + fz * T.seat[0]) };
     });
+    // and its driver got out: standing by what's left of it (unless there's nothing left of it, or them)
+    for (const id of trafficGone) { if (!id.startsWith('tr:') || goneAtBoot.has(id)) continue; const seen = outSince.get(id) ?? outSince.set(id, t).get(id); if (t - seen > 300) continue; const D = wrecks.get(id);      // (a few minutes by it, then they've gone off to sort it out)
+      if (!D?.pos || D.exploded || Math.abs(D.pos[0] - ctrl.pos[0]) > 160 || Math.abs(D.pos[2] - ctrl.pos[2]) > 160) continue;
+      const f = D.facing ?? 0, W = (D.W || 1.8) / 2 + 0.9, x = D.pos[0] + Math.cos(f) * W, z = D.pos[2] - Math.sin(f) * W, y = world.groundAt(x, z, D.pos[1] + 1).h;
+      riders.push({ id: id + ':driver', age: 30, pose: 'stand', moving: false, facing: Math.atan2(D.pos[0] - x, D.pos[2] - z), pos: toRender(x, y, z) }); }
+    window.__riders = riders;
     // the people of the ring you're in, each standing up off its own bit of the curved floor
     const ringPeople = []; { const rb = !flight ? ringHere() : null;
       if (rb) { const g = rb.plan.ring, [, ps] = world.toB(rb, ctrl.pos[0], ctrl.pos[2]), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), V = new THREE.Vector3(), S = new THREE.Vector3();
@@ -2271,6 +2315,7 @@ async function start(fresh) {
       if (!inSpace) rocks.update(ctrl.pos[0], ctrl.pos[2], agl, spd); }
     if (!fauna) fauna = window.__fauna = new FaunaSim(planet, { resolve: (x, z, y, r) => world.resolve(x, z, y + 0.1, r, 1.4, true), isDead: id => { const v = store.getDelta('fauna:' + id); return v && v.until > clock.now(); }, markDead: (id, secs) => store.patchDelta('fauna:' + id, { until: clock.now() + secs }), onStruck: A => { hurtPlayer?.(14 + A.sp.size * 6); ctrl.knock(Math.sin(A.facing) * 7, Math.cos(A.facing) * 7, 3.5, 0.7); } });
     if (ride && ride.speed > 5) fauna.struck(ride.pos[0], ride.pos[2], ride.speed);
+    runOver(t);
     if (!inSpace) { fauna.update(dt, ctrl.pos[0], ctrl.pos[2], ctrl.pos[1]); faunaView.update(dt, fauna, ctrl.pos[0], ctrl.pos[2]); }
     if (!inSpace) { { const v = flight ? flight.vel : ride?.vel; outposts.update(ctrl.pos[0], ctrl.pos[2], flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, v ? Math.hypot(v[0] || 0, v[2] || 0) : 0); } rivers.update(ctrl.pos[0], ctrl.pos[2], dt); harbour?.update(ctrl.pos[0], ctrl.pos[2], clock.now(), dt); }
     if (!flight || flight.altitude() < 60) grass.update(ctrl.pos[0], ctrl.pos[2], dt, weatherAt(planet, t).wind, cam.yaw + (cam.cur != null && cam.cur < 1 ? 0 : 0)); grass.group.visible = (!flight || flight.altitude() < 60) && !params.has('nograss');

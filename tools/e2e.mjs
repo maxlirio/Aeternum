@@ -600,6 +600,16 @@ try {
   check(cr.model && cr.moved > 20, `the model's own metal moved (${cr.moved} points)`);
   check(cr.hurt, 'and it hurt');
   check(cr.fire && cr.blew && cr.burnt > 0.3, 'set alight it went up and left a burnt wreck');
+  console.log('[run over]');
+  { const ro = await ev(`(async () => { const O = ORBIS, wait = ms => new Promise(r => setTimeout(r, ms)), { Ride } = await import('./js/player/ride.js'); O.store.player.custody = null; O.ctrl.mode = 'walk';
+      let a = null; for (let k = 0; k < 40 && !a; k++) { a = O.getAgents().find(x => !x.bKey && x.pose !== 'lie' && !String(x.id).startsWith('tr:') && x.person && !O.store.getDelta('hurt/' + x.person.id) && !(x.person.job && O.pop.jobById.get(x.person.job).security)); if (!a) { O.clock.advance(O.planet.dayLength / 48); await wait(300); } }
+      if (!a) return { none: true };
+      let R = null; for (let i = 0; i < 90; i++) { const p = O.getAgents().find(x => x.id === a.id)?.pos || a.pos;
+        if (!R) { const x = p[0] - 9, z = p[2]; R = new Ride(O.world, O.planet, { type: 'speeder', colour: 1, id: 'e2e-runover', pos: [x, O.world.groundAt(x, z, p[1] + 2).h, z], facing: Math.PI / 2 }); O.setRideForTest(R); }
+        R.facing = Math.atan2(p[0] - R.pos[0], p[2] - R.pos[2]); R.speed = 13; await new Promise(r => requestAnimationFrame(r)); if (O.store.getDelta('hurt/' + a.person.id)) break; }
+      const H = O.store.getDelta('hurt/' + a.person.id); if (O.getRide2()) { dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' })); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' })); await wait(300); }
+      return { hp: H?.hp, down: !!H?.downUntil, assault: O.store.events.some(e => e.type === 'assault' && e.victim === a.person.id && e.weapon === 'vehicle') }; })()`);
+    check(ro.none || (ro.hp < 100 && ro.down && ro.assault), `drove a speeder into someone: knocked down, ${Math.round(ro.hp)}% health, an assault on record`); }
   console.log('[death]');
   { const before = await ev(`(async () => { const O = ORBIS, P = O.store.player, { giveItem } = await import('./js/sim/processes/use.js');
       giveItem(P, 'carbine', 1); P.weapon = 'carbine'; P.credits = 1000; P.hp = 100; P.wounds = 0; P.custody = null; P.warrant = null; O.ctrl.mode = 'walk'; O.mortal = true;
