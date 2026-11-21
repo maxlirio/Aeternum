@@ -140,7 +140,7 @@ function layoutRoads(s, rng) {
       const m = id.get((n.i + di) + ',' + (n.j + dj));
       if (m === undefined) continue;
       const arterial = (dj === 0 && n.j === j0) || (di === 0 && n.i === i0);
-      edges.push({ a: id.get(n.i + ',' + n.j), b: m, arterial });
+      edges.push({ a: id.get(n.i + ',' + n.j), b: m, arterial, through: dj === 0 && n.j === j0 });      // (through: the main road, which runs on out of town both ways)
     }
   }
   // Thin the grid so blocks vary, without ever disconnecting it.
@@ -159,9 +159,12 @@ function layoutRoads(s, rng) {
     if (e.arterial || !rng.chance(0.22)) continue;
     const trial = edges.filter(x => x !== e);
     const deg = n => trial.filter(x => x.a === n || x.b === n).length;
-    if (deg(e.a) === 0 || deg(e.b) === 0) continue;
+    if (deg(e.a) < 2 || deg(e.b) < 2) continue;      // (never leaves a street that goes nowhere)
     if (connected(trial)) edges = trial;
   }
+  // The rim cuts the grid off unevenly: a side street left with one way in and none out is dropped, back to the street it came off, so every street goes through
+  for (let cut = true; cut;) { cut = false; const deg = new Map(); for (const e of edges) for (const k of [e.a, e.b]) deg.set(k, (deg.get(k) || 0) + 1);
+    const keep = edges.filter(e => e.through || (deg.get(e.a) > 1 && deg.get(e.b) > 1)); if (keep.length < edges.length) { edges = keep; cut = true; } }
   s.nodes = nodes;
   for (const e of edges) {
     const A = nodes[e.a], B = nodes[e.b];

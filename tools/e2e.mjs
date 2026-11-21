@@ -515,10 +515,7 @@ try {
     key('KeyW', false); await wait(1500); dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' })); out.speed = Math.round(O.getRide2()?.speed || 0);
     key('KeyE'); await wait(300); out.jumpedOut = !O.getRide2() && O.ctrl.mode === 'walk'; out.car = O.getVehicles().some(v => v.id === sky.id);
     for (let i = 0; i < 100 && !O.ctrl.grounded; i++) await wait(100); out.hpAfterFall = Math.round(P.hp);
-    // a passer-by: grab, throw
-    P.hp = 100; P.wounds = 0; P.heat = null; const W = await import('./js/gen/citytraffic.js'); let w = null; const [wx, wz] = c.toWorld(G.lineAt(c, 0, 4) + 14, G.lineAt(c, 1, 3) + 40); O.ctrl.pos = [wx, c.h + 0.3, wz]; O.ctrl.vel = [0, 0, 0]; await wait(500);
-    for (let i = 0; i < 30 && !w; i++) { w = W.cityWalkers(c, O.clock.now(), O.ctrl.pos[0], O.ctrl.pos[2], 80, 20).filter(x => !M.out.has(x.id))[0]; if (!w) await wait(200); }
-    if (w) { const tw = () => W.cityWalkers(c, O.clock.now() + 0.1, w.pos[0], w.pos[2], 12, 40).find(x => x.id === w.id); let n = tw(); O.ctrl.pos = [n.pos[0] - 1, n.pos[1], n.pos[2]]; O.ctrl.facing = Math.PI / 2; O.ctrl.vel = [0, 0, 0]; await wait(30); key('KeyG'); out.grabbed = !!M.carry; const p0 = M.carry?.pos?.slice(); await wait(200); key('KeyG'); out.thrown = M.bodies.some(b => b.id === w.id); await wait(1800); const b = M.bodies.find(x => x.id === w.id); out.landed = b && !b.flying; out.flew = b ? Math.round(Math.hypot(b.pos[0] - p0[0], b.pos[2] - p0[2]) * 10) / 10 : 0; out.heat3 = +M.heat(O.clock.now()).toFixed(1); }
+    P.hp = 100; P.wounds = 0; P.heat = null;
     // smash something
     const B = G.cityBlock(c, 2, 2), idx = B.props.findIndex(p => p.k.startsWith('bin') || p.k === 'bench' || p.k.startsWith('lamp')); const pr = B.props[idx], [px, pz] = c.toWorld(pr.u, pr.v); O.ctrl.pos = [px - 1.3, c.h + 0.3, pz]; O.ctrl.facing = Math.PI / 2; O.cam.yaw = O.ctrl.facing; await wait(200); P.weapon = null; O.attack(); await wait(200); out.smashed = !!O.store.getDelta('cprop/2,2/' + idx) || Object.keys(O.store.deltas || {}).some(k => k.startsWith('cprop/')); out.crimes = O.store.events.filter(e => e.type === 'city_crime').map(e => e.kind).filter((k, i, l) => l.indexOf(k) === i);
     // through a real window: a walk-in building's wall, from inside
@@ -532,7 +529,6 @@ try {
   check(sb.took && sb.fly && sb.driverOut && sb.hot >= 0.2, `took it: driver out, in the air, heat ${sb.hot}`);     // (hijacking a moving car: 2.2 if anyone below saw it, a quarter if not; one that had stopped is theft, 1 or a quarter)
   check(sb.speed > 2, `flew it (${sb.speed} m/s)`);     // (in a busy lane it can clip someone: that counts as a crash now)
   check(sb.jumpedOut && sb.car, `jumped out of it; it's still there, mine; ${sb.hpAfterFall}% health after the fall`);
-  check(sb.grabbed && sb.thrown && sb.landed && sb.flew > 3, `grabbed a passer-by, threw them ${sb.flew} m; heat ${sb.heat3}`);
   check(sb.smashed, `smashed street furniture; crimes on record: ${(sb.crimes || []).join(', ')}`);
   check(sb.body?.outside && sb.windowCrime, `threw someone out through a real window (${JSON.stringify(sb.body)})`);
   console.log('[walking into the country]');

@@ -75,16 +75,16 @@ export function trafficNear(planet, s, t, x, z, R = 500, delayOf = null) {
   const G = roads(planet, s), res = [];
   for (const car of G.cars) {
     const T = t - (delayOf ? delayOf(car.id) : 0), n = Math.floor(T / car.period + car.off), tr = tripOf(planet, s, G, car, n), tau = T - tr.t0;
-    let px, py, pz, fx, fz, speed = 0;
+    let px, py, pz, fx, fz, speed = 0, along = null;
     if (!tr.pts || tau < 0 || tau * tr.speed >= tr.cum.at(-1)) {         // parked at the kerb (or gone, off down the road)
       const St = !tr.pts ? tr.B : tau < 0 ? tr.A : tr.B; [px, py, pz] = St.p; fx = St.fx ?? 1; fz = St.fz ?? 0;
     } else {
       const d = tau * tr.speed; let i = 1; while (i < tr.cum.length - 1 && tr.cum[i] < d) i++;
       const A = tr.pts[i - 1], B = tr.pts[i], f = (d - tr.cum[i - 1]) / (tr.cum[i] - tr.cum[i - 1] || 1), l = Math.hypot(B[0] - A[0], B[2] - A[2]) || 1;
-      px = A[0] + (B[0] - A[0]) * f; py = A[1] + (B[1] - A[1]) * f; pz = A[2] + (B[2] - A[2]) * f; fx = (B[0] - A[0]) / l; fz = (B[2] - A[2]) / l; speed = tr.speed;
+      px = A[0] + (B[0] - A[0]) * f; py = A[1] + (B[1] - A[1]) * f; pz = A[2] + (B[2] - A[2]) * f; fx = (B[0] - A[0]) / l; fz = (B[2] - A[2]) / l; speed = tr.speed; along = d;
     }
     if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
-    res.push({ id: car.id, type: car.type, pos: [px, py + 0.05, pz], facing: Math.atan2(fx, fz), colour: car.colour, speed, parked: speed === 0, trip: tr });
+    res.push({ id: car.id, type: car.type, pos: [px, py + 0.05, pz], facing: Math.atan2(fx, fz), colour: car.colour, speed, parked: speed === 0, trip: tr, along });
   }
   return linkCars(planet, t, x, z, R, delayOf, res);
 }
@@ -112,7 +112,7 @@ function linkCars(planet, t, x, z, R, delayOf, res) {
       const u = ((trip % 1) + 1) % 1; let f = u * (W.length - 1); if (dir < 0) f = W.length - 1 - f;
       const i = Math.min(W.length - 2, Math.floor(f)), g = f - i, A = W[i], B = W[i + 1];
       let px = A[0] + (B[0] - A[0]) * g, pz = A[2] + (B[2] - A[2]) * g, ux = (B[0] - A[0]) * dir, uz = (B[2] - A[2]) * dir; const l = Math.hypot(ux, uz) || 1; ux /= l; uz /= l;
-      px += uz * LAT; pz -= ux * LAT;       // on the right
+      px -= uz * LAT; pz += ux * LAT;       // on the right (as the town traffic: right of heading (fx, fz) is (-fz, fx))
       if ((px - x) ** 2 + (pz - z) ** 2 > R * R) continue;
       const lap = Math.floor(trip);
       res.push({ id, type: pickBy(hashInts(sd, [k, 7, lap]) / 4294967296), pos: [px, A[1] + (B[1] - A[1]) * g + 0.05, pz], facing: Math.atan2(ux, uz), colour: hashInts(sd, [k, 8, lap]) % VEHICLE_COLOURS, speed: pace, parked: false });

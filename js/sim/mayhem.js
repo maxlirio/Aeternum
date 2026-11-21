@@ -1,7 +1,7 @@
 // What you can do to the city, and what it does back. No three.js: reads logical data only.
 //   · vehicles are things: stand on one, land on one (a moving one carries you), parked ones are solid
 //   · any vehicle can be taken: drag the driver out, or fall out, if it's in the air
-//   · people can be grabbed and thrown; bodies fly, hit walls, go through windows, and land hard
+//   · people hit by a car or a blast fly, hit walls, go through windows, and land hard
 //   · street furniture and glass break when hit
 //   · all of it is a crime if someone saw, and heat brings the city's officers
 // Stored as deltas: `cityveh/…`, `cprop/…`, `glass/…`; heat on the player.
@@ -18,7 +18,7 @@ const box = car => { if (car.ship) { const L = LAYOUTS[car.ship]; return { L: L.
 export class Mayhem {
   constructor({ world, store, planet, city, view, say = () => {} }) {
     Object.assign(this, { world, store, planet, city, view, fleet: view.fleet, say });
-    this.rider = null; this.bodies = []; this.officers = []; this.out = new Set(); this.carry = null; this.lastY = null;
+    this.rider = null; this.bodies = []; this.officers = []; this.out = new Set(); this.lastY = null;
     for (const i of store.player.cityCars || []) view.taken.add(i);
   }
   // ---- heat
@@ -99,7 +99,7 @@ export class Mayhem {
 
   // ---- bodies in the air
   thrown(b) { this.bodies.push({ pos: b.pos.slice(), vel: b.vel.slice(), facing: 0, flying: true, until: Infinity, ...b }); }
-  // Throw someone you're carrying, or knock a passer-by flying.
+  // Bodies knocked flying.
   stepBodies(dt, t, hooks = {}) {
     const W = this.world;
     for (const b of this.bodies) {
@@ -162,11 +162,10 @@ export class Mayhem {
     }
     if (want === 0 && this.officers.length) this.officers = this.officers.filter(o => Math.hypot(o.pos[0] - ctrl.pos[0], o.pos[2] - ctrl.pos[2]) < 40 && heat > 0.5);
   }
-  holds(id) { return this.carry?.id === id || this.bodies.some(b => b.id === id); }
+  holds(id) { return this.bodies.some(b => b.id === id); }
   // In the crowd's terms: { id, pos, facing, moving, pose, age, uniform }
   crowd() {
     const out = [];
-    if (this.carry) out.push({ id: this.carry.id, pos: this.carry.pos, facing: 0, moving: false, pose: 'air', age: this.carry.age });
     for (const b of this.bodies) out.push({ id: b.id, pos: b.pos, facing: b.facing, moving: false, pose: b.flying ? 'air' : b.pose || 'lie', age: b.age || 35 });
     for (const o of this.officers) out.push({ id: o.id, pos: o.pos, facing: o.facing, moving: !!o.moving, pose: 'walk', age: 34, uniform: true });
     return out;

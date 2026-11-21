@@ -73,7 +73,7 @@ function buildDay(pop, p, D) {
   };
   const stroll = () => {
     const home = pop.buildingByKey.get(p.homeB);
-    const node = rng.pick(pop.s.nodes.filter(n => Math.hypot(n.u - home.O[0], n.v - home.O[1]) < 260 && Math.hypot(n.u - home.O[0], n.v - home.O[1]) > 40));
+    const node = rng.pick(pop.s.nodes.filter((n, k) => pop.s.roads.some(r => r.na === k || r.nb === k) && Math.hypot(n.u - home.O[0], n.v - home.O[1]) < 260 && Math.hypot(n.u - home.O[0], n.v - home.O[1]) > 40));
     if (!node) return;
     const road = pop.s.roads.findIndex(r => r.na === pop.s.nodes.indexOf(node) || r.nb === pop.s.nodes.indexOf(node));
     const r = pop.s.roads[road], off = r.w / 2 + 1.6;

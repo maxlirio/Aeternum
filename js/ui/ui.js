@@ -116,7 +116,7 @@ export class UI {
         <button data-a="backup">Download backup</button>
         <button data-a="restore">Restore from backup…</button>
         <button data-a="log">World log</button>
-        <details class="controls"><summary>Controls</summary><p>Mouse look · WASD move · Shift run · Space jump, grab a wall · E use, talk, take · click or R attack · G grab, throw · F force, hotwire · I inventory · L light · J work · C you<br><br>On a wall: WASD climb · Shift faster · Space leap · Q let go<br>Vehicles: W/S throttle · A/D steer · Shift boost · Space/Q up and down<br>Flying: W/S thrust · mouse stick · A/D rudder · Space/Q lift · B brakes · X assist · V view · hold click guns · F missile · G flares</p></details>`, 'menu');
+        <details class="controls"><summary>Controls</summary><p>Mouse look · WASD move · Shift run · Space jump, grab a wall · E use, talk, take · click or R attack · G grenade · F force, hotwire · I inventory · L light · J work · C you<br><br>On a wall: WASD climb · Shift faster · Space leap · Q let go<br>Vehicles: W/S throttle · A/D steer · Shift boost · Space/Q up and down<br>Flying: W/S thrust · mouse stick · A/D rudder · Space/Q lift · B brakes · X assist · V view · hold click guns · F missile · G flares</p></details>`, 'menu');
       p.addEventListener('click', e => { const a = e.target.dataset.a; if (a) res(a); });
     });
   }

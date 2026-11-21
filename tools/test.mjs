@@ -366,7 +366,7 @@ suites.careers = async () => {
     check(W.A.st.getDelta('job/' + clerk.id)?.holder === W.pl.id, 'the position is a delta, no longer listed');
     check(!vacancies(pop, W.A.st, EPOCH).some(j => j.id === clerk.id), 'not listed once taken');
     const worked = W.A.st.events.filter(e => e.type === 'shift_worked' && e.t > W.hiredAt);
-    let expect = 0; for (let D = dayIndex(p, W.hiredAt) - 1; D <= dayIndex(p, W.T); D++) { const sh = shiftOn(p, W.pl.job, D); if (sh && sh.t0 >= W.hiredAt && sh.t1 <= W.T) expect++; }
+    let expect = 0; for (let D = dayIndex(p, W.hiredAt) - 1; D <= dayIndex(p, W.T); D++) { const sh = shiftOn(p, W.pl.job, D); if (sh && sh.t1 <= W.T && sh.t1 - Math.max(sh.t0, W.hiredAt) >= 0.5 * (sh.t1 - sh.t0)) expect++; }      // (a shift you were hired into partway counts if you were there for half of it)
     check(worked.length === expect && expect >= 4, `worked every shift in the week (${worked.length}/${expect})`);
     check(W.pl.credits - W.c0 === W.A.st.events.filter(e => e.type.startsWith('shift_') && e.t > W.hiredAt).reduce((n, e) => n + e.pay, 0) && W.pl.credits > W.c0, 'wages paid into credits: +' + (W.pl.credits - W.c0) + ' vs ' + JSON.stringify(W.A.st.events.filter(e => e.t > W.hiredAt).map(e => [e.type, e.pay, e.frac])));
     check(JSON.stringify(W.A.st.events) === JSON.stringify(V.A.st.events) && W.pl.credits === V.pl.credits && JSON.stringify(W.pl.skills) === JSON.stringify(V.pl.skills),
@@ -661,6 +661,7 @@ suites.climb = async () => {
       if (pr.soft || pr.h < 0.6 || pr.h > 1.2 || pr.y > 0.1 || tried >= 10) continue;
       const room = plan.rooms.find(r => r.k === 0 && pr.x0 > r.rect[0] + 1.2 && pr.x1 < r.rect[2] - 1.2 && pr.z0 > r.rect[1] + 1.2 && pr.z1 < r.rect[3] - 1.2);
       if (!room || pr.x1 - pr.x0 < 0.6 || pr.z1 - pr.z0 < 0.6) continue;
+      if (plan.props.some(q => q !== pr && q.x0 < pr.x1 && q.x1 > pr.x0 && q.z0 < pr.z1 && q.z1 > pr.z0)) continue;      // (a chair pushed in under it: you'd climb onto the chair)
       const cx = (pr.x0 + pr.x1) / 2, start = buildingToWorld(s, b, cx, 0, pr.z0 - 0.75), target = buildingToWorld(s, b, cx, 0, pr.z0 + 0.3);
       const c = new Controller(world, start); run(c, {}, 0.3);
       c.facing = Math.atan2(target[0] - start[0], target[2] - start[2]);
@@ -1084,6 +1085,24 @@ suites.traffic = async () => {
     check(x1 < 0.3 && x1 > -6, `a car stops at the red line (${x1.toFixed(1)} m from it)`); check(x1 - x2 > 4.6, `the one behind queues, not overlapping (${(x1 - x2).toFixed(1)} m centre to centre)`);
     let x3 = -50; const M = new RoadLife(); for (let k = 0; k < 300; k++) { M.step(1 / 30, [{ id: 'b:1', type: 'sedan', pos: [0, 0, x3], facing: 0, speed: 14 }], [[0, 0, 0]]); x3 += 14 * M.rateOf('b:1') / 30; } check(x3 < -2.2, `a car with room to stop stops for someone in the road (${x3.toFixed(1)} m short)`); check(M.delayOf('b:1') > 1, 'and that puts it behind its schedule');
     for (let k = 0; k < 2000; k++) M.step(1 / 30, []); check(M.delayOf('b:1') === 0, 'out of sight it catches up'); }
+  // every street goes through: no dead ends in any town
+  { let dead = 0, towns = 0; for (let n = 0; n < 8; n++) { const q = makePlanet(uni(n), HOMEWORLD); for (const [a, b] of [[0, 0], [1, 0], [0, 1], [-1, -1]]) { const t2 = getSettlement(q, a, b); if (!t2?.roads?.length) continue; towns++; const deg = new Map(); for (const r of t2.roads) for (const k of [r.na, r.nb]) deg.set(k, (deg.get(k) || 0) + 1); const outs = new Set(t2.outRoads.map(o => o.node)); for (const [k, d] of deg) if (d === 1 && !outs.has(k)) dead++; } }
+    check(towns > 10 && dead === 0, `no dead-end streets (${dead} in ${towns} towns)`); }
+  // everyone keeps to the right: the town's drivers on its streets, and the through traffic between towns (the two share the road out)
+  { const { linksOfTown } = await import('../js/gen/network.js'), q = realPlanet(uni(4), HOMEWORLD), t2 = getSettlement(q, 0, 0); linksOfTown(q, t2);
+    const lines = [...outRoutes(q, t2).map(r => r.pts)], { knownLinks } = await import('../js/gen/network.js'); for (const r of knownLinks(q)) lines.push(r.pts);
+    const side = { town: [0, 0], link: [0, 0] };
+    for (let t3 = T; t3 < T + 1500; t3 += 50) for (const v of trafficNear(q, t2, t3, t2.cx, t2.cz, 6000)) { if (v.parked) continue; const fx = Math.sin(v.facing), fz = Math.cos(v.facing); let best = 1e9, sd = 0;
+      const look = (A, B) => { const ux = B[0] - A[0], uz = B[1] - A[1], l2 = ux * ux + uz * uz || 1, f = ((v.pos[0] - A[0]) * ux + (v.pos[2] - A[1]) * uz) / l2; if (f < 0 || f > 1) return; const dx = v.pos[0] - A[0] - ux * f, dz = v.pos[2] - A[1] - uz * f, d = Math.hypot(dx, dz); if (d < best) { best = d; sd = (dx * -uz + dz * ux) * Math.sign(fx * ux + fz * uz); } };
+      for (const L of lines) for (let i = 0; i + 1 < L.length; i++) look(L[i], L[i + 1]); if (!v.trip) for (const r of t2.roads) look(t2.toWorld(...r.a), t2.toWorld(...r.b));
+      if (best < 5) side[v.trip ? 'town' : 'link'][sd > 0 ? 0 : 1]++; }
+    check(side.town[0] > 50 && side.town[1] < side.town[0] * 0.03, `town traffic keeps right (${side.town})`); check(side.link[0] > 50 && side.link[1] < side.link[0] * 0.03, `traffic between towns keeps right (${side.link})`); }
+  // a driver brakes for what's on its way, round a corner too, not only dead ahead
+  { const { RoadLife } = await import('../js/sim/roadlife.js'), q = makePlanet(uni(4), HOMEWORLD), t2 = getSettlement(q, 0, 0); let car = null, t3 = T;
+    for (; t3 < T + 3000 && !car; t3 += 3) car = trafficNear(q, t2, t3, t2.cx, t2.cz, 1e6).find(v => { if (v.parked || !v.trip?.pts || v.along == null) return false; const P = v.trip.pts, C = v.trip.cum; let i = 1; while (i < C.length - 1 && C[i] < v.along + 30) i++; const p = P[i], fx = Math.sin(v.facing), fz = Math.cos(v.facing), dx = p[0] - v.pos[0], dz = p[2] - v.pos[2]; return C.at(-1) > v.along + 40 && Math.abs(dx * fz - dz * fx) > 4; });
+    if (check(car, 'found a driver with a turn ahead')) { const P = car.trip.pts, C = car.trip.cum; let i = 1; while (i < C.length - 1 && C[i] < car.along + 30) i++; const ob = [P[i][0], P[i][1], P[i][2]], M = new RoadLife(); let close = 1e9;
+      for (let k = 0; k < 600; k++) { const tt = t3 - 3 + k / 30, v = trafficNear(q, t2, tt, ob[0], ob[2], 400, M.delayOf).find(x => x.id === car.id); if (!v) break; M.step(1 / 30, [v], [ob]); close = Math.min(close, Math.hypot(v.pos[0] - ob[0], v.pos[2] - ob[2])); }
+      check(close > 2.2, `it stops short of something round the turn (closest ${close.toFixed(1)} m)`); } }
   // being in a vehicle's box
   const { struckBy } = await import('../js/gen/traffic.js'), V = { type: 'sedan', pos: [0, 0, 0], facing: 0 };
   check(struckBy(V, 0, 0, 2, 0.3) && struckBy(V, 1, 0.5, 0, 0.3), 'standing in front of or beside a car: struck'); check(!struckBy(V, 3, 0, 0, 0.3) && !struckBy(V, 0, 0, 4, 0.3) && !struckBy(V, 0, 5, 0, 0.3), 'clear of it, or above it: not struck');
@@ -1235,7 +1254,7 @@ const CURBV = C => C.CURB + 0.02;
 suites.climbing = async () => {
   const C = await import('../js/gen/city.js');
   const { CollisionWorld } = await import('../js/player/collision.js');
-  const { Climber, BODY } = await import('../js/player/climber.js');
+  const { Climber, BODY } = await import('../js/player/climber.js'), { outOf } = await import('../js/gen/holds.js');
   const p = await classicPlanet(1), c = C.getCity(p), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => true), base = c.h + C.CURB; W.flora = false;
   const find = (dist, test) => { for (let a = 0; a < 3600; a++) { const B = C.cityBlock(c, (a % 60) - 30, Math.floor(a / 60) - 30); if (B.district !== dist) continue; for (const b of B.buildings) if (test(b)) return b; } return null; };
   // stand at a wall (the -u side of a tier), by its corner, and grab it: walls are climbed at their corners only
@@ -1256,7 +1275,7 @@ suites.climbing = async () => {
           prev[k] = { planted, h: L.hold, p: L.p.slice() };
         }
         st.minPlanted = Math.min(st.minPlanted, pl);
-        st.minOut = Math.min(st.minOut, Math.max(...[...new Set(['lh', 'rh', 'lf', 'rf'].map(k => cl.limb[k].hold?.face).filter(Boolean))].map(f => (cl.pelvis[0] - f.o[0]) * f.n[0] + (cl.pelvis[2] - f.o[1]) * f.n[1])));
+        st.minOut = Math.min(st.minOut, Math.max(...[...new Set(['lh', 'rh', 'lf', 'rf'].map(k => cl.limb[k].hold?.face).filter(Boolean))].map(f => outOf(f, cl.pelvis[0], cl.pelvis[2], cl.pelvis[1]))));      // (to the wall's own surface at that height: a recessed band is further off)
       }
       st.stuck = cl.blocked ? st.stuck + 1 : 0; if (st.stuck > 240) break;
     }
@@ -1784,15 +1803,16 @@ suites.roadrules = async () => {
   const Sg = townSignals(s)[0]; let viaV = Sg.arms.vm; check(Sg.arms.vm || Sg.arms.up || Sg.arms.um || Sg.arms.vp, 'it has roads coming in');
   // a time this junction is red for the road along v, and one it's green; and the world heading of +v
   let tRed = null, tGreen = null; for (let t = 0; t < 40; t += 0.5) { if (tRed === null && townLight(Sg, t) === 1) tRed = t; if (tGreen === null && townLight(Sg, t) === 0) tGreen = t; }
-  const fx = -s.sin, fz = s.cos, drive = (t0, v0, v1, speed, side = 2) => { const store = { player: { credits: 1000, id: 'me' }, touchPlayer() {}, log(e) { (this.events ||= []).push(e); }, events: [] }, RR = new RoadRules({ planet: p, store, signalAt: () => 0, enforce: !drive.free }), ride = { pos: [0, s.h, 0], facing: Math.atan2(fx, fz), speed, air: false }; const dt = 0.1; let t = t0; for (let v = v0; (v1 > v0 ? v < v1 : v > v1); v += Math.sign(v1 - v0) * speed * dt) { const [x, z] = s.toWorld(Sg.u + side, v); ride.pos = [x, s.h, z]; RR.step(dt, t, ride, s, null, null); t += dt; } return store; };
+  const fx = -s.sin, fz = s.cos, drive = (t0, v0, v1, speed, side = -2) => { const store = { player: { credits: 1000, id: 'me' }, touchPlayer() {}, log(e) { (this.events ||= []).push(e); }, events: [] }, RR = new RoadRules({ planet: p, store, signalAt: () => 0, enforce: !drive.free }), ride = { pos: [0, s.h, 0], facing: Math.atan2(fx, fz), speed, air: false }; const dt = 0.1; let t = t0; for (let v = v0; (v1 > v0 ? v < v1 : v > v1); v += Math.sign(v1 - v0) * speed * dt) { const [x, z] = s.toWorld(Sg.u + side, v); ride.pos = [x, s.h, z]; RR.step(dt, t, ride, s, null, null); t += dt; } return store; };
   const run = n => drive(n, Sg.v - Sg.hv - 40, Sg.v + Sg.hv + 8, 10);
   // find a start whose crossing lands in the red phase, and one that lands in green
   let ranRed = null, wentGreen = null; for (let t = 0; t < 34 && (!ranRed || !wentGreen); t += 1) { const st = townLight(Sg, t + 3), en = townLight(Sg, t + 6); const S = run(t); if (st !== 0 && en !== 0 && !ranRed) ranRed = S; if (st === 0 && en === 0 && !wentGreen) wentGreen = S; }
   check(ranRed.events.some(e => e.kind === 'red') && ranRed.player.credits < 1000, 'through a red light: fined');
   check(!wentGreen.events.some(e => e.kind === 'red'), 'through on green: no fine');
-  check(townRedAhead(s, ...s.toWorld(Sg.u + 2, Sg.v - Sg.hv - 20), fx, fz, tRed)?.d > 0, 'traffic sees the red ahead');
-  check(!townRedAhead(s, ...s.toWorld(Sg.u + 2, Sg.v - Sg.hv - 20), fx, fz, tGreen), 'and nothing on green');
+  check(townRedAhead(s, ...s.toWorld(Sg.u - 2, Sg.v - Sg.hv - 20), fx, fz, tRed)?.d > 0, 'traffic sees the red ahead');
+  check(!townRedAhead(s, ...s.toWorld(Sg.u - 2, Sg.v - Sg.hv - 20), fx, fz, tGreen), 'and nothing on green');
   const slow = drive(tRed, Sg.v - Sg.hv - 40, Sg.v - Sg.hv - 5, 8); check(!slow.events.length, 'stopping short of the line: nothing');
+  const left = drive(tGreen, Sg.v - Sg.hv - 60, Sg.v - Sg.hv - 10, 9, 2); check(left.events.some(e => e.kind === 'side'), 'on the left of the street (heading +v, +u is the left): wrong side');
   const fast = drive(tGreen, Sg.v - Sg.hv - 200, Sg.v - Sg.hv - 20, 30); check(fast.events.some(e => e.kind === 'speed'), 'speeding in town: fined');
   drive.free = true; { let r = null; for (let t = 0; t < 34 && !r; t += 1) { const st = townLight(Sg, t + 3), en = townLight(Sg, t + 6); if (st !== 0 && en !== 0) r = run(t); } check(r && !r.events.length && r.player.credits === 1000, 'the player is never fined: traffic rules are for traffic'); }
   const fast2 = drive(tGreen, Sg.v - Sg.hv - 200, Sg.v - Sg.hv - 20, 30); check(!fast2.events.length, 'speeding as the player: nothing'); drive.free = false;

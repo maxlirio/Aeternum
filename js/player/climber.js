@@ -278,8 +278,9 @@ export class Climber {
     const k = 1 - Math.exp(-dt * stiff);
     this.pelvis = this.offWall(lerp3(this.pelvis, sol.p, k));
     // planted limbs are law: if the smoothing lags, pull the body back into reach of them
-    for (let it = 0; it < 3; it++) for (const q of LIMBS) { const L = this.limb[q]; if (L.free || q === this.moving) continue;
+    for (let it = 0; it < 10; it++) for (const q of LIMBS) { const L = this.limb[q]; if (L.free || q === this.moving) continue;
       const v = sub(L.p, this.jointOf(q, this.pelvis)), d = len(v), M = isHand(q) ? ARM : LEG; if (d > M) this.pelvis = add(this.pelvis, v, 1 - M / d); }
+    { const off = this.offWall(this.pelvis), ok = LIMBS.every(q => { const L = this.limb[q]; return L.free || q === this.moving || len(sub(L.p, this.jointOf(q, off))) <= (isHand(q) ? ARM : LEG) * 1.005; }); if (ok) this.pelvis = off; }      // (and off the wall again, if that keeps them all in reach)
     for (const q of LIMBS) { const L = this.limb[q]; if (L.free && !isHand(q)) L.p = lerp3(L.p, this.restEnd(q, this.pelvis), 1 - Math.exp(-dt * 6)); }
     if (this.moving) {       // the limb in the air stays on the end of its arm or leg
       const L = this.limb[this.moving], J = this.jointOf(L.k, this.pelvis), v = sub(L.p, J), d = len(v), M = isHand(L.k) ? ARM : LEG;
@@ -396,8 +397,10 @@ export class Climber {
   // ---- top-out: over the parapet onto whatever's up there
   startTop() {
     const { lh, rh } = this.limb;
-    if (lh.hold?.kind !== 'top' || rh.hold?.kind !== 'top') return false;
-    const n = lh.hold.n, y = lh.hold.y, c = lerp3(lh.hold.p, rh.hold.p, 0.5), W = this.world;
+    // both hands on the top; or one, with the other just under it (round a corner, a course below): a body mantles off one hand on the edge
+    const T = lh.hold?.kind === 'top' ? lh : rh.hold?.kind === 'top' ? rh : null, O = T === lh ? rh : lh;
+    if (!T || (O.hold?.kind !== 'top' && !(O.hold && T.hold.y - O.hold.p[1] < 0.6))) return false;
+    const n = T.hold.n, y = T.hold.y, c = O.hold.kind === 'top' ? lerp3(lh.hold.p, rh.hold.p, 0.5) : T.hold.p.slice(), W = this.world;
     const stand = [c[0] - n[0] * 0.75, y, c[2] - n[1] * 0.75], g = W.groundAt(stand[0], stand[2], y + 0.2).h;
     if (Math.abs(g - y) > 0.8 || W.ceilingAt(stand[0], stand[2], g) < g + 1.9 || W.solidAt(stand[0], g + 1.2, stand[2], 0.25)) { this.blocked = 'nothing to stand on up there'; return false; }
     const lead = this.limb.rf.p[1] >= this.limb.lf.p[1] ? 'rf' : 'lf', trail = lead === 'rf' ? 'lf' : 'rf', R = this.right(), s = lead === 'lf' ? -1 : 1;

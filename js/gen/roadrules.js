@@ -56,7 +56,7 @@ export function wrongSideTown(s, x, z, fx, fz) {
     if ((r.a[1] === r.b[1]) !== alongU) continue;
     const c = alongU ? r.a[1] : r.a[0], lo = Math.min(alongU ? r.a[0] : r.a[1], alongU ? r.b[0] : r.b[1]), hi = Math.max(alongU ? r.a[0] : r.a[1], alongU ? r.b[0] : r.b[1]), p = alongU ? u : v, off = (alongU ? v : u) - c;
     if (p < lo + r.w || p > hi - r.w || Math.abs(off) > r.w / 2) continue;
-    const right = alongU ? -Math.sign(du) : Math.sign(dv);     // (right of +v is +u; right of +u is -v)
+    const right = alongU ? Math.sign(du) : -Math.sign(dv);     // (right of heading (fx, fz) is (-fz, fx): of +v that is -u, of +u it is +v; the traffic keeps to it)
     return off * right < -0.8;
   }
   return false;

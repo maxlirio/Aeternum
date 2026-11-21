@@ -449,7 +449,7 @@ async function start(fresh) {
     if (e.code === 'KeyL') switchLight();
     if (e.code === 'KeyR') attack();
     if (e.code === 'KeyF' && myCraft) { if (myCraft.lockT < 1.2 || !war.fireMissile(myCraft)) ui.toast(myCraft.missiles ? (myCraft.lock && myCraft.lockT > 1.2 ? 'Reloading.' : 'No lock: keep a target ahead of you, from behind, for a second.') : 'No missiles left.', 'warn', 2000); else if (myCraft.lockT < 1.2) {} }
-    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft); else if (e.code === 'KeyG' && onLine()) throwGrenade(); else if (e.code === 'KeyG') grabOrThrow();
+    if (e.code === 'KeyG' && myCraft) war.dropFlares(myCraft); else if (e.code === 'KeyG' && onLine()) throwGrenade();
     if (e.code === 'KeyX' && flight) { flight.assist = !flight.assist; ui.toast(flight.assist ? 'Flight assist on: wings level themselves, the hover holds height.' : 'Flight assist <b>off</b>. Nothing will catch you.', flight.assist ? '' : 'warn', 4000); }
     if (e.code === 'KeyV' && flight) { cockpitView = !cockpitView; avatar.object.visible = false; }
     if (e.code === 'Escape') openMenu();
@@ -1526,8 +1526,6 @@ async function start(fresh) {
   }
   function stepMayhem(dt) {
     const t = clock.now(); mayhem.stepBodies(dt, t, mayhemHooks);
-    const c = mayhem.carry;
-    if (c) { c.pos = [ctrl.pos[0] + Math.sin(ctrl.facing) * 0.75, ctrl.pos[1] + 0.25, ctrl.pos[2] + Math.cos(ctrl.facing) * 0.75]; }
     mayhem.stepOfficers(dt, t, ctrl, {
       armed: () => (player.weapon && inventoryOf(player).some(x => x.id === player.weapon)) || t - lastShotAt < 30,
       watchHere: () => { let w = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 200, S => { if (!w && (S.guarded || S.items.some(i => /^gb_(cottage|tenement|inn)_/.test(i.k))) && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < S.clear + 60) w = S; }); return w; },
@@ -1550,24 +1548,6 @@ async function start(fresh) {
     store.log({ t, type: 'city_arrest', fine, by: player.id, byName: player.name, city: cityView.city.name });
     clock.advance(planet.dayLength / 6); ctrl.vel = [0, 0, 0];
     ui.toast(`<b>${esc(cityView.city.name)} Security</b> has you. Four hours in their cells, <b>${fine} cr</b> in fines, your weapons gone.`, 'bad', 12000);
-  }
-  // Grab whoever's in front of you, or throw whoever you're holding.
-  function grabOrThrow() {
-    if (paused || ctrl.mode !== 'walk' || ride || flight || !mayhem) return;
-    const t = clock.now(), fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), c = mayhem.carry;
-    if (c) {     // up and out: harder the fitter you are, harder still with a run-up
-      const sp = 7.5 + (player.fitness ?? 0.5) * 3 + ctrl.speed * 0.8;
-      mayhem.carry = null; mayhem.thrown({ ...c, vel: [fx * sp, 2.6, fz * sp], facing: ctrl.facing }); mayhem.crime(t, 'threw someone', 0.8, c.pos);
-      ui.toast(`You throw ${esc(c.name || 'them')}.`, 'bad', 2500); return;
-    }
-    let best = null, bd = 1.9;
-    const near = list => { for (const a of list) { const dx = a.pos[0] - ctrl.pos[0], dz = a.pos[2] - ctrl.pos[2], d = Math.hypot(dx, dz); if (d < bd && Math.abs(a.pos[1] - ctrl.pos[1]) < 1.3 && (dx * fx + dz * fz) / (d || 1) > 0.3) { bd = d; best = a; } } };
-    near(agents.filter(a => !String(a.id).startsWith('tr:') && a.pose !== 'lie')); near(peopleNear(t, ctrl.pos[0], ctrl.pos[2], 6, 30).filter(w => !mayhem.out.has(w.id)));
-    if (!best) return;
-    const person = best.person || null, id = best.id; if (!person) mayhem.out.add(id);
-    mayhem.carry = { id, person, name: person ? knownName(person) : 'a passer-by', pos: best.pos.slice(), age: best.age || person?.age || 30 };
-    ui.toast(`You've got ${esc(mayhem.carry.name)}.`, 'warn', 3500);
-    mayhem.crime(t, 'grabbed someone', 0.4, best.pos);
   }
   function attack() {
     if (paused || ctrl.mode !== 'walk' || ride || flight) return;
@@ -2258,7 +2238,7 @@ async function start(fresh) {
           if (ringPeople.length >= 70) break;
         } } }
     window.__ringPeople = ringPeople;
-    const walkers = (aloft ? [] : peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length))).filter(w => !mayhem?.out.has(w.id) && mayhem?.carry?.id !== w.id);
+    const walkers = (aloft ? [] : peopleNear(t, ctrl.pos[0], ctrl.pos[2], 90, Math.max(0, 90 - agents.length - riders.length))).filter(w => !mayhem?.out.has(w.id));
     window.__walkers = walkers; if (!aloft && !paused && !params.has('nojostle')) jostle.step(agents.filter(a => a.pose !== 'lie' && !fleeing.has(a.id)).concat(walkers.filter(w => !w.scared)), dt, world, flight || ride ? null : ctrl.pos);     // (everyone on foot has a body: sim/jostle.js)
     { const B = []; if (!flight && !ride) { const me = ctrl.pos, add = p => { if (Math.abs(p[0] - me[0]) < 4 && Math.abs(p[2] - me[2]) < 4) B.push(p); };     // (the people round you, for your own collision: player/collision.js)
       for (const a of agents) if (a.pose !== 'lie') add(a.pos); for (const w of walkers) add(w.pos); for (const w of mayhem ? mayhem.crowd() : []) if (w.pose !== 'lie') add(w.pos); for (const M of infantry.men || []) if (M.hp > 0) add(M.pos); }
@@ -2459,7 +2439,7 @@ async function start(fresh) {
         } else { const w = villagerAhead(t); ui.showPrompt(w ? `<kbd>E</kbd> Talk · <b>${villagerChats.has(w.id) ? esc(w.villager.name) : 'a stranger'}</b> · ${w.villager.age} <small>· ${esc(w.doing)}</small>` : null); }
       }
     }
-    ui.quiet = !flight && (t - lastShotAt < 12 || performance.now() / 1000 - lastAttack < 8 || !!mayhem?.officers.length || !!(pursuit && pursuit.state !== 'return') || !!mayhem?.carry);
+    ui.quiet = !flight && (t - lastShotAt < 12 || performance.now() / 1000 - lastAttack < 8 || !!mayhem?.officers.length || !!(pursuit && pursuit.state !== 'return'));
     const cp = cityPlace(cityView.city, ctrl.pos[0], ctrl.pos[2]);
     ui.updateHud({ planet, s: (d => d > s.R + 3000 ? { ...s, name: `${Math.round(d / 1000).toLocaleString()} km from ${s.name}` } : s)(surfaceDistance(globeOf(planet), s.cx, s.cz, ctrl.pos[0], ctrl.pos[2])), player, t, located: loc, atWork, cell: holdingCell(planet, s, polity), weather: wx, pos: ctrl.pos, cityAt: cp && { label: cp.label, city: cityView.city.name } });
     frames++;
@@ -2493,7 +2473,7 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, grabOrThrow, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
