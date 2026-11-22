@@ -1371,6 +1371,69 @@ suites.aircombat = async () => {
   check(JSON.stringify(r1) === JSON.stringify(r2) && r1.n >= 2, `raids are deterministic: ${r1.n} raiders, ${r1.defenders} defenders`);
 };
 
+// Fast and low (the owner: "glitchy when flying fast close to the ground"): a ship that clips a tree breaks it and flies on; a boulder or the
+// rock out of a hillside under the hull is ground it skids over, not a wall that stops it dead; a shallow scrape at speed is a scrape; a dive into the ground is a crash
+suites.lowflight = async () => {
+  const { CollisionWorld } = await import('../js/player/collision.js'), { Flight } = await import('../js/player/flight.js');
+  const { floraNear } = await import('../js/gen/flora.js'), { rocksNear, ledgesNear } = await import('../js/gen/rocks.js'), { surfaceAt } = await import('../js/gen/surface.js');
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false), G = (x, z) => Math.max(surfaceHeight(p, x, z), p.seaLevel);
+  const gentle = (x, z, a, from, to, k = 0.2) => { for (let d = from; d <= to; d += 5) { const X = x + Math.sin(a) * d, Z = z + Math.cos(a) * d, g0 = G(X, Z); if (g0 <= p.seaLevel + 1 || surfaceAt(p, X, Z).town > 0.01 || W.near(X, Z).length) return false;      // (open country: no town's roofs in the way)      // (along the way and across it: a side-hill under a wing is as much in the way as a rise ahead)
+    for (const o of [-8, -4, 4, 8]) if (Math.abs(G(X + Math.cos(a) * o, Z - Math.sin(a) * o) - g0) > Math.abs(o) * k) return false; if (Math.abs(G(X + Math.sin(a) * 5, Z + Math.cos(a) * 5) - g0) > 5 * k) return false; } return true; };
+  const ship = (at, a, v, sp = 150) => { const f = new Flight(W, p, { model: 'interceptor' }, at, a); f.onGround = false; f.vtol = false; f.throttle = 1; f.vel = v || [Math.sin(a) * sp, 0, Math.cos(a) * sp]; return f; };
+  const fly = (f, secs, inp = { throttle: 0 }) => { let worst = 0, felled = 0, jolt = 0, last = f.airspeed; for (let t = 0; t < secs; t += 1 / 60) { f.step(1 / 60, inp); worst = Math.max(worst, f.impact); felled += f.felled; jolt = Math.max(jolt, last - f.airspeed); last = f.airspeed; } return { worst, felled, jolt }; };
+  // a tree: the ship goes at its top half, on level wings
+  let tree = null; floraNear(p, s.cx, s.cz, 3000, q => { if (tree || !q.solid || q.felled || q.size < 9) return; for (let a = 0; a < 6.28; a += 0.5) if (gentle(q.x, q.z, a + Math.PI, 5, 80, 0.35)) { tree = { q, a }; return; } });
+  if (check(tree, 'a tree with open ground before it')) { const { q, a } = tree, y = q.y + q.size * 0.55, f = ship([q.x - Math.sin(a) * 60, y, q.z - Math.cos(a) * 60], a); const r = fly(f, 0.8, { throttle: 1 });
+    check(r.felled >= 1 && r.worst < 20 && f.airspeed > 120, `flew through the top of a ${q.size.toFixed(0)} m tree at 540 km/h: felled ${r.felled}, worst knock ${r.worst.toFixed(1)}, ${Math.round(f.airspeed * 3.6)} km/h after`); }
+  // a boulder (or the rock out of a hillside) a metre into the belly's way
+  let rock = null; const look = q => { if (rock || q.top < 0.8) return; for (let a = 0; a < 6.28; a += 0.5) if (gentle(q.x, q.z, a + Math.PI, 3, 45, 0.08) && Math.abs(G(q.x - Math.sin(a) * 40, q.z - Math.cos(a) * 40) - q.g) < 0.3) { rock = { q, a }; return; } };
+  for (let d = 200; d < 3000 && !rock; d += 150) for (let b = 0; b < 6.28 && !rock; b += 0.7) { const x = s.cx + Math.sin(b) * d, z = s.cz + Math.cos(b) * d; rocksNear(p, x, z, 60, look); ledgesNear(p, x, z, 60, look); }
+  if (check(rock, 'a rock standing a metre or more out of the ground')) { const { q, a } = rock, f = ship([q.x - Math.sin(a) * 40, q.g + q.top - 0.6, q.z - Math.cos(a) * 40], a), x0 = f.pos.slice(); const r = fly(f, 0.32, { throttle: 1 });
+    const off = Math.abs((f.pos[0] - x0[0]) * Math.cos(a) - (f.pos[2] - x0[2]) * Math.sin(a));
+    check(r.worst < 20 && f.airspeed > 120 && off < 1.5, `skimmed a ${q.top.toFixed(1)} m ${q.shape} 0.6 m too low at 540 km/h: knock ${r.worst.toFixed(1)}, ${Math.round(f.airspeed * 3.6)} km/h after, ${off.toFixed(2)} m off its line`); }
+  // the ground itself: a shallow touch at speed is a scrape you come off; a dive into it is not
+  // the ground itself (on a level plain: the worlds round home have none long enough), a shallow touch at speed is a scrape you come off; a dive into it is not
+  { const plain = { groundAt: () => ({ h: 100, where: null }), resolve: (x, z) => [x, z], flora: false }, P = { ...p, seaLevel: 0 };
+    const into = deg => { const th = deg / 57.3, f = new Flight(plain, P, { model: 'interceptor' }, [0, 104, 0], 0); f.onGround = false; f.vtol = false; f.throttle = 1; f.vel = [0, -150 * Math.sin(th), 150 * Math.cos(th)];
+      let worst = 0; for (let t = 0; t < 1.5; t += 1 / 60) { f.step(1 / 60, { throttle: 0 }); worst = Math.max(worst, f.impact); } return { worst, sp: f.airspeed, up: f.pos[1] - 100 }; };
+    const sc = into(3), dv = into(25);
+    check(sc.worst < 20 && sc.sp > 120, `a 3° scrape at 540 km/h: knock ${sc.worst.toFixed(1)}, ${Math.round(sc.sp * 3.6)} km/h after, ${sc.up.toFixed(1)} m up`);
+    check(dv.worst > 20, `a 25° dive into the ground at 540 km/h is a crash (${dv.worst.toFixed(0)})`); }
+};
+
+// The game over the world: a family's renown and standing (game/family.js), and a sortie in the sky battles (game/sky.js)
+suites.sky = async () => {
+  const { AirWar } = await import('../js/sim/aircombat.js'), { SkySortie, WAVES } = await import('../js/game/sky.js'), F = await import('../js/game/family.js');
+  const { CollisionWorld } = await import('../js/player/collision.js');
+  let p = null; for (let k = 4; !p; k += 100) { const q = makePlanet(uni(k), HOMEWORLD); if (q.genome.terrain.mountAmp < 1000) p = q; }
+  const s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false); W.flora = false; const town = [s.cx, s.h, s.cz];
+  const war = new AirWar(W, p), me = war.spawn('striker', 'player', [s.cx + 2000, s.h + 1200, s.cz], -Math.PI / 2, 150, 'player', null), S = new SkySortie(war, { town, bearing: 1 });
+  S.begin(me); const ev = [], run = secs => { for (let t = 0; t < secs; t += 1 / 60) { war.step(1 / 60); S.step(1 / 60); ev.push(...S.drain()); } };
+  check(S.wing.length === 2 && S.wing.every(c => c.side === 'security'), 'two wingmen form up on you');
+  run(9); const w0 = ev.find(e => e.type === 'wave');
+  check(w0 && w0.k === 0 && S.cur.length === WAVES[0].fighters.length + WAVES[0].gunships.length, `the first wave comes in: ${w0?.n} raiders`);
+  check(S.cur.every(c => Math.hypot(c.f.pos[0] - town[0], c.f.pos[2] - town[2]) > 5000), 'from well out');
+  // you shoot them down: the wave's cleared, you get a breather (missiles back, the hull patched), and the next comes
+  me.missiles = 0; me.hp = me.maxHp * 0.5; for (const c of S.cur) war.hit(c, 1e4, me); run(1);
+  check(S.kills === S.cur.length && ev.some(e => e.type === 'clear' && e.k === 1), `kills are yours (${S.kills}) and the wave is cleared`);
+  check(me.missiles === me.missilesMax && me.hp > me.maxHp * 0.7, `rearmed (${me.missiles} missiles) and patched (${Math.round(me.hp / me.maxHp * 100)}%)`);
+  run(15); check(S.phase === 'fight' && S.k === 1 && S.cur.some(c => c.bomber), 'the second wave, with a gunship in it');
+  // a gunship left alone goes for the town, not for you
+  const gun = S.cur.find(c => c.bomber); for (const c of S.cur) if (c !== gun) war.hit(c, 1e4, me);
+  for (let t = 0; t < 240 && !ev.some(e => e.type === 'strike'); t += 1 / 60) { war.step(1 / 60); S.step(1 / 60); ev.push(...S.drain()); }
+  check(ev.some(e => e.type === 'strike') && S.strikes >= 1, `left alone, the gunship strikes the town (${S.strikes})`);
+  // see the rest off: the town's safe, and the sortie's won
+  for (let k = 0; k < 10 && S.phase !== 'done'; k++) { for (const c of S.cur) if (c.alive) war.hit(c, 1e4, me); run(16); }
+  check(S.won && ev.some(e => e.type === 'done' && e.won), `all ${WAVES.length} waves seen off: won`);
+  // what it's worth to the family, and what the family is called for it
+  const st = S.stats('home'), R = F.skyRenown(st), R0 = F.skyRenown({ ...st, kills: 0 });
+  check(R.total > R0.total && R.total > 0, `the sortie's worth ${R.total} renown (${R.parts.map(p => p[0] + ' ' + p[1]).join(', ')})`);
+  const meta = {}; F.familyOf(meta, 'Trois'); check(meta.family.name === 'Trois' && F.tierOf(0).name === 'Unknown' && F.tierOf(8000).name === 'Legendary' && F.tierOf(399).name === 'Noted', 'a family is named for its first, and starts unknown');
+  const r = F.addDeed(meta, { who: 'Pith Trois', area: 'sky', what: 'saw off five waves', renown: 130 });
+  check(r.rose && r.after.name === 'Noted' && meta.family.deeds.length === 1 && meta.family.renown === 130, `a deed adds to the name: now ${r.after.name}`);
+  check(F.AREAS.filter(a => a.ready).map(a => a.key).join() === 'sky,ground,life', 'sky, ground and a life are open; heists and the law are coming');
+};
+
 suites.countryside = async () => {
   const { sitesInTile } = await import('../js/gen/outposts.js'), { cultureOf } = await import('../js/gen/culture.js'), { FOOT, FAMILIES } = await import('../js/gen/familydata.js'), { designOf } = await import('../js/gen/designs.js');
   const planets = [1, 2, 3, 4, 5, 6, 7, 8].map(n => makePlanet(uni(n), HOMEWORLD));

@@ -35,28 +35,46 @@ export class UI {
   }
   closePanel() { this.current?.remove(); this.current = null; }
 
-  title({ hasSave, summary }) {
+  // The front door: your family, what it's called now, who carries the name, the dead of the line, and where to go next
+  family({ hasSave, family, tier, member, heirPending, lineage = [], areas }) {
+    const e = esc, deeds = (family?.deeds || []).slice(0, 5), dead = lineage.slice(-5).reverse();
+    const bar = tier ? `<div class="standing"><b>${e(tier.name)}</b> <span>${family.renown} renown${tier.next ? ` · ${tier.toNext} to ${e(tier.next.name)}` : ''}</span><i><b style="width:${Math.round(tier.frac * 100)}%"></b></i><small>${e(tier.say)}</small></div>` : '';
+    const who = !hasSave ? '' : heirPending ? `<h3>Carrying the name</h3><p class="lede">The next of the line, after ${e(heirPending)}.</p>` : member ? `<h3>Carrying the name</h3><p class="lede"><b>${e(member.name)}</b>, ${member.age}<br><small>${e(member.where)}${member.wounds ? ` · ${member.wounds} old wound${member.wounds === 1 ? '' : 's'}` : ''}</small></p>` : '';
+    const left = hasSave ? `${who}${deeds.length ? `<h3>What they've done</h3><ul class="deeds">${deeds.map(d => `<li><b>${e(d.who)}</b> ${e(d.what)} <span>+${d.renown}</span></li>`).join('')}</ul>` : ''}
+      ${dead.length ? `<h3>The dead of the line</h3><ul class="deeds dead">${dead.map(L => `<li><b>${e(L.name)}</b>, ${L.age} · ${e(L.cause)}</li>`).join('')}</ul>` : ''}` : `<p class="lede">Your family is the game. Each of them lives one life, until it ends; what they do with it makes the name.</p>`;
     return new Promise(res => {
-      const p = this.panel(`<h1>Aeternum</h1><p class="lede">A persistent universe. You are one person living in it.</p>
-        ${hasSave ? `<p class="save">${summary}</p><button data-a="continue" class="primary">Continue</button>` : ''}
-        <button data-a="new" class="${hasSave ? '' : 'primary'}">${hasSave ? 'Start over — new universe' : 'Begin a life'}</button>
-        <button data-a="restore">Restore from backup…</button>
-        <p class="fine">Prototype · milestone 1 · everything you see is generated from a seed; only your changes are saved.</p>`, 'title');
-      p.addEventListener('click', e => {
-        const a = e.target.dataset.a; if (!a) return;
-        if (a === 'new' && hasSave && !confirm('Erase this universe and everything that happened in it?')) return;
-        res(a);
+      const p = this.panel(`<div class="fam"><div class="famhead"><p class="fine">Aeternum</p><h1>${hasSave ? `The ${e(family.name)} family` : 'A family'}</h1>${bar}</div>
+        <div class="famcols"><div>${left}</div>
+        <div><h3>${hasSave ? 'Where to?' : 'Where do they start?'}</h3>${areas.map(a => `<button data-a="area" data-k="${a.key}" ${a.ready ? '' : 'disabled'} class="area${a.key === 'sky' ? ' primary' : ''}"><b>${e(a.name)}</b><small>${e(a.say)}${a.ready ? '' : ' · Not open yet.'}</small></button>`).join('')}</div></div>
+        <div class="famfoot">${hasSave ? `<button data-a="new" class="ghost">Start a new family</button>` : ''}<button data-a="restore" class="ghost">Restore from backup…</button></div></div>`, 'title wide family');
+      p.addEventListener('click', ev => {
+        const b = ev.target.closest('button'); if (!b || b.disabled) return; const a = b.dataset.a;
+        if (a === 'new' && hasSave && !confirm('Erase this family, its universe and everything that happened in it?')) return;
+        res(a === 'area' ? { a, area: b.dataset.k } : { a });
       });
     });
   }
+  // after a run: what it was, what it was worth, and what the family's called now
+  debrief({ title, sub, parts = [], total = 0, family, before, after, alive = true, again = 'Again' }) {
+    const e = esc;
+    return new Promise(res => {
+      const p = this.panel(`<p class="fine">${e(sub || '')}</p><h2>${e(title)}</h2>
+        <ul class="deeds tally">${parts.map(([l, n]) => `<li>${e(l)} <span>+${n}</span></li>`).join('')}<li class="sum"><b>Renown for the ${e(family.name)} name</b> <span>+${total}</span></li></ul>
+        ${after ? `<div class="standing"><b>${e(after.name)}</b> <span>${family.renown} renown${after.next ? ` · ${after.toNext} to ${e(after.next.name)}` : ''}</span><i><b style="width:${Math.round(after.frac * 100)}%"></b></i>${before && after.i > before.i ? `<small class="rose">The family is ${e(after.name.toLowerCase())} now. ${e(after.say)}</small>` : ''}</div>` : ''}
+        ${alive ? `<button data-a="again" class="primary">${e(again)}</button><button data-a="stay">Stay in the world</button>` : ''}
+        <button data-a="family">Back to the family</button>`, 'title debrief');
+      p.addEventListener('click', ev => { const a = ev.target.closest('button')?.dataset.a; if (a) res(a); });
+    });
+  }
   // you're dead: who you were, how it ended, the line so far; and who takes it up
-  death({ name, age, cause, place, planet, days, rank, kills, line, stage, heir, stranger }) {
+  death({ name, age, cause, place, planet, days, rank, kills, line, stage, heir, stranger, legacy }) {
     const e = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const past = (line || []).slice(0, -1).slice(-6).reverse().map(L => `<li><b>${e(L.name)}</b>, ${L.age} · ${e(L.cause)} · ${e(L.place)}${L.kills ? ` · ${L.kills} kills` : ''}</li>`).join('');
     return new Promise(res => {
       const p = this.panel(`<p class="fine">${e(planet)} · ${e(place)}</p><h1>${e(name)}</h1>
         <p class="lede">Dead at ${age}: ${e(cause)}.</p>
         <p class="fine">${days} lived${rank ? ` · ${e(rank)}` : ''}${kills ? ` · ${kills} kill${kills === 1 ? '' : 's'}` : ''}. What they did stays done: the world goes on with it.</p>
+        ${legacy ? `<p class="save">${e(legacy)}</p>` : ''}
         ${past ? `<p class="fine">Before them:</p><ul class="fine">${past}</ul>` : ''}
         ${stage ? `<p class="fine">The war has hardened${stage > 2 ? ' a great deal' : ''}: more of them on the line${stage >= 2 ? ', and more armour' : ''}.</p>` : ''}
         ${heir ? `<button data-a="heir" class="primary">${e(heir.label)}<small>${e(heir.note)}</small></button>` : ''}

@@ -198,7 +198,7 @@ export class CollisionWorld {
   }
 
   // Push a vertical capsule (radius r, height h) out of walls and furniture.
-  resolve(x, z, yFeet, r = 0.32, h = 1.75, ownDoors = false, you = false) {     // (ownDoors: someone with the keys, whose doors open for them, sim/jostle.js; you: the player, who's also kept out of the people about, this.bodies)
+  resolve(x, z, yFeet, r = 0.32, h = 1.75, ownDoors = false, you = false, natural = true) {     // (ownDoors: someone with the keys, whose doors open for them, sim/jostle.js; you: the player, who's also kept out of the people about, this.bodies; natural false: only what's built, not trees and rocks: a ship at speed breaks the one and skids on the other, player/flight.js)
     if (yFeet > SPACE) return [x, z];
     const C = this.city;
     { const held = railHold(this.planet, x, z, yFeet, r); if (held) { x = held[0]; z = held[1]; } }
@@ -275,7 +275,7 @@ export class CollisionWorld {
         const dx = x - it.x, dz = z - it.z, d = Math.hypot(dx, dz), R = r + it.r; if (d >= R) continue;
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = it.x + ux * R; z = it.z + uz * R; moved = true;
       } });
-      if (this.flora) floraNear(this.planet, x, z, r + 1.4, p => {
+      if (this.flora && natural) floraNear(this.planet, x, z, r + 1.4, p => {
         if (!p.solid || p.felled || yFeet > p.y + p.size || yFeet + h < p.y) return;
         const dx = x - p.x, dz = z - p.z, d = Math.hypot(dx, dz), R = r + p.solid;
         if (d >= R) return;
@@ -287,7 +287,7 @@ export class CollisionWorld {
         if (yFeet > q.g + q.top - 0.05 || yFeet + h < q.y) return;
         const o = outOfRock(q, x, z, r); if (o) { x = o[0]; z = o[1]; moved = true; }
       };
-      if (this.flora) { rocksNear(this.planet, x, z, r + 2, rock); ledgesNear(this.planet, x, z, r + 2, rock); }      // (and the rock standing out of a steep hillside)
+      if (this.flora && natural) { rocksNear(this.planet, x, z, r + 2, rock); ledgesNear(this.planet, x, z, r + 2, rock); }      // (and the rock standing out of a steep hillside)
       if (!moved) break;
     }
     return [x, z];

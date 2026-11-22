@@ -12,6 +12,8 @@
 //   is raw thruster power and nothing catches you.
 // Plain numbers throughout; the hull's size comes from its layout, never the model.
 import { shipPlan } from '../gen/ships.js';
+import { floraNear, felledOf, fellKey } from '../gen/flora.js';
+import { rocksNear, ledgesNear, outOfRock } from '../gen/rocks.js';
 
 export const LAND_SPEED = 3, LAND_SINK = 4, LAND_LEVEL = 1.6;   // m/s across and down; worst height difference under the gear (m)
 const G = 9.81, RHO0 = 1.15, RHO = RHO0, CEILING = 4e8, SCALE_H = 8500;
@@ -64,10 +66,18 @@ export class Flight {
     const fx = Math.sin(f), fz = Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), a = this.L.D * 0.32, b = this.L.W * 0.3;
     return [[a, b], [a, -b], [-a, b], [-a, -b]].map(([u, v]) => { const px = x + fx * u + rx * v, pz = z + fz * u + rz * v; return Math.max(this.world.groundAt(px, pz, this.pos[1] + 2).h, this.planet.seaLevel); });
   }
+  // the top of the highest boulder (or rock standing out of a hillside) under the hull: its middle, its four corners and its nose
+  rockUnder(x, z, f = this.facing) {
+    if (!this.world.flora) return -Infinity;
+    const fx = Math.sin(f), fz = Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), a = this.L.D * 0.32, b = this.L.W * 0.3; let top = -Infinity;
+    for (const [u, v] of [[0, 0], [a, b], [a, -b], [-a, b], [-a, -b], [this.L.D * 0.45, 0]]) { const px = x + fx * u + rx * v, pz = z + fz * u + rz * v, on = q => { if (q.g + q.top > top && outOfRock(q, px, pz, 0.3)) top = q.g + q.top; };
+      rocksNear(this.planet, px, pz, 0.5, on); ledgesNear(this.planet, px, pz, 0.5, on); }
+    return top;
+  }
   // input: { throttle: −1..1 (rate of change), pitch, roll, yaw: −1..1, up, down, boost, brake, wind: [x, z] }
   step(dt, inp = {}) {
     const n = Math.max(1, Math.ceil(dt / (1 / 120)));
-    this.impact = 0; this.belly = false;
+    this.impact = 0; this.belly = false; this.felled = 0; this.struck = null;
     for (let i = 0; i < n; i++) this.sub(dt / n, inp);
     this.syncEuler();
   }
@@ -155,16 +165,32 @@ export class Flight {
     let push = 0;
     for (const k of [-0.3, 0, 0.3]) {
       const cx = x + hx * this.L.D * k, cz = z + hz * this.L.D * k;
-      const [rx, rz] = this.world.resolve(cx, cz, y, this.L.W * 0.45, this.L.H);
+      const [rx, rz] = this.world.resolve(cx, cz, y, this.L.W * 0.45, this.L.H, false, false, false);
       if (rx !== cx || rz !== cz) { x += rx - cx; z += rz - cz; push = Math.max(push, Math.hypot(rx - cx, rz - cz)); }
     }
-    if (push > 0.01 && Math.hypot(this.vel[0], this.vel[2]) > 3) { this.impact = Math.max(this.impact, Math.hypot(this.vel[0], this.vel[2])); this.vel[0] *= 0.2; this.vel[2] *= 0.2; }
+    // a tree in the way: a hull going at it breaks it and goes on, a little slower and dented, the more so the bigger the tree (a car's way with a sapling)
+    if (this.world.flora && !this.onGround) { const r = this.L.W * 0.45, sp = len(this.vel);
+      floraNear(this.planet, x, z, r + 1.5, P => { if (!P.solid || P.felled || y > P.y + P.size || y + this.L.H < P.y || Math.hypot(x - P.x, z - P.z) > r + P.solid) return;
+        if (sp < 12) { const dx = x - P.x, dz = z - P.z, d = Math.hypot(dx, dz) || 1, R = r + P.solid; x = P.x + dx / d * R; z = P.z + dz / d * R; return; }     // (slow, a trunk's a trunk: it holds you off, as it holds off someone walking)
+        felledOf(this.planet).set(fellKey(P), +this.facing.toFixed(2)); P.felled = { a: this.facing }; this.felled++;
+        const k = Math.min(0.18, P.size * P.solid / 120); this.vel = this.vel.map(v => v * (1 - k));
+        this.impact = Math.max(this.impact, Math.min(18, 4 + P.size * 0.3 + P.solid * 4)); this.struck ??= 'a tree'; });
+    }
+    // a rock in the way: up to about half the hull's height it rides up over it, scraping (sparks, a dent, a hop, a little speed lost); taller, it's a wall
+    { const hs = Math.hypot(this.vel[0], this.vel[2]), top = hs > 12 ? this.rockUnder(x, z, Math.atan2(hx, hz)) : -Infinity;
+      if (top > y) { const step = top - y;
+        if (step < this.L.H * 0.5) { y = top; this.vel[1] = Math.max(this.vel[1], Math.min(6, step * 5)); const k = 1 - Math.min(0.06, step * 0.04); this.vel = this.vel.map(v => v * k); this.impact = Math.max(this.impact, Math.min(18, 5 + step * 8)); this.belly = true; this.struck = 'a rock'; }
+        else { this.impact = Math.max(this.impact, hs); this.struck = 'a rock'; this.vel[0] *= 0.2; this.vel[2] *= 0.2; } } }
+    if (push > 0.01 && Math.hypot(this.vel[0], this.vel[2]) > 3) { this.impact = Math.max(this.impact, Math.hypot(this.vel[0], this.vel[2])); this.struck = 'a wall'; this.vel[0] *= 0.2; this.vel[2] *= 0.2; }
     // the ground: gear takes a gentle touchdown; hard, steep or banked is a crash
     const g = Math.max(...this.feet(x, z, Math.atan2(hx, hz)));
     if (y <= g) {
       const sink = -this.vel[1], hspd = Math.hypot(this.vel[0], this.vel[2]);
       if (!this.onGround && (sink > LAND_SINK * 2 || Math.abs(this.roll) > 0.45 || this.pitch < -0.25)) { this.impact = Math.max(this.impact, sink + hspd * 0.3); this.belly = sink > hspd; }
-      if (g - y > 0.5 && hspd > 15) this.impact = Math.max(this.impact, hspd);
+      // the ground came up into it this step (a rise, a rock, a skim): how hard is how fast it closed, across the ground, not along it. A glancing scrape
+      // at speed is a scrape (sparks, a dent, a bounce); flying into a hillside closes at most of your speed, and that's a crash
+      const close = Math.max(0, (g - y) / dt);      // (y is where it would have got to, so this has the sink in it too)
+      if (g - y > 0.05 && hspd > 15) { this.impact = Math.max(this.impact, close < 15 ? close * 0.5 : close * 1.2); this.struck = 'the ground'; this.belly = true; if (close < 30) this.vel[1] = Math.max(this.vel[1], close * 0.3); }      // (under ~6° at 150 m/s you come off it scraped; much steeper, you don't)
       y = g; if (this.vel[1] < 0) this.vel[1] = 0;
       const fr = (inp.brake ? 6 : 0.6) + (this.throttle < 0.05 ? 3 : 0), k = Math.max(0, 1 - fr * dt / Math.max(hspd, 0.01));
       this.vel[0] *= k; this.vel[2] *= k;

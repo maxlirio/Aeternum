@@ -105,7 +105,8 @@ export class AirWar {
   // AI pilot: pick a target, lead it, keep off the ground, don't stall, shoot when it's in the pipper
   pilot(c, dt) {
     const f = c.f;
-    if (!c.target || !c.target.alive || Math.random() < dt * 0.05) {
+    if (c.bomber) c.target = null;      // (a gunship sent for the town goes for the town: game/sky.js)
+    else if (!c.target || !c.target.alive || Math.random() < dt * 0.05) {
       let best = null, bd = Infinity;
       for (const o of this.enemiesOf(c)) { const d = len(sub(o.f.pos, f.pos)); if (d < bd) { bd = d; best = o; } }
       c.target = best;

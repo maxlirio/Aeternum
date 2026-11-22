@@ -31,6 +31,8 @@ import { starChart, jumpOf, addressOf } from './gen/stars.js';
 import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { MemorialView } from './render/memorials.js';
+import { familyOf, tierOf, addDeed, AREAS, skyRenown, groundRenown } from './game/family.js';
+import { SkySortie } from './game/sky.js';
 import { loadMixamo, infoOf as clipInfo } from './player/mixamo.js';
 import { fate, epitaph, estate, inherit, hpCap, warStage, pressOf, MAX_WOUNDS } from './sim/lineage.js';
 import { occupation } from './gen/population.js';
@@ -157,19 +159,24 @@ const WORLD = params.has('planet') ? new Address([['galaxy', 0], ['sector', 0, 0
 const backend = params.get('store') === 'mem' ? new MemoryBackend() : new IDBBackend(params.get('slot') || (params.get('auto') === 'line' ? 'line' : WORLD === HOMEWORLD ? 'main' : `world-${params.get('system') || 0}-${params.get('planet')}`));
 const store = new WorldStore(backend);
 window.ORBIS = { store, ready: false };
+let AREA = null;      // (where the one you're playing is going: game/family.js AREAS; null, a life, as it's always been)
 window.__started = true;      // (the code all loaded and linked: from here on, failures have their own handling)
 
 boot().catch(e => { console.error(e); ui.panel(`<h2>Something broke</h2><pre>${String(e.stack || e)}</pre><p>Your save is safe. <button onclick="location.reload()">Reload</button></p>`); document.title = 'ERROR ' + e.message; });
 
 async function boot() {
   const has = await store.open();
-  if (has && !store.player && store.meta?.heir) return start({ fresh: true, heir: store.meta.heir });      // (the last of your line is dead: the next takes it up, in the same universe)
   let choice = params.get('auto') || null;
-  if (!choice) {
-    const L = store.meta?.lineage?.length || 0, summary = has && store.player ? `${store.player.name} · ${store.player.birthplaceName}, ${store.player.planetName}${L ? ` · ${L} before them dead` : ''}` : '';
-    choice = await ui.title({ hasSave: has && !!store.player, summary });
+  if (!choice) {      // the front door is the family (game/family.js): who carries the name, what it's called, where they go next
+    const hasSave = has && (!!store.player || !!store.meta?.heir), L = store.meta?.lineage || [], P = store.player;
+    const fam = hasSave ? familyOf(store.meta, P?.surname || L[0]?.surname) : null;
+    const r = await ui.family({ hasSave, family: fam, tier: fam ? tierOf(fam.renown) : null, lineage: L, areas: AREAS,
+      member: P ? { name: P.name, age: P.age, where: `${P.birthplaceName || ''}${P.planetName ? ', ' + P.planetName : ''}`, wounds: P.wounds || 0 } : null,
+      heirPending: !P && store.meta?.heir ? store.meta.heir.after?.name || 'the last of them' : null });
+    if (r.a === 'area') { AREA = r.area; choice = hasSave ? 'continue' : 'new'; } else choice = r.a;
   }
   if (choice === 'restore') return restoreFlow();
+  if (choice !== 'new' && has && !store.player && store.meta?.heir) return start({ fresh: true, heir: store.meta.heir });      // (the last of your line is dead: the next takes it up, in the same universe)
   if (choice === 'arrive') { const H = ftlHandoff(); if (H && (!has || !store.player)) { store.create(H.universe, EPOCH, Date.now()); store.meta.nextCharacter = 1; return start({ fresh: true }); } return start(null); }     // (out of FTL: a world you've been to, or a new one in the same universe)
   if (choice === 'line') return start(newUniverse());      // (?auto=line: a new soldier, straight onto the line on foot, in a slot of its own)
   if (choice === 'new' || !has || !store.player) return start(newUniverse());
@@ -238,7 +245,7 @@ async function start(fresh) {
     const ds = doorstep(s, home, buildingPlan(planet, s, home));
     p.pos = ds.pos; p.facing = ds.facing;
     p.inventory = p.inventory?.length ? p.inventory : []; p.hunger = 0.25; giveItem(p, 'ration', 2); giveItem(p, 'water', 1);
-    store.setPlayer(p); store.meta.heir = null; store.dirty.meta = true;
+    store.setPlayer(p); store.meta.heir = null; store.dirty.meta = true; familyOf(store.meta, p.surname);
     refreshLife(pop, store, t0); scheduleLife(store, planet, s, t0);
     store.log({ t: t0, type: 'life_began', name: p.name, place: s.name, character: p.id, ...(H?.estate ? { heirOf: H.estate.name } : {}) });
     await store.flush();
@@ -906,6 +913,7 @@ async function start(fresh) {
   function afterFlight(dt, t) {
     if (!flight) return;
     const sh = flight.ship, id = 'ship:' + sh.id, L = flight.L, D = wrecks.of(id, { kind: 'ship', model: sh.model, L: L.D, W: L.W, H: L.H ?? (L.ceiling + 1), type: null, colour: sh.colour || 0, pos: [flight.pos[0], flight.pos[1], flight.pos[2]], facing: flight.facing, pitch: flight.pitch, roll: flight.roll });
+    if (flight.felled) { store.patchDelta('felled', { list: [...felledOf(planet).entries()] }); flora.at = null; fx.dust([flight.pos[0], flight.pos[1], flight.pos[2]], 18, [0.3, 0.27, 0.2]); }      // (trees it went through stay down: player/flight.js)
     D.ride = true; D.pos = [flight.pos[0], flight.pos[1] - (L.gear ?? 0), flight.pos[2]]; D.facing = flight.facing; D.pitch = flight.pitch; D.roll = flight.roll; flight.dead = D.dead;
     if (flight.impact > 3) {
       const v = flight.vel, sp = Math.hypot(...v) || 1, r = flight.belly ? wrecks.hit(D, flight.impact, [(Math.random() - 0.5) * L.D * 0.5, 0.2, (Math.random() - 0.5) * L.W * 0.3], [0, 1, 0]) : wrecks.hit(D, flight.impact, [L.D * 0.42, (L.H ?? 3) * 0.4, 0], [-1, 0, 0]);
@@ -1422,10 +1430,15 @@ async function start(fresh) {
     let heir = null; try { heir = kin ? newCharacter(U, planet, homeS, homePop, serial, t, { household: est.household }) : null; } catch (e) { console.warn('heir', e); }
     const stranger = (() => { try { return newCharacter(U, planet, homeS, homePop, serial, t); } catch { return null; } })();
     const left = (store.meta.lineage || []).length, stage = warStage(store.meta.lineage, (t - EPOCH) / planet.dayLength);
+    // what they were in the middle of is told for them (game/family.js)
+    let last = null;
+    if (sortie) { const st = sortie.stats('died'); last = skyRenown(st); sortie.end(); sortieHud.classList.add('hidden'); addDeed(store.meta, { t, who: P.name, area: 'sky', what: `died in the sky over ${run?.town || here.name}${st.kills ? `, ${st.kills} shot down first` : ''}`, renown: last.total }); sortie = null; run = null; }
+    else if (groundRun) { const st = { kills: (P.soldier?.kills || 0) - groundRun.kills0, taken: groundRun.taken }; last = groundRenown(st); addDeed(store.meta, { t, who: P.name, area: 'ground', what: `died on the line against ${groundRun.front}${st.kills ? `, ${st.kills} of theirs put down first` : ''}`, renown: last.total }); groundRun = null; }
+    const fam = familyOf(store.meta, P.surname), legacy = `The ${fam.name} family: ${tierOf(fam.renown).name}, ${fam.renown} renown${last?.total ? ` (+${last.total} for how they went)` : ''}.`;
     await new Promise(r => setTimeout(r, 3200));      // (a moment where you fell: long enough to see yourself go down)
     const yrs = n => `${n} day${n === 1 ? '' : 's'}`, W = est.heirloom ? ITEMS[est.heirloom]?.name : null;
     const pick = await ui.death({
-      name: P.name, age: P.age, cause: E.cause, place: here.name, planet: planet.name, days: yrs(E.days), rank: P.soldier ? RANKS[P.soldier.rank] : null, kills: E.kills, line: store.meta.lineage, stage,
+      name: P.name, age: P.age, cause: E.cause, place: here.name, planet: planet.name, days: yrs(E.days), rank: P.soldier ? RANKS[P.soldier.rank] : null, kills: E.kills, line: store.meta.lineage, stage, legacy,
       heir: heir ? { label: `Carry on as ${heir.name}, ${heir.age}`, note: `Of the ${heir.surname} family. Inherits ${est.credits} cr${W ? ` and ${P.given}'s ${W}` : ''}${est.soldier ? `, and a place in the regiment` : ''}.` } : null,
       stranger: stranger ? { label: `Begin again as someone else in ${homeS.name}`, note: 'A stranger to them. Nothing is handed on; the world remembers all the same.' } : null,
     });
@@ -1773,6 +1786,75 @@ async function start(fresh) {
   const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); sound.boom(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
   let myCraft = null, raid = null, firing = false;
+  // ---- the areas (game/family.js): a run in one of them, told as a deed to the family when it ends
+  // sky battles (game/sky.js): a sortie over the home town in an issued fighter, two wingmen with you, the raiders in waves
+  let sortie = null, run = null, groundRun = null; const sortieHud = document.createElement('div'); sortieHud.className = 'sortie hidden'; document.getElementById('ui').append(sortieHud);
+  const compass = b => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round((((-b + Math.PI * 2.5) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI / 4)) % 8];
+  function skyBegin() {
+    if (flight) { leaveWar(); flight = null; }
+    if (raid) { for (const c of raid.raiders.concat(raid.defenders)) war.craft = war.craft.filter(x => x !== c); raid = null; }
+    const T = [homeS.cx, homeS.h, homeS.cz], b = Math.random() * Math.PI * 2, tier = tierOf(familyOf(store.meta, player.surname).renown);
+    const model = ['interceptor', 'interceptor', 'striker', 'striker', 'warden', 'warden'][tier.i];      // (a better name gets a better fighter)
+    const x = T[0] - Math.sin(b) * 2200, z = T[2] - Math.cos(b) * 2200, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel, T[1]) + 1100;
+    const sh = { id: 'issued:sky:' + Math.floor(clock.now()), model, name: `${player.given}'s ${model}`, colour: 4 };
+    flight = new Flight(world, planet, sh, [x, y, z], b); flight.onGround = false; flight.vtol = false; flight.vel = [Math.sin(b) * 150, 0, Math.cos(b) * 150]; flight.throttle = 0.75; flight.issued = { x: T[0], z: T[2], sky: true };
+    ctrl.mode = 'pilot'; ctrl.pos = [x, y + 2.4, z]; ctrl.vel = [0, 0, 0]; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; cam.yaw = b; aimDir = null; aimSt = {}; joinWar();
+    sortie = new SkySortie(war, { town: T, bearing: b }); sortie.begin(myCraft);
+    run = { area: 'sky', t0: clock.now(), town: homeS.name };
+    ui.toast(`<b>Sky battle over ${esc(homeS.name)}.</b> Raiders are coming in from the ${compass(b)}. You and two wingmen are all that's up: keep them off the town.`, 'bad', 10000);
+  }
+  let sortieSaid = '';
+  function skyTick(dt) {
+    const S = sortie; if (!S) return;
+    S.step(dt);
+    for (const e of S.drain()) {
+      if (e.type === 'wave') ui.toast(`<b>Wave ${e.k + 1} of ${e.of}</b>: ${e.n} raiders from the ${compass(e.from)}${e.gunships ? `, ${e.gunships === 1 ? 'a gunship' : e.gunships + ' gunships'} making for the town` : ''}.`, 'bad', 7000);
+      else if (e.type === 'clear' && e.of > e.k) ui.toast(`<b>Wave cleared.</b> Missiles back, the hull patched. ${e.of - e.k} more to come.`, '', 6000);
+      else if (e.type === 'strike') { fx.blast(e.at, 9); fx.dustRing(e.at, 14); sound.boom(e.at, 8); fx.shake = Math.max(fx.shake, 0.15);
+        for (const b of nearBuildingsOf(e.at, 30)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });      // (what they hit stays hit)
+        if (!S.saidStrike || S.t - S.saidStrike > 25) { S.saidStrike = S.t; ui.toast(`A gunship is hitting <b>${esc(homeS.name)}</b>.`, 'bad', 4000); } }
+      else if (e.type === 'winglost') ui.toast('A wingman is down.', 'bad', 4000);
+      else if (e.type === 'done' && e.won) S.endAt = S.t + 3;
+    }
+    if (S.endAt && S.t >= S.endAt) { sortieEnd('home'); return; }
+    if (!flight && !dying) { sortieEnd(S.won ? 'home' : 'crashed'); return; }      // (flew it into something, or it came apart round you: player/flight.js, afterFlight)
+    // the plate at the top: where the fight's got to
+    const guns = S.cur.filter(c => c.alive && !c.gone && c.bomber).length;
+    const head = S.phase === 'lull' ? `Next wave in ${Math.max(0, Math.ceil(S.next - S.t))} s` : S.phase === 'fight' ? `Wave ${S.k + 1} of ${S.waves.length} · ${S.left} left${guns ? ` · <span class="hot">${guns === 1 ? 'a gunship' : guns + ' gunships'} on the town</span>` : ''}` : S.won ? 'The town is safe' : '';
+    const html = `<b>${head}</b><small>${S.kills} shot down${S.strikes ? ` · the town hit ${S.strikes} time${S.strikes === 1 ? '' : 's'}` : ''}</small>`;
+    if (html !== sortieSaid) { sortieHud.innerHTML = html; sortieSaid = html; } sortieHud.classList.remove('hidden');
+  }
+  // the end of a run: told as a deed to the family; then what next
+  async function runDone({ area, what, R, pay = 0, title, sub, again, onAgain, home }) {
+    const t = clock.now(), fam = familyOf(store.meta, player.surname), D = addDeed(store.meta, { t, who: player.name, area, what, renown: R.total }); store.dirty.meta = true;
+    if (pay) { player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); }
+    store.log({ t, type: 'deed', who: player.id, whoName: player.name, area, what, renown: R.total }); await save();
+    if (dying) return;
+    let pick = null; await modal(async () => { pick = await ui.debrief({ title, sub: sub + (pay ? ` · ${pay} cr pay` : ''), parts: R.parts, total: R.total, family: fam, before: D.before, after: D.after, alive: player.hp > 0, again }); });
+    if (pick === 'again') onAgain();
+    else if (pick === 'family') { running = false; location.reload(); }
+    else if (home) home();
+  }
+  function sortieEnd(end) {
+    const S = sortie; if (!S || S.ending) return; S.ending = true;
+    const st = S.stats(end), R = skyRenown(st); S.end(); sortieHud.classList.add('hidden'); sortie = null; const r = run; run = null;
+    const flying = flight?.issued?.sky; if (flying) { leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk'; }      // (handed back)
+    const of = st.waves, what = st.won ? `saw off all ${of} waves of raiders over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}` : `held off ${st.cleared} of ${of} waves over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}${end === 'ejected' ? ', then was shot down and bailed out' : end === 'crashed' ? ', then crashed' : ''}`;
+    runDone({ area: 'sky', what, R, pay: st.kills * 150 + st.cleared * 100, title: st.won ? 'The town is safe' : end === 'ejected' ? 'Shot down' : end === 'crashed' ? 'Down in the wreck' : 'Sortie over', sub: `${player.name} · sky battle over ${r.town}`, again: 'Fly another sortie', onAgain: skyBegin,
+      home: () => { if (!flying) return; const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0]; ui.toast('You hand the fighter back and a transport brings you home.', '', 6000); } });
+    if (flying) { const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0]; }
+  }
+  // ground battles: onto the line of your nation's war on land (sim/infantry.js, sim/front.js); over when you leave it
+  function groundBegin() {
+    const nat = townSociety(planet, s)?.nation, F = nat && frontsOf(planet, nat).find(onLand);
+    if (!F) { ui.toast(`<b>${esc(planet.name)}</b> has no war on land just now: nowhere to fight on foot. You're sent up instead.`, 'warn', 9000); skyBegin(); return; }
+    if (player.soldier?.nation !== nat.id) player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 72);
+    groundRun = { kills0: player.soldier.kills || 0, taken: 0, front: F.b.name };
+  }
+  function groundEnd() {
+    const G = groundRun; if (!G) return; groundRun = null; const st = { kills: (player.soldier?.kills || 0) - G.kills0, taken: G.taken }, R = groundRenown(st);
+    runDone({ area: 'ground', what: `fought on the line against ${G.front}${st.kills ? `: ${st.kills} of theirs put down` : ''}${st.taken ? `, ${st.taken} objective${st.taken === 1 ? '' : 's'} taken` : ''}`, R, title: 'Off the line', sub: `${player.name} · the line against ${G.front}`, again: 'Back to the line', onAgain: groundBegin });
+  }
   function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
   function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
   if (bootJoin && flight) joinWar();
@@ -1798,6 +1880,7 @@ async function start(fresh) {
   }
   // raids: every few hours raiders come in over the hills; security scrambles
   function raidTick(t, force = false) {
+    if (sortie) return;      // (a sortie is its own raid: game/sky.js)
     const k = raidIndex(planet, t), R = raidAt(planet, s, k);
     if (!raid && (force || (t >= R.t && t < R.t + 200)) && !store.getDelta('raid/' + k)) {
       const dist = 7000, bx = Math.sin(R.bearing), bz = Math.cos(R.bearing), C = cityView.city;
@@ -1826,14 +1909,15 @@ async function start(fresh) {
   function drawMarkers() {
     markers.innerHTML = '';
     if (!war.craft.some(c => c.alive && c.side !== 'player')) return;
-    const v = new THREE.Vector3();
+    const v = new THREE.Vector3(), placedMk = [];
     for (const c of war.craft) {
       if (!c.alive || c === myCraft) continue;
       const d = Math.hypot(c.f.pos[0] - ctrl.pos[0], c.f.pos[1] - ctrl.pos[1], c.f.pos[2] - ctrl.pos[2]); if (d > 9000) continue;
       v.set(...toRender(...c.f.pos)).project(camera); if (v.z > 1) continue;
       const el = document.createElement('div'), foe = c.side === 'raider', locked = myCraft?.lock === c;
       el.className = 'mk ' + (foe ? 'foe' : 'friend') + (locked ? (myCraft.lockT > 1.2 ? ' locked' : ' locking') : '');
-      el.style.left = ((v.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - v.y) / 2 * innerHeight) + 'px';
+      const sx = (v.x + 1) / 2 * innerWidth, sy = (1 - v.y) / 2 * innerHeight; el.style.left = sx + 'px'; el.style.top = sy + 'px';
+      const near = placedMk.filter(q => Math.abs(q[0] - sx) < 140 && Math.abs(q[1] - sy) < 16).length; placedMk.push([sx, sy]); if (near) el.style.marginTop = (near * 15) + 'px';      // (two in close formation: their labels one under the other, not on top of each other)
       el.innerHTML = `<i></i><span>${foe ? 'raider' : 'security'} · ${c.name} · ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}${locked && myCraft.lockT > 1.2 ? ' · LOCK' : ''}</span>`;
       markers.append(el);
     }
@@ -1933,7 +2017,7 @@ async function start(fresh) {
   if (fresh?.heir) { const A = player.after || {}; ui.toast(`<b>${esc(A.name || 'They')}</b> was buried two days ago${A.place ? ` — they fell at ${esc(A.place)}` : ''}. ${player.heirOf ? `You are <b>${esc(player.name)}</b>, ${player.age}, of the same family. What they left is yours${player.weapon ? `, ${esc(ITEMS[player.weapon]?.name || 'their gun')} with it` : ''}.` : `You are <b>${esc(player.name)}</b>, ${player.age}, of ${esc(s.name)}: you knew of them. Nothing is yours but your own.`}`, '', 14000); }
   else if (fresh) {
     const par = player.family.parents.map(id => pop.byId.get(id));
-    if (params.get('auto') !== 'arrive' && params.get('auto') !== 'line') ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
+    if (params.get('auto') !== 'arrive' && params.get('auto') !== 'line' && (!AREA || AREA === 'life')) ui.toast(`You are <b>${player.name}</b>, ${player.age}, born in ${s.name} on ${planet.name}. ${player.withParents ? 'You still live with' : 'You live alone; your'} ${par.length ? (player.withParents ? '' : 'parent' + (par.length > 1 ? 's' : '') + ' ') + par.map(x => x.given).join(' and ') : 'family'}${player.withParents ? '' : ' live across town'}. Your home is behind you.`, '', 11000);
   }
   let running = true, last = performance.now(), frames = 0, fpsT = last, fps = 0;
   near();
@@ -2291,12 +2375,12 @@ async function start(fresh) {
       // smoke from what's been hurt: a damaged craft trails it, worse the worse it is; torn-off pieces smoke as they fall
       for (const c of war.craft) { if (!c.alive || c.hp > c.maxHp * 0.6) continue; if (Math.random() < dt * (c.hp < c.maxHp * 0.3 ? 9 : 4)) war.booms.push({ p: c.f.pos.slice(), t: 0, smoke: true, s: c.hp < c.maxHp * 0.3 ? 0.45 : 0.28 }); }
       shipDamage.update(dt, p => war.booms.push({ p: fromRender(...p), t: 0, smoke: true, s: 0.3 }), (x, z) => { const q = fromRender(x, 0, z); return world.groundAt(q[0], q[2], 1e5).h - origin[1]; });
-      if (flight?.issued) { for (const e of fresh) if (e.type === 'killed' && e.by === myCraft && e.craft.side === 'raider') soldierKill();
+      if (flight?.issued && !flight.issued.sky) { for (const e of fresh) if (e.type === 'killed' && e.by === myCraft && e.craft.side === 'raider') soldierKill();
         if (flight.onGround || !front.F && Math.hypot(flight.pos[0] - flight.issued.x, flight.pos[2] - flight.issued.z) > 20000) endDeployment(); } }
     { const F = front.F, d = F ? Math.hypot(ctrl.pos[0] - F.x, ctrl.pos[2] - F.z) : 1e9, onFoot = !flight && !ride;
       if (F && onFoot && !cloudW && d < 2600 && landY(F.x, F.z) > planet.seaLevel + 1) { if (infantry.F !== F) { infantry.press = pressOf(warStage(store.meta.lineage, (clock.now() - EPOCH) / planet.dayLength)); infantry.setup(F); } }
       else if (infantry.F && (!F || d > 3400 || !onFoot)) infantry.end();
-      if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
+      if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); if (groundRun) groundEnd(); else ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
       const side = infantry.F && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
       const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: Math.max(crouchK, proneK * 1.6) };
       infantry.step(dt, you); infantryView.update(infantry, dt, t); armor.step(dt, you); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos);
@@ -2305,7 +2389,7 @@ async function start(fresh) {
       if (infantry.F && Math.random() < dt * 14) for (const P of infantry.props) if (P.kind === 'fire' && Math.hypot(P.pos[0] - ctrl.pos[0], P.pos[2] - ctrl.pos[2]) < 900) { fx.flame(P.pos, P.size); if (Math.random() < 0.5) fx.smoke([P.pos[0], P.pos[1] + P.size, P.pos[2]], P.size * 3, [2, 1], 0.05, 0.45); }
       for (const e of infantry.drain()) {
         if (e.type === 'line') ui.toast(`<b>The line.</b> Sandbags and wire where ${esc(e.F.a.name)} meets ${esc(e.F.b.name)}: soldiers of both sides, three objectives on the border.`, 'bad', 9000);
-        if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (e.you && side) { const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
+        if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (e.you && side) { if (groundRun) groundRun.taken++; const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
         if (e.type === 'lost') ui.toast(`<b>${e.O.name} objective lost</b> to ${esc(infantry.F.b.name)}.`, 'bad', 5000);
         if (e.type === 'down' && e.by === 'player') { if (e.M.side === 'theirs' && player.soldier) { chud.log(`You put down a ${infantry.F.b.name} rifleman`, 'you'); soldierKill(); } else if (e.M.side === 'ours') ui.toast('That was one of ours.', 'bad', 4000); }
         else if (e.type === 'down' && Math.hypot(e.M.pos[0] - ctrl.pos[0], e.M.pos[2] - ctrl.pos[2]) < 70) chud.log(e.M.side === 'ours' ? `${infantry.F.a.name} soldier down` : `${infantry.F.b.name} soldier down`, e.M.side === 'ours' ? 'bad' : '');
@@ -2330,7 +2414,8 @@ async function start(fresh) {
         else if (e.type === 'salvo' && !raid?.saidSalvo) { raid && (raid.saidSalvo = true); ui.toast(`The <b>${esc(C.name)}</b> opens its missile cells.`, 'bad', 5000); }
         else if (e.type === 'sortie') ui.toast(`The <b>${esc(C.name)}</b> leaves station on a bombing run.`, '', 6000);
         else if (e.type === 'home') ui.toast(`The <b>${esc(C.name)}</b> is back on station.`, '', 4000); } }
-    if (myCraft && !myCraft.alive && flight) eject();
+    if (myCraft && !myCraft.alive && flight) { const low = sortie && flight.altitude() < 120; if (low) dieFlow('shot down too low to get out', 'overkill'); else { eject(); if (sortie) sortieEnd('ejected'); } }
+    if (sortie) skyTick(dt);
     sched.tick(dt, t, homeCtx);
     if (!inSpace && !cloudW) { const v = flight ? flight.vel : ride?.vel || [0, 0, 0]; terrain.update(ctrl.pos[0], ctrl.pos[2], 5, flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, v[0] || 0, v[2] || 0); }
     if (!inSpace) cityView.update(ctrl.pos, 1 - (sky.state.day ?? 1));
@@ -2473,10 +2558,11 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, get sortie() { return sortie; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
+  if (AREA === 'sky') skyBegin(); else if (AREA === 'ground') groundBegin();
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
 
