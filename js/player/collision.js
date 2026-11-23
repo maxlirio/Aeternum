@@ -12,6 +12,7 @@ import { rocksNear, ledgesNear, outOfRock, rockSurface, rockSolid } from '../gen
 import { towerOf } from '../gen/towers.js';
 import { deckAt, railHold } from '../gen/surface.js';
 import { sitesNear } from '../gen/outposts.js';
+import { hulkPush, hulkTop, hulkSolid } from '../gen/hulk.js';
 import { getCity, blocksNear, CURB, bridgesOf, cityBlock as cityBlockOf } from '../gen/city.js';
 
 const inBox = (b, u, v, m = 0) => b[6] ? Math.hypot(u - (b[0] + b[2]) / 2, v - (b[1] + b[3]) / 2) <= (b[2] - b[0]) / 2 + m : u >= b[0] - m && u <= b[2] + m && v >= b[1] - m && v <= b[3] + m;
@@ -154,6 +155,7 @@ export class CollisionWorld {
     // the tops of the stones: stood on as the land is (no where: steep is steep, on stone as on a hillside)
     let rock = null;
     if (this.flora) { const on = q => { if (q.g + q.top <= best) return; const h = rockSurface(q, x, z); if (h > best && h <= yFeet + STEP) { best = h; rock = q; } }; rocksNear(this.planet, x, z, 0, on); ledgesNear(this.planet, x, z, 0, on); }
+    if (this.hulks) for (const H of this.hulks) { const h = hulkTop(H, x, z, yFeet + STEP); if (h > best) { best = h; where = { hulk: true }; rock = null; } }      // (stood on, as it lies)
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, 0.05)) continue;
@@ -241,6 +243,9 @@ export class CollisionWorld {
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0; x = S.x + ux * Rr; z = S.z + uz * Rr; moved = true; }
       // the works of a fighting line, and its armour (sim/infantry.js): sandbags you can jump, wire you can't, hedgehogs, hulls
       if (this.field) { const q = this.field.push(x, z, yFeet, h, r); if (q) { x = q[0]; z = q[1]; moved = true; } }
+      // the hull of a great ship brought down (gen/hulk.js; this.hulks set by main.js): out of it sideways, at knee and at chest height
+      if (this.hulks) for (const H of this.hulks) for (const up of [STEP + 0.15, h - 0.2]) { const q = hulkPush(H, [x, yFeet + up, z], r); if (!q) continue; const l = Math.hypot(q[0], q[2]);
+        if (l > 1e-4) { const k = Math.hypot(q[0], q[1], q[2]) / l; x += q[0] * Math.min(k, 3); z += q[2] * Math.min(k, 3); moved = true; } }
       // people (and soldiers) standing or walking: you can't go through them any more than through a wall (set each frame by main.js)
       if (you && this.bodies) for (const P of this.bodies) {
         if (yFeet + h < P[1] || yFeet > P[1] + 1.6) continue; const dx = x - P[0], dz = z - P[2], d = Math.hypot(dx, dz), Rr = r + 0.26; if (d >= Rr) continue;
@@ -384,6 +389,7 @@ export class CollisionWorld {
     if (this.solidAt(x, y, z, 0.02, false)) return true;
     if (this.carBoxes) for (const V of this.carBoxes) { const dx = x - V.x, dz = z - V.z; if (Math.abs(dx) > V.reach || Math.abs(dz) > V.reach || y > V.y + V.h || y < V.y) continue; if (Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) return true; }
     if (this.stones) for (const S of this.stones) if (y >= S.y && y <= S.y + S.h && Math.hypot(x - S.x, z - S.z) < S.r) return true;
+    if (this.hulks) for (const H of this.hulks) if (hulkSolid(H, x, y, z)) return true;
     if (!this.flora) return false;
     let hit = false;
     floraNear(this.planet, x, z, 1.4, p => { if (!hit && p.solid && !p.felled && y >= p.y && y <= p.y + Math.max(2.5, p.size) && Math.hypot(x - p.x, z - p.z) < p.solid) hit = true; });

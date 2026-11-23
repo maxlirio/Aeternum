@@ -2,10 +2,11 @@
 // At this size a tile says nothing, so the hull gets its plating here: panels of many sizes, each its own tone, with dark seams, from the ship's own coordinates.
 import * as THREE from 'three';
 import { gltfLoader, bakedPart } from './gltf.js';
+import { foreOf } from '../gen/hulk.js';
 import { RINGS, ringTurn } from '../gen/rings.js';
 
 const DECK = { anvil: [[0.2, 0.22, 0.25], [0.1, 0.11, 0.13]], vesper: [[0.6, 0.57, 0.5], [0.3, 0.28, 0.25]], tiller: [[0.46, 0.41, 0.26], [0.2, 0.2, 0.18]], sable: [[0.16, 0.17, 0.2], [0.07, 0.08, 0.1]], bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]] };
-const LIVERY = [[0.1, 0.11, 0.13], [0.62, 0.6, 0.55], [0.32, 0.12, 0.05], [0.16, 0.025, 0.02]];   // gunmetal, ivory, oxide; and the enemy's blood-black (sim/planetwar.js)
+const LIVERY = [[0.1, 0.11, 0.13], [0.62, 0.6, 0.55], [0.32, 0.12, 0.05], [0.06, 0.012, 0.01], [0.035, 0.026, 0.02]];   // gunmetal, ivory, oxide; the enemy's blood-black (sim/planetwar.js); and a hull burnt out and gone to rust (gen/hulk.js)
 function plated(base, colour, k = 1) {
   const m = base.clone(); m.color = new THREE.Color(...colour); m.map = null; m.metalnessMap = null; m.roughnessMap = null; m.aoMap = null; m.normalMap = null; m.metalness = 0.25; m.roughness = 0.62;
   m.onBeforeCompile = sh => {
@@ -136,9 +137,31 @@ export class CapitalView {
     if (slot === 'mirror') return skyview(this.day);
     return this.lib.surface(slot);
   }
+  // A ship brought down (gen/hulk.js): the same hull, its back broken (torn through at the break, the fore part thrown round from the aft), burnt out:
+  // paint gone dark, glass gone, every light dead, and open at the tear so you see into it.
+  wreckOf(C) {
+    const F = foreOf(C.model), aft = new THREE.Group(), fore = new THREE.Group(); C.mesh = new THREE.Group(); C.mesh.add(aft, fore);
+    fore.rotation.set(F.turn[1], F.turn[0], F.turn[2], 'YXZ'); fore.position.set(...F.at);
+    for (const { g, slot } of this.models[C.model]) { if (/glass|visor|mirror/.test(slot)) continue;
+      const [ga, gf] = this.torn(g, F); let m = this.partMaterial(slot, C); if (m === this.lib.surface(slot === 'tint' ? 'tint-hull' : slot)) m = m.clone();
+      m.side = THREE.DoubleSide; if (m.isMeshBasicMaterial || /glow|lamp|neon|nav|screen/.test(slot)) m = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.9 }); else if (slot !== 'tint' && m.color) m.color.multiplyScalar(0.25);
+      for (const [geo, to] of [[ga, aft], [gf, fore]]) { if (!geo) continue; const mesh = new THREE.Mesh(geo, m); mesh.frustumCulled = false; mesh.castShadow = false; mesh.receiveShadow = false; to.add(mesh); } }
+    C.rings = null; this.group.add(C.mesh);
+  }
+  // a part's geometry torn in two at the break: [aft, fore] (what lay across the tear itself is gone); kept, so every wreck of the model shares them
+  torn(g, F) {
+    const had = (this.tornOf ||= new WeakMap()).get(g); if (had) return had;
+    const src = g.index ? g.toNonIndexed() : g, P = src.attributes.position, names = Object.keys(src.attributes), pick = [[], []];
+    for (let i = 0; i < P.count; i += 3) { const z = (P.getZ(i) + P.getZ(i + 1) + P.getZ(i + 2)) / 3; if (Math.abs(z - F.z) < F.gap / 2) continue; pick[z < F.z ? 0 : 1].push(i); }
+    const out = pick.map(list => { if (!list.length) return null; const geo = new THREE.BufferGeometry();
+      for (const n of names) { const A = src.attributes[n], k = A.itemSize, arr = new A.array.constructor(list.length * 3 * k); list.forEach((i, j) => { for (let q = 0; q < 3 * k; q++) arr[j * 3 * k + q] = A.array[i * k + q]; }); geo.setAttribute(n, new THREE.BufferAttribute(arr, k, A.normalized)); }
+      geo.computeBoundingSphere(); return geo; });
+    this.tornOf.set(g, out); return out;
+  }
   update(fleet, toRender, cam, t = 0) {
     for (const C of fleet) {
       if (!this.models[C.model]) continue;
+      if (!C.mesh && C.wreck) this.wreckOf(C);
       if (!C.mesh) {
         C.mesh = new THREE.Group(); const part = (g, slot, to) => { const m = new THREE.Mesh(g, this.partMaterial(slot, C)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; to.add(m); };
         for (const { g, slot } of this.models[C.model]) part(g, slot, C.mesh);
@@ -147,7 +170,7 @@ export class CapitalView {
         this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; this.onMesh?.(C);
       }
       if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
-      C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.y = C.yaw;      // (a ship can leave its station: sim/fleetwar.js)
+      C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.set(C.pitch || 0, C.yaw, C.roll || 0, 'YXZ');      // (a ship can leave its station: sim/fleetwar.js)
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if (far < 5000 && !(this.deckLoads ||= new Set()).has(C.ship.model)) { this.deckLoads.add(C.ship.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)

@@ -560,7 +560,7 @@ suites.planetwar = async () => {
   const town = (k, cx, cz, war = true) => ({ key: 'settlement:' + k, name: 'T' + k, cx, cz, R: 260, h: 10, war });
   const T = [town(1, 3000, 0), town(2, 0, 0), town(3, -4000, 500, false), town(4, 40000, 0)], home = T[1], D = new Map(), foe = { id: 9, name: 'Marholt', strength: 1 };
   const P = new W.PlanetWar({ townsNear: (x, z, r) => T.filter(q => Math.hypot(q.cx - x, q.cz - z) < r), farTown: () => T[3], nationOf: q => q, enemyOf: q => q.war ? foe : null,
-    isHome: q => q === home, ground: () => 10, getDelta: k => D.get(k) || null, patchDelta: (k, v) => D.set(k, v) }, { firstIn: 1, every: [1e9, 1e9], newsEvery: [1e9, 1e9] });
+    isHome: q => q === home, ground: () => 10, getDelta: k => D.get(k) || null, patchDelta: (k, v) => D.set(k, { ...(D.get(k) || {}), ...v }), clearDelta: k => D.delete(k) }, { firstIn: 1, every: [1e9, 1e9], newsEvery: [1e9, 1e9] });
   P.news = 0.5; const seen = []; let now = 1000;
   for (let k = 0; k < 2000; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); for (const e of P.drain()) seen.push(e.type + ':' + e.S.key.split(':')[1]); }
   check(seen.includes('news:4'), `news of a far town burnt (${seen.join(' ')})`);
@@ -572,6 +572,19 @@ suites.planetwar = async () => {
   for (let x = -250; x <= 250; x += 25) for (let z = -250; z <= 250; z += 25) { if (Math.hypot(x, z) > S.R) continue; const t = W.burnAt(S, S.cx + x, S.cz + z); if (!(t >= W.FIRE && t <= W.DONE)) late++; else { const b = W.beamAt(S, t); worst = Math.max(worst, Math.hypot(b[0] - S.cx - x, b[1] - S.cz - z)); } }
   check(!late, `every building burns while the beam is firing (${late} not)`); check(worst < 40, `the beam is over each when it goes up (furthest ${worst.toFixed(0)} m)`);
   const p0 = W.shipAt(S, 0), p1 = W.shipAt(S, W.FIRE);
+  // killed: its vents shot out before it fires, the town's saved; it falls, and lies where it fell as a wreck that's solid
+  { const Hk = await import('../js/gen/hulk.js'); D.delete('razed/settlement:1'); const S2 = P.begin(T[0], now, foe), ev = [];
+    for (let k = 0; k < 200; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); ev.push(...P.drain().map(e => e.type)); }
+    const H = P.cripple(now); for (let k = 0; k < 400; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); ev.push(...P.drain().map(e => e.type)); }
+    check(ev.join(' ') === 'warn down crash', `shot down before it fires: it comes down and that's all (${ev.join(' ')})`);
+    check(!D.has('razed/settlement:1') && !P.ruined(T[0], now), 'the town is saved'); check([...D.keys()].some(k => k.startsWith('hulk/')), 'the wreck is in the save');
+    const a = W.shipAt(S2, S2.down), z = W.shipAt(S2, S2.down + W.FALL); check(Math.abs(a.y - S2.p0.y) < 1 && Math.abs(z.y - H.y) < 1 && Math.abs(z.roll - H.roll) < 0.01, 'it falls from where it was to where it lies');
+    check(H.y > 10 && H.y < 10 + 215, `it lies part in the ground (its middle ${(H.y - 10).toFixed(0)} m up, half its depth 215)`);
+    const mid = [H.x, H.y, H.z], out = Hk.hulkPush(H, mid, 1); check(out && Math.hypot(...out) > 50, 'the middle of the hull is solid: pushed out of it');
+    check(!Hk.hulkPush(H, [H.x, H.y + 900, H.z], 1), 'the air over it is clear');
+    const top = Hk.hulkTop(H, H.x, H.z - 0, H.y + 900); check(top > H.y + 100 && top < H.y + 700, `you can stand on it (its top ${(top - 10).toFixed(0)} m over the ground there)`);
+    check(Hk.hulkSolid(H, H.x, top - 1, H.z) && !Hk.hulkSolid(H, H.x, top + 1, H.z), 'and that top is the top of what stops a round');
+    const bow = W.shipPoint({ ...H }, [0, 0, 1500]), F = Hk.foreOf('anvil'); check(!Hk.hulkSolid(H, ...W.shipPoint({ ...H }, [0, 0, F.z])), 'its back is broken: the tear is open'); check(bow[1] < H.y, 'nose down'); }
   check(Math.hypot(p0.x - S.cx, p0.z - S.cz) > 8000 && p0.y > S.g + 7000, 'it comes in from far off and high'); check(Math.hypot(p1.x - S.cx, p1.z - S.cz) < 30 && Math.abs(p1.y - S.g - W.HANG) < 10, 'and hangs over the town to fire');
 };
 suites.lineage = async () => {

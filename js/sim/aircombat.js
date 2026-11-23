@@ -70,6 +70,11 @@ export class AirWar {
     c.maxHp = c.hp;
     this.craft.push(c); return c;
   }
+  // something that doesn't fly but can be shot at and locked: a weak point on a great ship (sim/planetwar.js). pos is moved by whoever owns it.
+  spawnFixed(name, side, pos, r, hp) {
+    const c = { id: this.nextId++, model: null, fixed: true, side, pilot: 'fixed', f: { pos: pos.slice(), vel: [0, 0, 0], fwd: [0, 0, 1], up: [0, 1, 0], left: [1, 0, 0], throttle: 0, hover: 0, facing: 0, pitch: 0, roll: 0, impact: 0 }, hp, maxHp: hp, flares: 0, flareCool: 0, guns: 0, missiles: 0, gunCool: 0, mslCool: 0, lock: null, lockT: 0, target: null, alive: true, wreck: 0, name, r };
+    this.craft.push(c); return c;
+  }
   enemiesOf(c) { return this.craft.filter(o => o.alive && o !== c && hostile(c.side, o.side)); }
   // fire this craft's guns along its nose (with a little spread)
   fireGuns(c, dt) {
@@ -97,7 +102,7 @@ export class AirWar {
     for (const o of this.enemiesOf(c)) {
       const d = sub(o.f.pos, c.f.pos), r = len(d); if (r > range) continue;
       const ang = Math.acos(clamp(dot(norm(d), c.f.fwd), -1, 1)); if (ang > cone) continue;
-      if (dot(o.f.fwd, norm(d)) < 0.2) continue;                      // a heat-seeker has to see the engines: rear quarter only
+      if (!o.fixed && dot(o.f.fwd, norm(d)) < 0.2) continue;          // a heat-seeker has to see the engines: rear quarter only (a vent is hot from any side)
       const sc = ang * 3000 + r; if (sc < bs) { bs = sc; best = o; }
     }
     return best;
@@ -179,6 +184,7 @@ export class AirWar {
     this.t += dt;
     for (const c of this.craft) {
       c.gunCool -= dt; c.mslCool -= dt; c.flareCool -= dt;
+      if (c.fixed) { if (!c.alive) c.wreck = 99; continue; }      // (a weak point: it doesn't fly, and it doesn't fall)
       if (!c.alive) {   // a wreck: no power, falls, burns
         c.wreck += dt; c.f.step(dt, { pitch: -0.3, roll: 0.6 });
         if (Math.random() < dt * 6) this.booms.push({ p: c.f.pos.slice(), t: 0, smoke: true });

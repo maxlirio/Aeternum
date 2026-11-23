@@ -12,7 +12,8 @@ import { HarbourView } from './render/harbour.js';
 import { FleetWar } from './sim/fleetwar.js';
 import { marketOf, priceAt, holdSize, goodName } from './gen/trade.js';
 import { townSociety, nationsOf, relationOf } from './gen/society.js';
-import { PlanetWar, enemyOf as warEnemyOf, beamAt, burnAt, shipAt, ruinFloor, FIRE as PW_FIRE, DONE as PW_DONE, GONE as PW_GONE, BEAM_R, HANG } from './sim/planetwar.js';
+import { PlanetWar, enemyOf as warEnemyOf, beamAt, burnAt, shipAt, shipPoint, ruinFloor, FIRE as PW_FIRE, DONE as PW_DONE, GONE as PW_GONE, BEAM_R, HANG, VENTS, VENT_HP, VENT_R, GUNS as PW_GUNS } from './sim/planetwar.js';
+import { hulkPush } from './gen/hulk.js';
 import { gangsOf } from './gen/gangs.js';
 import { FrontBattle, frontsOf, RANKS } from './sim/front.js';
 import { Infantry } from './sim/infantry.js';
@@ -1794,12 +1795,18 @@ async function start(fresh) {
     nationOf: q => townSociety(planet, q)?.nation || null,
     enemyOf: nat => warEnemyOf(nationsOf(planet), (a, b) => relationOf(planet, a, b), nat),
     isHome: q => q === homeS || q.key === homeS.key, ground: landY,
-    getDelta: k => store.getDelta(k), patchDelta: (k, v) => store.patchDelta(k, v),
+    getDelta: k => store.getDelta(k), patchDelta: (k, v) => store.patchDelta(k, v), clearDelta: k => { const D = store.getDelta(k); if (D) store.patchDelta(k, Object.fromEntries(Object.keys(D).map(q => [q, undefined]))); },
   }, params.has('strike') ? { firstIn: +params.get('strike') || 5 } : params.has('slot') ? { firstIn: 1e12, newsIn: 1e12 } : {});      // (?strike=s: one in s seconds; the test runs, ?slot=, have none)
   const townBurnt = q => planetWar.ruined(q, clock.now());
   towns.ruinOf = q => townBurnt(q) ? () => true : null;
   world.ruined = (b, H) => { const q = world.townOf(b); return q && q !== homeS && townBurnt(q) ? ruinFloor(b.key, H) : null; };
   let ruinsNear = [], ruinsT = 0, strikeView = null, beamSnd = 0, sirenT = 0, smokeK = 0;
+  // the great ships brought down, lying where they fell (gen/hulk.js; hulk/… in the save): drawn (render/capital.js wreckOf) and solid to everything
+  const hulkOf = v => ({ ...v, wreck: true, livery: 4, colour: 0, length: 3500, name: 'wreck', ship: { model: 'none', at: { c: [1e9, 0, 1e9], facing: 0 } } });
+  const hulks = [...store.deltas].filter(([k]) => k.startsWith('hulk/')).map(([, v]) => hulkOf(v)).filter(H => H.t <= clock.now());      // (one still falling when the game was saved has landed by now, or lands when its time comes: below)
+  const hulksPending = [...store.deltas].filter(([k]) => k.startsWith('hulk/')).map(([, v]) => v).filter(v => v.t > clock.now());
+  world.hulks = hulks;
+  const bigShips = () => { let L = fleet; if (strikeView) L = L.concat(strikeView.C); return hulks.length ? L.concat(hulks) : L; };
   // the burnt towns round you (for their smoke, and for who's not walking about in them any more), and the one burning now
   const burntAt = (x, z) => { for (const R of ruinsNear) if (Math.hypot(x - R.cx, z - R.cz) < R.R) return true; const S = planetWar.cur; return !!S && Math.hypot(x - S.cx, z - S.cz) < S.R && clock.now() - S.t0 >= burnAt(S, x, z); };
   // the town's built again, as ruins, once the beam's done with it (and everything in it that stood is gone)
@@ -1815,10 +1822,17 @@ async function start(fresh) {
     planetWar.step(dt, now, me, !inSpace && !dying && !paused);
     if ((ruinsT -= dt) <= 0) { ruinsT = 5; ruinsNear = planetWar.h.townsNear(me[0], me[2], 4000).filter(q => q !== homeS && townBurnt(q)).map(q => ({ cx: q.cx, cz: q.cz, R: q.R, g: landY(q.cx, q.cz), key: q.key, t0: planetWar.razed(q).t0 })); }
     for (const e of planetWar.drain()) {
-      const S = e.S, d = Math.round(Math.hypot(S.cx - me[0], S.cz - me[2])), where = d < S.R ? 'right over you' : `${d < 1000 ? d + ' m' : (d / 1000).toFixed(1) + ' km'} ${compass(Math.atan2(S.cx - me[0], S.cz - me[2]))}`;
-      if (e.type === 'warn') ui.toast(`<b>A ${esc(S.by)} dreadnought</b> is coming down through the clouds over <b>${esc(S.name)}</b>, ${where}. The sirens are going.${d < S.R + 200 ? ' <b>Get out of the town.</b>' : ''}`, 'bad', 12000);
+      const S = e.S, C0 = strikeView?.C || { x: S.cx, y: S.g, z: S.cz }, d = Math.round(Math.hypot(S.cx - me[0], S.cz - me[2])), where = d < S.R ? 'right over you' : `${d < 1000 ? d + ' m' : (d / 1000).toFixed(1) + ' km'} ${compass(Math.atan2(S.cx - me[0], S.cz - me[2]))}`;
+      if (e.type === 'warn') ui.toast(`<b>A ${esc(S.by)} dreadnought</b> is coming down through the clouds over <b>${esc(S.name)}</b>, ${where}. The sirens are going.${d < S.R + 200 ? ' <b>Get out of the town.</b>' : ''} It can be killed: four heat vents glow along its flanks, and with all four shot out it comes down.`, 'bad', 14000);
       else if (e.type === 'fire') ui.toast(`It's burning <b>${esc(S.name)}</b>.`, 'bad', 6000);
-      else if (e.type === 'burnt') { ui.toast(`<b>${esc(S.name)}</b> is gone. The dreadnought climbs away.`, 'bad', 9000); ruinsT = 0; rebuildBurnt(S).catch(err => console.error('ruins', err)); }
+      else if (e.type === 'down') { ui.toast(`<b>The dreadnought is coming down.</b>${S.saved ? ` ${esc(S.name)} is saved.` : ''}`, '', 12000); sound.boom([C0.x, C0.y, C0.z], 90);
+        if (strikeView?.mine) { addDeed(store.meta, { t: now, who: player.name, area: 'sky', what: `brought down a ${S.by} dreadnought over ${S.name}${S.saved ? ', and saved the town' : ''}`, renown: S.saved ? 500 : 300 }); store.dirty.meta = true; } }
+      else if (e.type === 'crash') { const H = S.rest, hk = hulkOf({ ...H, t: now }); hulks.push(hk); { const i = hulksPending.findIndex(q => q.x === H.x && q.z === H.z); if (i >= 0) hulksPending.splice(i, 1); }
+        const fx0 = Math.sin(H.yaw), fz0 = Math.cos(H.yaw); for (let k = -5; k <= 5; k++) { const x = H.x + fx0 * k * 300, z = H.z + fz0 * k * 300, p = [x, landY(x, z), z]; if (k % 2 === 0) groundBlast({ p, R: 46, by: 'the dreadnought' }); else { fx.blast(p, 40); fx.dustRing(p, 80); } }
+        sound.boom([H.x, H.y, H.z], 160); fx.shake = Math.max(fx.shake, Math.min(1, 2500 / (Math.hypot(me[0] - H.x, me[2] - H.z) + 500)));
+        if (!flight && hulkPush(hk, [ctrl.pos[0], ctrl.pos[1] + 1, ctrl.pos[2]], 3)) hurtPlayer(9999, 'a dreadnought coming down on you');
+        ui.toast(`<b>It's down.</b> The wreck lies ${Math.hypot(H.x - me[0], H.z - me[2]) < 1000 ? 'right by you' : `${(Math.hypot(H.x - me[0], H.z - me[2]) / 1000).toFixed(1)} km ${compass(Math.atan2(H.x - me[0], H.z - me[2]))}`}.`, '', 10000); }
+      else if (e.type === 'burnt') { ui.toast(S.down != null ? `<b>${esc(S.name)}</b> is gone.` : `<b>${esc(S.name)}</b> is gone. The dreadnought hangs over what's left of it.`, 'bad', 9000); ruinsT = 0; rebuildBurnt(S).catch(err => console.error('ruins', err)); }
       else if (e.type === 'news') ui.toast(`<b>News:</b> a ${esc(S.by)} dreadnought burned <b>${esc(S.name)}</b> to the ground, ${Math.round(e.d / 1000)} km ${compass(e.dir)}.`, 'warn', 9000);
     }
     // the burnt towns smoke for days (and burn for the first hours)
@@ -1827,7 +1841,9 @@ async function start(fresh) {
         if (age < planet.dayLength / 6) { fx.flame([x, y + 2, z], 6, w); fx.burnLight?.([x, y + 2, z], 3, 1); } fx.smoke([x, y + 6, z], 14, w, 0.05, 0.5); } } }
     // the one going on: its ship, its sirens, its beam and what the beam does
     const S = planetWar.cur;
-    if (!S) { if (strikeView) { capitalView.group.remove(strikeView.C.mesh); strikeView.C.mesh = null; scene.remove(strikeView.beam); scene.remove(strikeView.hit); strikeView = null; } return; }
+    for (let i = hulksPending.length - 1; i >= 0; i--) if (hulksPending[i].t <= now) hulks.push(hulkOf(hulksPending.splice(i, 1)[0]));
+    if (!S) { if (strikeView) { const V = strikeView, gone = new Set([...V.vents, ...V.escort]); war.craft = war.craft.filter(c => !gone.has(c)); for (const m of V.ventMesh) scene.remove(m);
+      capitalView.group.remove(V.C.mesh); V.C.mesh = null; scene.remove(V.beam); scene.remove(V.hit); strikeView = null; } return; }
     const tt = now - S.t0, P = shipAt(S, tt);
     if (!strikeView || strikeView.key !== S.key) {
       const C = { model: 'anvil', name: 'dreadnought', x: P.x, y: P.y, z: P.z, yaw: P.yaw, colour: 0, livery: 3, length: 3500, enemy: true, ship: { model: 'none', at: { c: [1e9, 0, 1e9], facing: 0 } } };
@@ -1837,16 +1853,41 @@ async function start(fresh) {
       // where it meets the ground: a white-hot boil of fire, and the glare off it
       const hit = new THREE.Group(); for (const [r, col, op] of [[18, 0xfff2d8, 0.95], [42, 0xffa040, 0.45], [90, 0xff5a10, 0.16]]) { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12, 0, 6.2832, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })); m.frustumCulled = false; hit.add(m); }
       hit.visible = false; scene.add(hit);
-      beam.visible = false; scene.add(beam); strikeView = { key: S.key, C, beam, core, hit, bi: 0, list: null };
+      beam.visible = false; scene.add(beam); strikeView = { key: S.key, C, beam, core, hit, bi: 0, list: null, vents: [], ventMesh: [], escort: [], hull: { side: 'raider', alive: true, f: { pos: [P.x, P.y, P.z], vel: [0, 0, 0] }, name: 'dreadnought' }, gunT: 0, boomT: 0, mine: 0, left: VENTS.length };
+      // its heat vents: what can be shot out of it (sim/aircombat.js spawnFixed). Each a port in the flank: a steel throat with the reactor's heat glowing down it
+      for (const v of VENTS) { strikeView.vents.push(war.spawnFixed('heat vent', 'raider', shipPoint(P, v), VENT_R, VENT_HP));
+        const g = new THREE.Group(), sg = Math.sign(v[0]); const throat = new THREE.Mesh(new THREE.CylinderGeometry(22, 26, 18, 20, 1, true).rotateZ(Math.PI / 2).translate(sg * 5, 0, 0), new THREE.MeshStandardMaterial({ color: 0x18181a, roughness: 0.5, metalness: 0.9, side: THREE.DoubleSide }));
+        const heat = new THREE.Mesh(new THREE.CircleGeometry(21, 24).rotateY(sg * Math.PI / 2).translate(sg * 2, 0, 0), new THREE.MeshBasicMaterial({ color: 0xff7a22, side: THREE.DoubleSide, fog: false }));
+        const glare = new THREE.Mesh(new THREE.SphereGeometry(40, 16, 10), new THREE.MeshBasicMaterial({ color: 0xff6a18, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+        for (const m of [throat, heat, glare]) { m.frustumCulled = false; g.add(m); } g.userData = { heat, glare }; scene.add(g); strikeView.ventMesh.push(g); }
+      // its escort; and the town's own fighters go up to meet it
+      for (let k = 0; k < 3; k++) strikeView.escort.push(war.spawn(['needle', 'shade', 'needle'][k], 'raider', [P.x + (k - 1) * 300, P.y - 300, P.z + 200 * k], P.yaw, 150));
+      for (let k = 0; k < 2; k++) strikeView.escort.push(war.spawn(['interceptor', 'striker'][k], 'security', [S.cx + 800 + k * 200, S.g + 500, S.cz - 600], S.bearing, 140));
       const q = townOfKey(planet, S.key);      // each building, and when the beam gets to it
       strikeView.list = q ? q.buildings.map(b => { const [x, z] = q.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2); return { x, z, y: (q.h ?? landY(x, z)) + (b.floors || 2) * 3.2, tb: burnAt(S, x, z) }; }).sort((a, b) => a.tb - b.tb) : [];
       while (strikeView.bi < strikeView.list.length && strikeView.list[strikeView.bi].tb < tt - 2) strikeView.bi++;      // (picked up halfway: what's burnt is burnt)
     }
-    const V = strikeView, C = V.C; Object.assign(C, { x: P.x, y: P.y, z: P.z, yaw: P.yaw });
+    const V = strikeView, C = V.C; Object.assign(C, { x: P.x, y: P.y, z: P.z, yaw: P.yaw, pitch: P.pitch || 0, roll: P.roll || 0 });
+    const isDown = S.down != null; V.hull.f.pos = [P.x, P.y, P.z];
+    // the vents ride with it; one shot out burns; the last one gone, down it comes
+    { let left = 0; V.vents.forEach((c, i) => { const p = shipPoint(P, VENTS[i]), g = V.ventMesh[i]; c.f.vel = [(p[0] - c.f.pos[0]) / Math.max(dt, 1e-3), (p[1] - c.f.pos[1]) / Math.max(dt, 1e-3), (p[2] - c.f.pos[2]) / Math.max(dt, 1e-3)]; c.f.pos = p;
+        g.position.set(...toRender(...p)); g.rotation.set(P.pitch || 0, P.yaw, P.roll || 0, 'YXZ'); g.userData.heat.visible = g.userData.glare.visible = c.alive && !isDown; if (c.alive) { left++; g.userData.glare.scale.setScalar(0.9 + Math.sin(tt * 5 + i) * 0.12 + (1 - c.hp / c.maxHp) * 0.5); }
+        else if (Math.random() < dt * 14) { fx.flame(p, 10); fx.smoke([p[0], p[1] + 6, p[2]], 20, [0, 0], 0.04, 0.6); } });
+      if (left < V.left && !isDown) { V.left = left; const p = V.vents.find(c => !c.alive && !c.said); if (p) { p.said = true; const sh = fx.shake; fx.blast(p.f.pos, 40); fx.shake = sh; sound.boom(p.f.pos, 30); }
+        if (left) ui.toast(`A heat vent's gone. <b>${left} left.</b>`, '', 5000); else planetWar.cripple(now); } }
+    // its guns: at whatever of yours or the town's is in the air near it
+    if (!isDown && (V.gunT -= dt) <= 0) { V.gunT = 0.16; let tg = null, bd = 2400;
+      for (const c of war.craft) { if (!c.alive || c.fixed || c.side === 'raider') continue; const d = Math.hypot(c.f.pos[0] - P.x, c.f.pos[1] - P.y, c.f.pos[2] - P.z) - 900; if (d < bd) { bd = d; tg = c; } }
+      if (tg) { let gun = null, gd = Infinity; for (const q of PW_GUNS) { const p = shipPoint(P, q), d = Math.hypot(p[0] - tg.f.pos[0], p[1] - tg.f.pos[1], p[2] - tg.f.pos[2]); if (d < gd) { gd = d; gun = p; } }
+        if (gd < 2000) { const tof = gd / 950, a = [tg.f.pos[0] + tg.f.vel[0] * tof - gun[0] + (Math.random() - 0.5) * gd * 0.07, tg.f.pos[1] + tg.f.vel[1] * tof - gun[1] + (Math.random() - 0.5) * gd * 0.07, tg.f.pos[2] + tg.f.vel[2] * tof - gun[2] + (Math.random() - 0.5) * gd * 0.07], l = Math.hypot(...a) || 1;
+          war.rounds.push({ p: gun, v: a.map(q => q / l * 950), life: 2.2, from: V.hull }); if (Math.random() < 0.2) sound.shot?.(gun, { energy: true, heavy: true }); } } }
+    // coming down: it breaks up as it falls
+    if (isDown && !S.crashed && (V.boomT -= dt) <= 0) { V.boomT = 0.22; const p = shipPoint(P, [(Math.random() - 0.5) * 800, (Math.random() - 0.5) * 300, -1700 + Math.random() * 3300]), sh = fx.shake; fx.blast(p, 34); fx.smoke(p, 40, [0, 0], 0.04, 0.7);
+      fx.shake = Math.max(sh, Math.min(0.5, 400 / (Math.hypot(me[0] - p[0], me[1] - p[1], me[2] - p[2]) + 300))); if (Math.random() < 0.4) sound.boom(p, 40); }
     const dMe = Math.hypot(S.cx - me[0], S.cz - me[2]);
     if (tt < PW_FIRE && (sirenT -= dt) <= 0) { sirenT = 4; sound.siren([S.cx, S.g + 20, S.cz]); }
     // the keel lights as it charges, and burns while it fires
-    const keel = [P.x, P.y - 230, P.z], charging = tt > PW_FIRE - 9 && tt < PW_DONE, B = beamAt(S, tt);
+    const keel = [P.x, P.y - 230, P.z], charging = !isDown && tt > PW_FIRE - 9 && tt < PW_DONE, B = beamAt(S, tt);
     V.beam.visible = charging; if (charging) { const k = B ? 1 : (tt - (PW_FIRE - 9)) / 9, r = toRender(...keel); V.beam.position.set(...r); V.core.scale.setScalar(20 + 50 * k);
       fx.burnLight?.(keel, 4 * k, 0);
       for (const m of V.beam.children) if (m !== V.core) { if (!B) { m.scale.set(0.001, 0.001, 0.001); continue; } const gy = landY(B[0], B[1]), L = keel[1] - gy, dx = B[0] - keel[0], dz = B[1] - keel[2];
@@ -1859,7 +1900,7 @@ async function start(fresh) {
       if (!flight) { const d = Math.hypot(ctrl.pos[0] - p[0], ctrl.pos[2] - p[2]); if (d < BEAM_R + 4) hurtPlayer(9999, "a dreadnought's beam", p); else if (d < 70) hurtPlayer(Math.ceil(dt * 90 * (1 - d / 70)), "the heat of a dreadnought's beam", p); }
       fx.shake = Math.max(fx.shake, Math.min(0.5, 120 / (Math.hypot(me[0] - p[0], me[2] - p[2]) + 60))); }
     // each building as the beam reaches it: it goes up
-    let n = 0; while (V.bi < V.list.length && V.list[V.bi].tb <= tt) { const b = V.list[V.bi++]; if (n++ > 3) continue; const p = [b.x, b.y, b.z], sh = fx.shake; fx.blast(p, 26); fx.shake = Math.max(sh, Math.min(0.6, 90 / (Math.hypot(me[0] - p[0], me[2] - p[2]) + 40)));
+    let n = 0; while (V.bi < V.list.length && V.list[V.bi].tb <= (isDown ? Math.min(tt, S.down) : tt)) { const b = V.list[V.bi++]; if (n++ > 3) continue; const p = [b.x, b.y, b.z], sh = fx.shake; fx.blast(p, 26); fx.shake = Math.max(sh, Math.min(0.6, 90 / (Math.hypot(me[0] - p[0], me[2] - p[2]) + 40)));
       if (Math.random() < 0.5) sound.boom(p, 12); wrecks.blastAt(p, 24); }
   }
   const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); sound.boom(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
@@ -1997,7 +2038,7 @@ async function start(fresh) {
       el.className = 'mk ' + (foe ? 'foe' : 'friend') + (locked ? (myCraft.lockT > 1.2 ? ' locked' : ' locking') : '');
       const sx = (v.x + 1) / 2 * innerWidth, sy = (1 - v.y) / 2 * innerHeight; el.style.left = sx + 'px'; el.style.top = sy + 'px';
       const near = placedMk.filter(q => Math.abs(q[0] - sx) < 140 && Math.abs(q[1] - sy) < 16).length; placedMk.push([sx, sy]); if (near) el.style.marginTop = (near * 15) + 'px';      // (two in close formation: their labels one under the other, not on top of each other)
-      el.innerHTML = `<i></i><span>${foe ? 'raider' : 'security'} · ${c.name} · ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}${locked && myCraft.lockT > 1.2 ? ' · LOCK' : ''}</span>`;
+      el.innerHTML = `<i></i><span>${c.fixed ? '' : (foe ? 'raider' : 'security') + ' · '}${c.name} · ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}${locked && myCraft.lockT > 1.2 ? ' · LOCK' : ''}</span>`;
       markers.append(el);
     }
   }
@@ -2278,9 +2319,9 @@ async function start(fresh) {
     ctrl.frame();      // (what the steps since the last frame did, read: cleared for the next's)
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
     voyageTick(t);
-    capitalView.day.value = sky.state.day ?? 1; capitalView.update(strikeView ? fleet.concat(strikeView.C) : fleet, toRender, camera.position, t);
+    capitalView.day.value = sky.state.day ?? 1; capitalView.update(bigShips(), toRender, camera.position, t);
     ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
-    if (flight && !docking) { const P = fleetContact(strikeView ? fleet.concat(strikeView.C) : fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
+    if (flight && !docking) { let P = fleetContact(strikeView ? fleet.concat(strikeView.C) : fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (!P) for (const H of hulks) { P = hulkPush(H, flight.pos, Math.max(2, flight.L.W * 0.35)); if (P) break; } if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
     const vacOf = y => Math.min(1, Math.max(0, (y - 12000) / 28000)), heatOf = c => c ? Math.min(1, Math.max(0, (0.6 - c.hp / c.maxHp) / 0.45)) : 0;
     // the ship you're flying, wherever it came from (your own, or one issued for a sortie or a drop that isn't parked anywhere)
@@ -2298,7 +2339,7 @@ async function start(fresh) {
       const { c, facing } = centreOf(shipTown(sh), sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean).concat(flight && !ships.some(sh => sh.id === flight.ship.id && !sh.fleet) ? [flown(flight.ship)] : []).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c), gear: 0, thrust: 0.7, hover: 0 })))
-      .concat(war.craft.filter(c => c !== myCraft).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
+      .concat(war.craft.filter(c => c !== myCraft && !c.fixed).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
     shipView.update(shipList, dt); thrustView.update(shipList, dt, origin);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
     stepCrashes(dt, t, wx0 => wx0, traffic); lastTraffic = traffic;
@@ -2450,10 +2491,10 @@ async function start(fresh) {
       const fresh = war.events.slice(war._k || 0); war._k = war.events.length; if (war.events.length > 1500) { war.events.splice(0, 1000); war._k -= 1000; }      // (the air war's event list was never emptied: read it from where we left off, and keep it short)
       // hits are done to the metal where they struck (render/damage.js); yours show at the sight, theirs on the edge of your view
       for (const e of fresh) {
-        if (e.type === 'killed' && e.by === myCraft) hud.hitMark(true);
+        if (e.type === 'killed' && e.by === myCraft) { hud.hitMark(true); if (e.craft.fixed && strikeView) strikeView.mine++; }
         if (e.type !== 'hit') continue;
         const mine = e.craft === myCraft, id = mine ? flight?.ship.id : 'war' + e.craft.id, col = LIVERY[mine ? ((flight?.ship.colour | 0) % LIVERY.length + LIVERY.length) % LIVERY.length : e.craft.side === 'raider' ? 0 : 4];
-        if (id) shipDamage.hit(id, e.craft.model, new THREE.Color(col[0], col[1], col[2]), toRender(...e.at), e.dir, e.dmg);
+        if (id && !e.craft.fixed) shipDamage.hit(id, e.craft.model, new THREE.Color(col[0], col[1], col[2]), toRender(...e.at), e.dir, e.dmg);
         if (e.by === myCraft) hud.hitMark();
         if (mine) { const v = new THREE.Vector3(...toRender(...e.at)).project(camera); hud.hurt(Math.atan2(-v.y * (v.z > 1 ? -1 : 1), v.x * (v.z > 1 ? -1 : 1))); fx.shake = Math.max(fx.shake, Math.min(0.6, e.dmg / 60)); }
       }
@@ -2643,7 +2684,7 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, get strikeView() { return strikeView; }, get sortie() { return sortie; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
