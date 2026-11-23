@@ -65,6 +65,20 @@ export class Sound {
   shieldDown() { if (!this.ok()) return; const v = this.chain(0, 0, 0.5, 0.6); this.tone(v.t, { len: 0.5, f0: 900, f1: 120, type: 'sawtooth', vol: 0.09 }, v.g); this.noise(v.t, { len: 0.4, f0: 2000, f1: 200, type: 'bandpass', q: 2, vol: 0.2 }, v.g); }
   shieldUp() { if (!this.ok()) return; const v = this.chain(0, 0, 0.3, 0.5); this.tone(v.t, { len: 0.4, f0: 300, f1: 1100, type: 'sine', vol: 0.06 }, v.g); }
   // a blast: the flash first, then the bang when the sound's crossed the distance; far off it's all rumble
+  // a town's air-raid siren at p: one rise and fall of it (a long wail that carries kilometres)
+  siren(p) {
+    if (!this.ok()) return; const P = this.place(p), vol = Math.min(0.32, 220 / (P.d + 200)); if (vol < 0.01) return;
+    const v = this.chain(P.d / C, P.pan, vol, 4.2);
+    this.tone(v.t, { len: 2.1, f0: 380, f1: 820, type: 'sawtooth', vol: vol * 0.5, attack: 0.6 }, v.g); this.tone(v.t + 2.0, { len: 2.1, f0: 820, f1: 360, type: 'sawtooth', vol: vol * 0.5, attack: 0.05 }, v.g);
+    this.tone(v.t, { len: 2.1, f0: 190, f1: 410, type: 'triangle', vol: vol * 0.4, attack: 0.6 }, v.g); this.tone(v.t + 2.0, { len: 2.1, f0: 410, f1: 180, type: 'triangle', vol: vol * 0.4, attack: 0.05 }, v.g);
+  }
+  // the great ship's beam: a deep roar under a hiss, for as long as it burns (call it again each second or so)
+  beam(p) {
+    if (!this.ok()) return; const P = this.place(p), vol = Math.min(0.7, 900 / (P.d + 300)); if (vol < 0.01) return;
+    const v = this.chain(P.d / C, P.pan, vol, 1.4);
+    this.noise(v.t, { len: 1.3, f0: 90, f1: 60, type: 'lowpass', q: 1.2, vol, attack: 0.15 }, v.g); this.noise(v.t, { len: 1.3, f0: 2600, f1: 2200, q: 2, vol: vol * 0.25, attack: 0.15 }, v.g);
+    this.tone(v.t, { len: 1.3, f0: 46, f1: 44, type: 'sawtooth', vol: vol * 0.3, attack: 0.15 }, v.g);
+  }
   boom(p, R = 6) {
     if (!this.ok()) return; const P = this.place(p), vol = Math.min(1, R * 6 / (P.d + 10)), far = Math.min(1, P.d / 1500); if (vol < 0.01) return;
     const v = this.chain(P.d / C, P.pan, vol, 2.6);

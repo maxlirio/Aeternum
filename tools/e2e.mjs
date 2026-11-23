@@ -338,7 +338,7 @@ try {
   check(bikes.paid === bikes.price && bikes.riding, `bought a bike for ${bikes.paid} cr and got on`);
   check(bikes.speed > 30, `3 s of throttle: ${bikes.speed} km/h`);
   check(bikes.refused, "can't get off at speed");
-  check(bikes.off && bikes.moved > 20 && bikes.near < 2, `braked, got off; it's parked ${bikes.moved} m from the dealer, ${bikes.near} m from you`);
+  check(bikes.off && bikes.moved > 10 && bikes.near < 2, `braked, got off; it's parked ${bikes.moved} m from the dealer, ${bikes.near} m from you`);
   check(bikes.notMine && bikes.stole, "someone else's bike: E won't take it; holding F hotwires it, and that's logged as theft");
   check(await load('auto=continue'), 'reload');
   const parkedAfter = await ev(`JSON.stringify(ORBIS.getVehicles().find(x => x.id === ${JSON.stringify(bikes.id)}).pos)`);

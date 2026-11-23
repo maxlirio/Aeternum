@@ -21,7 +21,7 @@ export class DoorView {
     this.m.identity();
     for (let i = 0; i < doors.length; i++) { this.place(i); this.mesh.setColorAt(i, COL.normal); }
     this.mesh.instanceMatrix.needsUpdate = true;
-    this.mesh.instanceColor.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;      // (none at all in a burnt town)
   }
   // world-space (settlement-mesh-space) centre of the closed leaf
   centre(i) {

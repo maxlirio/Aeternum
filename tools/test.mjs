@@ -553,6 +553,27 @@ suites.cover = async () => {
     check(worst < 0.15, `${name}: every bag on the ground under it (worst ${worst.toFixed(2)} m off)`);
     check(steep ? J.cover.length === 0 : J.cover.length > 20, `${name}: ${steep ? 'no walls built up it' : 'walls built along it'} (${J.cover.length})`); }
 };
+suites.planetwar = async () => {
+  // the war over the planet (sim/planetwar.js): a dreadnought comes over a town at war, burns every building in it in one
+  // spiral, leaves it burnt in the save, and news comes of others; never the home town, never a town at peace
+  const W = await import('../js/sim/planetwar.js');
+  const town = (k, cx, cz, war = true) => ({ key: 'settlement:' + k, name: 'T' + k, cx, cz, R: 260, h: 10, war });
+  const T = [town(1, 3000, 0), town(2, 0, 0), town(3, -4000, 500, false), town(4, 40000, 0)], home = T[1], D = new Map(), foe = { id: 9, name: 'Marholt', strength: 1 };
+  const P = new W.PlanetWar({ townsNear: (x, z, r) => T.filter(q => Math.hypot(q.cx - x, q.cz - z) < r), farTown: () => T[3], nationOf: q => q, enemyOf: q => q.war ? foe : null,
+    isHome: q => q === home, ground: () => 10, getDelta: k => D.get(k) || null, patchDelta: (k, v) => D.set(k, v) }, { firstIn: 1, every: [1e9, 1e9], newsEvery: [1e9, 1e9] });
+  P.news = 0.5; const seen = []; let now = 1000;
+  for (let k = 0; k < 2000; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); for (const e of P.drain()) seen.push(e.type + ':' + e.S.key.split(':')[1]); }
+  check(seen.includes('news:4'), `news of a far town burnt (${seen.join(' ')})`);
+  check(seen.join(' ').includes('warn:1 fire:1 burnt:1 gone:1'), 'the near town at war: warned, fired on, burnt, and it leaves');
+  check(!D.has('razed/settlement:2') && !D.has('razed/settlement:3'), 'not the home town, not a town at peace');
+  check(P.ruined(T[0], now) && !P.ruined(home, now), 'the burnt town stays burnt (in the save)');
+  // every point of the town is under the beam once, in the time it fires, and the beam is near it then
+  const S = D.get('razed/settlement:1'); let worst = 0, late = 0;
+  for (let x = -250; x <= 250; x += 25) for (let z = -250; z <= 250; z += 25) { if (Math.hypot(x, z) > S.R) continue; const t = W.burnAt(S, S.cx + x, S.cz + z); if (!(t >= W.FIRE && t <= W.DONE)) late++; else { const b = W.beamAt(S, t); worst = Math.max(worst, Math.hypot(b[0] - S.cx - x, b[1] - S.cz - z)); } }
+  check(!late, `every building burns while the beam is firing (${late} not)`); check(worst < 40, `the beam is over each when it goes up (furthest ${worst.toFixed(0)} m)`);
+  const p0 = W.shipAt(S, 0), p1 = W.shipAt(S, W.FIRE);
+  check(Math.hypot(p0.x - S.cx, p0.z - S.cz) > 8000 && p0.y > S.g + 7000, 'it comes in from far off and high'); check(Math.hypot(p1.x - S.cx, p1.z - S.cz) < 30 && Math.abs(p1.y - S.g - W.HANG) < 10, 'and hangs over the town to fire');
+};
 suites.lineage = async () => {
   // one life is one life (sim/lineage.js): when going down kills, what's handed on, and how the war hardens
   const L = await import('../js/sim/lineage.js'); const { newCharacter } = await import('../js/gen/character.js'); const { getPopulation } = await import('../js/gen/population.js');

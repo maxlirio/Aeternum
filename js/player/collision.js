@@ -97,10 +97,15 @@ export class CollisionWorld {
     const s = this.townOf(b); return [u * s.cos - v * s.sin, u * s.sin + v * s.cos];
   }
 
+  // a town's buildings rebuilt from their plans (it's been burnt since: sim/planetwar.js)
+  forget(s) { for (const b of s.buildings || []) this.cols.delete(b.key); }
   colliders(b) {
     let c = this.cols.get(b.key);
     if (c) return c;
-    const plan = b.plan || buildingPlan(this.planet, this.townOf(b), b);
+    let plan = b.plan || buildingPlan(this.planet, this.townOf(b), b);
+    // burnt (this.ruined(b): how high its walls still stand, else null): the walls only up to there, no floors over it, its doors and its things gone
+    const low = this.ruined?.(b, plan.F * plan.H) ?? null;
+    if (low != null) plan = { ...plan, walls: plan.walls.filter(w => w.y0 < low).map(w => ({ ...w, y1: Math.min(w.y1, low), openings: w.openings.map(o => o.kind === 'door' ? { ...o, door: -2 } : o) })), slabs: plan.slabs.filter(sl => sl.y < low - 0.3), props: [], solids: [] };
     const walls = [];
     for (const wl of plan.walls) {
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;
@@ -108,10 +113,10 @@ export class CollisionWorld {
       const add = (p, q, door) => { if (q - p > 0.001) walls.push(alongX ? [p, cc - t, q, cc + t, wl.y0, wl.y1, door] : [cc - t, p, cc + t, q, wl.y0, wl.y1, door]); };
       let cur = a0;
       for (const o of wl.openings.filter(o => o.kind === 'door').sort((p, q) => p.a - q.a)) {
-        add(cur, o.a, -1); add(o.a, o.b, o.door); cur = o.b;
+        add(cur, o.a, -1); if (o.door !== -2) add(o.a, o.b, o.door); cur = o.b;
       }
       add(cur, a1, -1);
-      if (wl.exterior && wl.k === plan.F - 1 && !b.footing) { // roof parapet
+      if (wl.exterior && wl.k === plan.F - 1 && !b.footing && low == null) { // roof parapet
         const top = plan.F * plan.H;
         walls.push(alongX ? [a0, cc - t, a1, cc + t, top, top + 0.7, -1] : [cc - t, a0, cc + t, a1, top, top + 0.7, -1]);
       }

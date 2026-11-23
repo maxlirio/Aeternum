@@ -45,7 +45,7 @@ export class TownStreamer {
     const group = new THREE.Group(); group.name = 'town-far:' + s.name;
     const here = new THREE.Group(); here.position.set(s.cx, 0, s.cz);
     here.add(...buildStreets(this.planet, s));
-    const blocks = new THREE.Group(); blocks.add(...buildBlocks(this.planet, s)); here.add(blocks);
+    const blocks = new THREE.Group(); blocks.add(...buildBlocks(this.planet, s, this.ruinOf?.(s))); here.add(blocks);      // (ruinOf(s): which of its buildings are burnt, sim/planetwar.js)
     group.add(here, bridgeGroup(this.planet, s));
     this.group.add(group); this.shells.set(s.key, { s, group, blocks });
     return this.shells.get(s.key);
@@ -55,7 +55,7 @@ export class TownStreamer {
     if (!this.shells.has(s.key)) this.shell(s);
     const propView = this.propLib ? new PropView(this.propLib) : null, T = { s, ready: false, propView };
     this.full.set(s.key, T);
-    const town = await buildSettlementMesh(this.planet, s, () => {}, propView, { streets: false, slice: 4, into: this.group });
+    const town = await buildSettlementMesh(this.planet, s, () => {}, propView, { streets: false, slice: 4, into: this.group, ruin: this.ruinOf?.(s) });
     T.town = town; T.doorView = new DoorView(s, town.doors); town.group.add(T.doorView.mesh);
     T.doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
     T.ready = true; this.busy = null;
