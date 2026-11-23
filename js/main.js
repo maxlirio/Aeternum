@@ -1236,8 +1236,11 @@ async function start(fresh) {
   // ---- docking with one of the great ships: E near one and the ship flies itself in — out to the line of the bay, along it, in through the
   // mouth, and down onto the hangar deck. It's flown, not jumped, and once started it can't be broken off.
   let docking = null;
+  const DOCK_CRUISE = 85, DOCK_BRAKE = 9;      // m/s it flies the approach at; m/s² it sheds speed at
+  // in a fight in the air (a sortie on, a dreadnought overhead, or enemy craft within 6 km): the great ships don't open their bays to anyone
+  function airBattle() { if (sortie || strikeView) return true; const p = flight?.pos; if (!p) return false; for (const c of war.craft) if (c.alive && !c.fixed && c.side === 'raider' && Math.hypot(c.f.pos[0] - p[0], c.f.pos[1] - p[1], c.f.pos[2] - p[2]) < 6000) return true; return false; }
   function dockTarget() {
-    if (!flight || docking) return null; let best = null, bd = 1500;
+    if (!flight || docking || airBattle()) return null; let best = null, bd = 1500;
     for (const C of fleet) { if (fleetWar.away(C.model) || C.away) continue; const at = C.ship.at, fx = Math.sin(at.facing), fz = Math.cos(at.facing), m = [at.c[0] - fx * C.deckD / 2, at.c[1], at.c[2] - fz * C.deckD / 2], d = Math.hypot(flight.pos[0] - m[0], flight.pos[1] - m[1], flight.pos[2] - m[2]), near = Math.max(0, Math.hypot(flight.pos[0] - C.x, flight.pos[1] - C.y, flight.pos[2] - C.z) - (C.span || C.length) * 0.55), q = Math.min(d, near * 2.5 + 200); if (q < bd) { bd = q; best = { C, d }; } }     // (near the hull anywhere counts, not just near the bay's mouth: on a ship five kilometres long you can be beside it and a long way from its door)
     return best;
   }
@@ -1249,12 +1252,15 @@ async function start(fresh) {
     const P = (z, y = yIn) => [at.c[0] + fx * (z - D / 2), y, at.c[2] + fz * (z - D / 2)];
     // the way: from where you are, on round onto the bay's line a long way out, down it, in through the doors, to the spot to set down
     const here = flight.pos.slice(), sp = Math.max(8, flight.airspeed), dir = sp > 9 ? flight.vel.map(v => v / flight.airspeed) : flight.fwd;
-    const lead = [here[0] + dir[0] * Math.min(260, sp * 3), here[1] + dir[1] * Math.min(260, sp * 3), here[2] + dir[2] * Math.min(260, sp * 3)];
+    // coming in fast it flies on ahead first, braking, and only turns for the bay once it's down to a speed it can turn and stop from (never straight at the bay at full speed)
+    const run = Math.max(Math.min(260, sp * 3), sp > DOCK_CRUISE ? (sp * sp - DOCK_CRUISE * DOCK_CRUISE) / (2 * DOCK_BRAKE) + 120 : 0), long = run > 260, dy = long ? Math.max(0, dir[1]) : dir[1];      // (a long run-on is flown level or climbing, not on down a dive)
+    const lead = [here[0] + dir[0] * run, here[1] + dy * run, here[2] + dir[2] * run];
+    if (long) for (const k of [0.25, 0.5, 0.75, 1]) lead[1] = Math.max(lead[1], Math.max(world.groundAt(here[0] + dir[0] * run * k, here[2] + dir[2] * run * k, 1e5).h, planet.seaLevel) + 150);
     const far = P(-420, yIn + 40), mid = P(-150, yIn + 6), near = P(-30), inside = P(zl);
     const clear = pts => { for (let i = 0; i < pts.length; i += 3) { const q = pts[i]; if (fleetContact(fleet, q[0], q[1], q[2], Math.max(4, L.W * 0.6))) return false; } return true; };
     let route = null;
     for (const h of [0, 150, 400, 800, 1300, 1800]) {
-      const ctl = h ? [here, lead, [lead[0], C.y + h, lead[2]], [far[0], C.y + h, far[2]], far] : [here, lead, far];
+      const ld = [lead[0], lead[1] + h * 0.5, lead[2]], ctl = h ? [here, ld, [ld[0], Math.max(ld[1], C.y + h), ld[2]], [far[0], C.y + h, far[2]], far] : [here, lead, far];
       const curve = spline(ctl.concat([mid, near, inside]));
       const outside = curve.filter(q => q.s < curve.find(c => c.u >= ctl.length + 1 - 1e-6)?.s);     // (in the dock's own approach the hull's shape doesn't apply: the doorway is the gap in it)
       if (clear(outside) || h === 1800) { route = curve; break; }
@@ -1284,8 +1290,10 @@ async function start(fresh) {
     const d = docking, R = d.route, p = flight.pos;
     if (!d.settle) {
       // speed: up to a cruise, easing down so it reaches the line slow, creeps in through the doors, stops on the spot
-      const left = d.end - d.s, cap = d.s > d.sIn ? 4 : d.s > d.sMid ? 16 : 85, want = Math.min(cap, Math.sqrt(0.36 + 2 * 2.2 * Math.max(0, left)), d.s < d.sMid ? Math.sqrt(16 * 16 + 2 * 3 * Math.max(0, d.sMid - d.s)) : 99);
-      d.v += Math.max(-4 * dt, Math.min(3 * dt, want - d.v)); d.s = Math.min(d.end, d.s + Math.max(0.3, d.v) * dt);
+      const left = d.end - d.s, cap = d.s > d.sIn ? 4 : d.s > d.sMid ? 16 : DOCK_CRUISE, want = Math.min(cap, Math.sqrt(0.36 + 2 * 2.2 * Math.max(0, left)), d.s < d.sMid ? Math.sqrt(16 * 16 + 2 * 3 * Math.max(0, d.sMid - d.s)) : 99);
+      // the brakes: hard (air brakes and reverse thrust), and harder still if that's what it takes to be down to speed where the way says so — it never arrives still moving fast
+      const need = (v1, dist) => d.v > v1 ? (d.v * d.v - v1 * v1) / (2 * Math.max(0.5, dist)) : 0, brake = Math.max(DOCK_BRAKE, need(0.6, left), d.s < d.sMid ? need(16, d.sMid - d.s) : 0, d.s < d.sIn ? need(4, d.sIn - d.s) : 0);
+      d.v += Math.max(-brake * dt, Math.min(3 * dt, want - d.v)); d.s = Math.min(d.end, d.s + Math.max(0.3, d.v) * dt);
       let i = R.findIndex(q => q.s >= d.s); if (i < 1) i = 1; const a = R[i - 1], b = R[i], k = (d.s - a.s) / Math.max(1e-6, b.s - a.s);
       const q = a.p.map((v, j) => v + (b.p[j] - v) * k), T = b.p.map((v, j) => v - a.p[j]), tl = Math.hypot(...T) || 1;
       flight.vel = T.map(v => v / tl * d.v); p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
