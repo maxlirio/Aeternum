@@ -546,6 +546,12 @@ suites.cover = async () => {
   wall.hard = (o, d, far) => far > 5 ? 5 : null;      // a wall 5 m out, of the world's
   check(Math.abs((I.blockAt(from, [10.5, 1.5, 0]) ?? -1) - 5) < 0.01, "the world's own solids stop it too");
   check(I.blockAt(from, [4, 1.5, 0]) == null, 'short of the wall: clear');
+  // the works are laid on the ground as it lies: on a hillside every bag sits on the slope under it, and no wall goes up a mountain face
+  for (const [name, ground, steep] of [['a hillside', (x, z) => x * 0.12 + z * 0.25, false], ['a mountain face', (x, z) => Math.abs(x) * 0.5 + z * 1.4, true]]) {
+    const J = new Infantry({ ground }); J.setup({ x: 0, z: 0, dir: 0.3, a: { name: 'A' }, b: { name: 'B' } }); let worst = 0;
+    for (const C of J.cover) for (let w = -C.len / 2; w <= C.len / 2; w += 0.5) { const x = C.pos[0] + J.v[0] * w, z = C.pos[2] + J.v[1] * w; worst = Math.max(worst, Math.abs(J.wallYAt(C, x, z) - ground(x, z))); }
+    check(worst < 0.15, `${name}: every bag on the ground under it (worst ${worst.toFixed(2)} m off)`);
+    check(steep ? J.cover.length === 0 : J.cover.length > 20, `${name}: ${steep ? 'no walls built up it' : 'walls built along it'} (${J.cover.length})`); }
 };
 suites.lineage = async () => {
   // one life is one life (sim/lineage.js): when going down kills, what's handed on, and how the war hardens

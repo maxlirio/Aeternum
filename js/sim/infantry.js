@@ -46,6 +46,13 @@ export class Infantry {
         this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.2, by: null, line: true, hp: 420, h: 0.85 }); }
       for (let k = 0; k < 30; k++) { const O = this.obj[k % 3], s = O.s + (r() - 0.5) * 150, a = side * (8 + r() * 42), len = 3 + r() * 3.5;
         this.cover.push({ i: this.cover.length, side: side < 0 ? 'ours' : 'theirs', a, s, pos: at(a, s), face: side < 0 ? F.dir : F.dir + Math.PI, len, curve: (r() - 0.5) * 0.7, by: null, hp: 260, h: 0.85 }); } }
+    // a wall follows the ground it's laid on, bag by bag; where the ground's too steep or too broken to lay one (a mountainside the
+    // border runs over), none is built. Each keeps the ground under it at metre steps along its length (ys) for what stops a bullet or you.
+    this.cover = this.cover.filter(C => { const n = Math.max(2, Math.ceil(C.len)), ys = []; for (let k = 0; k <= n; k++) { const w = (k / n - 0.5) * C.len, x = C.pos[0] + px * w, z = C.pos[2] + pz * w; ys.push(this.ground(x, z)); }
+      const y0 = ys[0], y1 = ys[n]; let bump = 0, step = 0; for (let k = 0; k <= n; k++) { bump = Math.max(bump, Math.abs(ys[k] - (y0 + (y1 - y0) * k / n))); if (k) step = Math.max(step, Math.abs(ys[k] - ys[k - 1]) / (C.len / n)); }
+      const fall = Math.abs(this.ground(C.pos[0] + ux, C.pos[2] + uz) - this.ground(C.pos[0] - ux, C.pos[2] - uz)) / 2;
+      if (step > 0.45 || bump > 0.6 || fall > 0.6) return false; C.ys = ys; return true; });
+    this.cover.forEach((C, i) => { C.i = i; });
     // between the lines: steel hedgehogs, runs of wire, a few fires
     this.props = [];
     for (let k = 0; k < 22; k++) this.props.push({ kind: 'hedgehog', pos: at((r() - 0.5) * 40, (r() - 0.5) * 2 * SPAN), rot: r() * 6.28 });
@@ -220,7 +227,7 @@ export class Infantry {
     if (!this.F) return null; const [ux, uz] = this.u, [vx, vz] = this.v, dn = dir[0] * ux + dir[2] * uz; if (Math.abs(dn) < 1e-3) return null; let hit = null;
     for (const C of this.cover) { if (C.down || C.wreck) continue; const t = ((C.pos[0] - o[0]) * ux + (C.pos[2] - o[2]) * uz) / dn; if (t < 0.4 || t > best) continue;
       const qx = o[0] + dir[0] * t, qz = o[2] + dir[2] * t, w = (qx - C.pos[0]) * vx + (qz - C.pos[2]) * vz; if (Math.abs(w) > C.len / 2) continue;
-      const y = o[1] + dir[1] * t; if (y < C.pos[1] + (C.h || 0.8) && y > C.pos[1] - 0.4) { best = t; hit = { along: t, C }; } }
+      const y = o[1] + dir[1] * t, g = this.wallY(C, w); if (y < g + (C.h || 0.8) && y > g - 0.4) { best = t; hit = { along: t, C }; } }
     return hit;
   }
   // how far from a toward b the first thing in the way is (sandbags, armour, and whatever the world has that's solid: hooks.hard), or null if it's clear
@@ -281,6 +288,9 @@ export class Infantry {
   breach(C) { if (C.down || C.wreck) return; C.down = true; C.hp = 0; if (C.by) { const M = this.men.find(m => m.id === C.by); if (M) M.routeT = 0; C.by = null; } this.events.push({ type: 'breach', C }); }
   damageCover(p, R, dmg) { for (const C of this.cover) { if (C.down || C.wreck) continue; const d = this.wallDist(C, p[0], p[2]); if (d < R) { C.hp -= dmg * (1 - d / R); if (C.hp <= 0) this.breach(C); } } }
   cutWire(p, R) { for (const W of this.props) { if (W.kind !== 'wire' || this.near(W.pos, p) > W.len / 2 + R) continue; for (const S of W.segs) if (!S.dead) { const [x, z] = this.segAt(W, S); if (Math.hypot(x - p[0], z - p[2]) < R + WIRE_SEG / 2) { S.dead = 'cut'; this.events.push({ type: 'wire', W }); } } } }
+  // the ground under a wall at w along it (from its middle)
+  wallY(C, w) { const ys = C.ys; if (!ys) return C.pos[1]; const n = ys.length - 1, t = Math.max(0, Math.min(n, (w / C.len + 0.5) * n)), i = Math.min(n - 1, Math.floor(t)), f = t - i; return ys[i] * (1 - f) + ys[i + 1] * f; }
+  wallYAt(C, x, z) { const [vx, vz] = this.v; return this.wallY(C, (x - C.pos[0]) * vx + (z - C.pos[2]) * vz); }
   // distance from (x, z) to the line of a wall
   wallDist(C, x, z) { const [ux, uz] = this.u, [vx, vz] = this.v, dx = x - C.pos[0], dz = z - C.pos[2], w = dx * vx + dz * vz, n = dx * ux + dz * uz; return Math.hypot(Math.max(0, Math.abs(w) - C.len / 2), n); }
   // Push a body (radius r, h tall, feet at yFeet) at (x, z) out of the works and the hulls: sandbag walls (low: you can jump
@@ -293,7 +303,7 @@ export class Infantry {
       if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true; };
     if (Math.abs(a) < LINE + 30 && Math.abs(s) < SPAN + 30) {
       const [ux, uz] = this.u, [vx, vz] = this.v;
-      for (const C of this.cover) { if (C.down || C.wreck || Math.abs(s - C.s) > C.len / 2 + 2 || Math.abs(a - C.a) > 3) continue; if (yFeet > C.pos[1] + (C.h || 0.85) - 0.12 || yFeet + h < C.pos[1]) continue;
+      for (const C of this.cover) { if (C.down || C.wreck || Math.abs(s - C.s) > C.len / 2 + 2 || Math.abs(a - C.a) > 3) continue; const g = this.wallYAt(C, x, z); if (yFeet > g + (C.h || 0.85) - 0.12 || yFeet + h < g) continue;
         const sg = C.side === 'ours' ? 1 : -1, n0 = -0.4 * C.curve * sg, th = 0.42 + Math.abs(C.curve) * 0.4; box(C.pos[0] + ux * n0, C.pos[2] + uz * n0, vx, vz, C.len / 2, th); }
       for (const P of this.props) {
         if (P.kind === 'hedgehog') { const dx = x - P.pos[0], dz = z - P.pos[2], d = Math.hypot(dx, dz), R = r + 0.95; if (d < R && yFeet < P.pos[1] + 1.45) { const k = d > 1e-6 ? R / d : 0; x = P.pos[0] + (d > 1e-6 ? dx * k : R); z = P.pos[2] + (d > 1e-6 ? dz * k : 0); moved = true; } }
