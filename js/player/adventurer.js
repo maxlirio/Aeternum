@@ -155,7 +155,17 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
     setWorld(probe, fromRender) { rig.probe = probe; rig.fromRender = fromRender; },
     // the ground and the walls, for the takes to stop against (player/contact.js): { floor(x, y, z), solid(x, y, z) } in render space
     setContact(q) { contactQ = q; },
-    climb(pose, toRender) { onWall = true; root.position.set(0, 0, 0); applyClimbPose(rig, pose, toRender); },
+    // on a wall, over a ledge, a stone, a vault: the IK puts every joint (player/limbik.js); the hands are on what you're climbing, so what
+    // was in them goes on you: a long gun slung across the back, muzzle up over the left shoulder; a pistol or a blade at the right hip
+    climb(pose, toRender, o = {}) { onWall = true; root.position.set(0, 0, 0); applyClimbPose(rig, pose, toRender);
+      if (o.sling !== false && held.children.length && by.spine_03) {
+        root.updateMatrixWorld(true); const F = new THREE.Vector3(...pose.forward), U = new THREE.Vector3(...pose.up), Rt = new THREE.Vector3(...pose.right);
+        const Z = long ? U.clone().multiplyScalar(0.8).addScaledVector(Rt, -0.6).normalize() : U.clone().negate().addScaledVector(F, 0.25).normalize();
+        const Y = (long ? F.clone().negate() : Rt.clone()).addScaledVector(Z, -0).normalize(); Y.addScaledVector(Z, -Y.dot(Z)).normalize(); const X = new THREE.Vector3().crossVectors(Y, Z);
+        const at = long ? by.spine_03.getWorldPosition(new THREE.Vector3()).addScaledVector(F, -0.2).addScaledVector(Z, -0.14) : by.pelvis.getWorldPosition(new THREE.Vector3()).addScaledVector(Rt, 0.21).addScaledVector(U, 0.02);
+        const want = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
+        held.quaternion.copy(socket.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(want)); held.position.copy(socket.worldToLocal(at));
+        held.userData.slung = true; } },
     setOpacity(o) {
       if (Math.abs(o - opacity) < 0.01) return; opacity = o; root.visible = o > 0.02;
       for (const m of mats) { m.transparent = o < 0.99 || m.userData.t0; m.opacity = o; m.depthWrite = o >= 0.99 ? m.userData.d0 : false; }
@@ -230,7 +240,7 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
       if (long && !pose && !climb && !busy && !drawing) sideCarry();      // (at your side; shoulderGun brings it up from there)
       if (ranged && !pose && !climb && gunUp > 0.02 && !busy && !drawing) shoulderGun(gunUp);
       // in a take with the whole body (flat on your front, the bayonet) the take's own hands hold a long gun: it lies from the right hand to the left
-      held.quaternion.identity();
+      held.quaternion.identity(); if (held.userData.slung) { held.position.set(0, 0, 0); held.userData.slung = false; }
       if (long && busy && by.hand_l) { root.updateMatrixWorld(true); const r = by.hand_r.getWorldPosition(new THREE.Vector3()), l = by.hand_l.getWorldPosition(new THREE.Vector3()), d = l.sub(r), n = d.length();
         if (n > 0.15 && n < 1) { d.normalize(); const X = new THREE.Vector3().crossVectors(UP, d).normalize(), Y = new THREE.Vector3().crossVectors(d, X), want = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, d));
           held.quaternion.copy(socket.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(want)); } }

@@ -13,7 +13,7 @@
 // Plain numbers throughout; the hull's size comes from its layout, never the model.
 import { shipPlan } from '../gen/ships.js';
 import { floraNear, felledOf, fellKey } from '../gen/flora.js';
-import { rocksNear, ledgesNear, outOfRock } from '../gen/rocks.js';
+import { rocksNear, ledgesNear, outOfRock, rockSurface } from '../gen/rocks.js';
 
 export const LAND_SPEED = 3, LAND_SINK = 4, LAND_LEVEL = 1.6;   // m/s across and down; worst height difference under the gear (m)
 const G = 9.81, RHO0 = 1.15, RHO = RHO0, CEILING = 4e8, SCALE_H = 8500;
@@ -70,7 +70,7 @@ export class Flight {
   rockUnder(x, z, f = this.facing) {
     if (!this.world.flora) return -Infinity;
     const fx = Math.sin(f), fz = Math.cos(f), rx = -Math.cos(f), rz = Math.sin(f), a = this.L.D * 0.32, b = this.L.W * 0.3; let top = -Infinity;
-    for (const [u, v] of [[0, 0], [a, b], [a, -b], [-a, b], [-a, -b], [this.L.D * 0.45, 0]]) { const px = x + fx * u + rx * v, pz = z + fz * u + rz * v, on = q => { if (q.g + q.top > top && outOfRock(q, px, pz, 0.3)) top = q.g + q.top; };
+    for (const [u, v] of [[0, 0], [a, b], [a, -b], [-a, b], [-a, -b], [this.L.D * 0.45, 0]]) { const px = x + fx * u + rx * v, pz = z + fz * u + rz * v, on = q => { if (q.g + q.top <= top || !outOfRock(q, px, pz, 0.3)) return; let h = rockSurface(q, px, pz); if (h === -Infinity) h = rockSurface(q, px, pz, true); if (h > top) top = h; };
       rocksNear(this.planet, px, pz, 0.5, on); ledgesNear(this.planet, px, pz, 0.5, on); }
     return top;
   }

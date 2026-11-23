@@ -8,7 +8,7 @@ export class CombatHud {
     Object.assign(c.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 4 }); document.body.append(c);
     this.g = c.getContext('2d'); this.hits = []; this.hurts = []; this.feed = []; this.barks = []; this.hm = 0; this.kill = false; this.redT = 0;
   }
-  hit(kill) { this.hm = 0.22; this.kill = kill; }
+  hit(kill, head = false) { this.hm = 0.22; this.kill = kill; this.head = !!head; }
   // a blow from `ang` (radians, round from straight ahead, clockwise)
   hurt(ang, shield) { this.hurts.push({ a: ang, t: 0, shield }); if (!shield) this.redT = 0.5; }
   // the eyepiece. A rifle's: round, a fine cross with stadia marks below the centre (holdovers for range), a dot; a little
@@ -68,7 +68,7 @@ export class CombatHud {
       g.fillStyle = 'rgba(255,255,255,0.9)'; g.fillRect(cx - 1, cy - 1, 2, 2);
     }
     // a hit: an X across the centre
-    if (this.hm > 0) { const k = this.hm / 0.22, r0 = 7 + (1 - k) * 4, r1 = r0 + 7; g.lineWidth = this.kill ? 3 : 2; g.strokeStyle = this.kill ? `rgba(255,60,40,${0.4 + k * 0.6})` : `rgba(255,255,255,${0.3 + k * 0.7})`; g.beginPath();
+    if (this.hm > 0) { const k = this.hm / 0.22, r0 = 7 + (1 - k) * 4, r1 = r0 + 7; g.lineWidth = this.kill ? 3 : this.head ? 2.6 : 2; g.strokeStyle = this.kill ? `rgba(255,60,40,${0.4 + k * 0.6})` : this.head ? `rgba(255,200,60,${0.4 + k * 0.6})` : `rgba(255,255,255,${0.3 + k * 0.7})`;      // (red: down; gold: a head shot) g.beginPath();
       for (const [ux, uy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { g.moveTo(cx + ux * r0 * 0.7, cy + uy * r0 * 0.7); g.lineTo(cx + ux * r1 * 0.7, cy + uy * r1 * 0.7); } g.stroke(); }
     // where the blows came from: an arc round the centre, on that side
     for (const h of this.hurts) { const k = 1 - h.t / 1.4, R = 90; g.lineWidth = 9; g.strokeStyle = h.shield ? `rgba(120,200,255,${k * 0.8})` : `rgba(230,30,20,${k * 0.85})`; g.beginPath(); const a = h.a - Math.PI / 2; g.arc(cx, cy, R, a - 0.28, a + 0.28); g.stroke(); }

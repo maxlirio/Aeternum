@@ -8,6 +8,7 @@ import { settlementNear } from './settlement.js';
 import { sitesNear, tracksNear, onTrack } from './outposts.js';
 import { slopeHere } from './terrain.js';
 import { landRill } from './land.js';
+import { rockForm, outAt, topAt, sideAt, sideBetween } from './rockshape.js';
 
 export const TILE = 96, SHAPES = ['boulder', 'slab', 'pillar'], VARIANTS = 4;
 const cache = new Map();
@@ -26,9 +27,11 @@ export function rockTile(planet, ti, tj) {
     const sink = (size > 2.5 ? 0.24 : 0.12) + 0.75 * (1 - ny);     // sat in the ground, not on it
     out.push({ x, z, y: s.h - tall * sink, g: s.h, shape, rock: c.T.rock, moss: c.T.soft.moss || c.T.soft.peat ? 1 : c.kind === 'meadow' || c.kind === 'moor' || c.kind === 'karst' ? 0.3 : 0,
       v: Math.floor(r(10) * VARIANTS), size, tall, rot: r(11) * 6.283, tilt: (r(12) - 0.5) * (shape === 'pillar' ? 0.1 : 0.4), tint: r(13),
-      top: tall * (1 - sink) * (shape === 'slab' ? 0.95 : 0.8) });
+      top: 0 });
     // its solid footprint: the drawn stone's own oval (render/rocks.js scales a unit block by size across, size·(0.75 + 0.4·tint) deep), turned with it
-    const q = out[out.length - 1], k = shape === 'pillar' ? 0.9 : 1.05; q.ax = size * k; q.az = size * (0.75 + 0.4 * q.tint) * k; q.r = Math.max(q.ax, q.az);
+    // (its drawn shape is gen/rockshape.js's, measured: rockForm. Here only what bounds it: r round its middle, top its crown's height at most)
+    const q = out[out.length - 1]; q.P = planet; q.k = 1; q.ax = size; q.az = size * (0.75 + 0.4 * q.tint); q.r = Math.max(q.ax, q.az) * 1.1;
+    q.top = q.y + tall + Math.abs(Math.tan(q.tilt)) * q.r * 0.6 - s.h;
   };
   // small stones and boulders, 8 m apart at most
   for (let b = 0; b < 12; b++) for (let a = 0; a < 12; a++) {
@@ -63,7 +66,7 @@ export function ledgeTile(planet, ti, tj) {
     const e = 2.5, gx = (surfaceAt(planet, x + e, z).h - surfaceAt(planet, x - e, z).h) / (2 * e), gz = (surfaceAt(planet, x, z + e).h - surfaceAt(planet, x, z - e).h) / (2 * e), sl = Math.hypot(gx, gz); if (sl < 0.35) continue;
     const size = 0.7 + 2.5 * r(3) ** 2, tall = size * (0.4 + 0.45 * r(4));
     out.push({ x, z, y: s.h - tall * 0.58, g: s.h, top: tall * 0.42, shape: 'boulder', rock: mainLand(planet, x, z).T.rock, v: Math.floor(r(5) * VARIANTS), size, tall, deep: size * (0.55 + 0.3 * r(6)), gx, gz, across: Math.atan2(gx, gz) + (r(7) - 0.5) * 0.5, tint: r(8), moss: 0 });
-    { const q = out[out.length - 1]; q.ax = size * 0.95; q.az = q.deep * 0.8 * 0.95; q.rot = q.across; q.r = Math.max(q.ax, q.az); }      // (solid: its own oval, turned across the slope as it's drawn)
+    { const q = out[out.length - 1]; q.ax = size * 0.95; q.az = q.deep * 0.8 * 0.95; q.rot = q.across; q.r = Math.max(q.ax, q.az); q.k = 0.95; q.base = q.y - tall * 0.38; q.top = tall * 0.02 + 0.9 * sl * q.r; }      // (solid: its own oval, turned across the slope as it's drawn)
   }
   ledges.set(ck, out); if (ledges.size > 1200) ledges.delete(ledges.keys().next().value);
   return out;
@@ -81,8 +84,53 @@ export function ledgesNear(planet, x, z, R, fn) {
   for (let ti = t0; ti <= t1; ti++) for (let tj = u0; tj <= u1; tj++) for (const q of ledgeTile(planet, ti, tj)) { const d = R + q.r; if ((q.x - x) ** 2 + (q.z - z) ** 2 <= d * d) fn(q); }
 }
 
+// The stone's top as it's drawn (render/rocks.js: a sphere cut by joint planes, scaled to a unit block and stood on the land). Measured
+// from the made stones: a boulder or a slab is nearly flat across its crown and rounds down to about three quarters of its height at
+// the rim; a pillar's cap is flat right out to its overhang. As a fraction of its height, at e (0 its middle, 1 its rim).
+export const PROFILE = { boulder: e => 0.98 - 0.25 * e * e, slab: e => 0.98 - 0.3 * e * e, pillar: e => 0.96 - 0.06 * e * e };
+// ...and its sides: how far out the drawn stone comes, as a fraction of its rim, at height fraction t (barrel-shaped, narrower at the foot
+// where it's sunk, drawn in under its crown)
+const SIDE = [[0, 0.62], [0.1, 0.8], [0.2, 0.95], [0.3, 1], [0.7, 1], [0.8, 0.9], [0.9, 0.78], [1, 0.68]];
+export function sideOf(t) { if (t <= 0) return SIDE[0][1]; for (let i = 1; i < SIDE.length; i++) if (t <= SIDE[i][0]) { const [a, A] = SIDE[i - 1], [b, B] = SIDE[i]; return A + (B - A) * (t - a) / (b - a); } return SIDE[SIDE.length - 1][1]; }
+// in the stone's own frame: (lx, lz) along and across it, and e the drawn oval's radius there (1 at its rim)
+export function rockLocal(q, x, z) { const c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0), dx = x - q.x, dz = z - q.z, lx = dx * c - dz * sn, lz = dx * sn + dz * c, k = q.k || 1, ux = lx / (q.ax / k), uz = lz / (q.az / k); return { dx, dz, lx, lz, ux, uz, e: Math.hypot(ux, uz) }; }
+// the measured shape of a stone on the land (not a hillside's ledge: those are drawn bedded in the slope, and go by PROFILE)
+export const formOf = q => q.gx !== undefined || !q.P ? null : (q.form || (q.form = rockForm(q.P, q.rock, q.shape, q.v)));
+const toWorld = (q, lx, lz) => { const c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0); return [q.x + lx * c + lz * sn, q.z - lx * sn + lz * c]; };
+// The height of the top of stone q at (x, z), or -Infinity off it. rim: as if (x, z) were on its rim, along the same line from its middle.
+export function rockSurface(q, x, z, rim = false) {
+  let L = rockLocal(q, x, z); const F = formOf(q);
+  if (F) {
+    if (rim) { if (L.e < 1e-6) return q.g + q.top; const f = outAt(F, L.ux, L.uz) * 0.985 / L.e; L = { dx: L.dx * f, dz: L.dz * f, lx: L.lx * f, lz: L.lz * f, ux: L.ux * f, uz: L.uz * f }; }
+    const t = topAt(F, L.ux, L.uz); if (t < 0) return -Infinity;
+    return q.y + q.tall * t + L.lx * Math.tan((q.tilt || 0) * 0.6) - L.dz * Math.tan(q.tilt || 0);
+  }
+  if (rim) { if (L.e < 1e-6) return q.g + q.top; const f = 0.999 / L.e; L = { dx: L.dx * f, dz: L.dz * f, lx: L.lx * f, lz: L.lz * f, e: 0.999 }; }
+  if (L.e > 1) return -Infinity;
+  if (q.gx !== undefined) return q.base + q.tall * PROFILE.boulder(L.e) + 0.9 * (q.gx * L.dx + q.gz * L.dz);      // (a ledge: leaning back into the slope it stands out of)
+  return q.y + q.tall * (PROFILE[q.shape] || PROFILE.boulder)(L.e) + L.lx * Math.tan((q.tilt || 0) * 0.6) - L.dz * Math.tan(q.tilt || 0);      // (tipped as it's drawn: Euler(tilt, rot, tilt·0.6))
+}
+
+// Is the point inside the drawn stone? (Its barrel of a side, under its top.)
+export function rockSolid(q, x, y, z) {
+  const L = rockLocal(q, x, z), F = formOf(q);
+  if (F) { const t = (y - q.y) / q.tall; if (t < 0 || t > 1.05 || L.e > F.max) return false; return L.e <= sideAt(F, L.ux, L.uz, t) && y <= rockSurface(q, x, z); }
+  if (L.e > 1) return false;
+  if (y > rockSurface(q, x, z)) return false;
+  if (q.gx !== undefined) return y >= q.base;
+  const t = (y - q.y) / q.tall; if (t < 0) return false;
+  return q.shape === 'pillar' ? L.e <= 0.9 : L.e <= sideOf(t);
+}
+
 // Is (x, z) within `pad` of rock q's oval footprint? → the point pushed out to its edge, or null.
-export function outOfRock(q, x, z, pad) {
+export function outOfRock(q, x, z, pad, y0 = null, y1 = null) {
+  const F = formOf(q);
+  if (F) {      // out along the line from its middle, to its drawn side (the widest of it between y0 and y1, given them) and pad beyond
+    const L = rockLocal(q, x, z), o = y0 === null ? outAt(F, L.ux, L.uz) : sideBetween(F, L.ux, L.uz, (y0 - q.y) / q.tall, (y1 - q.y) / q.tall); if (o <= 0) return null;
+    const lp = Math.hypot(L.lx, L.lz); if (lp < 1e-6) return toWorld(q, q.ax * o + pad, 0);
+    const lb = lp * o / L.e; if (lp >= lb + pad) return null;
+    const f = (lb + pad) / lp; return toWorld(q, L.lx * f, L.lz * f);
+  }
   const c = Math.cos(q.rot || 0), sn = Math.sin(q.rot || 0), dx = x - q.x, dz = z - q.z, lx = dx * c - dz * sn, lz = dx * sn + dz * c, A = (q.ax ?? q.r) + pad, B = (q.az ?? q.r) + pad, e = Math.hypot(lx / A, lz / B);
   if (e >= 1) return null;
   const k = e > 1e-6 ? 1 / e : 0, ox = e > 1e-6 ? lx * k : A, oz = e > 1e-6 ? lz * k : 0;

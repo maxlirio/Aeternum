@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { rockTile, ledgeTile, TILE, VARIANTS } from '../gen/rocks.js';
 import { hashInts, hashStr } from '../core/hash.js';
-import { Simplex2 } from '../core/noise.js';
+import { rockShaper, fitBox } from '../gen/rockshape.js';
 import { groundTextures, GROUND_LAYERS } from './materials.js';
 import { landTones } from '../gen/land.js';
 
@@ -14,30 +14,12 @@ const LAYER = { plain: 'rock', sandstone: 'sandstone', basalt: 'basalt', granite
 const NEAR_SMALL = 110, NEAR_BIG = 420, FAR = 1500, LEDGE = 170;
 
 function rockGeometry(seed, shape, rock, detail) {
-  const r = k => hashInts(seed, [k]) / 4294967296, N = new Simplex2([seed, seed ^ 0x77]);
+  // the stone's shape is gen/rockshape.js's (the same one that stops you and that you stand on); here it's put on a mesh
   let g = new THREE.IcosahedronGeometry(1, detail); g.deleteAttribute('uv'); g.deleteAttribute('normal'); g = mergeVertices(g, 1e-4);
-  const planes = [], n = shape === 'pillar' ? 7 : 9 + Math.floor(r(1) * 8);
-  for (let i = 0; i < n; i++) { const a = r(10 + i) * 6.283, y = shape === 'pillar' ? (r(30 + i) - 0.5) * 0.3 : r(30 + i) * 1.7 - 0.85, c = Math.sqrt(Math.max(0, 1 - y * y)); planes.push([Math.cos(a) * c, y, Math.sin(a) * c, 0.58 + 0.4 * r(50 + i)]); }
-  const P = g.attributes.position, v = new THREE.Vector3(), beds = rock === 'sandstone' ? 9 : rock === 'pale' ? 6 : rock === 'basalt' ? 0 : 3;
-  for (let i = 0; i < P.count; i++) {
-    v.fromBufferAttribute(P, i).normalize();
-    // the joints cut it, but no break in stone is a knife edge: where two faces meet the edge is worn round (a soft minimum, not a hard one)
-    let R = 1.15; const kk = 0.075; for (const [a, b, c, d] of planes) { const q = a * v.x + b * v.y + c * v.z; if (q > 0.02) { const r2 = d / q, h = Math.max(kk - Math.abs(R - r2), 0) / kk; R = Math.min(R, r2) - h * h * kk * 0.25; } }
-    const u = v.x * 1.9 + v.y * 0.7, w = v.z * 1.9 - v.y * 0.7;
-    // then roughened at every scale the mesh can carry: the lumps of the block, the chips off its faces, the grain of the stone
-    R *= 1 + 0.11 * N.fbm(u * 1.4 + 3, w * 1.4, 3) + 0.035 * N.ridged(u * 6, w * 6, 2) + (detail >= 5 ? 0.014 * N.fbm(u * 17 + 7, w * 17 - 3, 2) + 0.006 * N.n(u * 41, w * 41) : 0);
-    let x = v.x * R, y = v.y * R, z = v.z * R;
-    if (shape === 'slab') y = y * 0.62;
-    if (beds) { const k = beds * 0.5, t = (y + 2) * k, f = t - Math.floor(t), step = (Math.floor(t) + (f > 0.7 ? (f - 0.7) / 0.3 : 0)) / k - 2, sh = 1 + 0.05 * Math.sin(Math.floor(t) * 12.9 + seed); y = y * 0.35 + step * 0.65; x *= sh; z *= sh; }
-    if (shape === 'pillar') {               // tall, waisted under a harder cap, flaring into its rubble at the foot
-      const t = y * 0.5 + 0.5, waist = 0.62 + 0.3 * Math.abs(t - 0.45) * 2 + 0.55 * Math.max(0, 0.16 - t) * 4 + 0.18 * N.fbm(t * 5, seed % 7, 2), cap = t > 0.86 ? 1.32 - (t - 0.86) * 1.1 : 1;
-      x *= waist * cap * 0.9; z *= waist * cap * 0.9;
-    }
-    P.setXYZ(i, x, y, z);
-  }
+  const f = rockShaper(seed, shape, rock, detail), P = g.attributes.position, v = new THREE.Vector3(), pts = new Float64Array(P.count * 3);
+  for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).normalize(); const q = f(v.x, v.y, v.z); pts[i * 3] = q[0]; pts[i * 3 + 1] = q[1]; pts[i * 3 + 2] = q[2]; }
   // to unit box: x, z within ±1, y from 0 to 1
-  g.computeBoundingBox(); const B = g.boundingBox, sx = Math.max(-B.min.x, B.max.x), sz = Math.max(-B.min.z, B.max.z), hy = B.max.y - B.min.y;
-  for (let i = 0; i < P.count; i++) P.setXYZ(i, P.getX(i) / sx, (P.getY(i) - B.min.y) / hy, P.getZ(i) / sz);
+  fitBox(pts); for (let i = 0; i < P.count; i++) P.setXYZ(i, pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
   g.computeVertexNormals(); g.computeBoundingSphere();
   return g;
 }

@@ -8,7 +8,7 @@ import { buildingPlan, SLAB_T } from '../gen/building.js';
 import { settlementNear } from '../gen/settlement.js';
 import { PLINTH } from '../core/units.js';
 import { floraNear } from '../gen/flora.js';
-import { rocksNear, ledgesNear, outOfRock } from '../gen/rocks.js';
+import { rocksNear, ledgesNear, outOfRock, rockSurface, rockSolid } from '../gen/rocks.js';
 import { towerOf } from '../gen/towers.js';
 import { deckAt, railHold } from '../gen/surface.js';
 import { sitesNear } from '../gen/outposts.js';
@@ -146,6 +146,9 @@ export class CollisionWorld {
     if (this.carBoxes) for (const V of this.carBoxes) { if (!V.roof || Math.abs(x - V.x) > V.reach || Math.abs(z - V.z) > V.reach) continue; const dx = x - V.x, dz = z - V.z, top = V.y + V.h; if (top <= yFeet + STEP && top > best && Math.abs(dx * V.fx + dz * V.fz) < V.hl && Math.abs(dx * V.fz - dz * V.fx) < V.hw) { best = top; where = { car: true, roof: true, V }; } }
     if (this.flora) sitesNear(this.planet, x, z, 6, S => { if (Math.abs(S.x - x) > S.clear + 60 || Math.abs(S.z - z) > S.clear + 60) return; for (const it of S.items) { if (!/watchtower/.test(it.k) || Math.abs(it.x - x) > 4 || Math.abs(it.z - z) > 4) continue; const T = towerOf(this.planet, it); if (!T?.deck) continue; const top = it.y + T.deck.y, c = Math.cos(it.rot || 0), s = Math.sin(it.rot || 0), dx = x - it.x, dz = z - it.z; if (top <= yFeet + STEP && top > best && Math.abs(dx * c - dz * s) < T.deck.half && Math.abs(dx * s + dz * c) < T.deck.half) { best = top; where = { deck: true, roof: true }; } } });
     this.cityNear(x, z, 0, (box, u, v) => { if (box[5] <= yFeet + STEP && box[5] > best && inBox(box, u, v)) { best = box[5]; where = { city: true, roof: box[5] - box[4] > 2 }; } });
+    // the tops of the stones: stood on as the land is (no where: steep is steep, on stone as on a hillside)
+    let rock = null;
+    if (this.flora) { const on = q => { if (q.g + q.top <= best) return; const h = rockSurface(q, x, z); if (h > best && h <= yFeet + STEP) { best = h; rock = q; } }; rocksNear(this.planet, x, z, 0, on); ledgesNear(this.planet, x, z, 0, on); }
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, 0.05)) continue;
@@ -175,7 +178,8 @@ export class CollisionWorld {
         if (h <= yFeet + STEP && h > best) { best = h; where = { b, k: r.k, stairs: true }; }
       }
     }
-    return { h: best, where };
+    if (where) rock = null;
+    return { h: best, where, rock };
   }
 
   // Lowest ceiling above the head at (x, z), or Infinity.
@@ -282,10 +286,12 @@ export class CollisionWorld {
         const ux = d > 1e-6 ? dx / d : 1, uz = d > 1e-6 ? dz / d : 0;
         x = p.x + ux * R; z = p.z + uz * R; moved = true;
       });
-      // rocks: you can get over a low one (a step, a jump); a big one you go round
+      // rocks: a low one you step up on, and once you're up on one you walk about on it (CollisionWorld.groundAt); its side, where that's
+      // more than a step, stops you as a wall does (you climb it: player/controller.js)
       const rock = q => {
         if (yFeet > q.g + q.top - 0.05 || yFeet + h < q.y) return;
-        const o = outOfRock(q, x, z, r); if (o) { x = o[0]; z = o[1]; moved = true; }
+        if (rockSurface(q, x, z, true) <= yFeet + STEP + 0.02) return;
+        const o = outOfRock(q, x, z, r, Math.max(q.y, yFeet + STEP), yFeet + h); if (o) { x = o[0]; z = o[1]; moved = true; }      // (its side where it'd meet you: above your step, below your head)
       };
       if (this.flora && natural) { rocksNear(this.planet, x, z, r + 2, rock); ledgesNear(this.planet, x, z, r + 2, rock); }      // (and the rock standing out of a steep hillside)
       if (!moved) break;
@@ -309,6 +315,36 @@ export class CollisionWorld {
       if (clear && this.resolve(px, pz, top + 0.02).every((v, i) => Math.abs(v - [px, pz][i]) < 0.15)) return { top, x: px, z: pz };
     }
     return null;
+  }
+
+  // Something low ahead with a far side to come down on, to vault at a run: a sandbag wall, a fence, a car's bonnet, a low stone,
+  // a wall at waist height. What's there is found the way a body would find it: where the land or a top rises in front, or where
+  // something stops a foot put out at that height (resolve). → { to (feet, the far side), E (near edge, on top), top, n } or null
+  vaultAhead(x, y, z, facing, most = 1.3) {
+    const fx = Math.sin(facing), fz = Math.cos(facing), n = [-fx, 0, -fz];
+    const blockedAt = (px, pz, yy) => { const q = this.resolve(px, pz, yy, 0.1, 0.1, false, false); return Math.abs(q[0] - px) + Math.abs(q[1] - pz) > 0.02; };
+    // how high what's at (px, pz) stands above your feet: a top you could stand on, or how high a foot has to be to clear it
+    const height = (px, pz) => { let H = this.groundAt(px, pz, y + most + 0.4 - STEP).h - y; if (H > most + 0.3) return H;
+      for (let hy = 0.15; hy <= most + 0.3; hy += 0.15) { if (!blockedAt(px, pz, y + hy)) { if (hy > 0.2) H = Math.max(H, hy + 0.1); return H; } } return most + 1; };
+    let near = -1, top = 0, far = -1;
+    for (let d = 0.25; d <= 1.3; d += 0.1) { const H = height(x + fx * d, z + fz * d); if (H >= 0.45) { near = d; break; } }
+    if (near < 0) return null;
+    for (let d = near; d <= near + 1.7; d += 0.1) { const H = height(x + fx * d, z + fz * d); if (H > most) return null; if (H < 0.4) { far = d; break; } top = Math.max(top, H); }
+    if (far < 0 || top < 0.45) return null;
+    const lx = x + fx * (far + 0.45), lz = z + fz * (far + 0.45), g = this.groundAt(lx, lz, y + 0.5).h;
+    if (g < y - 1.6 || g > y + 0.45) return null;
+    const cl = this.resolve(lx, lz, g, 0.32, 1.75, false, false); if (Math.hypot(cl[0] - lx, cl[1] - lz) > 0.06) return null;
+    for (const d of [near, (near + far) / 2, far]) if (this.hardAt(x + fx * d, y + top + 1.1, z + fz * d) || this.hardAt(x + fx * d, y + top + 0.6, z + fz * d)) return null;      // (room to go over)
+    return { to: [lx, g, lz], E: [x + fx * near, y + top, z + fz * near], top: y + top, n, depth: far - near };
+  }
+  // A stone just ahead too tall to pull yourself onto (its side, where you'd meet it, more than 2 m up): to climb it. → the stone, or null
+  rockAhead(x, y, z, facing) {
+    if (!this.flora) return null; const fx = Math.sin(facing), fz = Math.cos(facing); let best = null, bd = Infinity;
+    rocksNear(this.planet, x + fx * 0.7, z + fz * 0.7, 0.9, q => { if (q.shape === undefined || q.gx !== undefined) return;
+      const rim = rockSurface(q, x, z, true); if (rim < y + 2.0 || q.y > y + 0.5) return;
+      if (!outOfRock(q, x + fx * 0.6, z + fz * 0.6, 0.35)) return;
+      const d = Math.hypot(q.x - x, q.z - z) - q.r; if (d < bd) { bd = d; best = q; } });
+    return best;
   }
 
   // Is the point inside solid geometry (camera collision)?
@@ -347,7 +383,7 @@ export class CollisionWorld {
     let hit = false;
     floraNear(this.planet, x, z, 1.4, p => { if (!hit && p.solid && !p.felled && y >= p.y && y <= p.y + Math.max(2.5, p.size) && Math.hypot(x - p.x, z - p.z) < p.solid) hit = true; });
     if (hit) return true;
-    const rock = q => { if (!hit && y >= q.y && y <= q.g + q.top && outOfRock(q, x, z, 0)) hit = true; };
+    const rock = q => { if (!hit && rockSolid(q, x, y, z)) hit = true; };
     rocksNear(this.planet, x, z, 2, rock); if (!hit) ledgesNear(this.planet, x, z, 2, rock);
     return hit;
   }

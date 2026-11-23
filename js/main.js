@@ -84,6 +84,7 @@ import { loadPropLibrary, PropView } from './render/props.js';
 import { materials, occupancy, WINDOW_TYPES, loadSurfaces, loadGround } from './render/materials.js';
 import { CollisionWorld } from './player/collision.js';
 import { Controller } from './player/controller.js';
+import { slidePose } from './player/moves.js';
 import { FollowCamera } from './player/camera.js';
 import { createPlaceholderAvatar } from './player/avatar.js';
 import { loadAdventurer } from './player/adventurer.js';
@@ -443,12 +444,13 @@ async function start(fresh) {
   const keys = new Set();
   let bootHold = null;      // (set once the world's up: below)
   let dying = false;      // (dead: sim/lineage.js, dieFlow; nothing more is saved over the death)
-  let paused = false, forceHold = 0, jumpQueued = false, lastSave = performance.now();
+  let paused = false, forceHold = 0, jumpQueued = false, slideQueued = false, lastSave = performance.now();
   addEventListener('keydown', e => {
     if (paused) return;
     sound.wake(); keys.add(e.code);
     if (e.code === 'Space' && !flight && !tankV) { jumpQueued = true; crouched = false; }
-    if (e.code === 'KeyZ' && !flight && !ride && !tankV && ctrl.mode === 'walk') { crouched = !crouched; proned = false; }
+    if ((e.code === 'KeyZ' || e.code === 'ControlLeft') && !e.repeat && !flight && !ride && !tankV && ctrl.mode === 'walk') {      // (down at a full run: a slide, then crouched where it stops)
+      if (!crouched && ctrl.grounded && ctrl.speed > 5.2 && !proned) { crouched = true; slideQueued = true; } else crouched = !crouched; proned = false; }
     if (e.code === 'KeyX' && !flight && !ride && !tankV && ctrl.mode === 'walk') { proned = !proned; if (proned) crouched = false; }      // (prone: flat behind your rifle; get up with it again, or by moving off)      // (crouch: down behind cover, or moving low)
     if (e.code === 'KeyE' && !tankToggle()) interact();
     if (e.code === 'KeyQ' && onLine() && !tankV && ctrl.mode === 'walk') fireLauncher();
@@ -1452,6 +1454,7 @@ async function start(fresh) {
   // ---- violence (sim/processes/combat.js): what's in your hand, and what happens when you use it
   let lastAttack = -1e9;
   // a fight on foot: the trigger held, sighting down the gun (aimK eases in), how far the shots wander now (bloom), your issued shield, your grenades
+  let recoilDebt = 0;      // (how far the kick has put the muzzle up: most of it settles back once you stop firing, as a held gun does)
   let trigger = false, wantShot = false, aimHeld = false, aimK = 0, gunK = 0, bloom = 0, lastFired = -1e9, hurtT = -1e9, shield = 0, nades = 0, shotsHeard = 0, lastHeard = 0;
   // the sight: how far in it's zoomed (the wheel changes it), your breath (held, the sight steadies, for a few seconds), the way it wanders
   let proned = false, proneK = 0, lastStun = 0;      // prone (X on foot): down on your front behind the rifle
@@ -1611,7 +1614,7 @@ async function start(fresh) {
       const wallHit = infantry.F && infantry.coverOnRay(wo, [dir.x, dir.y, dir.z], best);      // (sandbags stop it)
       if (wallHit) { best = wallHit.along; fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 6, [0.62, 0.56, 0.44]); }
       const man = infantry.F && infantry.onRay(wo, [dir.x, dir.y, dir.z], best);
-      if (man) { best = man.along; target = null; if (man.M.hp > 0) { const kill = infantry.hurt(man.M, W.dmg * (man.head ? 1.8 : 1), 'player', [dir.x, dir.z]); chud.hit(kill); sound.hit(kill); } fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 4, [0.45, 0.12, 0.1]); }
+      if (man) { best = man.along; target = null; if (man.M.hp > 0) { const kill = infantry.hurt(man.M, W.dmg * (man.head ? 1.8 : 1), 'player', [dir.x, dir.z]); chud.hit(kill, man.head); sound.hit(kill); } fx.dust([wo[0] + dir.x * best, wo[1] + dir.y * best, wo[2] + dir.z * best], 4, [0.45, 0.12, 0.1]); }
       if (infantry.F) infantry.heard(wo, [dir.x, dir.y, dir.z], best);
       const shot = fauna?.onRay(wo, [dir.x, dir.y, dir.z], best);
       if (shot) { best = shot.along; target = null; fauna.hurt(shot.A, W.dmg); }
@@ -1620,7 +1623,7 @@ async function start(fresh) {
       g.setXYZ(0, ...hand); g.setXYZ(1, ...hp); g.needsUpdate = true; tracer.material.opacity = 0.9;
       flash.position.set(...hand); flash.intensity = 25;
       // the kick: the muzzle climbs (less with it to your eye), and the next shots wander further until you let it settle
-      cam.pitch = Math.max(-0.9, cam.pitch - (0.008 + Math.random() * 0.006) * (1 - 0.35 * aimK)); cam.yaw += (Math.random() - 0.5) * 0.005; bloom = Math.min(W.spread * 2.5, bloom + W.spread * 0.4);
+      { const kick = (0.008 + Math.random() * 0.006) * (1 - 0.35 * aimK) * (crouched || proned ? 0.75 : 1); cam.pitch = Math.max(-0.9, cam.pitch - kick); recoilDebt += kick; } cam.yaw += (Math.random() - 0.5) * 0.005; bloom = Math.min(W.spread * 2.5, bloom + W.spread * 0.4);
       sound.shot(null, { energy: !!W.energy }); fx.shake = Math.max(fx.shake, 0.1); lastFired = performance.now() / 1000; avatar.fired?.();
     }
     if (!target) {       // no one there: a passer-by in the city, a window, whatever's in the way
@@ -2032,9 +2035,9 @@ async function start(fresh) {
       const input = {
         fwd: (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0),
         right: (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
-        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, yaw: cam.yaw, tired: player.fatigue > 0.92, exhausted: player.fatigue > 0.985, drop: keys.has('KeyQ'),
+        run: keys.has('ShiftLeft') || keys.has('ShiftRight'), jump: jumpQueued, jumpHeld: keys.has('Space'), slide: slideQueued, yaw: cam.yaw, tired: player.fatigue > 0.92, exhausted: player.fatigue > 0.985, drop: keys.has('KeyQ'),
       };
-      jumpQueued = false;
+      jumpQueued = false; slideQueued = false;
       { const now = performance.now() / 1000, armed = heldRanged() && !flight && !ride && ctrl.mode === 'walk' && !tankV;
         if (armed && (trigger || wantShot)) attack();
         // the sight: right button held, the gun comes up and your eye goes to it (the view closes in over the shoulder, then you're
@@ -2054,6 +2057,7 @@ async function start(fresh) {
         { const fx = Math.sin(ctrl.facing), fz = Math.cos(ctrl.facing), wall = crouched && (aimHeld || trigger) && (world.solidAt(ctrl.pos[0] + fx * 0.9, ctrl.pos[1] + 0.7, ctrl.pos[2] + fz * 0.9, 0.1) || !!infantry.F && !!infantry.push(ctrl.pos[0] + fx * 0.9, ctrl.pos[2] + fz * 0.9, ctrl.pos[1], 0.9, 0.05));
           crouchK += ((crouched ? (wall ? 0.45 : 1) : 0) - crouchK) * Math.min(1, dt * 8); avatar.crouch?.(crouchK); input.crouch = crouched; if (crouched) input.run = false; }
         const W = WEAPONS[player.weapon]; bloom *= Math.exp(-dt * 3.5);
+        if (recoilDebt > 0 && now - lastFired > Math.max(0.09, (W?.every || 0.1) * 1.2)) { const back = recoilDebt * Math.min(1, dt * 8); cam.pitch += back * 0.8; recoilDebt -= back; if (recoilDebt < 1e-4) recoilDebt = 0; }
         if (!armed) wantShot = false;
         input.aim = armed && aimHeld; input.face = armed && (aimHeld || trigger || wantShot || now - lastFired < 1.5) ? (window.__faceYaw ?? cam.yaw) : undefined;      // (kept up a moment after the last shot, then back down to your side)
         if (scrap && !armed && !input.face) input.face = Math.atan2(scrap.pos[0] - ctrl.pos[0], scrap.pos[2] - ctrl.pos[2]);      // (squared up to someone: you face them, and step round them)
@@ -2175,7 +2179,7 @@ async function start(fresh) {
       if (ctrl.seat.pose === 'lie') avatar.object.position.set(rp[0] + fx * 0.87, rp[1] + 0.14, rp[2] + fz * 0.87);
       else avatar.object.position.set(rp[0] - fx * 0.12, rp[1], rp[2] - fz * 0.12);
     }
-    const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' ? { moving: true, lean: 0.5 } : ctrl.climbing ? { moving: true, lean: 0.6 } : null;
+    const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' || ctrl.mode === 'vault' || ctrl.slide ? { moving: true, lean: 0.5 } : null;      // (over something: the body's put by the move, player/moves.js; up a steep slope you walk, slowly)
     if (ride) { // astride the saddle: the seat is ~0.45 m behind the bike's centre
       const fx = Math.sin(ride.facing), fz = Math.cos(ride.facing), back = ride.T.seat[0], rx = ride.T.kind === 'bike' ? 0 : -Math.cos(ride.facing) * ride.T.W * 0.22;   // (in a car: the driver's seat, a little to one side)
       avatar.object.position.set(rp[0] + fx * back + rx, rp[1] + ride.T.seat[1] - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back + (ride.T.kind === 'bike' ? 0 : Math.sin(ride.facing) * ride.T.W * 0.22));
@@ -2188,6 +2192,8 @@ async function start(fresh) {
     avatar.update(dt, ride ? 0 : ctrl.speed, ctrl.grounded, ride || dying ? null : climbPose, ride ? 'sit' : ctrl.mode === 'seat' ? ctrl.seat.pose : ctrl.swimming ? 'swim' : ctrl.stun > 0 && ctrl.grounded && !avatar.knockedDown ? 'lie' : null);
     avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
+    else if (ctrl.movePose && avatar.climb && !ride && !dying) avatar.climb(ctrl.movePose, toRender);
+    else if (ctrl.slide && avatar.climb && !ride && !dying) avatar.climb(slidePose(ctrl.pos, ctrl.facing, ctrl.slide.t), toRender, { sling: false });
     if (!aloft) { pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); if (!params.has('noledges')) ledgeView.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); }     // (from a ship well up, the things only seen from close by wait)
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
     if (ctrl.jumped && !flight && !ride) avatar.jump?.();      // (the recorded jump: down, off, the legs drawn up)

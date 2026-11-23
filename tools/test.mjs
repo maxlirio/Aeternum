@@ -1777,6 +1777,78 @@ suites.mantle = async () => {
   console.log(`  ${frames} frames; foot planted for ${leadOnLedge}; fastest hips ${(maxStep * 60).toFixed(1)} m/s`);
 };
 
+suites.footwork = async () => {
+  // On foot as a soldier moves: a person's jump, a sprint with weight to it, a slide, vaulting what's low, pulling up onto what's higher, and
+  // the stones: stood on, stepped up on, pulled up onto, climbed. First on a level lab floor with blocks on it, then on the home world's own stones.
+  const { Controller } = await import('../js/player/controller.js'), { CollisionWorld, STEP } = await import('../js/player/collision.js'), { RockClimb } = await import('../js/player/moves.js');
+  const { rocksNear, rockSurface, rockLocal, formOf } = await import('../js/gen/rocks.js'), { sideAt } = await import('../js/gen/rockshape.js'), { surfaceAt } = await import('../js/gen/surface.js');
+  const lab = boxes => { const W = Object.create(CollisionWorld.prototype); Object.assign(W, { planet: null, flora: false, city: null, boxes,
+    groundAt(x, z, y) { let h = 0; for (const b of boxes) if (x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3] && b[4] <= y + STEP && b[4] > h) h = b[4]; return { h, where: null }; },
+    resolve(x, z, y, r = 0.32) { for (let it = 0; it < 3; it++) for (const b of boxes) { if (y + 0.3 >= b[4]) continue; const nx = Math.max(b[0], Math.min(x, b[2])), nz = Math.max(b[1], Math.min(z, b[3])), dx = x - nx, dz = z - nz, d = Math.hypot(dx, dz);
+      if (d >= r) continue; if (d < 1e-9) { const pen = [x - b[0], b[2] - x, z - b[1], b[3] - z], m = Math.min(...pen), i = pen.indexOf(m); x += (i === 0 ? -1 : i === 1 ? 1 : 0) * (m + r); z += (i === 2 ? -1 : i === 3 ? 1 : 0) * (m + r); } else { x = nx + dx / d * r; z = nz + dz / d * r; } } return [x, z]; },
+    ceilingAt: () => Infinity, solidAt(x, y, z) { return y < 0.15 || boxes.some(b => x > b[0] && x < b[2] && z > b[1] && z < b[3] && y < b[4]); }, hardAt(x, y, z) { return this.solidAt(x, y, z); } }); return W; };
+  const H = 1 / 120, inside = (W, p) => W.boxes.some(b => p[0] > b[0] + 0.05 && p[0] < b[2] - 0.05 && p[2] > b[1] + 0.05 && p[2] < b[3] - 0.05 && p[1] < b[4] - 0.05);
+  // the body in the move, through what it's going over: the hips, or a foot (a hand is on it, so on its top is fine)
+  const bodyIn = (W, P) => !!P && (inside(W, [P.pelvis[0], P.pelvis[1] - 0.12, P.pelvis[2]]) || inside(W, P.limbs.lf.p) || inside(W, P.limbs.rf.p));
+  // a move made: Space going at it, then hands off the keys till you're done
+  const move = (c, input, each, most = 4) => { let t = 0; for (; t < 0.5 && c.mode === 'walk'; t += H) { c.step(H, { fwd: 1, right: 0, yaw: 0, ...input, jump: t === 0 }); each?.(c); c.frame(); }
+    for (; t < most && c.mode !== 'walk'; t += H) { c.step(H, { fwd: 0, right: 0, yaw: input.yaw || 0 }); each?.(c); c.frame(); } go(c, { yaw: input.yaw || 0 }, 0.2); };
+  const go = (c, input, secs, each) => { if (c.world.boxes) c.grabWall = () => false; for (let t = 0; t < secs; t += H) { c.step(H, { fwd: 0, right: 0, run: false, jump: false, yaw: 0, ...input }); each?.(c, t); if (input.jump) input = { ...input, jump: false }; c.frame(); } };
+  // the jump: about 0.75 m, and a sprint's carries
+  { const c = new Controller(lab([]), [0, 0, 0]); go(c, {}, 0.2); let top = 0; go(c, { jump: true }, 1.2, c => top = Math.max(top, c.pos[1]));
+    check(top > 0.65 && top < 0.85, `a standing jump goes ${top.toFixed(2)} m up`);
+    const r = new Controller(lab([]), [0, 0, 0]); let tSprint = null; go(r, { fwd: 1, run: true }, 2.5, (c, t) => { if (tSprint === null && Math.hypot(c.vel[0], c.vel[2]) > 6.6) tSprint = t; });
+    check(tSprint !== null && tSprint > 0.35 && tSprint < 1.4, `up to a full sprint in ${tSprint?.toFixed(2)} s`); const sp = Math.hypot(r.vel[0], r.vel[2]); check(sp > 6.8 && sp < 7.2, `a sprint is ${sp.toFixed(2)} m/s`);
+    const z0 = r.pos[2]; go(r, { fwd: 1, run: true, jump: true }, 1.0); check(r.pos[2] - z0 > 4.5, `a running jump carries ${(r.pos[2] - z0).toFixed(1)} m`);
+    let stopT = null; go(r, {}, 1.5, (c, t) => { if (stopT === null && Math.hypot(c.vel[0], c.vel[2]) < 0.3) stopT = t; }); check(stopT !== null && stopT < 0.7, `and stops from it in ${stopT?.toFixed(2)} s`); }
+  // off an edge, a jump pressed a moment late still goes; one pressed a moment before you land is kept for it
+  { const W = lab([[-5, -5, 5, 2, 1]]), c = new Controller(W, [0, 1, 0]); go(c, {}, 0.2); let off = null, jumped = false;
+    for (let t = 0; t < 1.5 && !jumped; t += H) { c.step(H, { fwd: 1, right: 0, yaw: 0, jump: off !== null && t - off > 0.07 && t - off < 0.08 + H }); if (off === null && !c.grounded) off = t; if (c.jumped) jumped = true; c.frame(); }
+    check(jumped, 'a jump 0.07 s after running off an edge still jumps');
+    const d = new Controller(lab([]), [0, 0, 0]); go(d, {}, 0.2); go(d, { jump: true }, 0.05); let pressed = false, again = false;
+    for (let t = 0; t < 1.5; t += H) { const press = !pressed && d.vel[1] < 0 && d.pos[1] < 0.06; if (press) pressed = true; d.step(H, { fwd: 0, right: 0, yaw: 0, jump: press }); if (pressed && d.jumped) again = true; d.frame(); }
+    check(again, 'a jump pressed just before landing goes as you land'); }
+  // the slide: off a sprint, on along the ground and slowing, ending down in a crouch
+  { const c = new Controller(lab([]), [0, 0, 0]); go(c, { fwd: 1, run: true }, 1.6); const z0 = c.pos[2]; let slid = 0, n = 0;
+    go(c, { fwd: 1, run: false, crouch: true, slide: true }, 1.6, c => { if (c.slide) { slid = c.pos[2] - z0; n++; } });
+    check(slid > 3.5 && slid < 9, `slid ${slid.toFixed(1)} m (${(n * H).toFixed(2)} s)`); }
+  // vault: a sandbag wall a metre high and half a metre thick; at a run you're over it and going on, never through it
+  { const W = lab([[-3, 4, 3, 4.5, 1.0]]), c = new Controller(W, [0, 0, 0]); go(c, { fwd: 1, run: true }, 0.55); let through = 0, vaulted = false;
+    go(c, { fwd: 1, run: true, jump: true }, 1.4, c => { if (c.mode === 'vault') vaulted = true; if (bodyIn(W, c.movePose)) through++; });
+    check(vaulted && c.pos[2] > 5 && c.pos[1] < 0.05, `vaulted the wall: ${vaulted}, ${c.pos[2].toFixed(1)} m on, ${c.pos[1].toFixed(2)} m up`); check(through === 0, `through it on ${through} steps`);
+    check(Math.hypot(c.vel[0], c.vel[2]) > 4, `still running after: ${Math.hypot(c.vel[0], c.vel[2]).toFixed(1)} m/s`);
+    const P = c.vault; check(!!P, 'a vault recorded its pose'); }
+  // mantle: a 1.6 m block deep enough to stand on; and one 2.4 m up, jumped at with Space held, caught and climbed
+  for (const [h, held] of [[1.6, false], [2.4, true]]) { const W = lab([[-3, 3, 3, 30, h]]), c = new Controller(W, [0, 0, held ? 1.2 : 1.6]); go(c, {}, 0.2); let poses = 0, through = 0;
+    const count = c => { if (c.movePose) poses++; if (bodyIn(W, c.movePose)) through++; };
+    if (held) { go(c, { fwd: 1, jump: true, jumpHeld: true }, 1.0, count); go(c, {}, 2.5, count); } else { go(c, { fwd: 1 }, 0.8); move(c, {}, count); }
+    check(Math.abs(c.pos[1] - h) < 0.05 && c.mode === 'walk', `up onto a ${h} m block${held ? ' from a jump' : ''}: ${c.pos[1].toFixed(2)} m, ${c.mode}`); check(poses > 10 && through === 0, `the body's moves were put (${poses}), never inside it (${through})`); }
+  // the stones on the home world
+  const p = makePlanet(uni(4), HOMEWORLD), s = getSettlement(p, 0, 0), W = new CollisionWorld(p, s, () => false), G = (x, z) => surfaceHeight(p, x, z);
+  const flatFrom = (q, a, R) => { for (let d = q.r + 0.4; d <= R; d += 0.5) { const x = q.x + Math.sin(a) * d, z = q.z + Math.cos(a) * d; if (Math.abs(G(x, z) - q.g) > 0.25 + d * 0.06 || surfaceAt(p, x, z).town > 0.01) return false; } return true; };
+  const found = { step: null, mantle: null, climb: null };
+  for (let d = 100; d < 2600 && !(found.step && found.mantle && found.climb); d += 90) for (let b = 0; b < 6.28; b += 0.5) { rocksNear(p, s.cx + Math.sin(b) * d, s.cz + Math.cos(b) * d, 60, q => {
+    if (q.shape !== 'boulder' && q.shape !== 'slab') return;
+    for (let a = 0; a < 6.28; a += 0.4) { if (!flatFrom(q, a, q.r + 4)) continue;
+      const at = [q.x + Math.sin(a) * (q.r + 3), 0, q.z + Math.cos(a) * (q.r + 3)]; at[1] = W.groundAt(at[0], at[2], G(at[0], at[2]) + 0.3).h; const rim = rockSurface(q, at[0], at[2], true) - at[1], crown = q.g + q.top - at[1];
+      const k = rim > 0.12 && rim < 0.42 && crown < 0.6 ? 'step' : rim > 0.8 && rim < 1.9 ? 'mantle' : rim > 2.9 && crown < 7 && (() => { const c = new Controller(W, at), y = Math.atan2(q.x - at[0], q.z - at[2]); c.facing = y; go(c, { fwd: 1, yaw: y }, 1.5); return W.rockAhead(c.pos[0], c.pos[1], c.pos[2], c.facing) === q && RockClimb.grab(W, q, c.pos); })() ? 'climb' : null; if (k && !found[k]) found[k] = { q, a, at, rim }; } }); }
+  const toward = F => Math.atan2(F.q.x - F.at[0], F.q.z - F.at[2]);
+  const onIt = (F, c) => { const h = rockSurface(F.q, c.pos[0], c.pos[2]); return h > -Infinity && Math.abs(c.pos[1] - h) < 0.12; };
+  if (check(found.step, 'a stone low enough to step up on')) { const F = found.step, c = new Controller(W, F.at); c.facing = toward(F); go(c, {}, 0.2); go(c, { fwd: 1, yaw: toward(F) }, 1.2);
+    check(onIt(F, c), `walked up onto a ${F.rim.toFixed(2)} m stone: feet ${(c.pos[1] - F.at[1]).toFixed(2)} m up`); }
+  if (check(found.mantle, 'a stone to pull yourself up on')) { const F = found.mantle, c = new Controller(W, F.at); c.facing = toward(F); go(c, {}, 0.2); go(c, { fwd: 1, yaw: toward(F) }, 1.5);
+    const r0 = rockSurface(F.q, c.pos[0], c.pos[2]); check(r0 === -Infinity || c.pos[1] < r0 - 0.5, `walking into a ${F.rim.toFixed(1)} m stone stops you at it`);
+    move(c, { yaw: toward(F) }); check(onIt(F, c), `and Space pulls you up onto it: feet ${(c.pos[1] - F.at[1]).toFixed(2)} m up (${c.mode})`); }
+  if (check(found.climb, 'a stone too tall to pull yourself onto')) { const F = found.climb, c = new Controller(W, F.at); c.facing = toward(F); go(c, {}, 0.2); go(c, { fwd: 1, yaw: toward(F) }, 1.5);
+    go(c, { fwd: 1, yaw: toward(F), jump: true }, 0.1); const climbing = c.mode === 'wall'; let t = 0, poses = 0, bad = 0, held = 0, off = 0;
+    for (; t < 30 && c.mode === 'wall'; t += 1 / 60) { c.step(1 / 60, { fwd: 1, right: 0, yaw: toward(F) }); const P = c.wall?.pose?.(); if (P) { poses++; const L = P.limbs; for (const k of ['lh', 'rh', 'lf', 'rf']) if (W.hardAt(L[k].p[0], L[k].p[1] + 0.02, L[k].p[2]) && rockSurface(F.q, L[k].p[0], L[k].p[2]) > L[k].p[1] + 0.25) { bad++; if (process.env.DBG) console.log('   in', k, c.wall.state, L[k].moving, L[k].grip.toFixed(2), (L[k].p[1] - F.q.y).toFixed(2)); }
+      if (c.wall.state === 'hold') for (const k of ['lh', 'rh']) if (L[k].grip > 0.9) { const Lc = rockLocal(F.q, L[k].p[0], L[k].p[2]), tt = (L[k].p[1] - F.q.y) / F.q.tall; held++; if (Math.abs(Lc.e - sideAt(formOf(F.q), Lc.ux, Lc.uz, Math.min(1, tt))) * F.q.size > 0.2) off++; } } c.frame(); }
+    check(off < held * 0.05, `a hand that's holding is on the stone (${off} of ${held} more than 20 cm off it)`);
+    check(climbing, `Space at the foot of a ${F.rim.toFixed(1)} m stone starts up it`); check(onIt(F, c), `climbed it in ${t.toFixed(1)} s and stood on its crown (${(c.pos[1] - F.at[1]).toFixed(1)} m up, ${c.mode})`);
+    check(bad < poses * 0.05, `hands and feet on the stone, not inside it (${bad} of ${poses})`);
+    console.log(`  up a ${F.rim.toFixed(1)} m ${F.q.shape} (crown ${(F.q.g + F.q.top - F.at[1]).toFixed(1)} m) in ${t.toFixed(1)} s; a ${found.mantle.rim.toFixed(1)} m one pulled up on; stepped up a ${found.step.rim.toFixed(2)} m one`); }
+};
+
 suites.network = async () => {
   // The road map: the same whichever way you come to it, nothing steeper than a road may be, and the towns are joined up.
   const { linksOfTown, joinsOf, linksAt } = await import('../js/gen/network.js');
