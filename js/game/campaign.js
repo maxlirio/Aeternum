@@ -11,11 +11,42 @@ export function campaignOf(meta, planetKey) { meta.campaign ??= {}; return meta.
 export function frontOf(C, enemyId, now = 0) { return C.fronts[enemyId] ??= { hold: START, level: 0, t: now, won: 0, lost: 0 }; }
 
 // the enemy's pressure since it was last looked at (never more than 15 points in one go: a long absence isn't a rout)
-export function pressure(F, now) {
-  const dt = Math.max(0, now - (F.t ?? now)); F.t = now;
-  if (dt > 0) F.hold = Math.max(1, F.hold - Math.min(15, dt * PRESSURE * (1 + 0.25 * F.level)));      // (pressure alone never breaks a line: something has to happen there)
-  return F;
+export function pressure(F, now) { F.t = now; return F; }      // (the line slips by the battles lost on it while you're elsewhere: battleNow, below)
+
+// ---- the battle on a front: one, always, whether you're at it or not. What each side has left on the ground (men in reserve) and in the
+// air (aircraft), who holds the three objectives, whose turn it is to attack. At it, the fight itself moves these (sim/battleplan.js,
+// sim/front.js); away, it's fought on by the clock, a little against you. A side out of men has lost it: the line moves, there's a lull,
+// and the next one begins.
+export const G_RES = 70, AIR_RES = 12, AWAY_STEP = 30, LULL = 240, WON = 10, AWAY_WON = 6;
+export function newBattle(F, at) {
+  F.n = (F.n || 0) + 1;
+  return F.battle = { n: F.n, t: at, g: { ours: G_RES, theirs: Math.round(G_RES * (1 + 0.1 * F.level)) }, air: { ours: AIR_RES, theirs: AIR_RES + 2 * F.level }, obj: [1, 0, -1], turn: null, sky: null };
 }
+// it's been decided (at it: the fight said so; away: battleNow): the line moves, and the next begins after a lull. → apply()'s result
+export function decide(F, winner, now, by = WON) { const r = apply(F, winner === 'ours' ? by : -by, now); newBattle(F, now + LULL); return { ...r, winner }; }
+// the battle as it stands now, fought on by the clock since it was last looked at. → { B, results: [{ winner, before, after, turn }] }
+export function battleNow(F, now, rnd = Math.random) {
+  const results = []; let B = F.battle || newBattle(F, now);
+  for (let guard = 0; guard < 6; guard++) {
+    let steps = Math.min(400, Math.floor((now - B.t) / AWAY_STEP)); if (steps <= 0) break;
+    let winner = null;
+    B.tilt ??= (rnd() - 0.42) * 0.5;      // (how this one's going for us while nobody's looking: some go our way, rather more don't)
+    while (steps-- > 0 && !winner) { B.t += AWAY_STEP;
+      B.g.ours = Math.max(0, B.g.ours - (0.45 + rnd() * 0.9) * (1 + B.tilt)); B.g.theirs = Math.max(0, B.g.theirs - (0.45 + rnd() * 0.9) * (1 - B.tilt));      // (about three quarters of an hour of it; theirs lose a little slower: without you the line gives)
+      for (const s of ['ours', 'theirs']) if (B.air[s] > 0 && rnd() < 0.1) B.air[s]--;
+      if (!B.sky && (B.air.ours <= 0 || B.air.theirs <= 0)) B.sky = B.air.ours > 0 ? 'ours' : 'theirs';
+      if (B.sky) B.g[B.sky === 'ours' ? 'theirs' : 'ours'] = Math.max(0, B.g[B.sky === 'ours' ? 'theirs' : 'ours'] - 0.25);      // (whoever has the sky has gunships over the other's men)
+      if (rnd() < 0.08) { const up = B.g.ours + rnd() * 30 > B.g.theirs + rnd() * 30 ? 1 : -1, i = up > 0 ? B.obj.findIndex(o => o < 1) : B.obj.length - 1 - [...B.obj].reverse().findIndex(o => o > -1); if (i >= 0 && i < 3) B.obj[i] = Math.max(-1, Math.min(1, B.obj[i] + up)); }
+      if (B.g.ours <= 0 || B.g.theirs <= 0) winner = B.g.ours > 0 ? 'ours' : 'theirs';
+      else if (B.obj.every(o => o === 1)) winner = 'ours'; else if (B.obj.every(o => o === -1)) winner = 'theirs'; }
+    if (!winner) break;
+    results.push(decide(F, winner, B.t, AWAY_WON)); B = F.battle;
+  }
+  B.g.ours = Math.round(B.g.ours); B.g.theirs = Math.round(B.g.theirs);
+  return { B, results };
+}
+// how a battle's told in a line
+export const battleSay = (B, now) => now < B.t ? 'A lull: both sides are bringing men up' : `Battle ${B.n}: ours ${B.g.ours} men and ${B.air.ours} aircraft in reserve, theirs ${B.g.theirs} and ${B.air.theirs}${B.sky ? ` · the sky is ${B.sky}` : ''}`;
 
 // what a fight was worth to the front: → { parts: [[what, points]], total } (points of hold; can be less than nothing)
 export function gainOf(kind, st) {
@@ -26,10 +57,11 @@ export function gainOf(kind, st) {
     if (st.won) parts.push(['the sky kept', 4]);
     if (st.strikes) parts.push([`hit ${st.strikes} time${st.strikes === 1 ? '' : 's'} from the air`, -st.strikes * 1.5]);
   } else if (kind === 'ground') {
-    if (st.taken) parts.push([`${st.taken} objective${st.taken === 1 ? '' : 's'} taken`, st.taken * 5]);
-    if (st.kills) parts.push([`${st.kills} of theirs put down`, Math.min(8, st.kills * 0.4)]);
-    if (st.won) parts.push(['their line broken', 10]);
-    if (st.lost) parts.push(['our line broken', -10]);
+    if (st.taken) parts.push([`${st.taken} objective${st.taken === 1 ? '' : 's'} taken`, st.taken * 2]);
+    if (st.kills) parts.push([`${st.kills} of theirs put down`, Math.min(6, st.kills * 0.3)]);      // (your own part in it; the battle itself moves the line when it's decided: decide)
+  } else if (kind === 'air') {
+    if (st.kills) parts.push([`${st.kills} shot down`, Math.min(6, st.kills * 0.5)]);
+    if (st.strafed) parts.push([`${st.strafed} of theirs hit from the air`, Math.min(4, st.strafed * 0.2)]);
   } else if (kind === 'dread') {
     if (st.down) parts.push(['a dreadnought brought down', 10]);
     if (st.down && st.saved) parts.push(['the town saved', 8]);

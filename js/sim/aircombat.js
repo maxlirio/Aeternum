@@ -59,7 +59,7 @@ export const GUN = { v: GUN_V, range: GUN_RANGE };
 export class AirWar {
   constructor(world, planet) {
     this.world = world; this.planet = planet;
-    this.craft = []; this.rounds = []; this.missiles = []; this.booms = []; this.events = []; this.t = 0; this.nextId = 1;
+    this.craft = []; this.rounds = []; this.missiles = []; this.booms = []; this.events = []; this.ground = []; this.t = 0; this.nextId = 1;
   }
   // add a combatant: model, side, where, heading, speed; pilot: 'ai' | 'player'
   spawn(model, side, pos, facing, speed = 0, pilot = 'ai', flight = null) {
@@ -205,7 +205,7 @@ export class AirWar {
         const seg = sub(r.p, p0), w = sub(c.f.pos, p0), t = clamp(dot(w, seg) / (dot(seg, seg) || 1), 0, 1), cl = add(p0, seg, t);
         if (len(sub(c.f.pos, cl)) < c.r) { this.hit(c, GUN_DMG, r.from, cl, norm(r.v)); r.life = 0; if (Math.random() < 0.3) this.booms.push({ p: cl, t: 0, spark: true }); break; }
       }
-      if (r.p[1] < this.world.groundAt(r.p[0], r.p[2], r.p[1] + 1).h) r.life = 0;
+      if (r.p[1] < this.world.groundAt(r.p[0], r.p[2], r.p[1] + 1).h) { r.life = 0; if (r.from && this.t - (r.from.gndT || 0) > 0.12 && this.ground.length < 200) { r.from.gndT = this.t; this.ground.push({ p: r.p.slice(), by: r.from }); } }      // (into the ground: what's standing there takes it — main.js drains this.ground)
     }
     this.rounds = this.rounds.filter(r => r.life > 0);
     // missiles: proportional navigation, proximity fuse

@@ -284,6 +284,12 @@ export class Infantry {
   // what's lying where you stand (within r m): → the kinds picked up
   take(p, r = 1.6) { const got = []; this.drops = this.drops.filter(D => { if (this.near(D.pos, p) < r && Math.abs(D.pos[1] - p[1]) < 2) { got.push(D.kind); return false; } return true; }); return got; }
   // a shell landing: everyone in its reach
+  // rounds from the air striking at p (side: whose aircraft; byPlayer: yours): men within R of it are hit, those near go to ground. → how many went down
+  strafe(p, R, side, byPlayer = false) {
+    if (!this.F) return 0; let n = 0; const by = byPlayer ? 'player' : side; this.armor?.splash(p, R, 45, by);
+    for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R) { if (this.hurt(M, 60 * (1 - d / R) + 18, by, [M.pos[0] - p[0], M.pos[2] - p[2]])) n++; } else if (d < R * 3.5) M.sup = Math.min(1, M.sup + 0.35); }
+    return n;
+  }
   blast(p, R) { if (!this.F) return; this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]]); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
   // your shot along a ray: the first soldier it meets before `best`, → { along, M, head }. A man ducked behind his wall shows only
   // his head and shoulders over it.
