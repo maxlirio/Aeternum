@@ -32,14 +32,14 @@ export const RANKS = ['Private', 'Corporal', 'Sergeant', 'Lieutenant', 'Captain'
 
 export class FrontBattle {
   // war: sim/aircombat.js AirWar; ground(x, z); hooks.blast({ p, R, by }); `us`: the nation whose side 'security' is
-  constructor({ planet, war, ground, hooks }) { this.planet = planet; this.war = war; this.ground = ground; this.hooks = hooks; this.F = null; this.ours = []; this.theirs = []; this.guns = { ours: [], theirs: [] }; this.gunT = { ours: 20, theirs: 30 }; this.air = null; this.sky = null; this.wave = 0; this.shell = 0; this.events = []; }
+  constructor({ planet, war, ground, hooks }) { this.planet = planet; this.war = war; this.ground = ground; this.hooks = hooks; this.F = null; this.ours = []; this.theirs = []; this.guns = { ours: [], theirs: [] }; this.gunT = { ours: 20, theirs: 30 }; this.air = null; this.sky = null; this.pin = null; this.wave = 0; this.shell = 0; this.events = []; }
   // an aircraft of `side` out of its reserve (this.air: { ours, theirs }, the battle's, game/campaign.js; none set: there's always another)
   take(side) { if (!this.air) return true; if (this.air[side] <= 0) return false; this.air[side]--; return true; }
   up(side) { return (side === 'ours' ? this.ours : this.theirs).filter(c => c.alive).length + this.guns[side].filter(c => c.alive).length; }
   // the front you're near, if any (within 9 km), on your nation's side
   near(nat, x, z) { let best = null, bd = 9000; for (const F of frontsOf(this.planet, nat)) { const d = Math.hypot(x - F.x, z - F.z); if (d < bd) { bd = d; best = F; } } return best; }
   step(dt, nat, pos) {
-    const F = nat ? this.near(nat, pos[0], pos[2]) : null;
+    const F = (nat ? this.near(nat, pos[0], pos[2]) : null) || this.pin || null;      // (pin: the front whose battle is kept going wherever you are — main.js)
     if (!F) { if (this.F) { this.end(); } return; }
     if (!this.F || this.F.b !== F.b) { this.end(); this.F = F; this.wave = 1; this.events.push({ type: 'front', F }); return; }      // (whoever's listening gives it the battle's aircraft before the first goes up)
     const g = this.ground(F.x, F.z), ux = Math.sin(F.dir), uz = Math.cos(F.dir), px = -uz, pz = ux;

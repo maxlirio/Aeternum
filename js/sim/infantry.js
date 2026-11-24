@@ -217,7 +217,10 @@ export class Infantry {
       if (!M) { let bd = 500; for (const N of alive) if (N.hp > 0 && N.side === own && !N.gun && !N.prone && !N.at) { const d = this.near(N.pos, G.pos); if (d < bd) { bd = d; M = N; } } if (!M) continue; if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = null; M.gun = O; G.crew = M; M.state = 'hold'; }
       // to the gun, behind it (on his own side of it)
       const sg = own === 'ours' ? -1 : 1, seat = this.at(O.a + sg * 0.9, O.s + 2.4), d = this.near(M.pos, seat);
-      if (d > 0.5) { const sp = Math.min(d, 4.4 * dt); M.pos = [M.pos[0] + (seat[0] - M.pos[0]) / d * sp, 0, M.pos[2] + (seat[2] - M.pos[2]) / d * sp]; M.pos[1] = this.ground(M.pos[0], M.pos[2]); M.facing = Math.atan2(seat[0] - M.pos[0], seat[2] - M.pos[2]); M.gunMoving = true; continue; }
+      if (d > 0.5) { if ((M.routeT -= dt) <= 0 || !M.gunVia) { M.routeT = 0.5; M.gunVia = this.route(M.pos, seat) || seat; }      // (round the walls and the wire, as any man goes)
+        const g = this.near(M.pos, M.gunVia) < 0.8 ? seat : M.gunVia, gd = this.near(M.pos, g) || 1, sp = Math.min(gd, 4.4 * dt); M.pos = [M.pos[0] + (g[0] - M.pos[0]) / gd * sp, 0, M.pos[2] + (g[2] - M.pos[2]) / gd * sp];
+        { const q = this.push(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2]), 1.7, 0.3); if (q) { M.pos[0] = q[0]; M.pos[2] = q[1]; } }
+        M.pos[1] = this.ground(M.pos[0], M.pos[2]); M.facing = Math.atan2(g[0] - M.pos[0], g[2] - M.pos[2]); M.gunMoving = true; continue; }
       M.gunMoving = false; const fwd = own === 'ours' ? this.dir : this.dir + Math.PI; if (M.sup > 0.8) continue;      // (kept down)
       // what's in front of it: the nearest of theirs within the arc that it can see; you, if you're one of them
       const foe = own === 'ours' ? 'theirs' : 'ours', eye = [G.pos[0], G.pos[1] + 1.0, G.pos[2]]; let tgt = null, td = GUN_RANGE;

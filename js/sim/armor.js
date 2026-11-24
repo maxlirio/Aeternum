@@ -13,9 +13,9 @@
 //    Launchers (some of the men carry one, and so do you) and the guns of other tanks are what kill it.
 // You can climb into one of your own side's tanks and fight it yourself.
 const SPEC = {
-  tank: { name: 'Warden', climb: 1.0, L: 7.4, W: 3.6, H: 2.45, top: 8.5, accel: 2.2, turn: 0.5, trav: 0.75, elev: 0.45, hp: 1400, arm: { front: 0.3, side: 0.75, rear: 1.35 },
+  tank: { name: 'Warden', climb: 1.0, L: 7.4, W: 3.6, H: 2.45, top: 8.5, accel: 2.2, turn: 0.5, trav: 0.75, elev: 0.45, hp: 2400, arm: { front: 0.22, side: 0.6, rear: 1.2 },
     reload: 6.5, round: { kind: 'shell', vel: 620, dmg: 380, R: 5.2, he: 150 }, mg: true, range: 430, gunY: 1.98, pivot: 0.2, gunL: 6.5, minE: -0.14, maxE: 0.35 },
-  apc: { name: 'Drover', climb: 0.6, L: 7.0, W: 2.9, H: 2.35, top: 11, accel: 3.2, turn: 0.65, trav: 1.3, elev: 0.8, hp: 420, arm: { front: 0.55, side: 0.9, rear: 1.2 },
+  apc: { name: 'Drover', climb: 0.6, L: 7.0, W: 2.9, H: 2.35, top: 11, accel: 3.2, turn: 0.65, trav: 1.3, elev: 0.8, hp: 700, arm: { front: 0.5, side: 0.85, rear: 1.15 },
     reload: 0.28, burst: 5, rest: 2.6, round: { kind: 'ac', vel: 900, dmg: 60, R: 1.8, he: 55 }, mg: false, range: 300, gunY: 2.3, pivot: 0.5, gunL: 3.4, minE: -0.15, maxE: 0.6, carry: 6 },
 };
 export const ARMOR = SPEC;
@@ -327,7 +327,7 @@ export class Armor {
     this.events.push({ type: 'launch', p: from.slice(), by });
   }
   // a blast near hulls (a grenade, a shell landing): a little through the deck, more the closer
-  splash(p, R, dmg, by) { for (const V of this.list) { if (V.dead || by === V.side) continue; const d = I_near(V.pos, p); if (d < R + V.T.L / 2) { const k = Math.max(0, 1 - Math.max(0, d - V.T.L / 3) / R); if (k > 0) this.damage(V, dmg * k * (V.kind === 'tank' ? 0.25 : 0.6), by, null); } } }
+  splash(p, R, dmg, by) { for (const V of this.list) { if (V.dead || by === V.side) continue; const d = I_near(V.pos, p); if (d < R + V.T.L / 2) { const k = Math.max(0, 1 - Math.max(0, d - V.T.L / 3) / R); if (k > 0) this.damage(V, dmg * k * (V.kind === 'tank' ? 0.12 : 0.5), by, null); } } }      // (a blast beside a tank does little to it: it takes a round into it)
 
   // ---- rounds in flight: gravity on shells, rockets straight; they stop at the first thing they meet
   stepRounds(dt, you) {

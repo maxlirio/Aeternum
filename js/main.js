@@ -1935,7 +1935,7 @@ async function start(fresh) {
     let n = 0; while (V.bi < V.list.length && V.list[V.bi].tb <= (isDown ? Math.min(tt, S.down) : tt)) { const b = V.list[V.bi++]; if (n++ > 3) continue; const p = [b.x, b.y, b.z], sh = fx.shake; fx.blast(p, 26); fx.shake = Math.max(sh, Math.min(0.6, 90 / (Math.hypot(me[0] - p[0], me[2] - p[2]) + 40)));
       if (Math.random() < 0.5) sound.boom(p, 12); wrecks.blastAt(p, 24); }
   }
-  const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { groundBlast(e); infantry.blast(e.p, e.R); sound.boom(e.p, e.R); } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
+  const front = new FrontBattle({ planet, war, ground: landY, hooks: { blast: e => { infantry.blast(e.p, e.R); if (battleNear(e.p, 9000)) { groundBlast(e); sound.boom(e.p, e.R); } } } });      // (sim/front.js: where your nation is at war, the war is on near its border)
   const fleetWar = new FleetWar({ war, fleet, ground: groundY, hooks: { blast: groundBlast } }), fleetWarView = new FleetWarView(scene, shipView, fx, renderer);
   let myCraft = null, raid = null, firing = false;
   // ---- the areas (game/family.js): a run in one of them, told as a deed to the family when it ends
@@ -2023,25 +2023,37 @@ async function start(fresh) {
     return R;
   }
   // you've come up on it: the men and the works stand as the battle has them, with what each side has left and the objectives whose they are
-  function battleStart(F) {
+  function battleStart(F, unseen = false) {
     infantry.press = pressOf(warStage(store.meta.lineage, (clock.now() - EPOCH) / planet.dayLength)); infantry.setup(F); battleSaid = '';
     const R = battleRec(F), B = R?.battle; if (B && B.t > clock.now()) { battle = null; return; }      // (a lull: the lines are manned, nobody's attacking)
     if (B) infantry.obj.forEach((O, i) => { O.prog = B.obj[i]; O.owner = B.obj[i] > 0 ? 'ours' : B.obj[i] < 0 ? 'theirs' : null; });
     battle = new BattlePlan(infantry, { blast: shellBlast, reserve: B ? B.g : null, first: B?.turn || null }); battleN = B?.n || 0;
     if (B) { front.air = B.air; front.sky = B.sky; }
+    // begun where you can't see it (the world's just loaded, or it's the next battle on a front you've left): it has been going a while by
+    // the time you could get there — fought forward a minute or two now, not set out for you
+    if (unseen) { const secs = 40 + Math.random() * 70; for (let k = 0; k < secs * 10 && !battle.over; k++) { battle.step(0.1); infantry.step(0.1, null); armor.step(0.1, null); } battle.drain(); infantry.drain(); armor.events && (armor.events.length = 0); airWarmLeft = 30 + Math.random() * 60; }
   }
+  // the air over it likewise: flown forward (a few steps a frame, while you're nowhere near) so that what you fly into has been flying
+  let airWarmLeft = 0, battleSeen = false;
+  function airWarm(dt, near) { if (airWarmLeft <= 0) return; if (near || flight || sortie || raid || !front.F) { airWarmLeft = 0; return; } const nat = myNation();
+    for (let k = 0; k < 8; k++) { front.step(1 / 30, nat, ctrl.pos); war.step(1 / 30, false); } airWarmLeft -= 8 / 30; }
+  const UI_QUIET = new Proxy({}, { get: () => () => {} }), uiReal = ui, chudReal = chud, soundReal = sound, sortieHudOff = () => { if (!sortie) sortieHud.classList.add('hidden'); };
+  const liveWar = !params.has('slot') || params.has('livewar');
   // what the fight's done to it goes into the save as it goes (the reserves are the battle's own: sim/battleplan.js counts them down there)
   function battleSync(leaving = false) {
     const F = infantry.F, R = F && battleRec(F), B = R?.battle; if (!B || !battle || B.n !== battleN) return;
     B.obj = infantry.obj.map(O => O.owner === 'ours' ? 1 : O.owner === 'theirs' ? -1 : 0); B.turn = battle.A; B.t = clock.now(); store.dirty.meta = true;
   }
+  // how far you are from it: what's fought where you can't see or hear it is still fought, only not drawn, sounded or told
+  const battleNear = (p, r) => Math.hypot((flight ? flight.pos[0] : ctrl.pos[0]) - p[0], (flight ? flight.pos[2] : ctrl.pos[2]) - p[2]) < r;
   function shellBlast({ p, R, by }) {
+    if (!battleNear(p, 6000)) { infantry.blast(p, R); return; }
     fx.blast(p, R * 0.6); fx.dustRing(p, R * 1.2); sound.boom(p, R); infantry.blast(p, R);
     const d = Math.hypot(ctrl.pos[0] - p[0], ctrl.pos[1] - p[1], ctrl.pos[2] - p[2]); if (!flight && !tankV) { if (d < R * 1.6) hurtPlayer(Math.round(70 * (1 - d / (R * 1.6))), by === 'our guns' ? 'our own guns, falling short' : 'a shell'); if (d < R * 5) { infantry.felt(0.3); fx.shake = Math.max(fx.shake, 0.5 * (1 - d / (R * 5))); } }
     if (Math.random() < 0.2) groundBlast({ p, R: R * 0.9, by });      // (one in five leaves its hole in the ground for good)
   }
-  function battleTick(dt, side) {
-    const B = battle; B.step(dt); const them = infantry.F.b.name, mm = v => `${Math.floor(Math.max(0, v) / 60)}:${String(Math.floor(Math.max(0, v) % 60)).padStart(2, '0')}`;
+  function battleTick(dt, side, near = true) {
+    const B = battle; B.step(dt); const ui = near ? uiReal : UI_QUIET, chud = near ? chudReal : UI_QUIET, sound = near ? soundReal : UI_QUIET; const them = infantry.F.b.name, mm = v => `${Math.floor(Math.max(0, v) / 60)}:${String(Math.floor(Math.max(0, v) % 60)).padStart(2, '0')}`;
     for (const e of B.drain()) {
       const us = e.A === 'ours', O = e.O?.name;
       if (e.type === 'prep') ui.toast(us ? `<b>Stand to.</b> Our guns are on <b>${O}</b>. Form up short of it: we go in when they lift.` : `<b>Incoming!</b> Their guns are on <b>${O}</b>. Get off it and get down: they'll come in behind the shells.`, us ? '' : 'bad', 9000);
@@ -2057,7 +2069,7 @@ async function start(fresh) {
         if (run?.area === 'air' && !run.endAt) { run.ground = e.winner; run.endAt = clock.now() + 9; } }
     }
     if ((battleSyncT -= dt) <= 0) { battleSyncT = 3; if (!B.over) battleSync(); }
-    if (!side && !flight) { sortieHud.classList.add('hidden'); return; }
+    if (!near || !side && !flight) { sortieHudOff(); return; }
     const S = B.state, us = S.A === 'ours', O = S.O?.name || '';
     const head = S.over ? (S.over === 'ours' ? 'They\'ve broken' : 'Our line has broken') : S.phase === 'prep' ? (us ? `Our guns on ${O} · in ${mm(S.left)}` : `Their guns on ${O} · ${mm(S.left)}`) : S.phase === 'assault' ? (us ? `Take ${O} · ${mm(S.left)}` : `Hold ${O} · ${mm(S.left)}`) : S.phase === 'dig' ? (us ? `Dig in on ${O}` : `${O} lost`) : (us ? 'Fall back' : `${O} held`);
     const air = front.air ? `<small>In the air: ours ${front.up('ours') + (flight ? 1 : 0)} up, ${front.air.ours} in reserve · theirs ${front.up('theirs')} up, ${front.air.theirs} in reserve${front.sky ? ` · the sky is ${front.sky}` : ''}</small>` : '';
@@ -2710,10 +2722,10 @@ async function start(fresh) {
     strikeTick(dt);
     { const nat = townSociety(planet, s)?.nation; front.step(dt, player.soldier ? nationsOf(planet)[player.soldier.nation] || nat : nat, flight ? flight.pos : ctrl.pos);
       for (const e of front.drain()) {
-        if (e.type === 'front') { const R = battleRec(e.F, true); if (R) { front.air = R.battle.air; front.sky = R.battle.sky; }
-          ui.toast(`<b>The front.</b> ${esc(e.F.a.name)} and ${esc(e.F.b.name)} are at ${e.F.state === 'war' ? 'war' : 'it along the border'} here.${R ? ' ' + esc(battleSay(R.battle, clock.now())) + '.' : ''}`, 'bad', 9000); }
+        if (e.type === 'front') { const R = battleRec(e.F, true); if (R) { front.air = R.battle.air; front.sky = R.battle.sky; } if (liveWar) front.pin = e.F;
+          if (battleNear([e.F.x, 0, e.F.z], 9500)) ui.toast(`<b>The front.</b> ${esc(e.F.a.name)} and ${esc(e.F.b.name)} are at ${e.F.state === 'war' ? 'war' : 'it along the border'} here.${R ? ' ' + esc(battleSay(R.battle, clock.now())) + '.' : ''}`, 'bad', 9000); }
         else if (e.type === 'sky') { const R = front.F && battleRec(front.F), won = e.winner === 'ours'; if (R) { R.battle.sky = e.winner; warMove(front.F.b.id, 'sky', null, won ? 3 : -3); }
-          ui.toast(won ? `<b>The sky over the line is ours.</b> ${esc(front.F.b.name)} has nothing left to put up: our gunships have their men to themselves.` : `<b>We've lost the sky.</b> Nothing of ours is left to go up: their gunships are coming for our men.`, won ? '' : 'bad', 10000);
+          if (battleNear([front.F.x, 0, front.F.z], 9500)) ui.toast(won ? `<b>The sky over the line is ours.</b> ${esc(front.F.b.name)} has nothing left to put up: our gunships have their men to themselves.` : `<b>We've lost the sky.</b> Nothing of ours is left to go up: their gunships are coming for our men.`, won ? '' : 'bad', 10000);
           if (run?.area === 'air' && !run.endAt) { run.sky = e.winner; run.endAt = clock.now() + 7; } }
         else if (e.type === 'gunship' && (infantry.F || run?.area === 'air')) chud.log(e.side === 'ours' ? 'One of our gunships is going in on their line' : 'Enemy gunship coming in on our line', e.side === 'ours' ? '' : 'bad');
       }
@@ -2735,20 +2747,27 @@ async function start(fresh) {
       if (flight?.issued && !flight.issued.sky) { for (const e of fresh) if (e.type === 'killed' && e.by === myCraft && e.craft.side === 'raider') soldierKill();
         if (flight.onGround || !front.F && Math.hypot(flight.pos[0] - flight.issued.x, flight.pos[2] - flight.issued.z) > 20000) endDeployment(); } }
     { const F = front.F, d = F ? Math.hypot(ctrl.pos[0] - F.x, ctrl.pos[2] - F.z) : 1e9, onFoot = !flight && !ride, reach = flight ? 5200 : 2600;      // (from the air the battle below is going on too, and seen from further off)
-      if (F && !ride && !cloudW && d < reach && landY(F.x, F.z) > planet.seaLevel + 1) { if (infantry.F !== F) battleStart(F); }
-      else if (infantry.F && (!F || d > reach + 900 || ride)) { battleSync(true); infantry.end(); battle = null; sortieHud.classList.add('hidden'); }
+      // the battle for this front goes on wherever you are (liveWar): begun when the front's first there, never stopped for your being away;
+      // what you're near enough to see is drawn, sounded and told, the rest is only fought. (Without liveWar, as it was: only while you're by it.)
+      const near = !!F && d < reach + (infantry.F === F && battleSeen ? 900 : 0); battleSeen = near;
+      if (F && !cloudW && (liveWar || near && !ride) && landY(F.x, F.z) > planet.seaLevel + 1) { if (infantry.F !== F) { battleSync(true); battleStart(F, !near); } }
+      else if (infantry.F && (!F || !liveWar && (!near || ride))) { battleSync(true); infantry.end(); battle = null; sortieHud.classList.add('hidden'); }
+      if (!near) sortieHudOff();
+      airWarm(dt, near);
       if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); if (groundRun) groundEnd(); else ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
-      const side = infantry.F && onFoot && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
+      const side = infantry.F && near && onFoot && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
       const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: Math.max(crouchK, proneK * 1.6) };
       gunTick();
-      if (battle && infantry.F) battleTick(dt, side); else battle = null;
-      if (infantry.F && (!battle || battle.over) && !groundRun?.endAt) { const R = battleRec(infantry.F); if (R && clock.now() >= R.battle.t && R.battle.n !== battleN) { battleStart(infantry.F); ui.toast(`<b>They're coming again.</b> A new battle for the ${esc(infantry.F.b.name)} line.`, 'bad', 8000); } }      // (the lull's over: the next battle for the same ground begins)
-      infantry.step(dt, you); infantryView.update(infantry, dt, t); armor.step(dt, you); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos);
+      if (battle && infantry.F) battleTick(dt, side, near); else battle = null;
+      if (infantry.F && (!battle || battle.over) && !groundRun?.endAt) { const R = battleRec(infantry.F); if (R && clock.now() >= R.battle.t && R.battle.n !== battleN) { battleStart(infantry.F); if (near) ui.toast(`<b>They're coming again.</b> A new battle for the ${esc(infantry.F.b.name)} line.`, 'bad', 8000); } }      // (the lull's over: the next battle for the same ground begins)
+      infantry.step(dt, near ? you : null); armor.step(dt, near ? you : null);
+      if (infantryView.group.visible !== near) { infantryView.group.visible = near; if (infantryView.line) infantryView.line.visible = near; if (armorView.group) armorView.group.visible = near; }
+      if (near) { if (infantryView.line) infantryView.line.visible = true; infantryView.update(infantry, dt, t); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos); }
       if (tankV && (tankV.dead || !infantry.F)) { const V = tankV; leaveTank(); if (V.dead) { hurtPlayer(35, 'your tank brewing up'); chud.log(`Your ${V.T.name} is knocked out: you bail out`, 'bad'); } }
-      if (infantry.F) armorFx(dt);
+      if (infantry.F && near) armorFx(dt);
       if (infantry.F && Math.random() < dt * 14) for (const P of infantry.props) if (P.kind === 'fire' && Math.hypot(P.pos[0] - ctrl.pos[0], P.pos[2] - ctrl.pos[2]) < 900) { fx.flame(P.pos, P.size); if (Math.random() < 0.5) fx.smoke([P.pos[0], P.pos[1] + P.size, P.pos[2]], P.size * 3, [2, 1], 0.05, 0.45); }
       if (groundRun?.endAt && clock.now() >= groundRun.endAt) { groundEnd(); battle = null; sortieHud.classList.add('hidden'); }
-      for (const e of infantry.drain()) {
+      for (const e of infantry.drain()) { if (!near) continue;
         if (e.type === 'line' && !groundRun) ui.toast(`<b>The line.</b> Sandbags and wire where ${esc(e.F.a.name)} meets ${esc(e.F.b.name)}: soldiers of both sides, three objectives on the border.`, 'bad', 9000);
         if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (groundRun && side && infantry.obj.every(O => O.owner === 'ours')) { groundRun.won = true; groundRun.endAt = clock.now() + 5; ui.toast('<b>All three objectives are ours.</b> The line here is taken.', '', 8000); }
           if (e.you && side) { if (groundRun) groundRun.taken++; const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
@@ -2926,6 +2945,7 @@ async function start(fresh) {
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
   warTune();
+  if (liveWar) { const nat = myNation(), Fs = nat ? frontsOf(planet, nat) : []; front.pin = Fs.find(onLand) || Fs[0] || null; }      // (the war's going on from the first: the battle on a front of ours is fought wherever you are)
   if (!awayDue) setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
   // while you read what happened while you were away the world is already up and drawing behind it, so "Carry on" puts you straight in
   if (awayDue) { await ui.away(report, planet); paused = false; if (bootHold) bootHold.until = performance.now() + 12000; setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500); }
