@@ -16,6 +16,7 @@
 // Men you put down drop what they carried (cells that top up shield and health, grenades): you get what you need by pushing
 // forward, not by hanging back (id's "push forward combat", DOOM 2016).
 // No three.js: render/infantry.js draws it.
+const GUN_HP = 260, GUN_RANGE = 170;
 const R_OBJ = 16, CAP_T = 12, PER_SIDE = 16, RANGE = 130, SPAN = 220, LINE = 60, RALLY = 150, SQUAD = 4, NADE_R = 6;
 export const INF = { LINE, RALLY, RANGE, NADE_R };
 
@@ -39,7 +40,12 @@ export class Infantry {
     const at = (a, s) => { const x = F.x + ux * a + px * s, z = F.z + uz * a + pz * s; return [x, this.ground(x, z), z]; };
     this.at = at; this.dir = F.dir; this.u = [ux, uz]; this.v = [px, pz];
     this.obj = [-120, 0, 120].map((s, i) => { const a = i === 0 ? -22 : i === 2 ? 22 : 0, prog = i === 0 ? 1 : i === 2 ? -1 : 0; return { id: i, name: ['West', 'Centre', 'East'][i], a, s, pos: at(a, s), prog, owner: prog > 0 ? 'ours' : prog < 0 ? 'theirs' : null }; });
+    // each objective is a gun position: a heavy gun on its tripod between two parapets of sandbags, crewed by whoever holds the ground.
+    // It rakes anyone coming at it from the other side, so the objective is the gun: its crew put down (a grenade, a shell, a round from
+    // the flank, an aircraft), and the pit taken. Whoever takes it turns it round. gun: { pos, hp, crew, yaw, cool, burst, by }
+    for (const O of this.obj) O.gun = { pos: at(O.a, O.s + 2.4), hp: GUN_HP, crew: null, yaw: F.dir, cool: 1, burst: 0, out: 0, you: false, firedT: -9 };
     this.cover = [];
+    for (const O of this.obj) for (const side of [-1, 1]) this.cover.push({ i: 0, side: side < 0 ? 'ours' : 'theirs', a: O.a + side * 3.6, s: O.s + 2.4, pos: at(O.a + side * 3.6, O.s + 2.4), face: side < 0 ? F.dir : F.dir + Math.PI, len: 9, curve: 0.12, by: null, hp: 520, h: 0.85, post: O.id });
     // each side's works: a breastwork of sandbags along its front line, broken where the ground's walked, and walls scattered forward of it toward the objectives
     for (const side of [-1, 1]) {
       for (let s = -SPAN; s < SPAN; s += 12 + r() * 7) if (r() < 0.8) { const a = side * (LINE + Math.sin(s / 60 + side) * 7 + r() * 4), len = 7 + r() * 4;
@@ -92,7 +98,7 @@ export class Infantry {
     if (!this.F) return; this.t += dt; this.shots = this.shots.filter(q => this.t - q.t < 0.3);
     for (const b of this.barks) b.t += dt; this.barks = this.barks.filter(b => b.t < 2.2 && b.M.hp > 0);
     const alive = this.men.filter(m => m.hp > 0), foeOfYou = you?.side === 'ours' ? 'theirs' : you?.side === 'theirs' ? 'ours' : null; let onYou = 0;
-    this.director(dt);
+    this.director(dt); this.stepGuns(dt, you, alive);
     // bayonet thrusts landing: on whoever's still there in front of the blade
     for (const S of this.stabs) if (this.t >= S.at && S.M.hp > 0) { S.done = true; if (S.E) { if (S.E.hp > 0 && this.near(S.E.pos, S.M.pos) < 2.2) this.hurt(S.E, 85, S.M.side, [S.E.pos[0] - S.M.pos[0], S.E.pos[2] - S.M.pos[2]]); }
       else if (you?.alive && this.near(you.pos, S.M.pos) < 2.1) this.hooks.hitPlayer?.(40, `a ${this.F.b.name} bayonet`, S.M.pos); }
@@ -106,6 +112,7 @@ export class Infantry {
       if (M.stabCd <= 0 && !M.prone) { let E = null; for (const N of alive) if (N.side !== M.side && N.hp > 0 && Math.hypot(N.pos[0] - M.pos[0], N.pos[2] - M.pos[2]) < 1.8) { E = N; break; }
         const youNear = !E && you?.alive && !you.tank && you.side && you.side !== M.side && Math.hypot(you.pos[0] - M.pos[0], you.pos[2] - M.pos[2]) < 1.7;
         if (E || youNear) { M.stab = this.t; M.stabCd = 2.6 + Math.random(); const tp = E ? E.pos : you.pos; M.facing = Math.atan2(tp[0] - M.pos[0], tp[2] - M.pos[2]); this.stabs.push({ M, E, at: this.t + 0.45 }); } }
+      if (M.gun) { M.moving = M.gunMoving; M.duck += ((M.sup > 0.8 ? 1 : 0) - M.duck) * Math.min(1, dt * 6); M.aim = 1; continue; }      // (on the gun: stepGuns has him)
       const foe = M.side === 'ours' ? 'theirs' : 'ours', inCover = M.state === 'hold' && !!M.goal?.C && !M.goal.C.down;
       // pinned: behind a wall, under fire, he keeps his head down (and comes back up as it eases)
       const pinned = (inCover || M.prone) && (M.sup > 0.5 || M.duck > 0.5 && M.sup > 0.3); M.duck += ((pinned ? 1 : 0) - M.duck) * Math.min(1, dt * 6);      // (down at 0.5, up again once it's eased below 0.3)
@@ -199,6 +206,46 @@ export class Infantry {
     }
     this.you = you;
   }
+  // the heavy guns on the objectives: crewed by a man of whoever holds the ground (the nearest, sent to it from wherever he is; or by you), firing bursts at whatever of the other side
+  // is in front of it in the open; pinned, the crew keeps down and it's silent; hit hard enough it's knocked out for a minute
+  stepGuns(dt, you, alive) {
+    for (const O of this.obj) { const G = O.gun, own = O.owner;
+      if (G.out > 0) { G.out -= dt; if (G.crew) { G.crew.gun = null; G.crew = null; } if (G.out <= 0) G.hp = GUN_HP; continue; }
+      let M = G.crew; if (M && (M.hp <= 0 || M.side !== own || G.you)) { if (M) M.gun = null; M = G.crew = null; }
+      if (G.you) { if (!you?.alive || own !== you.side || this.near(you.pos, G.pos) > 3) G.you = false; continue; }
+      if (!own) continue;
+      if (!M) { let bd = 500; for (const N of alive) if (N.hp > 0 && N.side === own && !N.gun && !N.prone && !N.at) { const d = this.near(N.pos, G.pos); if (d < bd) { bd = d; M = N; } } if (!M) continue; if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = null; M.gun = O; G.crew = M; M.state = 'hold'; }
+      // to the gun, behind it (on his own side of it)
+      const sg = own === 'ours' ? -1 : 1, seat = this.at(O.a + sg * 0.9, O.s + 2.4), d = this.near(M.pos, seat);
+      if (d > 0.5) { const sp = Math.min(d, 4.4 * dt); M.pos = [M.pos[0] + (seat[0] - M.pos[0]) / d * sp, 0, M.pos[2] + (seat[2] - M.pos[2]) / d * sp]; M.pos[1] = this.ground(M.pos[0], M.pos[2]); M.facing = Math.atan2(seat[0] - M.pos[0], seat[2] - M.pos[2]); M.gunMoving = true; continue; }
+      M.gunMoving = false; const fwd = own === 'ours' ? this.dir : this.dir + Math.PI; if (M.sup > 0.8) continue;      // (kept down)
+      // what's in front of it: the nearest of theirs within the arc that it can see; you, if you're one of them
+      const foe = own === 'ours' ? 'theirs' : 'ours', eye = [G.pos[0], G.pos[1] + 1.0, G.pos[2]]; let tgt = null, td = GUN_RANGE;
+      const arc = p => { const dx = p[0] - G.pos[0], dz = p[2] - G.pos[2], r = Math.hypot(dx, dz) || 1; return (dx * Math.sin(fwd) + dz * Math.cos(fwd)) / r > 0.25 ? r : Infinity; };
+      for (const E of alive) { if (E.side !== foe || E.hp <= 0) continue; const r = arc(E.pos); if (r < td && this.sees(eye, E.pos)) { td = r; tgt = E; } }
+      if (you?.alive && you.side === foe && !you.tank) { const r = arc(you.pos); if (r * 0.8 < td && r < GUN_RANGE && this.sees(eye, you.pos)) { td = r; tgt = 'you'; } }
+      if (!tgt) { G.burst = 0; continue; }
+      const tp = tgt === 'you' ? you.pos : tgt.pos, want = Math.atan2(tp[0] - G.pos[0], tp[2] - G.pos[2]); let dy = want - G.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); G.yaw += Math.max(-1.6 * dt, Math.min(1.6 * dt, dy)); M.facing = G.yaw;
+      if (Math.abs(dy) > 0.12 || (G.cool -= dt) > 0) continue;
+      if (++G.burst >= 9) { G.burst = 0; G.cool = 0.9 + Math.random() * 0.8; } else G.cool = 0.1;
+      const covered = tgt !== 'you' && tgt.state === 'hold' && tgt.goal?.C && !tgt.goal.C.down, low = tgt === 'you' ? (you.low || 0) : tgt.duck > 0.5 ? 1 : 0;
+      const from = [G.pos[0] + Math.sin(G.yaw) * 1.1, G.pos[1] + 0.95, G.pos[2] + Math.cos(G.yaw) * 1.1];
+      let hit = Math.random() < (0.11 * (1 - td / GUN_RANGE) + 0.025) * (covered ? 0.4 : 1) * (low ? 0.4 : 1), to = null, stop = false;
+      if (hit) { const q = [tp[0], tp[1] + (low ? 0.5 : 1.1), tp[2]], L = this.blockAt(from, q); if (L == null) to = q; else { hit = false; stop = true; to = this.along(from, q, L); } }
+      if (!to) { const q = [tp[0] + (Math.random() - 0.5) * 4.5, tp[1] + Math.random() * 1.8, tp[2] + (Math.random() - 0.5) * 4.5], L = this.blockAt(from, q); to = L == null ? q : this.along(from, q, L); stop = L != null; }
+      this.shots.push({ from, to, side: own, t: this.t, hit, stop, n: ++this.shotN, at: tgt === 'you' ? 'you' : null, mg: true }); G.firedT = this.t;
+      for (const N of alive) if (N.side === foe && this.near(N.pos, to) < 5) N.sup = Math.min(1, N.sup + (N === tgt ? 0.22 : 0.1));      // (it keeps heads down along the whole of where it's falling)
+      if (tgt === 'you') { this.int += hit ? 0.3 : 0.06; if (hit) this.hooks.hitPlayer?.(16, `a ${this.F.b.name} heavy gun`, G.pos); }
+      else if (hit) this.hurt(tgt, 34 + Math.random() * 20, own, [tp[0] - G.pos[0], tp[2] - G.pos[2]]);
+    }
+  }
+  // something's gone off at p (a grenade, a shell, rounds from the air): a gun within R of it takes it, and its crew with it
+  hitGuns(p, R, dmg, by) {
+    for (const O of this.obj) { const G = O.gun, d = this.near(G.pos, p); if (G.out > 0 || d > R + 1) continue; G.hp -= dmg * (1 - d / (R + 1));
+      if (G.hp <= 0) { G.out = 60; G.you = false; if (G.crew) { const M = G.crew; M.gun = null; G.crew = null; this.hurt(M, 200, by, [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); } this.events.push({ type: 'gunout', O, by }); } }
+  }
+  // you get behind the one on ground your side holds (the man on it gives it up to you): → true if you're on it
+  mountGun(you) { for (const O of this.obj) { const G = O.gun; if (G.out > 0 || O.owner !== you.side || this.near(you.pos, G.pos) > 2.6) continue; if (G.crew) { G.crew.gun = null; G.crew = null; } G.you = true; return O; } return null; }
   // the pacing (L4D's director): build up → hold the peak 3-5 s → fade (their line thins) until you've come down → relax 30-45 s → build
   director(dt) {
     this.phT += dt; const I = this.int;
@@ -225,7 +272,7 @@ export class Infantry {
   nadeAt(N) { const f = Math.min(1, N.age / N.T), h = Math.max(2, Math.hypot(N.to[0] - N.from[0], N.to[2] - N.from[2]) * 0.3); return [N.from[0] + (N.to[0] - N.from[0]) * f, N.from[1] + (N.to[1] - N.from[1]) * f + 4 * h * f * (1 - f), N.from[2] + (N.to[2] - N.from[2]) * f]; }
   explode(N, you) {
     const p = N.to, by = N.by === 'player' ? 'player' : N.side; this.events.push({ type: 'nade', p, R: NADE_R, by });
-    this.armor?.splash(p, NADE_R, 120, by); this.damageCover(p, NADE_R, 90); this.cutWire(p, NADE_R * 0.45);
+    this.armor?.splash(p, NADE_R, 120, by); this.damageCover(p, NADE_R, 90); this.cutWire(p, NADE_R * 0.45); this.hitGuns(p, NADE_R * 0.7, 300, by);
     for (const M of this.men) if (M.hp > 0) { const d = this.near(M.pos, p); if (d < NADE_R) { const shelter = M.duck > 0.5 && M.goal?.C && this.coverBetween([p[0], p[1] + 0.3, p[2]], [M.pos[0], M.pos[1] + 0.6, M.pos[2]]); this.hurt(M, (130 * (1 - d / NADE_R) + 15) * (shelter ? 0.3 : 1), by, [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); } else if (d < NADE_R * 2.5) M.sup = Math.min(1, M.sup + 0.5); }
     if (you?.alive && !you.tank) { const d = this.near(you.pos, p); if (d < NADE_R) { const dmg = Math.round((70 * (1 - d / NADE_R) + 8) * (N.by === 'player' ? 0.6 : 1)); this.int += dmg / 50; this.hooks.hitPlayer?.(dmg, N.by === 'player' ? 'your own grenade' : 'a grenade', p); } else if (d < NADE_R * 3) this.int += 0.25; }
   }
@@ -266,7 +313,7 @@ export class Infantry {
     if (M.hp <= 0) return false; M.hp -= dmg; M.flinch = 0.28; M.sup = Math.min(1, M.sup + 0.35); if (by === 'player') M.threat = 10;
     if (dir) M.fall = Math.atan2(dir[0], dir[1]);
     if (M.hp <= 0) {
-      M.hp = 0; M.moving = false; M.dead = 0; if (how === 'blast') { M.diedBy = 'blast'; if (dir) M.facing = Math.atan2(-dir[0], -dir[1]); } if (M.goal?.C?.by === M.id) M.goal.C.by = null; this.events.push({ type: 'down', M, by });
+      M.hp = 0; M.moving = false; M.dead = 0; if (M.gun) { if (M.gun.gun.crew === M) M.gun.gun.crew = null; M.gun = null; } if (how === 'blast') { M.diedBy = 'blast'; if (dir) M.facing = Math.atan2(-dir[0], -dir[1]); } if (M.goal?.C?.by === M.id) M.goal.C.by = null; this.events.push({ type: 'down', M, by });
       if (this.you?.alive) { const d = this.near(M.pos, this.you.pos); if (d < 25) this.int += 0.2 * (1 - d / 25); }
       const mate = this.men.find(N => N !== M && N.hp > 0 && N.side === M.side && this.near(N.pos, M.pos) < 18); if (mate) this.bark(mate, 'mandown');
       const squad = this.men.filter(N => N.hp > 0 && N.side === M.side && N.squad === M.squad); if (squad.length === 1) this.bark(squad[0], 'alone');
@@ -286,11 +333,11 @@ export class Infantry {
   // a shell landing: everyone in its reach
   // rounds from the air striking at p (side: whose aircraft; byPlayer: yours): men within R of it are hit, those near go to ground. → how many went down
   strafe(p, R, side, byPlayer = false) {
-    if (!this.F) return 0; let n = 0; const by = byPlayer ? 'player' : side; this.armor?.splash(p, R, 45, by);
+    if (!this.F) return 0; let n = 0; const by = byPlayer ? 'player' : side; this.armor?.splash(p, R, 45, by); this.hitGuns(p, R * 0.5, 40, by);
     for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R) { if (this.hurt(M, 60 * (1 - d / R) + 18, by, [M.pos[0] - p[0], M.pos[2] - p[2]])) n++; } else if (d < R * 3.5) M.sup = Math.min(1, M.sup + 0.35); }
     return n;
   }
-  blast(p, R) { if (!this.F) return; this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
+  blast(p, R) { if (!this.F) return; this.hitGuns(p, R * 0.6, 320, 'shell'); this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
   // your shot along a ray: the first soldier it meets before `best`, → { along, M, head }. A man ducked behind his wall shows only
   // his head and shoulders over it.
   onRay(o, dir, best) {
@@ -323,6 +370,7 @@ export class Infantry {
       if (pv < pu) { const q = Math.sign(lv || 1) * pv; x += q * fz; z -= q * fx; } else { const q = Math.sign(lu || 1) * pu; x += q * fx; z += q * fz; } moved = true; };
     if (Math.abs(a) < LINE + 30 && Math.abs(s) < SPAN + 30) {
       const [ux, uz] = this.u, [vx, vz] = this.v;
+      for (const O of this.obj) { const G = O.gun; if (G && Math.abs(yFeet - G.pos[1]) < 1.4) box(G.pos[0], G.pos[2], ux, uz, 0.42, 0.42); }      // (the gun on its tripod)
       for (const C of this.cover) { if (C.down || C.wreck || Math.abs(s - C.s) > C.len / 2 + 2 || Math.abs(a - C.a) > 3) continue; const g = this.wallYAt(C, x, z); if (yFeet > g + (C.h || 0.85) - 0.12 || yFeet + h < g) continue;
         const sg = C.side === 'ours' ? 1 : -1, n0 = -0.4 * C.curve * sg, th = 0.42 + Math.abs(C.curve) * 0.4; box(C.pos[0] + ux * n0, C.pos[2] + uz * n0, vx, vz, C.len / 2, th); }
       for (const P of this.props) {

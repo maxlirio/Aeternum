@@ -456,7 +456,7 @@ async function start(fresh) {
     if ((e.code === 'KeyZ' || e.code === 'ControlLeft') && !e.repeat && !flight && !ride && !tankV && ctrl.mode === 'walk') {      // (down at a full run: a slide, then crouched where it stops)
       if (!crouched && ctrl.grounded && ctrl.speed > 5.2 && !proned) { crouched = true; slideQueued = true; } else crouched = !crouched; proned = false; }
     if (e.code === 'KeyX' && !flight && !ride && !tankV && ctrl.mode === 'walk') { proned = !proned; if (proned) crouched = false; }      // (prone: flat behind your rifle; get up with it again, or by moving off)      // (crouch: down behind cover, or moving low)
-    if (e.code === 'KeyE' && !tankToggle()) interact();
+    if (e.code === 'KeyE' && !gunToggle() && !tankToggle()) interact();
     if (e.code === 'KeyQ' && onLine() && !tankV && ctrl.mode === 'walk') fireLauncher();
     if (e.code === 'KeyI') showInventory();
     if (e.code === 'KeyL') switchLight();
@@ -1491,6 +1491,20 @@ async function start(fresh) {
     cam.pitch = Math.max(-0.9, cam.pitch - 0.035); fx.shake = Math.max(fx.shake, 0.25); for (let i = 0; i < 6; i++) fx.smoke([ctrl.pos[0] - Math.sin(cam.yaw) * (0.8 + i * 0.3), ctrl.pos[1] + 1.3, ctrl.pos[2] - Math.cos(cam.yaw) * (0.8 + i * 0.3)], 0.6, [0, 0], 0.5, 0.35);
   }
   // a tank of your own side: climb in (E beside it), and out again
+  // the heavy gun on an objective your side holds (sim/infantry.js): the use key puts you behind it, and again (or walking off) takes you off it
+  const EMPLACED = { name: 'Heavy gun', dmg: 58, reach: 240, every: 0.085, ranged: true, spread: 0.014, energy: true, emplaced: true };
+  let gunPost = null;
+  function gunToggle() {
+    if (gunPost) { gunPost.gun.you = false; gunPost = null; return true; }
+    if (!infantry.F || flight || ride || tankV || ctrl.mode !== 'walk' || dying) return false;
+    const side = player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null; if (!side) return false;
+    const O = infantry.mountGun({ pos: ctrl.pos, side }); if (!O) return false; gunPost = O; crouched = false; proned = false; ui.toast('You\'re on the gun.', '', 2500); return true;
+  }
+  function gunTick() {
+    const O = gunPost; if (!O) return; const G = O.gun;
+    if (!infantry.F || !G.you || G.out > 0 || O.owner !== 'ours' || dying || keys.has('KeyW') || keys.has('KeyA') || keys.has('KeyS') || keys.has('KeyD')) { G.you = false; gunPost = null; return; }
+    const seat = infantry.at(O.a - 0.9, O.s + 2.4); ctrl.pos = [seat[0], seat[1] + 0.02, seat[2]]; ctrl.vel = [0, 0, 0]; G.yaw = cam.yaw; G.firedT = performance.now() / 1000 - lastAttack < 0.06 ? infantry.t : G.firedT;
+  }
   function tankToggle() {
     if (tankV) { leaveTank(); return true; }
     if (!onLine()) return false;
@@ -1582,7 +1596,7 @@ async function start(fresh) {
   }
   function attack() {
     if (paused || ctrl.mode !== 'walk' || ride || flight) return;
-    const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = WEAPONS[id];
+    const id = player.weapon && inventoryOf(player).some(x => x.id === player.weapon) ? player.weapon : 'fists', W = gunPost ? EMPLACED : WEAPONS[id];
     // a long gun at your side comes up to the shoulder first; the round goes when it's there (a click while it's coming up still fires, then)
     if (W.ranged && W.two && !tankV && gunK < 0.8) { wantShot = true; return; } wantShot = false;
     const now = performance.now() / 1000; if (now - lastAttack < W.every) return; lastAttack = now;
@@ -1970,7 +1984,7 @@ async function start(fresh) {
     store.log({ t, type: 'deed', who: player.id, whoName: player.name, area, what, renown: R.total }); await save();
     if (dying) return;
     await threatPasses();
-    const told = warSaid.join(' '); if (told) { warLast = told; warSaid = []; }
+    const told = warSaid.join(' '); if (told) { warLast = told; warSaid = []; awayTally = {}; }
     let pick = null; await modal(async () => { pick = await ui.debrief({ title, sub: sub + (pay ? ` · ${pay} cr pay` : '') + (told ? ` · ${told.replace(/<[^>]+>/g, '')}` : ''), parts: R.parts, total: R.total, family: fam, before: D.before, after: D.after, alive: player.hp > 0, again }); });
     if (pick === 'again') { if (again === WAR_AGAIN) home?.(); onAgain(); }
     else if (pick === 'family') { running = false; location.reload(); }
@@ -2052,7 +2066,7 @@ async function start(fresh) {
   }
   // ---- the war as a campaign (game/campaign.js): its zones, how you go into one, and what a fight there does to the front
   const WAR_AGAIN = 'Back to the war table';
-  const warFrom = {}; let warSaid = [], warLast = '', threat = null, threatHold = 0;      // (threatHold: none offered before then — they don't come one on another's heels)
+  const warFrom = {}, awayToastT = {}; let awayTally = {}; let warSaid = [], warLast = '', threat = null, threatHold = 0;      // (threatHold: none offered before then — they don't come one on another's heels)
   const an = n => (/^[AEIOU]/i.test(n) ? 'An ' : 'A ') + n;
   const myNation = () => townSociety(planet, homeS)?.nation || null, camp = () => campaignOf(store.meta, String(planet.seed));
   const natById = id => nationsOf(planet).find(n => n.id === id) || null;
@@ -2070,7 +2084,11 @@ async function start(fresh) {
   // the line against E has moved (r: game/campaign.js apply's or decide's result): said, and what follows from it
   function warTold(E, r, away = false) {
     const id = E.id, now = clock.now(); warTune();
-    if (r.winner) { const won = r.winner === 'ours'; warSaid.push(away ? `While you were elsewhere the battle on the ${E.name} line was ${won ? 'won' : 'lost'}.` : `The battle on the ${E.name} line is ${won ? 'won' : 'lost'}.`); if (away) ui.toast(`<b>News from the ${esc(E.name)} line:</b> the battle there is ${won ? 'won' : 'lost'}.`, won ? '' : 'warn', 9000); }
+    if (r.winner && !away) warSaid.push(`The battle on the ${E.name} line is ${r.winner === 'ours' ? 'won' : 'lost'}.`);
+    else if (r.winner) {      // decided while you were elsewhere: counted, and told as one line for the front however many there were
+      const T = awayTally[id] ||= { won: 0, lost: 0 }; T[r.winner === 'ours' ? 'won' : 'lost']++; const n = T.won + T.lost, head = `While you were elsewhere, on the ${E.name} line:`;
+      warSaid = warSaid.filter(q => !q.startsWith(head)); warSaid.push(`${head} ${n === 1 ? `the battle was ${T.won ? 'won' : 'lost'}` : `${n} battles decided, ${T.won} won and ${T.lost} lost`}.`);
+      if (now - (awayToastT[id] || -1e9) > 120) { awayToastT[id] = now; ui.toast(`<b>News from the ${esc(E.name)} line:</b> the battle there is ${r.winner === 'ours' ? 'won' : 'lost'}.`, r.winner === 'ours' ? '' : 'warn', 9000); } }
     const pc = v => Math.round(v) + '%'; if (!warSaid.some(q => q.startsWith(`The line against ${E.name}:`))) warFrom[id] = r.before; warSaid = warSaid.filter(q => !q.startsWith(`The line against ${E.name}:`));
     warSaid.push(`The line against ${E.name}: ${pc(warFrom[id])} → ${pc(r.after)} ours.` + (r.turn === 'won' ? ` <b>${E.name} is thrown back over the border.</b> They'll come again, harder.` : r.turn === 'lost' ? ` <b>The line has broken.</b> Their dreadnoughts are coming through.` : ''));
     if (r.turn === 'won') { addDeed(store.meta, { t: now, who: player.name, area: 'war', what: `was on the line when ${E.name} was thrown back over the border`, renown: 400 }); ui.toast(`<b>${esc(E.name)} is thrown back over the border.</b> The whole line against them is ours. They'll come again, harder.`, '', 12000); }
@@ -2722,6 +2740,7 @@ async function start(fresh) {
       if (player.footDuty && (!F || d > 4500)) { player.footDuty = null; store.touchPlayer(); if (groundRun) groundEnd(); else ui.toast('You\'re off the line. Report to the security chief to go back.', '', 6000); }
       const side = infantry.F && onFoot && player.soldier && nationsOf(planet)[player.soldier.nation] === infantry.F.a ? 'ours' : null;
       const you = { pos: ctrl.pos, side, alive: player.hp > 0, tank: tankV, low: Math.max(crouchK, proneK * 1.6) };
+      gunTick();
       if (battle && infantry.F) battleTick(dt, side); else battle = null;
       if (infantry.F && (!battle || battle.over) && !groundRun?.endAt) { const R = battleRec(infantry.F); if (R && clock.now() >= R.battle.t && R.battle.n !== battleN) { battleStart(infantry.F); ui.toast(`<b>They're coming again.</b> A new battle for the ${esc(infantry.F.b.name)} line.`, 'bad', 8000); } }      // (the lull's over: the next battle for the same ground begins)
       infantry.step(dt, you); infantryView.update(infantry, dt, t); armor.step(dt, you); armorView.hide = tankV && scoped() ? tankV.id : null; armorView.update(armor, dt, ctrl.pos);
@@ -2736,6 +2755,7 @@ async function start(fresh) {
         if (e.type === 'lost') ui.toast(`<b>${e.O.name} objective lost</b> to ${esc(infantry.F.b.name)}.`, 'bad', 5000);
         if (e.type === 'down' && e.by === 'player') { if (e.M.side === 'theirs' && player.soldier) { chud.log(`You put down a ${infantry.F.b.name} rifleman`, 'you'); soldierKill(); } else if (e.M.side === 'ours') ui.toast('That was one of ours.', 'bad', 4000); }
         else if (e.type === 'down' && Math.hypot(e.M.pos[0] - ctrl.pos[0], e.M.pos[2] - ctrl.pos[2]) < 70) chud.log(e.M.side === 'ours' ? `${infantry.F.a.name} soldier down` : `${infantry.F.b.name} soldier down`, e.M.side === 'ours' ? 'bad' : '');
+        if (e.type === 'gunout') { const ours = e.O.owner === 'ours'; ui.toast(ours ? `<b>Our gun on ${e.O.name} is knocked out.</b>` : `<b>Their gun on ${e.O.name} is knocked out.</b> Get onto it before they put another up.`, ours ? 'bad' : '', 6000); if (e.by === 'player' && !ours && groundRun) groundRun.guns = (groundRun.guns || 0) + 1; }
         if (e.type === 'nade') { fx.blast(e.p, 2.2); fx.dustRing(e.p, e.R * 0.8); sound.boom(e.p, 3.5); const d = Math.hypot(e.p[0] - ctrl.pos[0], e.p[2] - ctrl.pos[2]); fx.shake = Math.max(fx.shake, Math.max(0, 0.7 - d / 40)); }
       }
       if (infantry.F) {

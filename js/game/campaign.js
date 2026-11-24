@@ -27,7 +27,8 @@ export function decide(F, winner, now, by = WON) { const r = apply(F, winner ===
 // the battle as it stands now, fought on by the clock since it was last looked at. → { B, results: [{ winner, before, after, turn }] }
 export function battleNow(F, now, rnd = Math.random) {
   const results = []; let B = F.battle || newBattle(F, now);
-  for (let guard = 0; guard < 6; guard++) {
+  // (a long time away is not fought through battle by battle: three at most are decided in one catching-up, and the rest of the time is let go)
+  for (let guard = 0; guard < 3; guard++) {
     let steps = Math.min(400, Math.floor((now - B.t) / AWAY_STEP)); if (steps <= 0) break;
     let winner = null;
     B.tilt ??= (rnd() - 0.42) * 0.5;      // (how this one's going for us while nobody's looking: some go our way, rather more don't)
@@ -42,6 +43,7 @@ export function battleNow(F, now, rnd = Math.random) {
     if (!winner) break;
     results.push(decide(F, winner, B.t, AWAY_WON)); B = F.battle;
   }
+  if (now - B.t > AWAY_STEP * 400) B.t = now - AWAY_STEP * 20;      // (what's left of a long absence: the one going on now is ten minutes old)
   B.g.ours = Math.round(B.g.ours); B.g.theirs = Math.round(B.g.theirs);
   return { B, results };
 }

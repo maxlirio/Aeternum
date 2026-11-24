@@ -52,6 +52,28 @@ export class InfantryView {
     const rm = this.ringMesh = new THREE.InstancedMesh(ring, plain('metal'), rings.length); this.rings = rings; rings.forEach((r, i) => { rm.setColorAt(i, this.col.setRGB(0.6, 0.58, 0.55)); }); g.add(rm);
     const pm = this.postMesh = new THREE.InstancedMesh(post, plain('wood'), posts.length); this.posts = posts; posts.forEach((r, i) => pm.setColorAt(i, this.col.setRGB(0.5, 0.42, 0.34))); g.add(pm);
     this.worksSig = -1; this.works(I);
+    // the heavy gun on each objective (sim/infantry.js stepGuns): a tripod of three splayed legs, the cradle on its pintle, and on that — turning
+    // with the gun — the receiver, the ribbed barrel jacket and its muzzle, the spade grips, the shield with its slot, and the belt box
+    this.gunPosts = [];
+    { const steel = plain('metal').clone(); steel.color.setHex(0x30342f); const dark = plain('metal').clone(); dark.color.setHex(0x1b1d1c); const olive = plain('metal').clone(); olive.color.setHex(0x4a5236);
+      for (const O of I.obj) { const G = O.gun, grp = new THREE.Group(); grp.position.copy(P(G.pos)); g.add(grp);
+        for (let k = 0; k < 3; k++) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 1.05, 8).translate(0, -0.52, 0), steel); leg.position.set(0, 0.72, 0); leg.rotation.set(0.72, 0, 0); const hip = new THREE.Group(); hip.rotation.y = k * 2.094 + 0.5; hip.add(leg); grp.add(hip);
+          const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.16), dark); foot.position.set(0, 0.02, 0.7); hip.add(foot); }
+        const pintle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.26, 10).translate(0, 0.8, 0), dark); grp.add(pintle);
+        const piv = new THREE.Group(); piv.position.y = 0.95; grp.add(piv);
+        const add = (geo, mat, x, y, z) => { const mm = new THREE.Mesh(geo, mat); mm.position.set(x, y, z); mm.castShadow = true; piv.add(mm); return mm; };
+        add(new THREE.BoxGeometry(0.14, 0.08, 0.3), dark, 0, -0.03, 0.02);                                           // cradle
+        add(new THREE.BoxGeometry(0.11, 0.16, 0.52), steel, 0, 0.09, -0.05);                                         // receiver
+        add(new THREE.CylinderGeometry(0.045, 0.045, 0.78, 12).rotateX(Math.PI / 2), steel, 0, 0.1, 0.6);            // barrel jacket
+        for (let k = 0; k < 6; k++) add(new THREE.CylinderGeometry(0.052, 0.052, 0.025, 12).rotateX(Math.PI / 2), dark, 0, 0.1, 0.3 + k * 0.11);      // its cooling ribs
+        add(new THREE.CylinderGeometry(0.03, 0.038, 0.12, 10).rotateX(Math.PI / 2), dark, 0, 0.1, 1.05);             // muzzle
+        for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.016, 0.016, 0.16, 8), dark, sx * 0.07, 0.09, -0.36);      // spade grips
+        add(new THREE.BoxGeometry(0.2, 0.02, 0.02), dark, 0, 0.17, -0.36);
+        for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.4, 0.5, 0.018), olive, sx * 0.27, 0.16, 0.26);      // the shield, in two plates with the gun through the slot between
+        add(new THREE.BoxGeometry(0.16, 0.14, 0.018), olive, 0, 0.36, 0.26);
+        add(new THREE.BoxGeometry(0.2, 0.16, 0.14), olive, -0.19, 0.03, -0.04);                                      // belt box
+        const flash = add(new THREE.SphereGeometry(0.1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }), 0, 0.1, 1.2); flash.castShadow = false; flash.visible = false;
+        this.gunPosts.push({ O, grp, piv, flash }); } }
     // the objectives: a tall pole, its flag, a ring marked out on the ground
     this.flags = [];
     for (const O of I.obj) { const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 12, 8).translate(0, 6, 0), plain('metal')); pole.material = pole.material.clone(); pole.material.color.setHex(0x3a3a3a); pole.position.copy(P(O.pos)); g.add(pole);
@@ -104,6 +126,7 @@ export class InfantryView {
       let c = 0, g = 0; for (const D of I.drops) { const bob = 0.12 + Math.sin(t * 3 + D.pos[0]) * 0.05; this.m.makeRotationY(t * 1.5 + D.pos[2]); this.m.setPosition(...this.toRender(D.pos[0], D.pos[1] + bob, D.pos[2])); if (D.kind === 'cell' && c < 48) this.cellIm.setMatrixAt(c++, this.m); else if (g < 48) this.dropNade.setMatrixAt(g++, this.m); }
       this.cellIm.count = c; this.dropNade.count = g; this.cellIm.instanceMatrix.needsUpdate = this.dropNade.instanceMatrix.needsUpdate = true; }
     this.tr.geometry.setDrawRange(0, k * 2); this.flash.geometry.setDrawRange(0, k); tp.needsUpdate = tc.needsUpdate = fp.needsUpdate = true;
+    for (const Q of this.gunPosts || []) { const G = Q.O.gun; Q.piv.rotation.y = G.yaw; Q.grp.rotation.z += ((G.out > 0 ? 0.9 : 0) - Q.grp.rotation.z) * Math.min(1, dt * 4); Q.flash.visible = I.t - G.firedT < 0.05; }      // (knocked out, it lies over on its side)
     // flags: the holder's colour, blending as it's taken; the cloth stirs
     for (const Fl of this.flags) { const p = Fl.O.prog, c = this.col.copy(FLAG.none).lerp(p > 0 ? FLAG.ours : FLAG.theirs, Math.abs(p)); Fl.cloth.material.color.copy(c); Fl.mark.material.color.copy(c);
       const a = Fl.cloth.geometry.attributes.position; for (let i = 0; i < a.count; i++) { const x = Fl.base[3 * i]; a.setZ(i, Math.sin(x * 1.6 - t * 5 + Fl.O.id) * 0.26 * x / 3.6); } a.needsUpdate = true; }
