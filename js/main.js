@@ -1106,8 +1106,8 @@ async function start(fresh) {
   }
   // ---- soldiering (sim/front.js): enlisted with your town's nation, flown to the front in an issued fighter
   const onLand = F => { const x = F.x - Math.sin(F.dir) * 150, z = F.z - Math.cos(F.dir) * 150; return !cloudW && landY(x, z) > planet.seaLevel + 0.5 && landY(F.x, F.z) > planet.seaLevel + 1; };
-  // (and level enough to be a battlefield: no more than a gentle roll across the 400 m of it, not a mountainside or a ravine)
-  const levelAt = F => { const ux = Math.sin(F.dir), uz = Math.cos(F.dir); let lo = 1e9, hi = -1e9, steep = 0; for (let s = -200; s <= 200; s += 50) { let prev = null; for (let a = -75; a <= 75; a += 25) { const y = landY(F.x + ux * a - uz * s, F.z + uz * a + ux * s); if (y <= planet.seaLevel + 0.3) return false; lo = Math.min(lo, y); hi = Math.max(hi, y); if (prev != null) steep = Math.max(steep, Math.abs(y - prev) / 25); prev = y; } } return hi - lo < 28 && steep < 0.3; };
+  // (and level enough to be a battlefield: no more than a gentle roll across the 400 m of it and both sides' ground behind, not a mountainside or a ravine)
+  const levelAt = F => { const ux = Math.sin(F.dir), uz = Math.cos(F.dir); let lo = 1e9, hi = -1e9, steep = 0; for (let s = -200; s <= 200; s += 50) { let prev = null; for (let a = -125; a <= 125; a += 25) { const y = landY(F.x + ux * a - uz * s, F.z + uz * a + ux * s); if (y <= planet.seaLevel + 0.3) return false; lo = Math.min(lo, y); hi = Math.max(hi, y); if (prev != null) steep = Math.max(steep, Math.abs(y - prev) / 25); prev = y; } } return hi - lo < 34 && steep < 0.3; };
   setFrontFit((P, F) => P === planet && onLand(F) && levelAt(F));      // (sim/front.js: a front over water is found further along the border, on land)
   // ?auto=line: enlisted and on the line at once; a world whose nation has no war on land hands on to the next world
   function lineStart() {
