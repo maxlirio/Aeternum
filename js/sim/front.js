@@ -4,16 +4,28 @@
 // As a soldier you're flown there in an issued fighter, paid for what you shoot down, promoted for it.
 import { nationAt, nationsOf, relationOf } from '../gen/society.js';
 
-// Where the border between nation a and nation b crosses the line between their capitals (bisection on whose land it is).
-export function frontPoint(planet, a, b) {
-  let lo = 0, hi = 1; const at = f => [a.cx + (b.cx - a.cx) * f, a.cz + (b.cz - a.cz) * f];
+// Where the border between nation a and nation b crosses the line between their capitals (bisection on whose land it is);
+// w: the same on a line that far to one side of it (metres), so a point further along the same border.
+export function frontPoint(planet, a, b, w = 0) {
+  const L = Math.hypot(b.cx - a.cx, b.cz - a.cz) || 1, px = -(b.cz - a.cz) / L * w, pz = (b.cx - a.cx) / L * w;
+  let lo = 0, hi = 1; const at = f => [a.cx + (b.cx - a.cx) * f + px, a.cz + (b.cz - a.cz) * f + pz];
   for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2, [x, z] = at(m); if (nationAt(planet, x, z).nation === a) lo = m; else hi = m; }
   const [x, z] = at((lo + hi) / 2); return { x, z, a, b, dir: Math.atan2(b.cx - a.cx, b.cz - a.cz) };
+}
+// what makes a place on the border fit to fight over on foot (set by the game, which knows the ground: dry land both sides). With it set,
+// a front that would lie over water is found further along the same border, where there's land, if there is any within 30 km.
+let fit = null; export function setFrontFit(fn) { fit = fn; memo = new WeakMap(); }
+let memo = new WeakMap();
+function frontOfPair(planet, a, b) {
+  let M = memo.get(planet); if (!M) memo.set(planet, M = new Map()); const k = a.id + ':' + b.id; let F = M.get(k); if (F) return F;
+  F = frontPoint(planet, a, b);
+  if (fit && !fit(planet, F)) for (let i = 1; i <= 20; i++) { const P = frontPoint(planet, a, b, 1500 * i), Q = fit(planet, P) ? P : frontPoint(planet, a, b, -1500 * i); if (Q === P || fit(planet, Q)) { if (nationAt(planet, Q.x - Math.sin(Q.dir) * 200, Q.z - Math.cos(Q.dir) * 200).nation === a) { F = Q; break; } } }
+  M.set(k, F); return F;
 }
 // The fronts a nation has: one with each enemy it's at war (or in a border war) with.
 export function frontsOf(planet, nat) {
   if (!nat) return []; const out = [];
-  for (const o of nationsOf(planet)) { if (o === nat) continue; const r = relationOf(planet, nat, o); if (r && (r.state === 'war' || r.state === 'border war')) out.push({ ...frontPoint(planet, nat, o), state: r.state }); }
+  for (const o of nationsOf(planet)) { if (o === nat) continue; const r = relationOf(planet, nat, o); if (r && (r.state === 'war' || r.state === 'border war')) out.push({ ...frontOfPair(planet, nat, o), state: r.state }); }
   return out;
 }
 export const RANKS = ['Private', 'Corporal', 'Sergeant', 'Lieutenant', 'Captain', 'Major'];

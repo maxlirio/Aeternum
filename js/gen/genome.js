@@ -231,6 +231,11 @@ function society(rng, arch, weird) {
     const A = nations[a], B = nations[b], hot = 0.25 + 0.3 * (A.econ === B.econ ? 1 : 0) + 0.25 * ((A.gov === 'junta') + (B.gov === 'junta')) + 0.15 * (nN > 3) + rng.range(-0.2, 0.3);
     relations.push({ a, b, rivalry: Math.max(0, Math.min(1, hot)), state: hot > 0.85 ? 'war' : hot > 0.62 ? 'border war' : hot > 0.4 ? 'cold' : 'peace' });
   }
+  // the first nation (the one you're born into) is always at war with somebody: the game is that war (game/campaign.js). A world with one
+  // nation has a second, risen against it; one at peace has its worst rivalry come to fighting. (No dice thrown for it: nothing else moves.)
+  if (nN === 1) { const k = [...nations[0].name].reduce((n, c) => n + c.charCodeAt(0), 0); let name = NATION_A[(k + 7) % NATION_A.length] + NATION_B[(k + 5) % NATION_B.length]; if (name === nations[0].name) name = NATION_A[(k + 8) % NATION_A.length] + NATION_B[(k + 5) % NATION_B.length];
+    nations.push({ id: 1, name, econ: secondary, gov: 'junta', colour: hsv((k % 100) / 100, 0.6, 0.6), strength: 0.7, seat: 0.5 }); relations.push({ a: 0, b: 1, rivalry: 0.9, state: 'war' }); }
+  else if (!relations.some(r => (r.a === 0 || r.b === 0) && (r.state === 'war' || r.state === 'border war'))) { const r = relations.filter(r => r.a === 0 || r.b === 0).sort((x, y) => y.rivalry - x.rivalry)[0]; r.state = 'war'; r.rivalry = Math.max(r.rivalry, 0.86); }
   return { resources: res, primary, secondary, industries: [primary, secondary].filter((v, i, a) => a.indexOf(v) === i), nations, relations,
     gangs: Math.min(1, rng.range(0.1, 0.6) + (nations.some(n => n.gov === 'syndicate') ? 0.3 : 0) + 0.15 * weird), lawless: rng.range(0, 0.5) };
 }

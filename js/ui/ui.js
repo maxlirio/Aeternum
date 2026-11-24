@@ -54,6 +54,37 @@ export class UI {
       });
     });
   }
+  // the war table: the zones of the war (each a front, a town under threat, the skies over home), and how you go in. → { zone, kind } or null (not today)
+  warTable({ nation, world, zones, home, caps = [], last = null }) {
+    const e = esc; let sel = zones.find(z => z.hot) || zones[0], kind = null;
+    const pts = [home, ...zones, ...caps], x0 = Math.min(...pts.map(p => p.x)), x1 = Math.max(...pts.map(p => p.x)), z0 = Math.min(...pts.map(p => p.z)), z1 = Math.max(...pts.map(p => p.z));
+    const span = Math.max(x1 - x0, z1 - z0, 4000) * 1.5, mx = (x0 + x1) / 2, mz = (z0 + z1) / 2, X = x => 150 + (x - mx) / span * 300, Y = z => 110 - (z - mz) / span * 300;      // (north up)
+    const tone = z => z.hot ? '#ff6a4a' : z.hold == null ? '#9fb4c8' : z.hold >= 60 ? '#7fd08a' : z.hold >= 40 ? '#e8c35a' : '#ff8a5a';
+    return new Promise(res => {
+      const draw = () => {
+        if (!sel.kinds.find(k => k.key === kind && k.ok)) kind = sel.kinds.find(k => k.ok)?.key || null;
+        const map = `<svg viewBox="0 0 300 220" class="warmap"><rect width="300" height="220" rx="6"/>
+          ${caps.map(c => `<g class="cap"><circle cx="${X(c.x).toFixed(1)}" cy="${Y(c.z).toFixed(1)}" r="3"/><text x="${X(c.x).toFixed(1)}" y="${(Y(c.z) - 6).toFixed(1)}">${e(c.name)}</text></g>`).join('')}
+          ${zones.filter(z => z.cap).map(z => `<line x1="${X(home.x).toFixed(1)}" y1="${Y(home.z).toFixed(1)}" x2="${X(z.x).toFixed(1)}" y2="${Y(z.z).toFixed(1)}" class="ours"/><line x1="${X(z.x).toFixed(1)}" y1="${Y(z.z).toFixed(1)}" x2="${X(z.cap.x).toFixed(1)}" y2="${Y(z.cap.z).toFixed(1)}" class="theirs"/>`).join('')}
+          <g class="home"><rect x="${(X(home.x) - 3.5).toFixed(1)}" y="${(Y(home.z) - 3.5).toFixed(1)}" width="7" height="7"/><text x="${X(home.x).toFixed(1)}" y="${(Y(home.z) + 14).toFixed(1)}">${e(home.name)}</text></g>
+          ${zones.filter(z => z.id !== 'home').map(z => `<g class="zone${z === sel ? ' sel' : ''}" data-z="${e(z.id)}"><circle cx="${X(z.x).toFixed(1)}" cy="${Y(z.z).toFixed(1)}" r="${z === sel ? 8 : 6}" fill="${tone(z)}"/></g>`).join('')}</svg>`;
+        const list = zones.map(z => `<button data-z="${e(z.id)}" class="zone${z === sel ? ' sel' : ''}${z.hot ? ' hot' : ''}"><b>${e(z.name)}</b><small>${e(z.sub)}</small>${z.hold != null ? `<i><b style="width:${Math.round(z.hold)}%;background:${tone(z)}"></b></i>` : ''}</button>`).join('');
+        const kinds = sel.kinds.map(k => `<button data-k="${k.key}" class="kind${k.key === kind ? ' sel' : ''}" ${k.ok ? '' : 'disabled'}><b>${e(k.name)}</b><small>${e(k.ok ? k.say : k.why)}</small></button>`).join('');
+        p.querySelector('.card').innerHTML = `<div class="war"><p class="fine">${e(world)} · ${e(nation)}</p><h2>The war</h2>${last ? `<p class="lede warlast">${last}</p>` : ''}
+          <div class="warcols"><div>${map}<div class="zones">${list}</div></div>
+          <div><h3>${e(sel.name)}</h3>${sel.hold != null ? `<div class="standing"><b style="color:${tone(sel)}">${Math.round(sel.hold)}% ours</b> <span>${e(sel.holdSay)}${sel.level ? ` · thrown back ${sel.level === 1 ? 'once' : sel.level + ' times'}` : ''}</span><i><b style="width:${Math.round(sel.hold)}%;background:${tone(sel)}"></b></i></div>` : ''}
+            <p class="lede">${e(sel.say)}</p><h3>How you go in</h3>${kinds}
+            <button data-a="go" class="primary" ${kind ? '' : 'disabled'}>Deploy</button><button data-a="no" class="ghost">Not today: stay in ${e(home.name)}</button></div></div></div>`;
+      };
+      const p = this.panel('', 'title wide family wartable'); draw();
+      p.addEventListener('click', ev => {
+        const zq = ev.target.closest('[data-z]'), kq = ev.target.closest('button[data-k]'), a = ev.target.closest('button[data-a]');
+        if (zq) { sel = zones.find(z => z.id === zq.dataset.z) || sel; draw(); }
+        else if (kq && !kq.disabled) { kind = kq.dataset.k; draw(); }
+        else if (a && !a.disabled) res(a.dataset.a === 'go' ? { zone: sel, kind } : null);
+      });
+    });
+  }
   // after a run: what it was, what it was worth, and what the family's called now
   debrief({ title, sub, parts = [], total = 0, family, before, after, alive = true, again = 'Again' }) {
     const e = esc;
@@ -126,10 +157,11 @@ export class UI {
     setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600);
   }
 
-  menu() {
+  menu({ war = null } = {}) {
     return new Promise(res => {
       const p = this.panel(`<h2>Paused</h2><p class="fine">Time does not stop — the universe keeps going.</p>
         <button data-a="resume" class="primary">Resume</button>
+        ${war ? `<button data-a="war">${esc(war)}</button>` : ''}
         <button data-a="leave">Leave the game…</button>
         <button data-a="backup">Download backup</button>
         <button data-a="restore">Restore from backup…</button>

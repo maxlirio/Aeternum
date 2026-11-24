@@ -14,8 +14,7 @@ export const TIERS = [
 
 // the areas you can go into; ready false: not open yet (it says what it will be)
 export const AREAS = [
-  { key: 'sky', name: 'Sky battles', say: 'Take a fighter up against raiders coming for the town. Waves of them, worse each time.', ready: true },
-  { key: 'ground', name: 'Ground battles', say: 'Onto the line where your nation is at war: hold ours, take theirs.', ready: true },
+  { key: 'war', name: 'The war', say: 'Choose where on the war you go, and how you go in: in a fighter, or on foot.', ready: true },
   { key: 'heist', name: 'Heists', say: 'Plan it, break in, get out with it, lose the law.', ready: false },
   { key: 'law', name: 'Law enforcement', say: 'The other side of a heist: answer the call, give chase, bring them in.', ready: false },
   { key: 'life', name: 'A life', say: 'No orders. Work, family, trouble: the world as it is.', ready: true },

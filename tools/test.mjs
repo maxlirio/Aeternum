@@ -1471,7 +1471,19 @@ suites.sky = async () => {
   const meta = {}; F.familyOf(meta, 'Trois'); check(meta.family.name === 'Trois' && F.tierOf(0).name === 'Unknown' && F.tierOf(8000).name === 'Legendary' && F.tierOf(399).name === 'Noted', 'a family is named for its first, and starts unknown');
   const r = F.addDeed(meta, { who: 'Pith Trois', area: 'sky', what: 'saw off five waves', renown: 130 });
   check(r.rose && r.after.name === 'Noted' && meta.family.deeds.length === 1 && meta.family.renown === 130, `a deed adds to the name: now ${r.after.name}`);
-  check(F.AREAS.filter(a => a.ready).map(a => a.key).join() === 'sky,ground,life', 'sky, ground and a life are open; heists and the law are coming');
+  check(F.AREAS.filter(a => a.ready).map(a => a.key).join() === 'war,life', 'the war and a life are open; heists and the law are coming');
+  // the war as a campaign (game/campaign.js): what you do on a front moves its hold; pushed to the top they're thrown back, at the bottom the line breaks
+  const Cp = await import('../js/game/campaign.js'), m2 = {}, C = Cp.campaignOf(m2, 'p1'), Fr = Cp.frontOf(C, 2, 1000);
+  check(Fr.hold === 50 && Cp.campaignOf(m2, 'p1') === C && Cp.frontOf(C, 2, 5000) === Fr, 'a front begins even, and is kept in the save');
+  const gS = Cp.gainOf('sky', { cleared: 5, kills: 9, won: true, strikes: 1 }), gG = Cp.gainOf('ground', { taken: 2, kills: 12 }), gD = Cp.gainOf('dread', { down: true, saved: true }), gB = Cp.gainOf('dread', { burnt: true });
+  check(gS.total > 0 && gG.total > 0 && gD.total === 18 && gB.total === -8, `a sortie's worth ${gS.total}, a spell on the line ${gG.total}, a dreadnought down and the town saved ${gD.total}, a town burnt ${gB.total}`);
+  const r1 = Cp.apply(Fr, gS.total, 1000); check(r1.before === 50 && Fr.hold === 50 + gS.total && !r1.turn, `the hold goes from 50 to ${Fr.hold}`);
+  Cp.pressure(Fr, 1000 + 600); check(Math.abs(Fr.hold - (50 + gS.total - 2)) < 1e-6, 'nobody on it for ten minutes: two points slip');
+  { const h = Fr.hold; Cp.pressure(Fr, 1e9); check(Fr.hold === h - 15, 'a long absence costs fifteen at most'); const lo = { hold: 3, level: 0, t: 0, won: 0, lost: 0 }; Cp.pressure(lo, 1e9); check(lo.hold === 1, 'and pressure alone never breaks a line'); }
+  Fr.hold = 95; const r2 = Cp.apply(Fr, 10, Fr.t); check(r2.turn === 'won' && Fr.level === 1 && Fr.hold === 40 && Fr.won === 1, 'pushed to the top: thrown back over the border, and they come again harder');
+  Fr.hold = 5; const r3 = Cp.apply(Fr, -8, Fr.t); check(r3.turn === 'lost' && Fr.hold === 30 && Fr.lost === 1, 'driven to the bottom: the line breaks');
+  const W2 = Cp.wavesFor(2, WAVES); check(Cp.wavesFor(0, WAVES) === WAVES && W2.length === WAVES.length && W2.every((w, i) => w.fighters.length === WAVES[i].fighters.length + 2 && w.aim > WAVES[i].aim), 'a front they\'ve been thrown back on twice sends two more fighters a wave, better shots');
+  check(Cp.strikeEvery(10)[0] < Cp.strikeEvery(60)[0] && Cp.strikeEvery(60)[0] < Cp.strikeEvery(90)[0], 'the weaker the line, the oftener their dreadnoughts come');
 };
 
 suites.countryside = async () => {

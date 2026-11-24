@@ -15,7 +15,7 @@ import { townSociety, nationsOf, relationOf } from './gen/society.js';
 import { PlanetWar, enemyOf as warEnemyOf, beamAt, burnAt, shipAt, shipPoint, ruinFloor, FIRE as PW_FIRE, DONE as PW_DONE, GONE as PW_GONE, BEAM_R, HANG, VENTS, VENT_HP, VENT_R, GUNS as PW_GUNS } from './sim/planetwar.js';
 import { hulkPush } from './gen/hulk.js';
 import { gangsOf } from './gen/gangs.js';
-import { FrontBattle, frontsOf, RANKS } from './sim/front.js';
+import { FrontBattle, frontsOf, setFrontFit, RANKS } from './sim/front.js';
 import { Infantry } from './sim/infantry.js';
 import { InfantryView } from './render/infantry.js';
 import { Armor } from './sim/armor.js';
@@ -34,7 +34,8 @@ import { buildingPlan } from './gen/building.js';
 import { newCharacter } from './gen/character.js';
 import { MemorialView } from './render/memorials.js';
 import { familyOf, tierOf, addDeed, AREAS, skyRenown, groundRenown } from './game/family.js';
-import { SkySortie } from './game/sky.js';
+import { SkySortie, WAVES as SKY_WAVES } from './game/sky.js';
+import { campaignOf, frontOf, pressure, gainOf, apply as warApply, wavesFor, strikeEvery, holdSay, KINDS as GO_KINDS } from './game/campaign.js';
 import { loadMixamo, infoOf as clipInfo } from './player/mixamo.js';
 import { fate, epitaph, estate, inherit, hpCap, warStage, pressOf, MAX_WOUNDS } from './sim/lineage.js';
 import { occupation } from './gen/population.js';
@@ -1104,17 +1105,18 @@ async function start(fresh) {
   }
   // ---- soldiering (sim/front.js): enlisted with your town's nation, flown to the front in an issued fighter
   const onLand = F => { const x = F.x - Math.sin(F.dir) * 150, z = F.z - Math.cos(F.dir) * 150; return !cloudW && landY(x, z) > planet.seaLevel + 0.5 && landY(F.x, F.z) > planet.seaLevel + 1; };
+  setFrontFit((P, F) => P === planet && onLand(F));      // (sim/front.js: a front over water is found further along the border, on land)
   // ?auto=line: enlisted and on the line at once; a world whose nation has no war on land hands on to the next world
   function lineStart() {
     const nat = townSociety(planet, s)?.nation, F = nat && frontsOf(planet, nat).find(onLand);
     if (!F) { const n = +(params.get('planet') || 0) + 1; if (n < 24) { params.set('planet', n); ui.loading(`No war on land here: on to world ${n}…`, 0); location.replace('?' + params); } else ui.toast('No world nearby has a war on land.', 'warn'); return; }
     if (player.soldier?.nation !== nat.id) player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 72);      // (the next of a line keeps the rank the regiment gave them back)      // (set down just behind your own sandbags, the fight in front of you)
   }
-  async function deployFlow(foot = false, back = 150) {
+  async function deployFlow(foot = false, back = 150, pick = null) {
     const S = player.soldier, nat = townSociety(planet, s)?.nation; if (!S || !nat) return;
     const Fs = frontsOf(planet, nat); if (!Fs.length) { ui.toast('Nowhere to send you: there\'s no fighting on our borders today.', 'warn'); return; }
     if (foot) {      // a transport sets you down at your side's rally point, behind the sandbags, with an issued carbine
-      const F = Fs.find(onLand) || Fs[0], ux = Math.sin(F.dir), uz = Math.cos(F.dir), x = F.x - ux * back, z = F.z - uz * back;
+      const F = pick || Fs.find(onLand) || Fs[0], ux = Math.sin(F.dir), uz = Math.cos(F.dir), x = F.x - ux * back, z = F.z - uz * back;
       if (cloudW || landY(x, z) <= planet.seaLevel + 0.5) { ui.toast('The line here is over water: there\'s no fighting on foot. You could fly.', 'warn'); return; }
       if (!inventoryOf(player).some(q => q.id === 'carbine')) giveItem(player, 'carbine'); player.weapon = 'carbine'; player.footDuty = { x: F.x, z: F.z, rx: F.x - ux * 150, rz: F.z - uz * 150 }; store.touchPlayer(); kit();      // (rx, rz: the rally point, where the medics bring you and you're resupplied)
       ctrl.mode = 'walk'; ctrl.pos = [x, landY(x, z) + 0.1, z]; ctrl.vel = [0, 0, 0]; ctrl.facing = F.dir; cam.yaw = F.dir;
@@ -1834,15 +1836,20 @@ async function start(fresh) {
       if (e.type === 'warn') ui.toast(`<b>A ${esc(S.by)} dreadnought</b> is coming down through the clouds over <b>${esc(S.name)}</b>, ${where}. The sirens are going.${d < S.R + 200 ? ' <b>Get out of the town.</b>' : ''} It can be killed: four heat vents glow along its flanks, and with all four shot out it comes down.`, 'bad', 14000);
       else if (e.type === 'fire') ui.toast(`It's burning <b>${esc(S.name)}</b>.`, 'bad', 6000);
       else if (e.type === 'down') { ui.toast(`<b>The dreadnought is coming down.</b>${S.saved ? ` ${esc(S.name)} is saved.` : ''}`, '', 12000); sound.boom([C0.x, C0.y, C0.z], 90);
-        if (strikeView?.mine) { addDeed(store.meta, { t: now, who: player.name, area: 'sky', what: `brought down a ${S.by} dreadnought over ${S.name}${S.saved ? ', and saved the town' : ''}`, renown: S.saved ? 500 : 300 }); store.dirty.meta = true; } }
+        warMove(S.byId, 'dread', { down: true, saved: S.saved });
+        if (run?.area === 'dread' && run.key === S.key) { run.down = true; run.saved = S.saved; run.mine = !!strikeView?.mine; }      // (told at the debrief)
+        else if (strikeView?.mine) { addDeed(store.meta, { t: now, who: player.name, area: 'sky', what: `brought down a ${S.by} dreadnought over ${S.name}${S.saved ? ', and saved the town' : ''}`, renown: S.saved ? 500 : 300 }); store.dirty.meta = true; } }
       else if (e.type === 'crash') { const H = S.rest, hk = hulkOf({ ...H, t: now }); hulks.push(hk); { const i = hulksPending.findIndex(q => q.x === H.x && q.z === H.z); if (i >= 0) hulksPending.splice(i, 1); }
         const fx0 = Math.sin(H.yaw), fz0 = Math.cos(H.yaw); for (let k = -5; k <= 5; k++) { const x = H.x + fx0 * k * 300, z = H.z + fz0 * k * 300, p = [x, landY(x, z), z]; if (k % 2 === 0) groundBlast({ p, R: 46, by: 'the dreadnought' }); else { fx.blast(p, 40); fx.dustRing(p, 80); } }
         sound.boom([H.x, H.y, H.z], 160); fx.shake = Math.max(fx.shake, Math.min(1, 2500 / (Math.hypot(me[0] - H.x, me[2] - H.z) + 500)));
         if (!flight && hulkPush(hk, [ctrl.pos[0], ctrl.pos[1] + 1, ctrl.pos[2]], 3)) hurtPlayer(9999, 'a dreadnought coming down on you');
+        if (run?.area === 'dread' && run.key === S.key) run.endAt = now + 7;
         ui.toast(`<b>It's down.</b> The wreck lies ${Math.hypot(H.x - me[0], H.z - me[2]) < 1000 ? 'right by you' : `${(Math.hypot(H.x - me[0], H.z - me[2]) / 1000).toFixed(1)} km ${compass(Math.atan2(H.x - me[0], H.z - me[2]))}`}.`, '', 10000); }
-      else if (e.type === 'burnt') { ui.toast(S.down != null ? `<b>${esc(S.name)}</b> is gone.` : `<b>${esc(S.name)}</b> is gone. The dreadnought hangs over what's left of it.`, 'bad', 9000); ruinsT = 0; rebuildBurnt(S).catch(err => console.error('ruins', err)); }
-      else if (e.type === 'news') ui.toast(`<b>News:</b> a ${esc(S.by)} dreadnought burned <b>${esc(S.name)}</b> to the ground, ${Math.round(e.d / 1000)} km ${compass(e.dir)}.`, 'warn', 9000);
+      else if (e.type === 'gone') { if (run?.area === 'dread' && run.key === S.key) run.endAt = now + 2; }
+      else if (e.type === 'burnt') { warMove(S.byId, 'dread', { burnt: true }); if (run?.area === 'dread' && run.key === S.key) run.burnt = true; ui.toast(S.down != null ? `<b>${esc(S.name)}</b> is gone.` : `<b>${esc(S.name)}</b> is gone. The dreadnought hangs over what's left of it.`, 'bad', 9000); ruinsT = 0; rebuildBurnt(S).catch(err => console.error('ruins', err)); }
+      else if (e.type === 'news') { warMove(S.byId, 'news', null, -2); ui.toast(`<b>News:</b> a ${esc(S.by)} dreadnought burned <b>${esc(S.name)}</b> to the ground, ${Math.round(e.d / 1000)} km ${compass(e.dir)}.`, 'warn', 9000); }
     }
+    dreadTick(now);
     // the burnt towns smoke for days (and burn for the first hours)
     if ((smokeK -= dt) <= 0) { smokeK = 0.2; const w = weatherAt(planet, now).wind;
       for (const R of ruinsNear) { const age = now - R.t0; if (age > planet.dayLength * 3) continue; for (let k = 0; k < 4; k++) { const a = hashStr(k * 31 + 7, R.key) / 4294967296 * 6.283, r = R.R * (0.2 + 0.6 * (hashStr(k * 17 + 3, R.key) / 4294967296)), x = R.cx + Math.cos(a) * r, z = R.cz + Math.sin(a) * r, y = landY(x, z);
@@ -1918,18 +1925,18 @@ async function start(fresh) {
   // sky battles (game/sky.js): a sortie over the home town in an issued fighter, two wingmen with you, the raiders in waves
   let sortie = null, run = null, groundRun = null; const sortieHud = document.createElement('div'); sortieHud.className = 'sortie hidden'; document.getElementById('ui').append(sortieHud);
   const compass = b => ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round((((-b + Math.PI * 2.5) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) / (Math.PI / 4)) % 8];
-  function skyBegin() {
+  function skyBegin(Z = null) {      // Z: a zone of the war ({ T, name, enemyId, level }); none: over home
     if (flight) { leaveWar(); flight = null; }
     if (raid) { for (const c of raid.raiders.concat(raid.defenders)) war.craft = war.craft.filter(x => x !== c); raid = null; }
-    const T = [homeS.cx, homeS.h, homeS.cz], b = Math.random() * Math.PI * 2, tier = tierOf(familyOf(store.meta, player.surname).renown);
+    const T = Z?.T || [homeS.cx, homeS.h, homeS.cz], over = Z?.name || homeS.name, b = Z?.bearing ?? Math.random() * Math.PI * 2, tier = tierOf(familyOf(store.meta, player.surname).renown);
     const model = ['interceptor', 'interceptor', 'striker', 'striker', 'warden', 'warden'][tier.i];      // (a better name gets a better fighter)
     const x = T[0] - Math.sin(b) * 2200, z = T[2] - Math.cos(b) * 2200, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel, T[1]) + 1100;
     const sh = { id: 'issued:sky:' + Math.floor(clock.now()), model, name: `${player.given}'s ${model}`, colour: 4 };
     flight = new Flight(world, planet, sh, [x, y, z], b); flight.onGround = false; flight.vtol = false; flight.vel = [Math.sin(b) * 150, 0, Math.cos(b) * 150]; flight.throttle = 0.75; flight.issued = { x: T[0], z: T[2], sky: true };
     ctrl.mode = 'pilot'; ctrl.pos = [x, y + 2.4, z]; ctrl.vel = [0, 0, 0]; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; cam.yaw = b; aimDir = null; aimSt = {}; joinWar();
-    sortie = new SkySortie(war, { town: T, bearing: b }); sortie.begin(myCraft);
-    run = { area: 'sky', t0: clock.now(), town: homeS.name };
-    ui.toast(`<b>Sky battle over ${esc(homeS.name)}.</b> Raiders are coming in from the ${compass(b)}. You and two wingmen are all that's up: keep them off the town.`, 'bad', 10000);
+    sortie = new SkySortie(war, { town: T, bearing: b, waves: wavesFor(Z?.level || 0, SKY_WAVES) }); sortie.begin(myCraft);
+    run = { area: 'sky', t0: clock.now(), town: over, enemyId: Z?.enemyId ?? null, line: !!Z?.T };
+    ui.toast(Z?.T ? `<b>Over ${esc(over)}.</b> Their fighters are coming in from the ${compass(b)}, and gunships for our positions. You and two wingmen: keep them off the line.` : `<b>Sky battle over ${esc(over)}.</b> Raiders are coming in from the ${compass(b)}. You and two wingmen are all that's up: keep them off the town.`, 'bad', 10000);
   }
   let sortieSaid = '';
   function skyTick(dt) {
@@ -1940,7 +1947,7 @@ async function start(fresh) {
       else if (e.type === 'clear' && e.of > e.k) ui.toast(`<b>Wave cleared.</b> Missiles back, the hull patched. ${e.of - e.k} more to come.`, '', 6000);
       else if (e.type === 'strike') { fx.blast(e.at, 9); fx.dustRing(e.at, 14); sound.boom(e.at, 8); fx.shake = Math.max(fx.shake, 0.15);
         for (const b of nearBuildingsOf(e.at, 30)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });      // (what they hit stays hit)
-        if (!S.saidStrike || S.t - S.saidStrike > 25) { S.saidStrike = S.t; ui.toast(`A gunship is hitting <b>${esc(homeS.name)}</b>.`, 'bad', 4000); } }
+        if (!S.saidStrike || S.t - S.saidStrike > 25) { S.saidStrike = S.t; ui.toast(`A gunship is hitting <b>${esc(run?.town || homeS.name)}</b>.`, 'bad', 4000); } }
       else if (e.type === 'winglost') ui.toast('A wingman is down.', 'bad', 4000);
       else if (e.type === 'done' && e.won) S.endAt = S.t + 3;
     }
@@ -1949,7 +1956,7 @@ async function start(fresh) {
     // the plate at the top: where the fight's got to
     const guns = S.cur.filter(c => c.alive && !c.gone && c.bomber).length;
     const head = S.phase === 'lull' ? `Next wave in ${Math.max(0, Math.ceil(S.next - S.t))} s` : S.phase === 'fight' ? `Wave ${S.k + 1} of ${S.waves.length} · ${S.left} left${guns ? ` · <span class="hot">${guns === 1 ? 'a gunship' : guns + ' gunships'} on the town</span>` : ''}` : S.won ? 'The town is safe' : '';
-    const html = `<b>${head}</b><small>${S.kills} shot down${S.strikes ? ` · the town hit ${S.strikes} time${S.strikes === 1 ? '' : 's'}` : ''}</small>`;
+    const html = `<b>${head.replace('The town is safe', run?.line ? 'The sky is ours' : 'The town is safe').replace('on the town', run?.line ? 'on the line' : 'on the town')}</b><small>${S.kills} shot down${S.strikes ? ` · ${run?.line ? 'the line' : 'the town'} hit ${S.strikes} time${S.strikes === 1 ? '' : 's'}` : ''}</small>`;
     if (html !== sortieSaid) { sortieHud.innerHTML = html; sortieSaid = html; } sortieHud.classList.remove('hidden');
   }
   // the end of a run: told as a deed to the family; then what next
@@ -1958,30 +1965,131 @@ async function start(fresh) {
     if (pay) { player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); }
     store.log({ t, type: 'deed', who: player.id, whoName: player.name, area, what, renown: R.total }); await save();
     if (dying) return;
-    let pick = null; await modal(async () => { pick = await ui.debrief({ title, sub: sub + (pay ? ` · ${pay} cr pay` : ''), parts: R.parts, total: R.total, family: fam, before: D.before, after: D.after, alive: player.hp > 0, again }); });
-    if (pick === 'again') onAgain();
+    await threatPasses();
+    const told = warSaid.join(' '); if (told) { warLast = told; warSaid = []; }
+    let pick = null; await modal(async () => { pick = await ui.debrief({ title, sub: sub + (pay ? ` · ${pay} cr pay` : '') + (told ? ` · ${told.replace(/<[^>]+>/g, '')}` : ''), parts: R.parts, total: R.total, family: fam, before: D.before, after: D.after, alive: player.hp > 0, again }); });
+    if (pick === 'again') { if (again === WAR_AGAIN) home?.(); onAgain(); }
     else if (pick === 'family') { running = false; location.reload(); }
     else if (home) home();
   }
   function sortieEnd(end) {
     const S = sortie; if (!S || S.ending) return; S.ending = true;
     const st = S.stats(end), R = skyRenown(st); S.end(); sortieHud.classList.add('hidden'); sortie = null; const r = run; run = null;
+    if (r.enemyId != null) warMove(r.enemyId, 'sky', st);
+    if (r.line) for (const q of R.parts) if (q[0] === 'the town kept safe') q[0] = 'the line kept from their gunships';
     const flying = flight?.issued?.sky; if (flying) { leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk'; }      // (handed back)
-    const of = st.waves, what = st.won ? `saw off all ${of} waves of raiders over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}` : `held off ${st.cleared} of ${of} waves over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}${end === 'ejected' ? ', then was shot down and bailed out' : end === 'crashed' ? ', then crashed' : ''}`;
-    runDone({ area: 'sky', what, R, pay: st.kills * 150 + st.cleared * 100, title: st.won ? 'The town is safe' : end === 'ejected' ? 'Shot down' : end === 'crashed' ? 'Down in the wreck' : 'Sortie over', sub: `${player.name} · sky battle over ${r.town}`, again: 'Fly another sortie', onAgain: skyBegin,
+    const of = st.waves, what = st.won ? `saw off all ${of} waves ${r.line ? '' : 'of raiders '}over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}` : `held off ${st.cleared} of ${of} waves over ${r.town}${st.kills ? `, ${st.kills} shot down` : ''}${end === 'ejected' ? ', then was shot down and bailed out' : end === 'crashed' ? ', then crashed' : ''}`;
+    runDone({ area: 'sky', what, R, pay: st.kills * 150 + st.cleared * 100, title: st.won ? (r.line ? 'The sky is ours' : 'The town is safe') : end === 'ejected' ? 'Shot down' : end === 'crashed' ? 'Down in the wreck' : 'Sortie over', sub: `${player.name} · sky battle over ${r.town}`, again: WAR_AGAIN, onAgain: warTable,
       home: () => { if (!flying) return; const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0]; ui.toast('You hand the fighter back and a transport brings you home.', '', 6000); } });
     if (flying) { const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0]; }
   }
   // ground battles: onto the line of your nation's war on land (sim/infantry.js, sim/front.js); over when you leave it
-  function groundBegin() {
-    const nat = townSociety(planet, s)?.nation, F = nat && frontsOf(planet, nat).find(onLand);
+  function groundBegin(F0 = null) {
+    const nat = myNation(), F = F0 || nat && frontsOf(planet, nat).find(onLand);
     if (!F) { ui.toast(`<b>${esc(planet.name)}</b> has no war on land just now: nowhere to fight on foot. You're sent up instead.`, 'warn', 9000); skyBegin(); return; }
-    if (player.soldier?.nation !== nat.id) player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 72);
-    groundRun = { kills0: player.soldier.kills || 0, taken: 0, front: F.b.name };
+    if (player.soldier?.nation !== nat.id) player.soldier = { nation: nat.id, rank: 0, kills: 0, since: clock.now() }; store.touchPlayer(); deployFlow(true, 72, F);
+    groundRun = { kills0: player.soldier.kills || 0, taken: 0, front: F.b.name, enemyId: F.b.id };
   }
   function groundEnd() {
-    const G = groundRun; if (!G) return; groundRun = null; const st = { kills: (player.soldier?.kills || 0) - G.kills0, taken: G.taken }, R = groundRenown(st);
-    runDone({ area: 'ground', what: `fought on the line against ${G.front}${st.kills ? `: ${st.kills} of theirs put down` : ''}${st.taken ? `, ${st.taken} objective${st.taken === 1 ? '' : 's'} taken` : ''}`, R, title: 'Off the line', sub: `${player.name} · the line against ${G.front}`, again: 'Back to the line', onAgain: groundBegin });
+    const G = groundRun; if (!G) return; groundRun = null; const st = { kills: (player.soldier?.kills || 0) - G.kills0, taken: G.taken, won: !!G.won }, R = groundRenown(st);
+    if (st.won) { R.parts.push(['all three objectives ours', 120]); R.total += 120; }
+    warMove(G.enemyId, 'ground', st); player.footDuty = null; store.touchPlayer();
+    runDone({ area: 'ground', what: `${st.won ? 'took the whole line from' : 'fought on the line against'} ${G.front}${st.kills ? `: ${st.kills} of theirs put down` : ''}${st.taken ? `, ${st.taken} objective${st.taken === 1 ? '' : 's'} taken` : ''}`, R, title: st.won ? 'The line is ours' : 'Off the line', sub: `${player.name} · the line against ${G.front}`, again: WAR_AGAIN, onAgain: warTable, home: goHome });
+  }
+  // ---- the war as a campaign (game/campaign.js): its zones, how you go into one, and what a fight there does to the front
+  const WAR_AGAIN = 'Back to the war table';
+  let warSaid = [], warLast = '', threat = null, threatHold = 0;      // (threatHold: none offered before then — they don't come one on another's heels)
+  const an = n => (/^[AEIOU]/i.test(n) ? 'An ' : 'A ') + n;
+  const myNation = () => townSociety(planet, homeS)?.nation || null, camp = () => campaignOf(store.meta, String(planet.seed));
+  const natById = id => nationsOf(planet).find(n => n.id === id) || null;
+  const strikesFixed = params.has('strike') || params.has('slot');
+  function warTune() { const nat = myNation(), Fs = nat ? frontsOf(planet, nat) : []; if (!Fs.length || strikesFixed) return; planetWar.every = strikeEvery(Math.min(...Fs.map(F => frontOf(camp(), F.b.id, clock.now()).hold))); }
+  // what happened on the front against enemy `id`: the hold moves, and it's said (at the debrief, and on the table)
+  function warMove(id, kind, st, flat = null) {
+    const nat = myNation(), E = id != null && natById(id); if (!nat || !E || E === nat || !frontsOf(planet, nat).some(F => F.b === E)) return null;
+    const now = clock.now(), F = frontOf(camp(), id, now), g = flat != null ? { total: flat, parts: [] } : gainOf(kind, st); if (!g.total) return null;
+    const r = warApply(F, g.total, now); store.dirty.meta = true; warTune();
+    const pc = v => Math.round(v) + '%'; warSaid = warSaid.filter(q => !q.startsWith(`The line against ${E.name}:`));
+    warSaid.push(`The line against ${E.name}: ${pc(r.before)} → ${pc(r.after)} ours.` + (r.turn === 'won' ? ` <b>${E.name} is thrown back over the border.</b> They'll come again, harder.` : r.turn === 'lost' ? ` <b>The line has broken.</b> Their dreadnoughts are coming through.` : ''));
+    if (r.turn === 'won') { addDeed(store.meta, { t: now, who: player.name, area: 'war', what: `was on the line when ${E.name} was thrown back over the border`, renown: 400 }); ui.toast(`<b>${esc(E.name)} is thrown back over the border.</b> The whole line against them is ours. They'll come again, harder.`, '', 12000); }
+    else if (r.turn === 'lost') { planetWar.next = Math.min(planetWar.next, 40); ui.toast(`<b>The line against ${esc(E.name)} has broken.</b> Their dreadnoughts are coming through.`, 'bad', 12000); }
+    return r;
+  }
+  function goHome() {
+    if (flight || Math.hypot(ctrl.pos[0] - homeS.cx, ctrl.pos[2] - homeS.cz) < 3000) return;
+    const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.mode = 'walk'; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0];
+    ui.toast(`A transport brings you back to ${esc(homeS.name)}.`, '', 6000);
+  }
+  // a town of ours a dreadnought's making for (offered on the table; if you go elsewhere it may burn while you're gone)
+  function threatNow() {
+    const nat = myNation(); if (!nat) return null;
+    const C = planetWar.cur; if (C && C.down == null && !C.far && natById(C.byId)) { const q = planetWar.h.townsNear(C.cx, C.cz, 200).find(t => t.key === C.key); if (q) return { town: q, enemy: natById(C.byId), live: true }; }
+    if (hulks.length + hulksPending.length >= 6 || clock.now() < threatHold) return null;      // (the country round here is a graveyard of them already: they've stopped sending them this way)
+    if (threat && !planetWar.razed(threat.town)) return threat;
+    const c = planetWar.h.townsNear(homeS.cx, homeS.cz, 12000).filter(q => !planetWar.h.isHome(q) && !planetWar.razed(q) && planetWar.h.nationOf(q) === nat && planetWar.h.enemyOf(nat)).sort((a, b) => Math.hypot(a.cx - homeS.cx, a.cz - homeS.cz) - Math.hypot(b.cx - homeS.cx, b.cz - homeS.cz));
+    if (!c.length || hashStr(Math.floor(clock.now() / 1200), 'threat:' + planet.seed) / 4294967296 > 0.7) return threat = null;
+    return threat = { town: c[Math.floor(hashStr(Math.floor(clock.now() / 1200) + 9, 'threat:' + planet.seed) / 4294967296 * Math.min(3, c.length))], enemy: planetWar.h.enemyOf(nat), live: false };
+  }
+  // one you were told of and left: as often as not it's burnt by the time you're back
+  async function threatPasses() {
+    const T = threat; if (!T) return; threat = null; threatHold = clock.now() + 600; if (T.live || T.taken || Math.random() < 0.5 || planetWar.razed(T.town) || planetWar.cur) return;
+    const q = T.town, S = { key: q.key, name: q.name, cx: q.cx, cz: q.cz, R: Math.max(120, (q.R || 300) * 1.05), g: q.h ?? landY(q.cx, q.cz), bearing: 0, a0: 0, t0: clock.now() - PW_GONE, by: T.enemy.name, byId: T.enemy.id, far: true };
+    store.patchDelta('razed/' + q.key, S); warMove(T.enemy.id, 'dread', { burnt: true }); warSaid.push(`While you were away ${an(T.enemy.name).replace(/^A/, 'a')} dreadnought burned <b>${q.name}</b>.`); ruinsT = 0; rebuildBurnt(S).catch(err => console.error('ruins', err));
+  }
+  function warZones() {
+    const nat = myNation(), now = clock.now(), zones = [], caps = []; if (!nat) return { zones, caps, nat };
+    const T = threatNow();
+    if (T) zones.push({ id: 'dread', kind: 'dread', T, hot: true, name: `Dreadnought over ${T.town.name}`, sub: T.live ? 'Under attack now' : `${T.enemy.name} · inbound`, x: T.town.cx, z: T.town.cz, hold: null,
+      say: `${an(T.enemy.name)} dreadnought is ${T.live ? 'over' : 'making for'} ${T.town.name}, ${(Math.hypot(T.town.cx - homeS.cx, T.town.cz - homeS.cz) / 1000).toFixed(1)} km from home, to burn it to the ground. Shoot out the four heat vents along its flanks and it comes down. Do it before it fires and the town lives. Go elsewhere, and it may be gone when you're back.`,
+      kinds: [{ key: 'air', ...GO_KINDS.air, say: 'Issued a fighter. The town\'s own two go up with you; it has an escort, and guns.', ok: true }, { key: 'foot', ...GO_KINDS.foot, ok: false, why: 'Nothing a rifle can do to it.' }] });
+    for (const F of frontsOf(planet, nat)) { const St = pressure(frontOf(camp(), F.b.id, now), now), land = onLand(F); caps.push({ x: F.b.cx, z: F.b.cz, name: F.b.name });
+      zones.push({ id: 'front:' + F.b.id, kind: 'front', F, name: `The line against ${F.b.name}`, sub: `${F.state === 'war' ? 'War' : 'Border war'} · ${Math.round(St.hold)}% ours · ${holdSay(St.hold)}`, x: F.x, z: F.z, cap: { x: F.b.cx, z: F.b.cz }, hold: St.hold, holdSay: holdSay(St.hold), level: St.level,
+        say: `Where our land meets ${F.b.name}'s, ${Math.round(Math.hypot(F.x - homeS.cx, F.z - homeS.cz) / 1000)} km ${compass(Math.atan2(F.x - homeS.cx, F.z - homeS.cz))} of home. What you do there moves the line: push it to the top and they're thrown back over the border. Left alone, it slips.`,
+        kinds: [{ key: 'air', ...GO_KINDS.air, say: 'Issued a fighter, with two wingmen: five waves of their fighters and gunships over the line.', ok: true }, { key: 'foot', ...GO_KINDS.foot, say: 'Set down behind the sandbags with a carbine and a squad: three objectives on the border to take and hold.', ok: land, why: 'The line here is over water: nothing to fight for on foot.' }] }); }
+    store.dirty.meta = true;
+    zones.push({ id: 'home', kind: 'home', name: `The skies over ${homeS.name}`, sub: 'Raiders', x: homeS.cx, z: homeS.cz, hold: null, say: `Raiders come for ${homeS.name} in waves, gunships among them. Nothing to do with the border: it's your own town, and it pays.`,
+      kinds: [{ key: 'air', ...GO_KINDS.air, say: 'Issued a fighter, with two wingmen: five waves over the town.', ok: true }, { key: 'foot', ...GO_KINDS.foot, ok: false, why: 'They never land.' }] });
+    return { zones, caps, nat };
+  }
+  // the table: choose a zone and how you go in, and you're there
+  async function warTable() {
+    if (sortie || groundRun || run || dying) return; const { zones, caps, nat } = warZones(); if (!nat) { ui.toast(`Nobody rules ${esc(homeS.name)}: there's no war to go to.`, 'warn'); return; }
+    let pick = null; await modal(async () => { pick = await ui.warTable({ nation: nat.name, world: planet.name, zones, caps, home: { x: homeS.cx, z: homeS.cz, name: homeS.name }, last: warLast }); });
+    if (!pick) { goHome(); return; }
+    const Z = pick.zone; if (threat && Z.kind === 'dread') threat.taken = true;
+    if (Z.kind === 'home') skyBegin();
+    else if (Z.kind === 'dread') dreadBegin(Z.T);
+    else if (pick.kind === 'foot') { if (player.footDuty) { player.footDuty = null; infantry.end(); } groundBegin(Z.F); }
+    else skyBegin({ T: [Z.F.x, Math.max(landY(Z.F.x, Z.F.z), planet.seaLevel), Z.F.z], name: `the ${Z.F.b.name} line`, enemyId: Z.F.b.id, level: Z.level, bearing: Z.F.dir + Math.PI + (Math.random() - 0.5) });
+  }
+  // a fighter issued for one job, in the air at (x, y, z) heading b
+  function issueFighter(x, y, z, b, to) {
+    if (flight) { leaveWar(); flight = null; }
+    const tier = tierOf(familyOf(store.meta, player.surname).renown), model = ['interceptor', 'interceptor', 'striker', 'striker', 'warden', 'warden'][tier.i];
+    const sh = { id: 'issued:sky:' + Math.floor(clock.now()), model, name: `${player.given}'s ${model}`, colour: 4 };
+    flight = new Flight(world, planet, sh, [x, y, z], b); flight.onGround = false; flight.vtol = false; flight.vel = [Math.sin(b) * 150, 0, Math.cos(b) * 150]; flight.throttle = 0.75; flight.issued = { x: to[0], z: to[1], sky: true };
+    ctrl.mode = 'pilot'; ctrl.pos = [x, y + 2.4, z]; ctrl.vel = [0, 0, 0]; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; cam.yaw = b; aimDir = null; aimSt = {}; joinWar();
+  }
+  // against a dreadnought: up in a fighter a few kilometres off the town as it comes in
+  function dreadBegin(T) {
+    const q = T.town, S = planetWar.cur?.key === q.key ? planetWar.cur : planetWar.begin(q, clock.now(), T.enemy), b = S.bearing + Math.PI / 2;
+    const x = q.cx - Math.sin(b) * 3200, z = q.cz - Math.cos(b) * 3200, y = Math.max(world.groundAt(x, z, 1e5).h, planet.seaLevel, S.g) + HANG * 0.8;
+    issueFighter(x, y, z, b, [q.cx, q.cz]);
+    run = { area: 'dread', t0: clock.now(), town: q.name, key: q.key, enemy: T.enemy.name, kills: 0, e: war.events.length };
+  }
+  function dreadTick(now) {
+    const r = run; if (!r || r.area !== 'dread' || r.ending) return;
+    const E = war.events; for (let i = r.e; i < E.length; i++) if (E[i].type === 'killed' && E[i].by === myCraft && E[i].craft.side === 'raider' && !E[i].craft.fixed) r.kills++; r.e = E.length;
+    if (r.endAt && now >= r.endAt) dreadEnd(flight ? 'home' : 'down'); else if (!flight && !dying) dreadEnd('crashed');
+  }
+  function dreadEnd(end) {
+    const r = run; if (!r || r.area !== 'dread' || r.ending) return; r.ending = true; run = null;
+    const flying = flight?.issued?.sky; if (flying) { leaveWar(); flight = null; cam.dist = camDist; ctrl.mode = 'walk'; }
+    const parts = []; if (r.down && r.mine) parts.push(['a dreadnought brought down', 300]); if (r.down && r.mine && r.saved) parts.push([`${r.town} saved`, 200]); if (r.kills) parts.push([`${r.kills} of its escort shot down`, r.kills * 12]); if (end === 'home' && flying) parts.push(['brought the fighter home', 25]);
+    const R = { parts, total: parts.reduce((n, p) => n + p[1], 0) };
+    const what = r.down ? `${r.mine ? 'brought down' : 'was up when the town\'s fighters brought down'} a ${r.enemy} dreadnought over ${r.town}${r.saved ? ', and saved the town' : ''}` : `went up against a ${r.enemy} dreadnought over ${r.town}${r.burnt ? ', and saw the town burn' : ''}${end === 'crashed' ? ', and was shot down' : ''}`;
+    if (flying) { const hq = homeTown.pop.buildingByKey.get(homeTown.polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [homeS.cx, homeS.h, homeS.cz]; ctrl.pos = [at[0], homeS.h + 0.1, at[2]]; ctrl.vel = [0, 0, 0]; }
+    runDone({ area: 'sky', what, R, pay: (r.down && r.mine ? 1500 : 0) + r.kills * 150, title: r.down ? (r.saved ? `${r.town} is saved` : 'The dreadnought is down') : r.burnt ? `${r.town} is gone` : end === 'crashed' ? 'Shot down' : 'It got away', sub: `${player.name} · the dreadnought over ${r.town}`, again: WAR_AGAIN, onAgain: warTable });
   }
   function joinWar() { leaveWar(); myCraft = war.spawn(flight.ship.model, 'player', flight.pos, flight.facing, 0, 'player', flight); }
   function leaveWar() { if (myCraft) war.craft = war.craft.filter(c => c !== myCraft); myCraft = null; }
@@ -2081,8 +2189,9 @@ async function start(fresh) {
     paused = true; keys.clear(); document.exitPointerLock?.();
     ui.showHud(false);
     for (;;) {
-      const a = await ui.menu();
+      const a = await ui.menu({ war: dying ? null : sortie || groundRun || run ? 'Pull out: back to the war table' : 'The war table' });
       if (a === 'resume') break;
+      if (a === 'war') { ui.closePanel(); ui.showHud(true); paused = false; if (sortie) sortieEnd('home'); else if (groundRun) groundEnd(); else if (run?.area === 'dread') dreadEnd(flight ? 'home' : 'down'); else warTable(); return; }
       if (a === 'backup') { await save(); download(`orbis-${store.meta.universe}-${new Date().toISOString().slice(0, 10)}.json`, store.exportJSON()); continue; }
       if (a === 'restore') { const ok = await restoreFlow(true); if (ok) return; continue; }
       if (a === 'log') { await ui.log(store.events, planet); continue; }
@@ -2521,9 +2630,11 @@ async function start(fresh) {
       if (tankV && (tankV.dead || !infantry.F)) { const V = tankV; leaveTank(); if (V.dead) { hurtPlayer(35, 'your tank brewing up'); chud.log(`Your ${V.T.name} is knocked out: you bail out`, 'bad'); } }
       if (infantry.F) armorFx(dt);
       if (infantry.F && Math.random() < dt * 14) for (const P of infantry.props) if (P.kind === 'fire' && Math.hypot(P.pos[0] - ctrl.pos[0], P.pos[2] - ctrl.pos[2]) < 900) { fx.flame(P.pos, P.size); if (Math.random() < 0.5) fx.smoke([P.pos[0], P.pos[1] + P.size, P.pos[2]], P.size * 3, [2, 1], 0.05, 0.45); }
+      if (groundRun?.endAt && clock.now() >= groundRun.endAt) groundEnd();
       for (const e of infantry.drain()) {
         if (e.type === 'line') ui.toast(`<b>The line.</b> Sandbags and wire where ${esc(e.F.a.name)} meets ${esc(e.F.b.name)}: soldiers of both sides, three objectives on the border.`, 'bad', 9000);
-        if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (e.you && side) { if (groundRun) groundRun.taken++; const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
+        if (e.type === 'taken') { ui.toast(`<b>${e.O.name} objective taken.</b>${e.you && side ? ' You were on it.' : ''}`, '', 5000); if (groundRun && side && infantry.obj.every(O => O.owner === 'ours')) { groundRun.won = true; groundRun.endAt = clock.now() + 5; ui.toast('<b>All three objectives are ours.</b> The line here is taken.', '', 8000); }
+          if (e.you && side) { if (groundRun) groundRun.taken++; const pay = 200 + 50 * player.soldier.rank; player.credits = (player.credits ?? 0) + pay; store.touchPlayer(); ui.toast(`A bonus for the objective: <b>${pay} cr</b>.`, '', 4000); } }
         if (e.type === 'lost') ui.toast(`<b>${e.O.name} objective lost</b> to ${esc(infantry.F.b.name)}.`, 'bad', 5000);
         if (e.type === 'down' && e.by === 'player') { if (e.M.side === 'theirs' && player.soldier) { chud.log(`You put down a ${infantry.F.b.name} rifleman`, 'you'); soldierKill(); } else if (e.M.side === 'ours') ui.toast('That was one of ours.', 'bad', 4000); }
         else if (e.type === 'down' && Math.hypot(e.M.pos[0] - ctrl.pos[0], e.M.pos[2] - ctrl.pos[2]) < 70) chud.log(e.M.side === 'ours' ? `${infantry.F.a.name} soldier down` : `${infantry.F.b.name} soldier down`, e.M.side === 'ours' ? 'bad' : '');
@@ -2692,11 +2803,12 @@ async function start(fresh) {
     } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
+  window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, warTable, warZones, warMove, dreadBegin, dreadEnd, camp, get run() { return run; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
-  if (AREA === 'sky') skyBegin(); else if (AREA === 'ground') groundBegin();
+  warTune();
+  if (AREA === 'war') setTimeout(() => warTable(), 1800); else if (AREA === 'sky') skyBegin(); else if (AREA === 'ground') groundBegin();
   setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
 }
 
