@@ -28,7 +28,8 @@ export function gainOf(kind, st) {
   } else if (kind === 'ground') {
     if (st.taken) parts.push([`${st.taken} objective${st.taken === 1 ? '' : 's'} taken`, st.taken * 5]);
     if (st.kills) parts.push([`${st.kills} of theirs put down`, Math.min(8, st.kills * 0.4)]);
-    if (st.won) parts.push(['all three objectives ours', 8]);
+    if (st.won) parts.push(['their line broken', 10]);
+    if (st.lost) parts.push(['our line broken', -10]);
   } else if (kind === 'dread') {
     if (st.down) parts.push(['a dreadnought brought down', 10]);
     if (st.down && st.saved) parts.push(['the town saved', 8]);

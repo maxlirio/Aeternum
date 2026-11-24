@@ -209,10 +209,11 @@ try {
     for (let i = 0; i < 300 && !P.custody; i++) await new Promise(r => setTimeout(r, 500));
     const loc = O.world.locate(...O.ctrl.pos);
     return { who, custody: !!P.custody, inCell: loc?.room?.i === O.cell.room.i && loc?.b?.key === O.cell.b.key, hud: document.querySelector('.hud .law').textContent,
-      arrested: O.store.events.filter(e => e.type === 'arrested').length, warrant: !!P.warrant };
+      arrested: O.store.events.filter(e => e.type === 'arrested').length, warrant: !!P.warrant,
+      why: P.custody ? null : { pursuit: (pu => pu && { state: pu.state, d: Math.round(Math.hypot(pu.pos[0] - O.ctrl.pos[0], pu.pos[2] - O.ctrl.pos[2])), dy: +(pu.pos[1] - O.ctrl.pos[1]).toFixed(1) })(O.getPursuit()), panel: document.querySelector('.panel')?.className || null, mode: O.ctrl.mode, hp: P.hp, at: O.ctrl.pos.map(Math.round), in: loc?.b?.key || null, flying: !!O.getFlight(), run: O.run?.area || null, ground: !!O.groundRun, toasts: [...document.querySelectorAll('.toasts > *')].map(e => e.innerText.slice(0, 70)) } };
   })()`);
   check(arr.who, 'a warrant in game sends an officer (' + arr.who + ')');
-  check(arr.custody && arr.inCell && !arr.warrant, 'standing still, you are arrested and put in the cell');
+  check(arr.custody && arr.inCell && !arr.warrant, 'standing still, you are arrested and put in the cell' + (arr.why ? ' ' + JSON.stringify(arr.why) : ''));
   check(/In custody/.test(arr.hud), 'HUD shows custody (' + arr.hud + ')');
   if (arr.custody) {
     await key('KeyW', 'keydown'); await sleep(2500); await key('KeyW', 'keyup');

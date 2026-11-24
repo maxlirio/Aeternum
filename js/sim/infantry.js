@@ -31,10 +31,10 @@ const BARK = {
 const WIRE_SEG = 2;
 export class Infantry {
   // ground(x, z) → height; resolve(x, z, y) → [x, z] out of anything solid; hooks: hitPlayer(dmg, by, from)
-  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.stabs = []; this.int = 0; this.phase = 'build'; this.phT = 0; this.press = { men: 1, tanks: 0, aim: 1 }; }      // (press: how hard the war's gone, sim/lineage.js pressOf: their numbers, armour, aim)
+  constructor({ ground, resolve = null, hooks = {} }) { this.ground = ground; this.resolve = resolve; this.hooks = hooks; this.F = null; this.armor = null; this.LINE = LINE; this.RALLY = RALLY; this.men = []; this.obj = []; this.cover = []; this.props = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.events = []; this.t = 0; this.n = 0; this.shotN = 0; this.reinf = 0; this.stabs = []; this.int = 0; this.phase = 'build'; this.phT = 0; this.press = { men: 1, tanks: 0, aim: 1 }; this.plan = null; this.orders = null; }      // (plan, orders: sim/battleplan.js, when somebody's commanding it)      // (press: how hard the war's gone, sim/lineage.js pressOf: their numbers, armour, aim)
   // the line along front F: where everything stands. (a: across the border, + toward the enemy; s: along it)
   setup(F) {
-    this.F = F; this.men = []; this.shots = []; this.stabs = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
+    this.plan = null; this.orders = null; this.F = F; this.men = []; this.shots = []; this.stabs = []; this.nades = []; this.drops = []; this.barks = []; this.int = 0; this.phase = 'build'; this.phT = 0;
     const ux = Math.sin(F.dir), uz = Math.cos(F.dir), px = -uz, pz = ux, r = rnd(Math.round(F.x * 7 + F.z * 13));
     const at = (a, s) => { const x = F.x + ux * a + px * s, z = F.z + uz * a + pz * s; return [x, this.ground(x, z), z]; };
     this.at = at; this.dir = F.dir; this.u = [ux, uz]; this.v = [px, pz];
@@ -68,13 +68,21 @@ export class Infantry {
     this.armor?.setup();
     this.events.push({ type: 'line', F });
   }
-  end() { this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.armor?.end(); }
+  end() { this.plan = null; this.orders = null; this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.armor?.end(); }
   spawn(side) {
     // up from the rally point to near one of the objectives (the first of them straight into their own line)
     const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * (1 + this.press.men), a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(a, s);
     const k = this.n++, M = { id: `inf:${side}:${k}`, side, squad: Math.floor(k / 2) % SQUAD, pos: p, facing: side === 'ours' ? this.dir : this.dir + Math.PI, hp: 100, state: 'move', goal: null, cool: 1 + Math.random() * 2, dwell: 0, moving: false, aim: 0, dead: 0,
       sup: 0, duck: 0, flinch: 0, threat: 0, support: 0, nadeCd: 8 + Math.random() * 20, barkCd: Math.random() * 3, saw: false, fall: 0, at: k % 5 === 2, rk: 2, via: null, routeT: 0 };      // (one man in five carries a launcher)
-    this.men.push(M); return M;
+    this.men.push(M); this.plan?.spent(side); return M;
+  }
+  // where a man (or a hull) of `side` at s0 along the line is wanted: the objective he's been ordered onto or told to hold; a place to form up
+  // short of it, or to run back to; and with nobody commanding, the nearest objective his side doesn't hold, else the one most at risk
+  wantFor(side, s0) {
+    const o = this.orders?.[side], sg = side === 'ours' ? -1 : 1;
+    if (o && (o.mode === 'attack' || o.mode === 'defend') && o.O) return o.O;
+    if (o) { const a = o.mode === 'rout' ? sg * (RALLY + 30) : sg * (o.mode === 'shelter' ? 50 : 30), s = o.O ? o.O.s + Math.max(-80, Math.min(80, s0 - o.O.s)) : s0; return { virtual: true, rout: o.mode === 'rout', a, s, pos: this.at(a, s), owner: side, prog: 0, name: '' }; }
+    return this.obj.filter(o => o.owner !== side).sort((p, q) => Math.abs(p.s - s0) - Math.abs(q.s - s0))[0] || this.obj.slice().sort((p, q) => (side === 'ours' ? p.prog - q.prog : q.prog - p.prog))[0];
   }
   // the nearest man of `side` to p (within 60 m) says it
   barkNear(p, side, kind) { let best = null, bd = 60; for (const M of this.men) if (M.hp > 0 && M.side === side) { const d = this.near(M.pos, p); if (d < bd) { bd = d; best = M; } } if (best) this.bark(best, kind); }
@@ -90,7 +98,7 @@ export class Infantry {
       else if (you?.alive && this.near(you.pos, S.M.pos) < 2.1) this.hooks.hitPlayer?.(40, `a ${this.F.b.name} bayonet`, S.M.pos); }
     this.stabs = this.stabs.filter(S => !S.done && S.M.hp > 0);
     // reinforcements: each side keeps its strength up (theirs as the director allows), the side holding more of the line a little stronger
-    if ((this.reinf -= dt) <= 0) { this.reinf = 7; for (const side of ['ours', 'theirs']) { const held = this.obj.filter(o => o.owner === side).length, cap = side === foeOfYou ? this.cap() : 1, want = Math.round((PER_SIDE * (side === 'theirs' ? this.press.men : 1) + held) * cap), have = alive.filter(m => m.side === side).length; for (let k = have; k < Math.min(want, have + 4); k++) this.spawn(side); } }
+    if (!this.plan && (this.reinf -= dt) <= 0) { this.reinf = 7; for (const side of ['ours', 'theirs']) { const held = this.obj.filter(o => o.owner === side).length, cap = side === foeOfYou ? this.cap() : 1, want = Math.round((PER_SIDE * (side === 'theirs' ? this.press.men : 1) + held) * cap), have = alive.filter(m => m.side === side).length; for (let k = have; k < Math.min(want, have + 4); k++) this.spawn(side); } }
     for (const M of this.men) {
       if (M.hp <= 0) { M.dead += dt; continue; }
       M.sup = Math.max(0, M.sup - dt * 0.18); M.flinch = Math.max(0, M.flinch - dt); M.threat = Math.max(0, M.threat - dt); M.support = Math.max(0, M.support - dt); M.nadeCd -= dt; M.barkCd -= dt; M.stabCd = (M.stabCd || 0) - dt;
@@ -103,7 +111,8 @@ export class Infantry {
       const pinned = (inCover || M.prone) && (M.sup > 0.5 || M.duck > 0.5 && M.sup > 0.3); M.duck += ((pinned ? 1 : 0) - M.duck) * Math.min(1, dt * 6);      // (down at 0.5, up again once it's eased below 0.3)
       if (pinned && M.sup > 0.85 && Math.random() < dt * 0.08) this.bark(M, "pinned");
       // what it's going for: the nearest objective its side doesn't hold, else the one most at risk
-      const [, sM] = this.local(M.pos), want = this.obj.filter(o => o.owner !== M.side).sort((p, q) => Math.abs(p.s - sM) - Math.abs(q.s - sM))[0] || this.obj.slice().sort((p, q) => (M.side === 'ours' ? p.prog - q.prog : q.prog - p.prog))[0];
+      const [aM, sM] = this.local(M.pos), want = this.wantFor(M.side, sM), ord = this.orders?.[M.side];
+      if (want.rout && Math.abs(aM) > RALLY + 10) { M.gone = true; continue; }      // (run clean off the field)
       // whom it can see to shoot at: the nearest, but you first if you've been shooting at him
       let tgt = null, td = RANGE;
       for (const E of alive) { if (E.side !== foe) continue; const d = Math.hypot(E.pos[0] - M.pos[0], E.pos[2] - M.pos[2]); if (d < td && this.sees(M.pos, E.pos)) { td = d; tgt = E; } }
@@ -130,6 +139,8 @@ export class Infantry {
           M.pos[1] = this.ground(M.pos[0], M.pos[2]); }
       } else if (M.state === 'hold') {
         M.dwell -= dt * (pinned ? 0.15 : 1);      // (pinned, he stays put)
+        // under orders to hold something (or formed up, waiting for the word): behind a wall near it, he stays there
+        if (ord && M.dwell <= 0 && (ord.mode === 'defend' && inCover && this.near(M.pos, want.pos) < 36 || want.virtual && !want.rout && this.near(M.pos, want.pos) < 16)) M.dwell = 2;
         if (M.goal?.C?.down) M.dwell = Math.min(M.dwell, 0.3);      // (his wall's gone: he finds another)
         if (M.dwell <= 0 && !(tgt && td < 40) || M.prone && !pinned && M.dwell <= 0) {
           M.prone = false; M.diving = false;
@@ -176,12 +187,13 @@ export class Infantry {
     // nothing on you: you come down
     this.onYou = onYou; if (!onYou) this.int = Math.max(0, this.int - dt * 0.09);
     for (const D of this.drops) D.age += dt; this.drops = this.drops.filter(D => D.age < 90);
-    this.men = this.men.filter(m => m.hp > 0 || m.dead < 40);
+    this.men = this.men.filter(m => !m.gone && (m.hp > 0 || m.dead < 40));
     // the objectives: taken by standing on them unopposed
     for (const O of this.obj) {
+      if (this.plan && this.plan.phase !== 'over' && this.plan.O !== O) continue;      // (commanded, the fight's for one of them at a time: the others stay whose they are)
       let a = 0, b = 0; for (const m of alive) if (m.hp > 0 && this.near(m.pos, O.pos) < R_OBJ) m.side === 'ours' ? a++ : b++;
       if (you?.alive && you.side === 'ours' && this.near(you.pos, O.pos) < R_OBJ) a += 2;
-      const was = O.owner; if (a && !b) O.prog = Math.min(1, O.prog + dt / CAP_T * Math.min(3, a) / 2); else if (b && !a) O.prog = Math.max(-1, O.prog - dt / CAP_T * Math.min(3, b) / 2);
+      const was = O.owner, cr = dt / CAP_T * (this.plan ? 0.5 : 1); if (a && !b) O.prog = Math.min(1, O.prog + cr * Math.min(3, a) / 2); else if (b && !a) O.prog = Math.max(-1, O.prog - cr * Math.min(3, b) / 2);      // (in a commanded battle the ground takes twice as long to make sure of)
       O.owner = O.prog >= 1 ? 'ours' : O.prog <= -1 ? 'theirs' : (was && Math.sign(O.prog) === (was === 'ours' ? 1 : -1) ? was : null);
       if (O.owner !== was) this.events.push({ type: O.owner === 'ours' ? 'taken' : O.owner === 'theirs' ? 'lost' : 'contested', O, you: you?.alive && this.near(you.pos, O.pos) < R_OBJ });
     }
@@ -244,6 +256,8 @@ export class Infantry {
     let best = null, bc = Infinity;
     for (const C of this.cover) { if (C.down || C.by && C.by !== M.id) continue; const da = (C.a - a0) * fwd, ds = C.s - s0, toO = Math.hypot(C.a - O.a, C.s - O.s), here = Math.hypot(O.a - a0, O.s - s0);
       if (da < 3 || da > 50 || toO > here - 4) continue; const cost = Math.hypot(da, ds) + toO * 0.6 + (C.side !== M.side ? 18 : 0); if (cost < bc) { bc = cost; best = C; } }
+    // formed up or fallen back: behind the nearest free wall of his own by the place, if there's one
+    if (!best && O.virtual && !O.rout) { let bd = 26; for (const C of this.cover) { if (C.down || C.side !== M.side || C.by && C.by !== M.id) continue; const d = Math.hypot(C.a - O.a, (C.s - s0) * 0.5); if (d < bd) { bd = d; best = C; } } }
     if (!best) { const j = (Math.random() - 0.5) * R_OBJ, k = (Math.random() - 0.5) * R_OBJ; return { pos: this.at(O.a + j * 0.5, O.s + k), C: null }; }
     best.by = M.id; const back = (M.side === 'ours' ? -1.0 : 1.0) * (best.back || 1), off = (Math.random() - 0.5) * best.len * (best.wreck ? 0.4 : 0.7); return { pos: this.at(best.a + back, best.s + off), C: best };
   }

@@ -533,6 +533,35 @@ suites.infantry = async () => {
   const a = I.men.find(m => m.hp > 0), o = [a.pos[0] - 2, a.pos[1] + 1.0, a.pos[2]], hit = I.onRay(o, [1, 0, 0], 100); check(hit?.M === a, 'a shot along the line finds the man on it');     // (from close: from further off, now and then someone else is standing in the way after ten minutes of it)
   console.log(`  ${n.down} down, ${n.taken} taken, ${n.lost} lost; you were hit ${hits} times standing in the open`);
 };
+suites.battle = async () => {
+  // the line as a battle (sim/battleplan.js): by turns each side forms up while its guns work an objective over, then goes in for it with its armour;
+  // the other gets off it under the shells and back onto it to hold; reserves come up in parties and run out; a side with none left breaks and runs
+  const { Infantry } = await import('../js/sim/infantry.js'), { Armor } = await import('../js/sim/armor.js'), { BattlePlan, T } = await import('../js/sim/battleplan.js');
+  const ground = (x, z) => Math.sin(x / 90) * 2 + Math.cos(z / 70) * 1.5, F = { x: 500, z: -300, dir: 0.4, a: { name: 'A' }, b: { name: 'B' } };
+  const mk = first => { const I = new Infantry({ ground }); I.armor = new Armor(I, {}); I.setup(F); let shells = 0; const B = new BattlePlan(I, { blast: e => { shells++; I.blast(e.p, e.R); }, first }); return { I, B, shells: () => shells }; };
+  const run = (X, secs, ev) => { for (let k = 0; k < secs * 20; k++) { X.B.step(0.05); X.I.step(0.05, null); X.I.armor.step(0.05, null); ev.push(...X.B.drain()); X.I.drain(); if (X.B.over) break; } };
+  { const X = mk('ours'), ev = [], I = X.I, O = X.B.O;
+    check(X.B.phase === 'prep' && O === I.obj[1] && I.orders.ours.mode === 'form' && I.orders.theirs.mode === 'shelter', 'our turn first: the guns on the centre, ours forming up, theirs told off it');
+    run(X, T.prep - 1, ev); const near = side => I.men.filter(m => m.hp > 0 && m.side === side && I.near(m.pos, O.pos) < 14).length, aOf = m => I.local(m.pos)[0];
+    check(X.shells() >= 8, `the guns put ${X.shells()} shells on it before the attack`);
+    check(near('ours') === 0, 'none of ours is on the objective while our own guns are on it');
+    const was = new Map(I.men.filter(m => m.hp > 0 && m.side === 'ours').map(m => [m, aOf(m)])), t0 = I.armor.list.filter(v => !v.dead && v.side === 'ours' && v.kind === 'tank').map(v => I.near(v.pos, O.pos));
+    run(X, 2, ev); check(ev.some(e => e.type === 'assault') && I.orders.ours.mode === 'attack' && I.orders.theirs.mode === 'defend', 'the guns lift: ours ordered in, theirs back onto it');
+    run(X, 22, ev); const still = [...was].filter(([m]) => m.hp > 0), gone = still.reduce((n, [m, a]) => n + aOf(m) - a, 0) / Math.max(1, still.length), t1 = I.armor.list.filter(v => !v.dead && v.side === 'ours' && v.kind === 'tank').map(v => I.near(v.pos, O.pos));
+    check(gone > 5 || X.B.phase !== 'assault', `ours go forward on the word (${gone.toFixed(0)} m further across, each, in 22 s)`);
+    check(!t1.length || !t0.length || Math.min(...t1) < Math.min(...t0) - 5 || Math.min(...t1) < 25, `the armour goes in with them (nearest tank ${t0.length ? Math.min(...t0).toFixed(0) : '-'} m → ${t1.length ? Math.min(...t1).toFixed(0) : '-'} m from the objective)`);
+    run(X, T.assault + T.dig + 5, ev); check(ev.some(e => e.type === 'taken' || e.type === 'failed') && (X.B.over || ev.some(e => e.type === 'prep' && e.A === 'theirs')), `the attack ends (${ev.find(e => e.type === 'taken' || e.type === 'failed')?.type}) and the turn passes to them`); }
+  // fought to the end: reserves come up in parties and run out, and somebody breaks
+  let ended = 0, parties = 0, longest = 0, routRan = 0;
+  for (let n = 0; n < 4; n++) { const X = mk(n % 2 ? 'ours' : 'theirs'), ev = []; let t = 0; while (!X.B.over && t < 2400) { run(X, 30, ev); t += 30; }
+    if (X.B.over) { ended++; longest = Math.max(longest, t); const L = X.B.over === 'ours' ? 'theirs' : 'ours', before = X.I.men.filter(m => m.hp > 0 && m.side === L).length; X.B.phase = 'over'; for (let k = 0; k < 20 * 90; k++) { X.B.step(0.05); X.I.step(0.05, null); } const after = X.I.men.filter(m => m.hp > 0 && m.side === L).length; if (after < before || before === 0) routRan++;
+      check(ev.some(e => e.type === 'broken' && e.winner === X.B.over) && X.I.orders[L].mode === 'rout', `battle ${n + 1}: ${L} breaks after ${Math.round(t / 60)} min (reserves left: ours ${X.B.res.ours}, theirs ${X.B.res.theirs})`); }
+    parties += ev.filter(e => e.type === 'party').length; }
+  check(ended === 4, `every battle comes to an end (${ended} of 4, the longest ${Math.round(longest / 60)} min)`);
+  check(parties >= 8, `reserves come up in parties (${parties} over four battles)`);
+  check(routRan === ended, 'the side that broke runs off the field');
+};
+
 suites.cover = async () => {
   // a round stops in what's in its way (sim/infantry.js blockAt): sandbags, and whatever the world says is solid (hooks.hard)
   const { Infantry } = await import('../js/sim/infantry.js');

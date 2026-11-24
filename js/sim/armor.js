@@ -131,7 +131,7 @@ export class Armor {
         if (V.carry <= 0 && V.holdT <= 0) { V.state = 'back'; V.goal = null; V.planT = 0; } }
       else V.ramp = Math.max(0, V.ramp - dt * 0.8);
       if (V.state === 'home' && V.goal && I.near(V.pos, V.goal) < 6) { V.state = 'load'; V.holdT = 8; }
-      if (V.state === 'load' && (V.holdT -= dt) <= 0) { V.carry = Math.round(T.carry * (side === (you?.side === 'ours' ? 'theirs' : 'ours') ? I.cap() : 1)); V.state = 'run'; V.goal = null; V.planT = 0; }
+      if (V.state === 'load' && (V.holdT -= dt) <= 0) { V.carry = I.plan ? Math.min(T.carry, I.plan.left(side)) : Math.round(T.carry * (side === (you?.side === 'ours' ? 'theirs' : 'ours') ? I.cap() : 1)); V.state = 'run'; V.goal = null; V.planT = 0; }
       if (V.state === 'back' && (V.holdT -= dt) < -70) { V.state = 'home'; V.goal = null; V.planT = 0; }
     }
     // the gun
@@ -151,9 +151,9 @@ export class Armor {
   }
   plan(V, fwd) {
     const I = this.I, [a0, s0] = I.local(V.pos);
-    const want = I.obj.filter(o => o.owner !== V.side).sort((p, q) => Math.abs(p.s - s0) - Math.abs(q.s - s0))[0] || I.obj.slice().sort((p, q) => (V.side === 'ours' ? p.prog - q.prog : q.prog - p.prog))[0];
+    const want = I.wantFor(V.side, s0), ord = I.orders?.[V.side];
     let a, s;
-    if (V.kind === 'tank') { a = want.a - fwd * (want.owner === V.side ? 10 : 34); s = want.s + V.lane; }
+    if (V.kind === 'tank') { a = want.a - fwd * (want.virtual ? 14 : ord?.mode === 'attack' ? 6 : want.owner === V.side ? 10 : 34); s = want.s + V.lane * (ord?.mode === 'attack' ? 0.5 : 1); }      // (ordered in, the tanks go onto the objective ahead of the men; otherwise they stand off and shoot)
     else if (V.state === 'run') { a = want.a - fwd * 22; s = want.s + V.lane * 0.4; }
     else if (V.state === 'back') { a = want.a - fwd * 55; s = want.s + V.lane; }
     else if (V.state === 'home' || V.state === 'load') { a = -fwd * (I.RALLY - 10); s = s0; }
