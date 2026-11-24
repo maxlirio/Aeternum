@@ -24,8 +24,15 @@ try {
   const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: 'PUT' })).json();
   const ws = new WebSocket(target.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
   let id = 0; const pend = new Map(), errs = [];
-  ws.onmessage = m => { const x = JSON.parse(m.data); if (x.id) pend.get(x.id)?.(x); if (x.method === 'Runtime.exceptionThrown') errs.push(x.params.exceptionDetails.exception?.description); };
-  const send = (method, params = {}) => new Promise((r, rej) => { const i = ++id, to = setTimeout(() => { pend.delete(i); rej(new Error(`STUCK: no reply from the page in 5 minutes (${method}: ${String(params.expression || '').slice(0, 120)})`)); }, 300000); pend.set(i, x => { clearTimeout(to); r(x); }); ws.send(JSON.stringify({ id: i, method, params })); });
+  ws.onmessage = m => { const x = JSON.parse(m.data); if (x.id) pend.get(x.id)?.(x); if (x.method === 'Runtime.exceptionThrown') errs.push(x.params.exceptionDetails.exception?.description); if (x.method === 'Debugger.paused') onPaused?.(x.params); };
+  let onPaused = null;
+  // the page has stopped answering: where is it? (its stack if it's spinning; else what's on screen, if it's only waiting for something that never comes)
+  const whereStuck = async () => { const raw = (method, params = {}) => new Promise(r => { const i = ++id; pend.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); setTimeout(() => r(null), 8000); });
+    const got = new Promise(r => { onPaused = r; setTimeout(() => r(null), 8000); }); raw('Debugger.enable'); raw('Debugger.pause'); const P = await got;
+    if (P) return 'spinning in: ' + P.callFrames.slice(0, 8).map(f => `${f.functionName || '(anon)'} ${f.url.split('/').slice(-2).join('/')}:${f.location.lineNumber + 1}`).join(' < ');
+    const r = await raw('Runtime.evaluate', { expression: `JSON.stringify({ panel: document.querySelector('.panel')?.className || null, title: document.title, toasts: [...document.querySelectorAll('.toasts > *')].map(e => e.innerText.slice(0, 60)) })`, returnByValue: true });
+    return 'idle, waiting: ' + (r?.result?.result?.value || 'no answer') + (errs.length ? ' · errors: ' + errs.slice(-3).join(' | ').slice(0, 600) : ''); };
+  const send = (method, params = {}) => new Promise((r, rej) => { const i = ++id, to = setTimeout(async () => { pend.delete(i); const w = await whereStuck().catch(e => String(e)); rej(new Error(`STUCK: no reply from the page in 5 minutes (${method}: ${String(params.expression || '').slice(0, 120)}) — ${w}`)); }, 300000); pend.set(i, x => { clearTimeout(to); r(x); }); ws.send(JSON.stringify({ id: i, method, params })); });
   const ev = async expr => { const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }); if (r.result.exceptionDetails) throw new Error(expr + ' → ' + JSON.stringify(r.result.exceptionDetails).slice(0, 300)); return r.result.result.value; };
   const key = async (code, type) => ev(`dispatchEvent(new KeyboardEvent('${type}', { code: '${code}' })), 1`);
   const load = async q => {

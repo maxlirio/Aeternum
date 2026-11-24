@@ -2280,7 +2280,7 @@ async function start(fresh) {
   // ---- loop
   ui.closePanel(); ui.showHud(true);
   if (!fresh && !flight && !ride && ctrl.mode === 'walk') bootHold = { x: ctrl.pos[0], y: ctrl.pos[1], z: ctrl.pos[2], until: performance.now() + 12000 };
-  if (report && (report.elapsed > 60 || report.events.length)) { paused = true; await ui.away(report, planet); paused = false; }
+  const awayDue = !!(report && (report.elapsed > 60 || report.events.length)); if (awayDue) paused = true;      // (what happened while you were away is shown once the world's already drawing behind it: below)
   if (!fresh && store.meta.gen !== GEN_VERSION) ui.toast(`This save was made with world generator v${store.meta.gen}; this build is v${GEN_VERSION}. Changes you made may not line up with the regenerated world.`, 'warn', 12000);
   if (fresh?.heir) { const A = player.after || {}; ui.toast(`<b>${esc(A.name || 'They')}</b> was buried two days ago${A.place ? ` — they fell at ${esc(A.place)}` : ''}. ${player.heirOf ? `You are <b>${esc(player.name)}</b>, ${player.age}, of the same family. What they left is yours${player.weapon ? `, ${esc(ITEMS[player.weapon]?.name || 'their gun')} with it` : ''}.` : `You are <b>${esc(player.name)}</b>, ${player.age}, of ${esc(s.name)}: you knew of them. Nothing is yours but your own.`}`, '', 14000); }
   else if (fresh) {
@@ -2840,8 +2840,10 @@ async function start(fresh) {
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();
   warTune();
-  if (AREA === 'war') setTimeout(() => warTable(), 1800); else if (AREA === 'sky') skyBegin(); else if (AREA === 'ground') groundBegin();
-  setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
+  if (!awayDue) setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500);
+  // while you read what happened while you were away the world is already up and drawing behind it, so "Carry on" puts you straight in
+  if (awayDue) { await ui.away(report, planet); paused = false; if (bootHold) bootHold.until = performance.now() + 12000; setTimeout(() => { window.ORBIS.ready = true; document.title = 'READY'; }, 1500); }
+  if (AREA === 'war') setTimeout(() => warTable(), awayDue ? 300 : 1800); else if (AREA === 'sky') skyBegin(); else if (AREA === 'ground') groundBegin();
 }
 
 function applyShot(kind, g) {
