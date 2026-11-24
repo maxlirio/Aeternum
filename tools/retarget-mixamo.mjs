@@ -23,6 +23,19 @@ const CLIPS = {
   'Sitting Dazed': { id: 'dazed', loop: true, hold: true }, 'Sprint Forward': { id: 'sprint', loop: true, inPlace: true }, 'Stable Sword Inward Slash': { id: 'slash' },
   'Strafe': { id: 'strafe', loop: true, inPlace: true, mirror: true }, 'Taking Punch': { id: 'punched' }, 'Throw Grenade': { id: 'grenade' },
   'Grenade Throw': { id: 'nade_stand' }, 'Throw Grenade-2': { id: 'nade_crouch' },
+  // 2026-11-24: movement, rifle handling, cover, the battle, vehicles, town (those Mixamo made in place have no travel to measure: their speed is given)
+  'Running Jump': { id: 'jump_run' }, 'Jumping Up': { id: 'jump_up' }, 'Vault Over Box': { id: 'vault' }, 'Running Slide': { id: 'slide' },
+  'Climbing Up Wall': { id: 'wall_up', loop: true }, 'Braced Hang To Crouch': { id: 'ledge_up' }, 'Braced Hang Shimmy': { id: 'hang_shimmy', loop: true }, 'Braced Hang': { id: 'hang', loop: true },
+  'Climbing In Place': { id: 'climb', loop: true }, 'Climbing To Top': { id: 'climb_top' }, 'Climbing Ladder In Place': { id: 'ladder', loop: true },
+  'Rifle Crouch Walk In Place': { id: 'crouch_walk', loop: true, inPlace: true, speed: 1.1 }, 'Crouch To Prone': { id: 'to_prone', hold: true }, 'Prone Idle': { id: 'prone_idle', loop: true, prone: true },
+  'Prone Reloading': { id: 'prone_reload', prone: true }, 'Low Crawl In Place': { id: 'crawl', loop: true, inPlace: true, prone: true, speed: 0.7 }, 'Dive Roll': { id: 'dive_roll' },
+  'Rifle Walk In Place': { id: 'rifle_walk', loop: true, inPlace: true, speed: 1.5 }, 'Rifle Run In Place': { id: 'rifle_run', loop: true, inPlace: true, speed: 4.2 },
+  'Strafe Left In Place': { id: 'rifle_strafe', loop: true, inPlace: true, mirror: true, speed: 1.8, dir: 1.571 }, 'Reloading': { id: 'reload' },
+  'Taking Cover Idle': { id: 'cover_idle', loop: true }, 'Taking Cover': { id: 'cover_take' }, 'Cover Idle': { id: 'cover_low', loop: true },
+  'Pointing Forward': { id: 'point' }, 'Yelling Out': { id: 'yell' }, 'Standing React Large From Right': { id: 'blast_react' }, 'Flying Back Death': { id: 'death_blast', hold: true },
+  'Writhing In Pain': { id: 'writhe', loop: true, hold: true }, 'Carrying In Place': { id: 'carry', loop: true, inPlace: true, speed: 1.2 },
+  'Entering Car': { id: 'enter_car' }, 'Sitting Idle': { id: 'sit', loop: true }, 'Driving': { id: 'drive', loop: true }, 'Falling Idle': { id: 'fall', loop: true }, 'Hard Landing': { id: 'land_roll' },
+  'Salute': { id: 'salute' }, 'Talking': { id: 'talk', loop: true }, 'Standing Arguing': { id: 'argue', loop: true },
 };
 // Mixamo → this body
 const MAP = { Hips: 'pelvis', Spine: 'spine_01', Spine1: 'spine_02', Spine2: 'spine_03', Neck: 'neck_01', Head: 'head' };
@@ -120,7 +133,7 @@ for (const f of files) {
     // the body's quaternions as int16 (a 30 fps take of 52 bones is small enough so)
     const q16 = qs.map(v => Math.max(-32767, Math.min(32767, Math.round(v * 32767))));
     const id = C.id + (C.mirror ? (side ? '_r' : '_l') : '');
-    meta.push({ id, src: name, fps, frames: N, dur: +dur.toFixed(3), loop: !!C.loop, hold: !!C.hold, speed: +(drift.length() * hipK / dur).toFixed(3), dir: +Math.atan2(drift.x, drift.z).toFixed(3),      // (the way it travels, + toward the body's left (+x); a mirror's drift is already mirrored)
+    meta.push({ id, src: name, fps, frames: N, dur: +dur.toFixed(3), loop: !!C.loop, hold: !!C.hold, speed: C.speed ?? +(drift.length() * hipK / dur).toFixed(3), dir: C.dir != null ? (side ? -C.dir : C.dir) : +Math.atan2(drift.x, drift.z).toFixed(3),      // (the way it travels, + toward the body's left (+x); a mirror's drift is already mirrored)
      
       q: push(q16, Int16Array), p: push(ps, Float32Array), crowd: push(crowd, Float32Array) });
     console.log(`  ${id.padEnd(14)} ${N} frames ${dur.toFixed(2)} s, travel ${(drift.length() * hipK).toFixed(2)} m ${C.inPlace ? '(in place)' : ''}`);

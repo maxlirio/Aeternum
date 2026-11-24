@@ -123,7 +123,8 @@ function gunInHands(rig) {      // the gun from the right hand toward the left (
 export function soldierPose(rig, M, ph, now = 0, mv = null) {
   if (lib) {
     const take = (id, t, w = 1) => { applyPose(rig, { mode: 'stand', phase: 0, blend: 0, k: 0 }); return poseCrowd(rig, id, t, w); };
-    if (M.hp <= 0) { const k = M.fall != null ? Math.cos(M.fall - M.facing) : -1, id = M.diedBy === 'blast' || (M.id.length * 13) % 5 === 0 ? 'dying' : k > 0 ? 'death_back' : 'death_front';      // (the round going his way: shot from behind)
+    if (M.hp <= 0) { const k = M.fall != null ? Math.cos(M.fall - M.facing) : -1, id = M.diedBy === 'blast' || (M.id.length * 13) % 5 === 0 ? 'dying' : k > 0 ? 'death_back' : 'death_front';
+      if (M.diedBy === 'blast' && take('death_blast', M.dead * 1.1)) { if (rig.gunSock) rig.gunSock.visible = false; rig.fallTilt = 0; return true; }      // (thrown by a shell or a grenade)      // (the round going his way: shot from behind)
       if (take(id, M.dead * (id === 'dying' ? 1.3 : 1))) { if (rig.gunSock) rig.gunSock.visible = false; rig.fallTilt = 0; return true; } }
     else {
       rig.fallTilt = 0; let placed = false, hands = false;
@@ -131,7 +132,8 @@ export function soldierPose(rig, M, ph, now = 0, mv = null) {
       else if (M.prone) { const thr = M.throwT != null && now - M.throwT < 1.4; placed = thr ? take('grenade', 0.5 + (now - M.throwT) * 1.5) : take('prone_fire', M.firedT != null && now - M.firedT < 0.8 ? (now * 1.2) % 0.83 : 0); hands = !thr; if (thr && rig.gunSock) rig.gunSock.visible = false; }
       else if (M.throwT != null && now - M.throwT < 1.1) { placed = take(M.duck > 0.3 ? 'nade_crouch' : 'nade_stand', 1.75 + (now - M.throwT) * 1.4); if (rig.gunSock) rig.gunSock.visible = false; }      // (a grenade from cover, ducked or standing: the recorded throws, from just before they let go)
       else if (M.moving && mv && mv.back < -0.5) placed = take('rifle_back', (ph / 6.2 * 1.3) % 1.27);
-      else if (M.moving && mv && mv.v > 3.6) placed = take('sprint', (ph / 6.2 * (mv.v / 7.05) * 2) % 0.5);
+      else if (M.moving && mv && mv.v > 5.6) placed = take('sprint', (ph / 6.2 * (mv.v / 7.05) * 2) % 0.5);
+      else if (M.moving && mv && mv.v > 2.8) placed = take('rifle_run', ((now + (M.id.length % 5) * 0.13) * mv.v / 4.2) % 0.73) || take('sprint', (ph / 6.2 * (mv.v / 7.05) * 2) % 0.5);      // (going forward under arms: the recorded run with the rifle carried across him)
       else if (!M.moving && !(M.duck > 0.3)) placed = take(M.firedT != null && now - M.firedT < 0.5 ? 'rifle_fire' : 'rifle_aim', (now + (M.id.length % 7)) % 3);
       if (placed) {
         if (hands) gunInHands(rig); else holdLong(rig, M.moving ? 0.25 : 0.3 + 0.7 * M.aim);

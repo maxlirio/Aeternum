@@ -2499,7 +2499,7 @@ async function start(fresh) {
       if (ctrl.seat.pose === 'lie') avatar.object.position.set(rp[0] + fx * 0.87, rp[1] + 0.14, rp[2] + fz * 0.87);
       else avatar.object.position.set(rp[0] - fx * 0.12, rp[1], rp[2] - fz * 0.12);
     }
-    const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' || ctrl.mode === 'vault' || ctrl.slide ? { moving: true, lean: 0.5 } : null;      // (over something: the body's put by the move, player/moves.js; up a steep slope you walk, slowly)
+    const climbPose = ctrl.mode === 'ladder' ? { moving: ctrl.climbing, lean: 0 } : ctrl.mode === 'mantle' || ctrl.mode === 'vault' || ctrl.slide && !avatar.slide ? { moving: true, lean: 0.5 } : null;      // (over something: the body's put by the move, player/moves.js; up a steep slope you walk, slowly)
     if (ride) { // astride the saddle: the seat is ~0.45 m behind the bike's centre
       const fx = Math.sin(ride.facing), fz = Math.cos(ride.facing), back = ride.T.seat[0], rx = ride.T.kind === 'bike' ? 0 : -Math.cos(ride.facing) * ride.T.W * 0.22;   // (in a car: the driver's seat, a little to one side)
       avatar.object.position.set(rp[0] + fx * back + rx, rp[1] + ride.T.seat[1] - 0.5 + Math.sin(ride.pitch) * back, rp[2] + fz * back + (ride.T.kind === 'bike' ? 0 : Math.sin(ride.facing) * ride.T.W * 0.22));
@@ -2513,10 +2513,11 @@ async function start(fresh) {
     avatar.object.visible = !flight && !(ride && ride.T.kind !== 'bike');     // (inside a ship, car, van or truck you're out of sight; on a bike you sit on top of it)
     if (ctrl.mode === 'wall') avatar.climb(ctrl.wall.pose(), toRender);
     else if (ctrl.movePose && avatar.climb && !ride && !dying) avatar.climb(ctrl.movePose, toRender);
-    else if (ctrl.slide && avatar.climb && !ride && !dying) avatar.climb(slidePose(ctrl.pos, ctrl.facing, ctrl.slide.t), toRender, { sling: false });
+    else if (ctrl.slide && avatar.climb && !avatar.slide && !ride && !dying) avatar.climb(slidePose(ctrl.pos, ctrl.facing, ctrl.slide.t), toRender, { sling: false });
+    avatar.slide?.(!!ctrl.slide && !ride && !dying && !flight);      // (the recorded slide, on the body that has the takes)
     if (!aloft) { pipes.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); if (!params.has('noledges')) ledgeView.update(world, ctrl.pos[0], ctrl.pos[1], ctrl.pos[2]); }     // (from a ship well up, the things only seen from close by wait)
     // a hard landing: you feel it from about 4 m, and a long fall can put you down
-    if (ctrl.jumped && !flight && !ride) avatar.jump?.();      // (the recorded jump: down, off, the legs drawn up)
+    if (ctrl.jumped && !flight && !ride) avatar.jump?.(Math.hypot(ctrl.vel[0], ctrl.vel[2]));      // (the recorded jump: down, off, the legs drawn up)
     if (ctrl.landed > 2.5 && !flight && !ride && performance.now() > landSafeAt) avatar.land?.(ctrl.landed);      // (and down again: the recorded landing, harder the further you fell)
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     ctrl.frame();      // (what the steps since the last frame did, read: cleared for the next's)
