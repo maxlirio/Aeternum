@@ -1220,7 +1220,7 @@ def dress_decks(p, lay, name):
 
 def _look(obs):
     """A partial build is for looking at: each piece from four sides, rendered here (workbench, a colour per material), into out/booth/."""
-    sc = bpy.context.scene; sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = 'MATERIAL'
+    sc = bpy.context.scene; sc.render.engine = 'BLENDER_WORKBENCH'; sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = os.environ.get('SHADE', 'MATERIAL')
     sc.display.shading.show_cavity = True; sc.display.shading.show_shadows = True; sc.render.resolution_x, sc.render.resolution_y = 1600, 900
     COL = {'tint': (0.8, 0.78, 0.74), 'visor': (0.1, 0.13, 0.17), 'lampwarm': (1, 0.85, 0.5), 'glass': (0.5, 0.7, 0.8), 'leaf': (0.25, 0.45, 0.2), 'paint': (0.3, 0.32, 0.35), 'metal': (0.55, 0.55, 0.56), 'concrete': (0.6, 0.6, 0.58), 'heatshield': (0.08, 0.08, 0.09), 'rubber': (0.05, 0.05, 0.05), 'stone': (0.7, 0.68, 0.62), 'glow': (0.5, 0.9, 1), 'hazard': (0.9, 0.7, 0.1), 'wood': (0.5, 0.33, 0.18), 'fabric': (0.4, 0.3, 0.3), 'screen': (0.2, 0.6, 0.8)}
     for m in bpy.data.materials: m.diffuse_color = (*COL.get(m.name, (0.6, 0.5, 0.6)), 1)

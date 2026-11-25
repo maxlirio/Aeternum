@@ -172,6 +172,7 @@ export class AirWar {
   // at: where it struck (on or by the hull), dir: the way it was going: so whoever draws it can do the damage where it was done
   hit(c, dmg, by, at = null, dir = null) {
     if (!c.alive) return;
+    if (c.fixed && by && by.side !== 'player') dmg *= 0.25;      // (a weak point on a great ship is armoured against what a passing fighter throws at it: it takes someone going in after it and staying on it)
     c.hp -= dmg;
     if (at) this.events.push({ type: 'hit', craft: c, by, dmg, at, dir: dir || norm(sub(c.f.pos, at)) });
     if (c.hp <= 0) {

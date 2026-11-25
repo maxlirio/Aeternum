@@ -72,6 +72,7 @@ export class WeatherView {
     this.u.uOff.value.set(origin[0] - this.drift.x, origin[2] - this.drift.y);
     this.u.uCloud.value += (w.cloud - this.u.uCloud.value) * Math.min(1, dt * 0.2);
     this.clouds.position.set(camera.position.x, this.base, camera.position.z);
+    this.clouds.visible = !(sheltered && Math.abs(camera.position.y - this.base) < 80);      // (in a room that stands in the cloud sheet, a ship's hall up at that height: the sheet isn't drawn through it)
     this.u.uCam.value.copy(camera.position);
     this.u.uSun.value.copy(sky.dir); this.u.uDay.value = sky.day;
     this.u.uLit.value.copy(sky.sunColor).lerp(new THREE.Color(1, 1, 1), 0.5);

@@ -599,7 +599,7 @@ suites.planetwar = async () => {
   const P = new W.PlanetWar({ townsNear: (x, z, r) => T.filter(q => Math.hypot(q.cx - x, q.cz - z) < r), farTown: () => T[3], nationOf: q => q, enemyOf: q => q.war ? foe : null,
     isHome: q => q === home, ground: () => 10, getDelta: k => D.get(k) || null, patchDelta: (k, v) => D.set(k, { ...(D.get(k) || {}), ...v }), clearDelta: k => D.delete(k) }, { firstIn: 1, every: [1e9, 1e9], newsEvery: [1e9, 1e9] });
   P.news = 0.5; const seen = []; let now = 1000;
-  for (let k = 0; k < 2000; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); for (const e of P.drain()) seen.push(e.type + ':' + e.S.key.split(':')[1]); }
+  for (let k = 0; k < 4400; k++) { P.step(0.1, now += 0.1, [0, 0, 0]); for (const e of P.drain()) seen.push(e.type + ':' + e.S.key.split(':')[1]); }
   check(seen.includes('news:4'), `news of a far town burnt (${seen.join(' ')})`);
   check(seen.join(' ').includes('warn:1 fire:1 burnt:1 gone:1'), 'the near town at war: warned, fired on, burnt, and it leaves');
   check(!D.has('razed/settlement:2') && !D.has('razed/settlement:3'), 'not the home town, not a town at peace');
@@ -617,12 +617,58 @@ suites.planetwar = async () => {
     check(!D.has('razed/settlement:1') && !P.ruined(T[0], now), 'the town is saved'); check([...D.keys()].some(k => k.startsWith('hulk/')), 'the wreck is in the save');
     const a = W.shipAt(S2, S2.down), z = W.shipAt(S2, S2.down + W.FALL); check(Math.abs(a.y - S2.p0.y) < 1 && Math.abs(z.y - H.y) < 1 && Math.abs(z.roll - H.roll) < 0.01, 'it falls from where it was to where it lies');
     check(H.y > 10 && H.y < 10 + 215, `it lies part in the ground (its middle ${(H.y - 10).toFixed(0)} m up, half its depth 215)`);
-    const mid = [H.x, H.y, H.z], out = Hk.hulkPush(H, mid, 1); check(out && Math.hypot(...out) > 50, 'the middle of the hull is solid: pushed out of it');
+    const hp = (x, y, z) => W.shipPoint({ ...H }, [x, y, z]), mid = hp(400, -40, 0), out = Hk.hulkPush(H, mid, 1); check(out && Math.hypot(...out) > 50, 'the middle of a hull is solid: pushed out of it'); check(!Hk.hulkPush(H, hp(0, -40, -400), 1), 'between its two hulls is open air');
     check(!Hk.hulkPush(H, [H.x, H.y + 900, H.z], 1), 'the air over it is clear');
-    const top = Hk.hulkTop(H, H.x, H.z - 0, H.y + 900); check(top > H.y + 100 && top < H.y + 700, `you can stand on it (its top ${(top - 10).toFixed(0)} m over the ground there)`);
-    check(Hk.hulkSolid(H, H.x, top - 1, H.z) && !Hk.hulkSolid(H, H.x, top + 1, H.z), 'and that top is the top of what stops a round');
-    const bow = W.shipPoint({ ...H }, [0, 0, 1500]), F = Hk.foreOf('anvil'); check(!Hk.hulkSolid(H, ...W.shipPoint({ ...H }, [0, 0, F.z])), 'its back is broken: the tear is open'); check(bow[1] < H.y, 'nose down'); }
+    const top = Hk.hulkTop(H, mid[0], mid[2], H.y + 900); check(top > mid[1] + 60 && top < H.y + 700, `you can stand on it (its top ${(top - 10).toFixed(0)} m over the ground there)`);
+    check(Hk.hulkSolid(H, mid[0], top - 1, mid[2]) && !Hk.hulkSolid(H, mid[0], top + 1, mid[2]), 'and that top is the top of what stops a round');
+    const bow = W.shipPoint({ ...H }, [0, 0, 1500]), F = Hk.foreOf(W.MODEL); check(H.model === 'harrow' && !Hk.hulkSolid(H, ...hp(400, -40, F.z)), 'its back is broken: the tear is open'); check(bow[1] < H.y, 'nose down'); }
   check(Math.hypot(p0.x - S.cx, p0.z - S.cz) > 8000 && p0.y > S.g + 7000, 'it comes in from far off and high'); check(Math.hypot(p1.x - S.cx, p1.z - S.cz) < 30 && Math.abs(p1.y - S.g - W.HANG) < 10, 'and hangs over the town to fire');
+};
+suites.boarding = async () => {
+  // the enemy's dreadnought is its own ship (gen/capital.js HULLS.harrow, tools/gen-harrow.mjs), and it can be boarded (sim/boarding.js)
+  const { Boarding, FUSE } = await import('../js/sim/boarding.js'), { HULLS, fleetContact, fleetOf } = await import('../js/gen/capital.js'), { shipPlan } = await import('../js/gen/ships.js'), W = await import('../js/sim/planetwar.js');
+  const L = JSON.parse(readFileSync(new URL('../assets/ships/harrow.json', import.meta.url), 'utf8')).harrow_decks, Hx = HULLS.harrow;
+  check(W.MODEL === 'harrow' && Hx && !('harrow' in (await import('../js/gen/capital.js')).FLEET), 'the dreadnought is the Harrow, and no ship of the home fleet is one');
+  // the decks are laid out to the hull: the bay's mouth is in the starboard hull's flank, the lance hall is in the drum on the centre line, the arm between them is over open air
+  const toShip = (x, y, z) => [Hx.dock[0] - z, Hx.dock[1] + y, Hx.dock[2] + x - L.W / 2], C = { model: 'harrow', x: 0, y: 0, z: 0, yaw: 0 }, solid = p => !!fleetContact([C], p[0], p[1], p[2], 0.5);
+  const lance = L.rooms.find(r => r.label === 'lance hall'), arm = L.rooms.find(r => r.label === 'forward arm'), bay = L.rooms[0], mid = r => [(r.rect[0] + r.rect[2]) / 2, (r.rect[1] + r.rect[3]) / 2];
+  { const c = toShip(mid(lance)[0], 1, mid(lance)[1]); check(Math.hypot(c[0], c[2] - 200) < 2, `the lance hall is round the lance (${c.map(v => v.toFixed(0))})`); }
+  { const a = toShip(mid(arm)[0], 3, 300); check(a[0] > 130 && a[0] < 290 && solid(a) && !solid([a[0], a[1] + 60, a[2]]) && !solid([a[0], a[1], a[2] + 60]), 'the arm gallery is inside an arm, with open air above and beside it'); }
+  { const m = toShip(100, 4, 20); check(!solid(m) && !solid(toShip(100, 4, -200)) && solid(toShip(100, 30, 20)) && solid(toShip(60, 4, 20)), 'the way into the bay is open; the hull round it is solid'); }
+  check(!solid([0, -40, -400]) && solid([400, -40, -400]) && solid([-400, -40, 900]) && solid([0, -100, 200]), 'two hulls, open air between them, the drum in the middle');
+  for (const v of W.VENTS) check(Math.abs(Math.abs(v[0]) - 510) < 15 && !solid([v[0] + Math.sign(v[0]) * 40, v[1], v[2]]) && solid([v[0] - Math.sign(v[0]) * 40, v[1], v[2]]), 'a vent is in a hull\'s outer flank');
+  // the plan the collision world walks: every space walled, the doors open, floors on more than one level
+  const P = shipPlan('harrow_decks'); check(P.walls.length > 50 && P.slabs.some(s => s.y === -9) && P.slabs.some(s => s.y === 7) && P.ramps.length === 4, 'its decks are its own plan: a well twelve metres deep, a catwalk, stairs');
+  check(P.walls.filter(w => w.openings.length).length >= 14 && P.doors[0].width === 28, 'the ways between its spaces are open in both the walls they pass through');
+  // the fight aboard
+  let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, B = new Boarding(L, { c: [1000, 500, 2000], facing: 0.7 }, { rnd });
+  { const p = B.toWorld(100, 1, 30), l = B.toLocal(p); check(Math.hypot(l[0] - 100, l[1] - 1, l[2] - 30) < 1e-6 && B.inside(p) && !B.inside(B.toWorld(100, 1, -5)), 'the plan\'s frame goes to the world and back'); }
+  let bad = 0; for (const M of B.men) if (B.solids.some(S => M.l[0] > S[0] && M.l[0] < S[3] && M.l[1] + 0.9 > S[1] && M.l[1] + 0.9 < S[4] && M.l[2] > S[2] && M.l[2] < S[5])) bad++;
+  for (const [a, b] of L.nav.links) { const A = L.nav.nodes[a], Z = L.nav.nodes[b]; if (B.blocked([A[0], A[1] + 0.9, A[2]], [Z[0], Z[1] + 0.9, Z[2]])) bad++; }
+  check(!bad && B.men.length >= 25, `nobody posted inside anything, and every way they walk is clear (${bad} wrong)`);
+  check(B.route(0, 14).length > 8 && B.route(4, 18).length >= 4, 'there are two ways to the lance: the forward arm, and the coolant run');
+  // nobody aboard: nothing happens, and they're still at their posts
+  for (let k = 0; k < 300; k++) B.step(0.1, null); check(!B.alarm && !B.shots.length && B.men.every(M => Math.hypot(M.l[0] - M.post[0], M.l[2] - M.post[2]) < 0.9), 'with nobody aboard they stand their posts');
+  // behind the bay's back wall they can't see you; in the bay they do, the ship's raised, and the watch below comes
+  const you = { pos: B.toWorld(100, 1, 12), alive: true, low: 0, moving: false }, ev = []; let dmg = 0;
+  for (let k = 0; k < 400; k++) { B.step(0.1, you); for (const e of B.drain()) { if (e.type === 'hit') dmg += e.dmg; else ev.push(e.type); } }
+  const react = B.men.filter(M => M.kind === 'react');
+  check(ev[0] === 'alarm' && dmg > 20, `seen in the bay: the ship's raised and they fire (${ev.join(' ')}; ${dmg} damage in 40 s)`); check(react.every(M => Math.hypot(M.l[0] - 100, M.l[2] - 12) < 60), 'the watch below has come up from the mess');
+  check(B.men.filter(M => M.kind === 'post' && M.post[2] > 300).every(M => Math.hypot(M.l[0] - M.post[0], M.l[2] - M.post[2]) < 0.9), 'the men posted further in hold where they are');
+  // a round finds a man in the open, not one behind a wall
+  { const M = react[0], o = [you.pos[0], you.pos[1] + 1.5, you.pos[2]], d = [M.pos[0] - o[0], M.pos[1] + 1.05 - o[1], M.pos[2] - o[2]], n = Math.hypot(...d), hit = B.onRay(o, d.map(v => v / n), 300); check(hit && hit.M.side === 'theirs', 'your round finds one in the open');
+    const far = B.men.find(m => m.post[2] > 500 && m.hp > 0), d2 = [far.pos[0] - o[0], far.pos[1] + 1.05 - o[1], far.pos[2] - o[2]], n2 = Math.hypot(...d2), h2 = B.onRay(o, d2.map(v => v / n2), 900); check(!h2 || h2.M !== far, 'and not one the other side of the ship\'s walls');
+    const hp = hit.M.hp; check(!B.hurt(hit.M, 40) && hit.M.hp === hp - 40 && B.hurt(hit.M, 200) && hit.M.hp <= 0, 'he can be put down'); }
+  // the charge: only at the junction; it runs its fuse and goes off
+  check(!B.plant(you), 'no charge can be set in the bay'); you.pos = B.toWorld(L.charge[0], 1, L.charge[2] - 1.5); check(B.canPlant(you) && B.plant(you) && !B.plant(you), 'at the lance\'s coolant junction it can, once');
+  const seen = []; let t = 0; for (; t < FUSE + 5 && !B.blown; t += 0.1) { B.step(0.1, you); for (const e of B.drain()) if (e.type === 'fuse' || e.type === 'blow') seen.push(e.type + (e.left || '')); }
+  check(seen.join(' ') === 'fuse60 fuse30 fuse10 blow' && Math.abs(t - FUSE) < 1, `the fuse runs ${FUSE} s, told at 60, 30 and 10, and it goes off (${seen.join(' ')})`);
+  // the strike's clock: it hangs long enough to be boarded, and doesn't get under way with a fight on its decks
+  check(W.AWAY - W.DONE >= 240, 'it hangs for minutes after it fires');
+  { const D = new Map(), T = { key: 'settlement:9', name: 'T', cx: 0, cz: 0, R: 200, h: 10 }, PW = new W.PlanetWar({ townsNear: () => [T], farTown: () => null, nationOf: () => ({ name: 'A' }), enemyOf: () => ({ name: 'B', id: 1 }), isHome: () => false, ground: () => 10, getDelta: k => D.get(k) || null, patchDelta: (k, v) => D.set(k, { ...(D.get(k) || {}), ...v }), clearDelta: k => D.delete(k) }, { firstIn: 1e9, every: [1e9, 1e9], newsEvery: [1e9, 1e9], newsIn: 1e9 });
+    let now = 100; PW.begin(T, now, { name: 'B', id: 1 }); const ev2 = []; for (let k = 0; k < 6000; k++) { now += 0.1; PW.hold(0.1, now); PW.step(0.1, now, [0, 0, 0]); ev2.push(...PW.drain().map(e => e.type)); }
+    check(!ev2.includes('gone') && PW.cur && now - PW.cur.t0 < W.AWAY, 'held, it stays'); for (let k = 0; k < 800; k++) { now += 0.1; PW.step(0.1, now, [0, 0, 0]); ev2.push(...PW.drain().map(e => e.type)); } check(ev2.includes('gone'), 'let go, it leaves');
+    const a = W.shipAt(PW.cur || D.get('razed/settlement:9'), W.ARRIVE + 5), b = W.shipAt(PW.cur || D.get('razed/settlement:9'), W.DONE + 100); check(a.x === b.x && a.y === b.y && a.z === b.z, 'hanging, it is dead still: its decks are a place'); }
 };
 suites.lineage = async () => {
   // one life is one life (sim/lineage.js): when going down kills, what's handed on, and how the war hardens

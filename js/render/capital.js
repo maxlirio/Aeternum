@@ -5,7 +5,7 @@ import { gltfLoader, bakedPart } from './gltf.js';
 import { foreOf } from '../gen/hulk.js';
 import { RINGS, ringTurn } from '../gen/rings.js';
 
-const DECK = { anvil: [[0.2, 0.22, 0.25], [0.1, 0.11, 0.13]], vesper: [[0.6, 0.57, 0.5], [0.3, 0.28, 0.25]], tiller: [[0.46, 0.41, 0.26], [0.2, 0.2, 0.18]], sable: [[0.16, 0.17, 0.2], [0.07, 0.08, 0.1]], bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]] };
+const DECK = { anvil: [[0.2, 0.22, 0.25], [0.1, 0.11, 0.13]], vesper: [[0.6, 0.57, 0.5], [0.3, 0.28, 0.25]], tiller: [[0.46, 0.41, 0.26], [0.2, 0.2, 0.18]], sable: [[0.16, 0.17, 0.2], [0.07, 0.08, 0.1]], bastion: [[0.27, 0.3, 0.33], [0.13, 0.15, 0.17]], meridian: [[0.56, 0.53, 0.46], [0.28, 0.27, 0.25]], halcyon: [[0.7, 0.69, 0.65], [0.24, 0.24, 0.25]], longshore: [[0.42, 0.39, 0.28], [0.2, 0.2, 0.19]], harrow: [[0.17, 0.16, 0.16], [0.085, 0.08, 0.08]] };
 const LIVERY = [[0.1, 0.11, 0.13], [0.62, 0.6, 0.55], [0.32, 0.12, 0.05], [0.06, 0.012, 0.01], [0.035, 0.026, 0.02]];   // gunmetal, ivory, oxide; the enemy's blood-black (sim/planetwar.js); and a hull burnt out and gone to rust (gen/hulk.js)
 function plated(base, colour, k = 1) {
   const m = base.clone(); m.color = new THREE.Color(...colour); m.map = null; m.metalnessMap = null; m.roughnessMap = null; m.aoMap = null; m.normalMap = null; m.metalness = 0.25; m.roughness = 0.62;
@@ -74,8 +74,21 @@ function roomLit(base, deckY, bay) {
   m.customProgramCacheKey = () => 'room-' + deckY + '-' + bay + '-' + base.uuid;
   return m;
 }
-const ACCENT = { bastion: [1.0, 0.42, 0.18], anvil: [1.0, 0.3, 0.15], meridian: [1.0, 0.78, 0.4], vesper: [0.95, 0.85, 0.55], halcyon: [0.55, 0.85, 1.0], sable: [0.6, 0.4, 1.0], longshore: [1.0, 0.7, 0.2], tiller: [0.9, 0.85, 0.3] };
-const CARPET = { bastion: [0.1, 0.11, 0.13], anvil: [0.09, 0.09, 0.1], meridian: [0.32, 0.1, 0.09], vesper: [0.12, 0.2, 0.17], halcyon: [0.14, 0.17, 0.26], sable: [0.08, 0.07, 0.1], longshore: [0.18, 0.16, 0.12], tiller: [0.2, 0.17, 0.12] };
+// A ship whose light was worked out when it was built and is kept in its model (the Harrow: tools/assets/harrow_kit.py _hx_bake): a colour at every corner,
+// the square root of a quarter of the light there. Nothing of the scene's sun or sky reaches in.
+function bakedLit(base) {
+  const m = base.clone(); m.vertexColors = false;
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 color;\nvarying vec3 vBake;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvBake = color;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vBake;')
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      { vec3 E = vBake * vBake * 4.0; reflectedLight.directDiffuse = vec3(0.0); reflectedLight.directSpecular *= 0.0; reflectedLight.indirectDiffuse = diffuseColor.rgb * E; reflectedLight.indirectSpecular *= 0.15 + 0.5 * min(1.0, E.r); }`);
+  };
+  m.customProgramCacheKey = () => 'baked-' + base.uuid;
+  return m;
+}
+const ACCENT = { harrow: [1.0, 0.25, 0.1], bastion: [1.0, 0.42, 0.18], anvil: [1.0, 0.3, 0.15], meridian: [1.0, 0.78, 0.4], vesper: [0.95, 0.85, 0.55], halcyon: [0.55, 0.85, 1.0], sable: [0.6, 0.4, 1.0], longshore: [1.0, 0.7, 0.2], tiller: [0.9, 0.85, 0.3] };
+const CARPET = { harrow: [0.12, 0.06, 0.05], bastion: [0.1, 0.11, 0.13], anvil: [0.09, 0.09, 0.1], meridian: [0.32, 0.1, 0.09], vesper: [0.12, 0.2, 0.17], halcyon: [0.14, 0.17, 0.26], sable: [0.08, 0.07, 0.1], longshore: [0.18, 0.16, 0.12], tiller: [0.2, 0.17, 0.12] };
 // A window out of the ship: what you'd see through it, by the way you're looking — the sky over the haze, cloud tops far below, the light of the hour.
 function skyview(day) {
   const m = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
@@ -100,7 +113,7 @@ function skyview(day) {
 export class CapitalView {
   constructor(scene, lib) { this.group = new THREE.Group(); this.group.name = 'fleet'; scene.add(this.group); this.lib = lib; this.models = {}; this.loading = false; this.day = { value: 1 }; }
   load() {
-    if (this.loading) return; this.loading = true; this.fetch('./assets/capital.glb');
+    if (this.loading) return; this.loading = true; this.fetch('./assets/capital.glb'); this.fetch('./assets/harrow.glb');      // (the enemy's dreadnought is its own ship, in its own file)
   }
   fetch(file) {
     gltfLoader().load(file, gltf => {
@@ -173,8 +186,8 @@ export class CapitalView {
       C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.set(C.pitch || 0, C.yaw, C.roll || 0, 'YXZ');      // (a ship can leave its station: sim/fleetwar.js)
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
-      if (far < 5000 && !(this.deckLoads ||= new Set()).has(C.ship.model)) { this.deckLoads.add(C.ship.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
-      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
+      if ((far < 5000 || C.enemy) && !(this.deckLoads ||= new Set()).has(C.model)) { this.deckLoads.add(C.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
+      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : g.attributes.color ? bakedLit(b) : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
       if (C.decks) { C.decks.visible = far < 1100; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
     }
   }

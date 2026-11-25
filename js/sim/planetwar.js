@@ -8,13 +8,15 @@ import { hashStr } from '../core/hash.js';
 import { rot, restPose } from '../gen/hulk.js';
 
 // the strike's timeline, in seconds from its start (game time runs at real speed: sim/clock.js)
-export const ARRIVE = 28, CHARGE = 9, BURN = 26, LINGER = 50, LEAVE = 45;
+export const ARRIVE = 28, CHARGE = 9, BURN = 26, LINGER = 300, LEAVE = 45;      // (it can't climb away until the lance has cooled: five minutes hanging there with its vents open and its bay open for its fighters)
 export const FIRE = ARRIVE + CHARGE, DONE = FIRE + BURN, AWAY = DONE + LINGER, GONE = AWAY + LEAVE;
 // how it can be killed: the heat vents along its flanks, open the whole time it's down in the air. Each is a target (sim/aircombat.js
 // spawnFixed); with all of them shot out its reactor has nowhere to dump heat: the beam dies, it breaks up, and FALL seconds later it's
 // in the ground, where it stays (gen/hulk.js). Its guns: where its point defence fires from. All in its own frame (x across, y up, z stern to bow).
-export const VENTS = [[-452, -40, -950], [452, -40, -950], [-452, -40, 350], [452, -40, 350]], VENT_HP = 420, VENT_R = 30;
-export const GUNS = [[-446, 70, -300], [446, 70, -300], [0, -218, -700], [0, -218, 500], [0, 356, -400], [0, 356, 500]];
+// The ship is the Harrow (gen/capital.js HULLS, tools/assets/harrow_kit.py): two hulls, the lance in its drum between them, muzzle down.
+export const MODEL = 'harrow', LANCE = [0, -308, 200];
+export const VENTS = [[-520, -40, -400], [520, -40, -400], [-520, -40, 800], [520, -40, 800]], VENT_HP = 420, VENT_R = 30;
+export const GUNS = [[-400, 150, -790], [400, 150, -790], [-400, 135, 1180], [400, 135, 1180], [-330, -210, 500], [330, -210, 500], [0, 250, -1065]];
 export const FALL = 26;
 export const TURNS = 6;           // times the beam goes round on its way out from the middle
 export const HANG = 1500;         // how high over the town it hangs to burn it (m)
@@ -44,7 +46,7 @@ export function shipAt(S, tt) {
     return { x: A.x + (B.x - A.x) * h, y: A.y + (B.y - A.y) * k, z: A.z + (B.z - A.z) * h, yaw: A.yaw + (B.yaw - A.yaw) * h, pitch: B.pitch * ease(u * 1.3) + wob, roll: B.roll * ease(u * 1.15) + wob * 1.7 }; }
   const bx = Math.sin(S.bearing), bz = Math.cos(S.bearing), yaw = S.bearing + Math.PI;
   if (tt < ARRIVE) { const f = ease(tt / ARRIVE), d = 9000 * (1 - f); return { x: S.cx + bx * d, y: S.g + HANG + 7000 * (1 - f) ** 1.6, z: S.cz + bz * d, yaw }; }
-  if (tt < AWAY) { const w = Math.sin(tt * 0.21) * 12; return { x: S.cx + w, y: S.g + HANG + Math.sin(tt * 0.13) * 6, z: S.cz, yaw }; }
+  if (tt < AWAY) return { x: S.cx, y: S.g + HANG, z: S.cz, yaw };      // (dead still: three kilometres of ship holding station for its lance; and so its decks are a place you can stand)
   const f = ease((tt - AWAY) / LEAVE), d = 14000 * f; return { x: S.cx - bx * d, y: S.g + HANG + 9000 * f * f, z: S.cz - bz * d, yaw };
 }
 // a point of the ship (its own frame) in the world, the ship being at P ({ x, y, z, yaw, pitch?, roll? })
@@ -112,12 +114,14 @@ export class PlanetWar {
   cripple(now) {
     const S = this.cur; if (!S || S.down != null) return null; const tt = now - S.t0, P = shipAt(S, tt), r = hashStr(0x77aa, 'fall:' + S.key + ':' + Math.round(S.t0)) / 4294967296;
     const a = S.bearing + Math.PI + (r - 0.5) * 1.6, d = 1500 + 1300 * r, x = P.x + Math.sin(a) * d, z = P.z + Math.cos(a) * d;      // (it slides off the way it was heading, clear of the town)
-    S.p0 = { x: P.x, y: P.y, z: P.z, yaw: P.yaw }; S.rest = restPose('anvil', x, z, P.yaw + (r - 0.5) * 0.9, this.h.ground, r); S.down = tt; S.saved = tt < FIRE + 3;
+    S.p0 = { x: P.x, y: P.y, z: P.z, yaw: P.yaw }; S.rest = restPose(MODEL, x, z, P.yaw + (r - 0.5) * 0.9, this.h.ground, r); S.down = tt; S.saved = tt < FIRE + 3;
     const H = { ...S.rest, t: now + FALL, by: S.by, town: S.name };
     this.h.patchDelta('hulk/' + S.key + ':' + Math.round(S.t0), H);
     if (S.saved) this.h.clearDelta('razed/' + S.key);
     else { this.h.patchDelta('razed/' + S.key, { t0: Math.min(S.t0, now - DONE), far: true }); if (!S.burnt) { S.burnt = true; this.events.push({ type: 'burnt', S }); } }      // (far: nothing more to play out there)
     this.events.push({ type: 'down', S, H }); return H;
   }
+  // somebody's loose aboard it (main.js): it doesn't get under way with a fight on its decks. Its clock stops short of its leaving.
+  hold(dt, now) { const S = this.cur; if (S && S.down == null && now - S.t0 > AWAY - 20) S.t0 += dt; }
   drain() { const e = this.events; this.events = []; return e; }
 }

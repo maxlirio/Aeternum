@@ -1,10 +1,10 @@
 // A great ship brought down (sim/planetwar.js): where it lies and what of it is solid. It lies as it fell: nose down, rolled over on
 // one side, part of it in the ground, its back broken, the fore part twisted away from the aft at the break. The same pose and the same
 // break draw it (render/capital.js) and stop you, a round or a ship (player/collision.js, main.js). Pure.
-import { FLEET } from './capital.js';
+import { HULLS as FLEET } from './capital.js';
 
 // where each hull breaks (z in its own frame, stern to bow), how wide the tear is, and how the fore part's thrown from the aft
-export const BREAK = { anvil: { z: 250, gap: 34, turn: [0.07, -0.06, 0.05], shift: [0, -12, 46] } };
+export const BREAK = { anvil: { z: 250, gap: 34, turn: [0.07, -0.06, 0.05], shift: [0, -12, 46] }, harrow: { z: 640, gap: 30, turn: [0.09, -0.07, 0.08], shift: [0, -14, 40] } };
 const breakOf = model => BREAK[model] || { z: 0, gap: 30, turn: [0.05, -0.05, 0.04], shift: [0, -8, 30] };
 
 // the turn of (yaw, pitch, roll), the way three.js turns an object whose rotation order is 'YXZ': row-major 3 × 3

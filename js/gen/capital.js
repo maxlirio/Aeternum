@@ -21,6 +21,16 @@ export const FLEET = {
   tiller: { name: 'Tiller', length: 4260, livery: 2, dock: [214, -14, 1760], solid: [[-310, -170, -2060, 310, 170, 1500], [-130, -170, 1500, 130, 170, 1460 + 40], ...cut(212, 180, 1460, 2100, 214, -14, 1760), [-150, 150, 1480, 150, 294, 2010]] },
   sable: { name: 'Sable', length: 1620, span: 2410, sleek: true, dark: true, dock: [204, -6, -60], solid: [...cut(200, 90, -640, 960, 204, -6, -60), [-1200, -10, -860, -200, 70, 400], [200, -10, -860, 1200, 70, 400]] },
 };
+// The enemy's dreadnought (sim/planetwar.js): not one of the fleet, and nothing like any of it. Two hulls with the lance slung in a drum between them
+// on four arms (tools/assets/harrow_kit.py); its decks are its own (tools/gen-harrow.mjs), and only the bay itself is the open way in.
+const twin = b => [b, [-b[3], b[1], b[2], -b[0], b[4], b[5]]];
+export const HULLS = { ...FLEET,
+  harrow: { name: 'Harrow', length: 3470, span: 1030, enemy: true, dock: [510, -6, 200], bay: 61, decks: [200, 592],
+    solid: [[290, -200, -960, 510, 120, 181], [290, -200, 219, 510, 120, 1480], [290, -200, 181, 510, -13, 219], [290, 5, 181, 510, 120, 219], [290, -13, 181, 449, 5, 219], [-510, -200, -960, -290, 120, 1480],
+      ...twin([380, -200, 1480, 420, 110, 1700]), ...twin([385, -272, -700, 415, -200, 1150]), ...twin([328, 120, -650, 472, 156, 1100]), ...twin([112, -34, 110, 290, 24, 150]), ...twin([112, -34, 250, 290, 24, 290]),
+      [-512, -190, -1670, 512, 150, -905], [-450, -120, -1790, 450, 80, -1670], [-170, 150, -1520, 170, 228, -1040], [-100, 228, -1440, 100, 312, -1090],
+      [-125, -200, 75, 125, 120, 325], [-100, 120, 100, 100, 178, 300], [-70, -308, 130, 70, -200, 270], [-110, -22, 455, 110, 12, 482], [-110, -22, -82, 110, 12, -55], ...twin([150, -22, 362, 232, 12, 420]), ...twin([150, -22, -20, 232, 12, 38])] },
+};
 const deckLen = { bastion: 96, meridian: 94, longshore: 92, halcyon: 96, anvil: 100, vesper: 94, tiller: 96, sable: 84 };     // (2 + the rooms' lengths: tools/gen-capital.mjs)
 const SPOTS = { halcyon: [-1300, 2900, 4300], bastion: [2100, 2300, 900], meridian: [-3200, 3900, -1400], longshore: [900, 5200, -5200], anvil: [7200, 3400, 3200], vesper: [-7600, 5200, 5600], tiller: [-5400, 4300, -8200], sable: [5200, 6400, -6400] };   // east, height above the sea, north of the city
 
@@ -38,9 +48,9 @@ export function fleetOf(planet, S) {
 export function bayShelter(list, px, py, pz) {
   let best = 0;
   for (const C of list) {
-    if (C.away) continue; const F = FLEET[C.model], dx = px - C.x, dz = pz - C.z; if (dx * dx + dz * dz > (F.length * 0.8) ** 2) continue;
+    if (C.away) continue; const F = HULLS[C.model], dx = px - C.x, dz = pz - C.z; if (dx * dx + dz * dz > (F.length * 0.8) ** 2) continue;
     const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, [mx, my, mz] = F.dock, o = Math.max(0, lx - mx);
-    if (lx < mx - (deckLen[C.model] || 100) - 4 || o > 150 || ly < my - 8 - o * 0.35 || ly > my + 12 + o * 0.6 || Math.abs(lz - mz) > 20 + o * 0.6) continue;
+    if (lx < mx - (F.bay || deckLen[C.model] || 100) - 4 || o > 150 || ly < my - 8 - o * 0.35 || ly > my + 12 + o * 0.6 || Math.abs(lz - mz) > 20 + o * 0.6) continue;
     best = Math.max(best, 1 - o / 150);
   }
   return best;
@@ -48,14 +58,14 @@ export function bayShelter(list, px, py, pz) {
 // If (px, py, pz) is inside a ship's solid parts: the shortest way out of it, in world coordinates. Otherwise null.
 export function fleetContact(list, px, py, pz, r = 3) {
   for (const C of list) {
-    const dx = px - C.x, dz = pz - C.z; const reach = Math.max(1200, (FLEET[C.model].span || FLEET[C.model].length) * 0.7); if (dx * dx + dz * dz > reach * reach) continue;
-    const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, F = FLEET[C.model];
+    const dx = px - C.x, dz = pz - C.z; const reach = Math.max(1200, Math.max(HULLS[C.model].span || 0, HULLS[C.model].length) * 0.7); if (dx * dx + dz * dz > reach * reach) continue;
+    const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, F = HULLS[C.model];
     const back = (ox, oy, oz) => [ox * c + oz * s, oy, -ox * s + oz * c];
     // the way in and out of the dock is never solid: from the back of its decks out past the mouth, as high and wide as its doors (a wing or a hull box
     // across it would let the ship fly itself in, then wreck you flying out)
     // (out past the mouth it opens into a funnel: a ship drifting a little on its way out is still on its way out)
     const [mx, my, mz] = F.dock, o = Math.max(0, lx - mx), wide = 19 + o * 0.6, lo = my - 7 - o * 0.35, hi = my + 11 + o * 0.6;
-    if (lx > mx - (deckLen[C.model] || 100) - 4 && lx < mx + 900 && ly > lo + (o ? 0 : r * 0.3) && ly < hi - (o ? 0 : r * 0.3) && Math.abs(lz - mz) < wide - (o ? 0 : r * 0.3)) continue;
+    if (lx > mx - (F.bay || deckLen[C.model] || 100) - 4 && lx < mx + 900 && ly > lo + (o ? 0 : r * 0.3) && ly < hi - (o ? 0 : r * 0.3) && Math.abs(lz - mz) < wide - (o ? 0 : r * 0.3)) continue;
     for (const b of F.solid) {
       const a0 = lx - b[0] + r, a1 = b[3] - lx + r, h0 = ly - b[1] + r, h1 = b[4] - ly + r, z0 = lz - b[2] + r, z1 = b[5] - lz + r;
       if (a0 > 0 && a1 > 0 && h0 > 0 && h1 > 0 && z0 > 0 && z1 > 0) { const m = Math.min(a0, a1, h0, h1, z0, z1); return m === a0 ? back(-a0, 0, 0) : m === a1 ? back(a1, 0, 0) : m === h0 ? back(0, -h0, 0) : m === h1 ? back(0, h1, 0) : m === z0 ? back(0, 0, -z0) : back(0, 0, z1); }

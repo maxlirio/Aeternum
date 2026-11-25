@@ -11,13 +11,14 @@ import YACHT from '../../assets/ships/yacht.json' with { type: 'json' };
 import CATALOG from '../../assets/ships/catalog.json' with { type: 'json' };
 import FIGHTERS from '../../assets/ships/fighters.json' with { type: 'json' };
 import CAPITAL from '../../assets/ships/capital.json' with { type: 'json' };
+import HARROW from '../../assets/ships/harrow.json' with { type: 'json' };
 import { surfaceAt } from './surface.js';
 import { getPolity } from './polity.js';
 import { Rng } from '../core/prng.js';
 import { derive, hashStr, hashInts } from '../core/hash.js';
 import { dayIndex, dayStart } from './schedule.js';
 
-export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG, ...FIGHTERS, ...CAPITAL };
+export const LAYOUTS = { shuttle: SHUTTLE, freighter: FREIGHTER, courier: COURIER, patrol: PATROL, yacht: YACHT, ...CATALOG, ...FIGHTERS, ...CAPITAL, ...HARROW };
 export const FIGHTER_MODELS = Object.keys(FIGHTERS);
 // armed hulls: fighters carry their own; gunships, dropships and the patrol ship are armed too
 for (const [k, L] of Object.entries(LAYOUTS)) if (!L.weapons) L.weapons = L.cls === 'gunship' ? { guns: 2, missiles: 4 } : L.cls === 'dropship' ? { guns: 1, missiles: 0 } : k === 'patrol' ? { guns: 2, missiles: 2 } : { guns: 0, missiles: 0 };
@@ -33,6 +34,7 @@ const plans = new Map();
 export function shipPlan(model = 'shuttle') {
   if (plans.has(model)) return plans.get(model);
   const L = LAYOUTS[model], [hx0, hz0, hx1, hz1] = L.hull, y0 = 0, y1 = L.ceiling, T = 0.2;
+  if (L.custom) { const plan = customPlan(model, L); plans.set(model, plan); return plan; }
   const door = id => L.doors[id];
   const opening = (id, along) => { const d = door(id), c = along === 'x' ? d.x : d.z; return { kind: 'door', door: id, a: c - d.width / 2, b: c + d.width / 2, y0: L.deck, y1: L.ceiling }; };
   const wall = (x0, z0, x1, z1, openings = [], side = '') => ({ x0, z0, x1, z1, t: T, y0, y1, k: 0, exterior: false, side, openings });
@@ -57,6 +59,17 @@ export function shipPlan(model = 'shuttle') {
   };
   plans.set(model, plan);
   return plan;
+}
+
+// A ship whose decks are laid out for that ship alone (the Harrow: tools/gen-harrow.mjs): its walls, decks and stairs are in its layout as they
+// stand, on however many levels, not derived from a row of rooms.
+function customPlan(model, L) {
+  const walls = L.walls.map(w => { const along = w.z0 === w.z1; return { x0: w.x0, z0: w.z0, x1: w.x1, z1: w.z1, t: w.rail ? 0.08 : 0.2, y0: w.y0, y1: w.y1, k: 0, exterior: false, side: w.rail ? 'rail' : 'inner',
+    openings: (w.doors || []).map(id => { const d = L.doors[id], c = along ? d.x : d.z; return { kind: 'door', door: id, a: c - d.width / 2, b: c + d.width / 2, y0: L.deck, y1: L.deck + d.height }; }) }; });
+  const rooms = L.rooms.map(r => ({ i: r.i, k: 0, purpose: r.purpose, label: r.label, rect: r.rect.slice(), doors: L.doors.filter(d => d.rooms.includes(r.i)).map(d => d.id) }));
+  const props = L.props.map(p => ({ kind: p.kind, k: 0, x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1, y: p.y ?? L.deck, h: p.h, face: p.face, room: p.room, ...(p.soft ? { soft: true } : {}) }));
+  return { key: 'ship:' + model, type: 'ship', w: L.W, d: L.D, F: 1, H: L.H, walls, windows: [], units: [], slabs: L.slabs.map(s => ({ k: 0, y: s.y, rects: s.rects, ...(s.roof ? { roof: true } : {}) })),
+    ramps: [{ k: 0, x0: L.ramp.x0, x1: L.ramp.x1, z0: L.ramp.z0, z1: L.ramp.z1, y0: 0, y1: L.deck }, ...L.ramps.map(r => ({ k: 0, ...r }))], rooms, props, anchors: [], doors: L.doors.map(d => ({ ...d, k: 0, axis: d.axis || 'x' })), entrance: 0, layout: L };
 }
 
 // The ships parked in a town at the epoch: one per pad.

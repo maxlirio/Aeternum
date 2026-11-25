@@ -27,7 +27,7 @@ export class FleetWar {
     this.beams = []; this.missiles = []; this.bombs = []; this.scans = []; this.events = []; this.state = new Map(); this.t = 0;
     for (const C of fleet) this.state.set(C.model, { home: { x: C.x, y: C.y, z: C.z, yaw: C.yaw }, laser: 0, salvo: 0, launched: new Set(), sortie: null });
   }
-  hostiles(C, range) { return this.war.craft.filter(c => c.alive && c.side === 'raider' && !c.sortie && Math.hypot(c.f.pos[0] - C.x, c.f.pos[1] - C.y, c.f.pos[2] - C.z) < range); }
+  hostiles(C, range) { return this.war.craft.filter(c => c.alive && c.side === 'raider' && !c.sortie && !c.fixed && Math.hypot(c.f.pos[0] - C.x, c.f.pos[1] - C.y, c.f.pos[2] - C.z) < range); }
   step(dt, raid = null) {
     this.t += dt;
     for (const C of this.fleet) {

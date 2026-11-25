@@ -18,14 +18,15 @@ import numpy as np
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 MAT_DIR = os.path.join(ROOT, 'assets', 'materials')
 argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
-DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings'))
-DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings'))
+DO_TEX = 'textures' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings', 'harrow'))
+DO_PROPS = 'props' in argv or not any(a in argv for a in ('textures', 'props', 'city', 'items', 'common', 'family', 'capital', 'foliage', 'rings', 'harrow'))
 DO_CITY = 'city' in argv
 DO_ITEMS = 'items' in argv
 DO_COMMON = 'common' in argv
 DO_FAMILY = 'family' in argv
 DO_CAPITAL = 'capital' in argv
 DO_RINGS = 'rings' in argv
+DO_HARROW = 'harrow' in argv
 ONLY = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
 N = 1024
 
@@ -2393,9 +2394,12 @@ SHIPKINDS = {'shuttle', 'freighter', 'courier', 'patrol', 'yacht', 'speeder', *S
 if 'foliage' in argv:
     for name, kind in (('foliage_leaf', 'leaf'), ('foliage_needle', 'needle')): save_rgba(name, draw_twig(kind, 11 if kind == 'leaf' else 12))
 elif DO_TEX: build_textures()
-if DO_CAPITAL or DO_RINGS:
+if DO_CAPITAL or DO_RINGS or DO_HARROW:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capital_kit.py')).read())
 if DO_CAPITAL: build_capital()
+if DO_HARROW:
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'harrow_kit.py')).read())
+    build_harrow()
 if DO_RINGS:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ring_kit.py')).read())
     build_rings()
