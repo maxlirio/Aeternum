@@ -87,6 +87,33 @@ function bakedLit(base) {
   m.customProgramCacheKey = () => 'baked-' + base.uuid;
   return m;
 }
+// The decks of a ship that's down (gen/hulk.js): no power. What light there is comes in at the dock's mouth, and from the lamp you carry: it lights
+// what you look at, falling off with distance. Its wall and ceiling panels have sprung and buckled; the decks themselves are as they were (you walk them).
+export const deadLamp = { value: 1 };
+function deadLit(base, deckY) {
+  const m = base.clone(); m.vertexColors = false; m.side = THREE.DoubleSide;
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uLamp = deadLamp;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRoom;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      vRoom = position;
+      { float wall = 1.0 - smoothstep(0.3, 0.7, normal.y), up = smoothstep(0.4, 2.6, position.y - ${deckY.toFixed(1)});
+        float a = sin(position.z * 0.83 + position.y * 0.6) * sin(position.x * 0.71 + position.y * 1.1), b = sin(position.x * 0.19 + 1.7) * sin(position.z * 0.23);
+        transformed += normal * wall * up * 0.16 * a;                                    // sprung panels
+        if (normal.y < -0.5) transformed.y -= 0.18 + 0.22 * b * b; }                      // a ceiling come down a hand or two`);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRoom; uniform float uLamp;')
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      { float d = length(vViewPosition); vec3 toEye = vViewPosition / max(d, 1e-3);
+        float cone = smoothstep(0.80, 0.97, toEye.z), nl = max(dot(normalize(normal), toEye), 0.0) * 0.8 + 0.2;
+        vec3 lamp = vec3(1.0, 0.94, 0.82) * uLamp * 4.5 * cone * nl / (1.0 + 0.012 * d * d);
+        float day = 1.0 - smoothstep(2.0, 46.0, vRoom.z);                                  // in from the mouth
+        vec3 lit = vec3(0.006, 0.007, 0.009) + vec3(0.7, 0.8, 1.0) * day * day * 0.9 + lamp;
+        reflectedLight.directDiffuse = vec3(0.0); reflectedLight.directSpecular *= 0.0;
+        reflectedLight.indirectDiffuse = diffuseColor.rgb * lit; reflectedLight.indirectSpecular *= 0.04 + 0.5 * cone * uLamp / (1.0 + 0.02 * d * d); }`);
+  };
+  m.customProgramCacheKey = () => 'dead-' + deckY + '-' + base.uuid;
+  return m;
+}
 const ACCENT = { harrow: [1.0, 0.25, 0.1], bastion: [1.0, 0.42, 0.18], anvil: [1.0, 0.3, 0.15], meridian: [1.0, 0.78, 0.4], vesper: [0.95, 0.85, 0.55], halcyon: [0.55, 0.85, 1.0], sable: [0.6, 0.4, 1.0], longshore: [1.0, 0.7, 0.2], tiller: [0.9, 0.85, 0.3] };
 const CARPET = { harrow: [0.12, 0.06, 0.05], bastion: [0.1, 0.11, 0.13], anvil: [0.09, 0.09, 0.1], meridian: [0.32, 0.1, 0.09], vesper: [0.12, 0.2, 0.17], halcyon: [0.14, 0.17, 0.26], sable: [0.08, 0.07, 0.1], longshore: [0.18, 0.16, 0.12], tiller: [0.2, 0.17, 0.12] };
 // A window out of the ship: what you'd see through it, by the way you're looking — the sky over the haze, cloud tops far below, the light of the hour.
@@ -184,6 +211,15 @@ export class CapitalView {
       }
       if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
       C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.set(C.pitch || 0, C.yaw, C.roll || 0, 'YXZ');      // (a ship can leave its station: sim/fleetwar.js)
+      // a wreck's decks: in the part of the hull they were built into, lying as it lies, everything that glowed gone dark
+      if (C.wreck) { if (C.dk) { const rp = C.mesh.position, far = Math.hypot(rp.x - cam.x, rp.y - cam.y, rp.z - cam.z), dk = this.models[C.deckModel], base = C.model;
+          if (far < 6000 && !(this.deckLoads ||= new Set()).has(base)) { this.deckLoads.add(base); this.fetch('./assets/decks-' + base + '.glb'); }
+          if (dk && !C.decks && far < 5000) { C.decks = new THREE.Group(); const black = new THREE.MeshStandardMaterial({ color: 0x060606, roughness: 0.9 }), mats = new Map();
+            for (const { g, slot } of dk) { const glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot); let mt = black; if (!glows) { mt = mats.get(slot); if (!mt) mats.set(slot, mt = deadLit(this.deckSurface(slot, C), 1)); }
+              const m = new THREE.Mesh(g, mt); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); }
+            C.decks.position.set(...C.dk.place); C.decks.rotation.y = -Math.PI / 2; C.mesh.children[C.dk.part].add(C.decks); }
+          if (C.decks) C.decks.visible = far < 5200; }
+        continue; }
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if ((far < 5000 || C.enemy) && !(this.deckLoads ||= new Set()).has(C.model)) { this.deckLoads.add(C.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)

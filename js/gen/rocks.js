@@ -2,7 +2,7 @@
 // plants are: where, how big, which shape, and the solid circle a walker can't pass (gen/land.js says how
 // many; render/rocks.js makes the models). Cached per tile; nothing's stored.
 import { hashInts } from '../core/hash.js';
-import { surfaceAt } from './surface.js';
+import { surfaceAt, cleared } from './surface.js';
 import { gridTraits, mainLand } from './land.js';
 import { settlementNear } from './settlement.js';
 import { sitesNear, tracksNear, onTrack } from './outposts.js';
@@ -14,7 +14,10 @@ export const TILE = 96, SHAPES = ['boulder', 'slab', 'pillar'], VARIANTS = 4;
 const cache = new Map();
 const onSite = (planet, x, z) => { let on = false; sitesNear(planet, x, z, 140, S => { if (Math.hypot(S.x - x, S.z - z) < S.clear) on = true; }); return on; };
 
-export function rockTile(planet, ti, tj) {
+// (where a great ship lies, what was there is under it or gone: gen/surface.js cleared)
+const kept = new WeakMap();
+export function rockTile(planet, ti, tj) { const T = rockTile0(planet, ti, tj), n = planet.beds?.length || 0; if (!n || !T.length) return T; const had = kept.get(T); if (had && had.n === n) return had.T; const out = T.filter(q => !cleared(planet, q.x, q.z)); kept.set(T, { n, T: out.length === T.length ? T : out }); return kept.get(T).T; }
+function rockTile0(planet, ti, tj) {
   const ck = planet.seed.join(':') + '|' + ti + ',' + tj; if (cache.has(ck)) return cache.get(ck);
   const out = [], seed = planet.seed[1] ^ 0x70cc5, x0 = ti * TILE, z0 = tj * TILE, LT = gridTraits(planet, x0, z0, TILE, 2), tracks = tracksNear(planet, x0 + TILE / 2, z0 + TILE / 2, TILE);
   const put = (x, z, sp, size, r) => {

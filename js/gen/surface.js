@@ -51,6 +51,9 @@ export function surfaceAt(planet, x, z, far = false, step = 0) {
   const b = bareSurfaceAt(planet, x, z, far, step), pad = padAt(planet, x, z);
   if (pad) b.h = lerp(b.h, pad.h, pad.w * (1 - (b.roadW || 0)));
   if (planet.craters?.length) b.h -= craterAt(planet, x, z);
+  // where a great ship has come down (gen/hulk.js bedsOf; part of the save, like craters): the earth before its dock is ploughed level with the dock's
+  // floor, and under its decks the ground it drove through is gone (low: only ever lowered, along a line x,z → x2,z2)
+  if (planet.beds?.length) for (const B of planet.beds) { const w = bedW(B, x, z); if (w > 0) b.h = B.low ? Math.min(b.h, lerp(b.h, B.h, w)) : lerp(b.h, B.h, w); }
   return b;
 }
 // Craters blown in the ground (sim/fleetwar.js, main.js): part of the save, laid over what's generated like a felled tree.
@@ -75,3 +78,11 @@ export function railHold(planet, x, z, yFeet, reach) {
   return null;
 }
 export const surfaceHeight = (planet, x, z) => surfaceAt(planet, x, z).h;
+
+// how much a wreck's bed has hold of the ground at (x, z): 0..1
+function bedW(B, x, z) {
+  let dx = x - B.x, dz = z - B.z; if (B.x2 !== undefined) { const ux = B.x2 - B.x, uz = B.z2 - B.z, t = Math.max(0, Math.min(1, (dx * ux + dz * uz) / (ux * ux + uz * uz))); dx -= ux * t; dz -= uz * t; }
+  const d = Math.hypot(dx, dz); if (d >= B.r + B.e) return 0; const w = d < B.r ? 1 : 1 - (d - B.r) / B.e; return w * w * (3 - 2 * w);
+}
+// nothing grows or lies where one's come down: is (x, z) ground a wreck has taken?
+export function cleared(planet, x, z) { if (planet.beds?.length) for (const B of planet.beds) if (bedW(B, x, z) > 0.02) return true; return false; }

@@ -5,7 +5,7 @@
 // radius the collision world blocks — so the models (tools/assets/build.py) can change freely.
 import { sitesNear, tracksNear, onTrack } from './outposts.js';
 import { hashInts, hashStr } from '../core/hash.js';
-import { surfaceAt } from './surface.js';
+import { surfaceAt, cleared } from './surface.js';
 import { moisture } from './terrain.js';
 import { smoothstep } from '../core/noise.js';
 import { landTraits, gridTraits } from './land.js';
@@ -60,7 +60,10 @@ export const felledOf = planet => fellings.get(planet) || fellings.set(planet, n
 export const fellKey = p => Math.round(p.x * 4) + ',' + Math.round(p.z * 4);
 const cache = new Map();
 // Everything in the TILE × TILE square whose corner is (ti·TILE, tj·TILE).
-export function floraTile(planet, ti, tj) {
+// (where a great ship lies, what was there is under it or gone: gen/surface.js cleared)
+const kept = new WeakMap();
+export function floraTile(planet, ti, tj) { const T = floraTile0(planet, ti, tj), n = planet.beds?.length || 0; if (!n || !T.length) return T; const had = kept.get(T); if (had && had.n === n) return had.T; const out = T.filter(q => !cleared(planet, q.x, q.z)); kept.set(T, { n, T: out.length === T.length ? T : out }); return kept.get(T).T; }
+function floraTile0(planet, ti, tj) {
   const ck = planet.seed.join(':') + '|' + ti + ',' + tj;
   if (cache.has(ck)) return cache.get(ck);
   const out = [], C = planet.climate, n = TILE / CELL, seed = planet.seed[0] ^ 0x5f10a, clear = clearings(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE), tracks = tracksNear(planet, (ti + 0.5) * TILE, (tj + 0.5) * TILE, TILE), LT = gridTraits(planet, ti * TILE, tj * TILE, TILE);

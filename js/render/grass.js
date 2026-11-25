@@ -5,7 +5,7 @@
 // near you a few per frame from the same rules as gen/flora.js grass: green, flat, open
 // ground off towns and roads. Heights come from a coarse grid per patch, interpolated.
 import * as THREE from 'three';
-import { surfaceAt } from '../gen/surface.js';
+import { surfaceAt, cleared } from '../gen/surface.js';
 import { moisture } from '../gen/terrain.js';
 import { workedGround, workedNear } from '../gen/outposts.js';
 import { landTraits } from '../gen/land.js';
@@ -118,7 +118,7 @@ export class GrassField {
       const x = x0 + a * PATCH / G, z = z0 + b * PATCH / G, s = surfaceAt(P, x, z);
       const e = 1.2, sx = surfaceAt(P, x + e, z).h - s.h, sz = surfaceAt(P, x, z + e).h - s.h, ny = e / Math.hypot(sx, e, sz);
       hs.push(s.h);
-      const ok = s.town < 0.01 && s.road < 0.01 && s.h > P.seaLevel - 0.5 && s.h < P.climate.treeline + 120;
+      const ok = s.town < 0.01 && s.road < 0.01 && s.h > P.seaLevel - 0.5 && s.h < P.climate.treeline + 120 && !cleared(P, x, z);
       rs.push(ok ? Math.max(0, 1 - Math.abs(s.h - (P.seaLevel + 0.25)) / 0.9) : 0);                 // reeds: in the margin of the water
       ls.push(ok && !(s.wet > 0.12) && s.h > P.seaLevel + 0.6 ? 0.25 + 0.75 * Math.max(0, Math.min(1, (moisture(P, x, z) - 0.12) / 0.6)) : 0);      // 0: no grass; else lushness (dry ground still has dry grass)
       const Lr = ok ? landTraits(P, x, z).grass : 0, Lg = Lr < 0.04 ? 0 : Lr; gs.push(Lg);
