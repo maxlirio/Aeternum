@@ -69,6 +69,8 @@ export class TownStreamer {
     if (T || this.busy) { while (!this.full.get(s.key)?.ready) { if (!this.busy && !this.full.has(s.key)) break; await new Promise(r => setTimeout(r, 50)); } if (this.full.get(s.key)?.ready) return this.full.get(s.key); }
     return this.build(s);
   }
+  // a town built again in place of itself (its buildings have changed: main.js rebuildTown): the old one's taken out once the new one stands
+  retire(T) { this.group.remove(T.town.group); free(T.town.group); T.propView?.release(); }
   drop(T) {
     this.group.remove(T.town.group); free(T.town.group); T.propView?.release(); this.full.delete(T.s.key);
     const Q = this.shells.get(T.s.key); if (Q) Q.blocks.visible = true;

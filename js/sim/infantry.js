@@ -39,7 +39,12 @@ export class Infantry {
     const ux = Math.sin(F.dir), uz = Math.cos(F.dir), px = -uz, pz = ux, r = rnd(Math.round(F.x * 7 + F.z * 13));
     const at = (a, s) => { const x = F.x + ux * a + px * s, z = F.z + uz * a + pz * s; return [x, this.ground(x, z), z]; };
     this.at = at; this.dir = F.dir; this.u = [ux, uz]; this.v = [px, pz];
-    this.obj = [-120, 0, 120].map((s, i) => { const a = i === 0 ? -22 : i === 2 ? 22 : 0, prog = i === 0 ? 1 : i === 2 ? -1 : 0; return { id: i, name: ['West', 'Centre', 'East'][i], a, s, pos: at(a, s), prog, owner: prog > 0 ? 'ours' : prog < 0 ? 'theirs' : null }; });
+    // fought in a town (hooks.built(x, z, pad): is that inside something built?): everything of the line is put where there's open ground — a street,
+    // a square, a yard — the nearest to where it would have stood; what would stand in a house isn't laid at all
+    const built = (a, s, pad = 0.5) => { if (!this.hooks.built) return false; const x = F.x + ux * a + px * s, z = F.z + uz * a + pz * s; return this.hooks.built(x, z, pad); };
+    const clear = (a, s, pad = 2.5) => { if (!built(a, s, pad)) return [a, s]; for (let R = 3; R <= 60; R += 3) for (let k = 0; k < 10; k++) { const an = k * 0.628 + R, a2 = a + Math.cos(an) * R, s2 = s + Math.sin(an) * R; if (!built(a2, s2, pad)) return [a2, s2]; } return [a, s]; };
+    this.built = built; this.clear = clear; this.town = !!this.hooks.built && !!F.town;
+    this.obj = [-120, 0, 120].map((s0, i) => { const [a, s] = clear(i === 0 ? -22 : i === 2 ? 22 : 0, s0, 5), prog = i === 0 ? 1 : i === 2 ? -1 : 0; return { id: i, name: ['West', 'Centre', 'East'][i], a, s, pos: at(a, s), prog, owner: prog > 0 ? 'ours' : prog < 0 ? 'theirs' : null }; });
     // each objective is a gun position: a heavy gun on its tripod between two parapets of sandbags, crewed by whoever holds the ground.
     // It rakes anyone coming at it from the other side, so the objective is the gun: its crew put down (a grenade, a shell, a round from
     // the flank, an aircraft), and the pit taken. Whoever takes it turns it round. gun: { pos, hp, crew, yaw, cool, burst, by }
@@ -57,7 +62,7 @@ export class Infantry {
     this.cover = this.cover.filter(C => { const n = Math.max(2, Math.ceil(C.len)), ys = []; for (let k = 0; k <= n; k++) { const w = (k / n - 0.5) * C.len, x = C.pos[0] + px * w, z = C.pos[2] + pz * w; ys.push(this.ground(x, z)); }
       const y0 = ys[0], y1 = ys[n]; let bump = 0, step = 0; for (let k = 0; k <= n; k++) { bump = Math.max(bump, Math.abs(ys[k] - (y0 + (y1 - y0) * k / n))); if (k) step = Math.max(step, Math.abs(ys[k] - ys[k - 1]) / (C.len / n)); }
       const fall = Math.abs(this.ground(C.pos[0] + ux, C.pos[2] + uz) - this.ground(C.pos[0] - ux, C.pos[2] - uz)) / 2;
-      if (step > 0.45 || bump > 0.6 || fall > 0.6) return false; C.ys = ys; return true; });
+      if (step > 0.45 || bump > 0.6 || fall > 0.6) return false; if (built(C.a, C.s, 0.8) || built(C.a, C.s - C.len / 2, 0.6) || built(C.a, C.s + C.len / 2, 0.6)) return false; C.ys = ys; return true; });
     this.cover.forEach((C, i) => { C.i = i; });
     // between the lines: steel hedgehogs, runs of wire, a few fires
     this.props = [];
@@ -65,11 +70,12 @@ export class Infantry {
     for (let k = 0; k < 7; k++) { const s = -SPAN + r() * 2 * SPAN, a = (r() - 0.5) * 30, L = 10 + r() * 12; this.props.push({ kind: 'wire', pos: at(a, s), a, s, len: L, rot: F.dir + Math.PI / 2 + (r() - 0.5) * 0.4 }); }
     for (const side of [-1, 1]) for (let k = 0; k < 12; k++) { const s = -SPAN + r() * 2 * SPAN, a = side * (LINE + 12 + r() * 3); this.props.push({ kind: 'wire', pos: at(a, s), a, s, len: 14 + r() * 10, rot: F.dir + Math.PI / 2 }); }
     for (let k = 0; k < 6; k++) this.props.push({ kind: 'fire', pos: at((r() - 0.5) * 110, (r() - 0.5) * 2 * SPAN), size: 1 + r() * 2 });
+    if (this.hooks.built) this.props = this.props.filter(W => { const [a, s2] = this.local(W.pos); if (W.kind !== 'wire') return !built(a, s2, 1.2); for (let k = -2; k <= 2; k++) { const w = k / 4 * W.len, sr = Math.sin(W.rot), cr = Math.cos(W.rot), x = W.pos[0] + sr * w, z = W.pos[2] + cr * w; if (this.hooks.built(x, z, 0.6)) return false; } return true; });
     // each run of wire in lengths between pickets: a grenade or a shell cuts one, a tank flattens it, and men go through the gap
     for (const W of this.props) if (W.kind === 'wire') { const n = Math.max(1, Math.round(W.len / WIRE_SEG)); W.segs = []; for (let k = 0; k < n; k++) W.segs.push({ k, s0: (k / n - 0.5) * W.len, s1: ((k + 1) / n - 0.5) * W.len, dead: false }); }
     this.rally = { ours: [-RALLY, 0], theirs: [RALLY, 0] };
     // you come up on a fight already going: each side's men all in, the first at its own sandbags, the rest forward of them
-    this.n = 0; for (let k = 0; k < Math.round(PER_SIDE * this.press.men); k++) for (const side of ['ours', 'theirs']) { if (side === 'ours' && k >= PER_SIDE) continue; const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos); M.pos = at((side === 'ours' ? -1 : 1) * (14 + Math.random() * 36), s0); } }
+    this.n = 0; for (let k = 0; k < Math.round(PER_SIDE * this.press.men); k++) for (const side of ['ours', 'theirs']) { if (side === 'ours' && k >= PER_SIDE) continue; const M = this.spawn(side); if (k % 3) { const [, s0] = this.local(M.pos); M.pos = at(...clear((side === 'ours' ? -1 : 1) * (14 + Math.random() * 36), s0, 1)); } }
     this.reinf = 6;
     this.armor?.setup();
     this.events.push({ type: 'line', F });
@@ -77,7 +83,7 @@ export class Infantry {
   end() { this.plan = null; this.orders = null; this.F = null; this.men = []; this.shots = []; this.nades = []; this.drops = []; this.barks = []; this.armor?.end(); }
   spawn(side) {
     // up from the rally point to near one of the objectives (the first of them straight into their own line)
-    const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * (1 + this.press.men), a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(a, s);
+    const [a0] = this.rally[side], O = this.obj[Math.floor(Math.random() * 3)], s = O.s + (Math.random() - 0.5) * 140, first = this.n < PER_SIDE * (1 + this.press.men), a = first ? (side === 'ours' ? -1 : 1) * (LINE + 3 + Math.random() * 5) : a0 + (Math.random() - 0.5) * 30, p = this.at(...(this.clear ? this.clear(a, s, 1) : [a, s]));
     const k = this.n++, M = { id: `inf:${side}:${k}`, side, squad: Math.floor(k / 2) % SQUAD, pos: p, facing: side === 'ours' ? this.dir : this.dir + Math.PI, hp: 100, state: 'move', goal: null, cool: 1 + Math.random() * 2, dwell: 0, moving: false, aim: 0, dead: 0,
       sup: 0, duck: 0, flinch: 0, threat: 0, support: 0, nadeCd: 8 + Math.random() * 20, barkCd: Math.random() * 3, saw: false, fall: 0, at: k % 5 === 2, rk: 2, via: null, routeT: 0 };      // (one man in five carries a launcher)
     this.men.push(M); this.plan?.spent(side); return M;
@@ -139,10 +145,14 @@ export class Infantry {
         if (M.via && this.near(M.pos, M.via) < 1.0) { M.via = this.route(M.pos, M.goal.pos); M.routeT = 0.6; if (M.via && this.near(M.pos, M.via) < 1.0) M.via = null; }
         const g = M.via || M.goal.pos, dx = g[0] - M.pos[0], dz = g[2] - M.pos[2], d = Math.hypot(dx, dz);
         if (d < 1.2 && !M.via) { M.state = 'hold'; M.diving = false; M.dwell = tgt ? 8 + Math.random() * 9 : 1.5 + Math.random() * 2; M.moving = false; if (!M.goal.C && this.near(M.pos, want.pos) < R_OBJ && Math.random() < 0.5) this.bark(M, 'point'); }
-        else if (d > 1e-3) { const sp = (tgt && td < 60 ? 4.8 : 3.6) * (M.flinch > 0 ? 0.4 : 1) * dt; M.pos = [M.pos[0] + dx / d * Math.min(sp, d), 0, M.pos[2] + dz / d * Math.min(sp, d)]; M.facing = Math.atan2(dx, dz); M.moving = true;
+        else if (d > 1e-3) { const sp = (tgt && td < 60 ? 4.8 : 3.6) * (M.flinch > 0 ? 0.4 : 1) * dt, x0 = M.pos[0], z0 = M.pos[2]; let wx = dx / d, wz = dz / d;
+          // something built in the way (a house, a wall: resolve wouldn't let him through): he goes along it, one way, and if that's shut too, the other
+          if (M.slipT > 0) { M.slipT -= dt; const c = Math.cos(1.3 * M.slip), sn = Math.sin(1.3 * M.slip); [wx, wz] = [wx * c + wz * sn, -wx * sn + wz * c]; }
+          M.pos = [M.pos[0] + wx * Math.min(sp, d), 0, M.pos[2] + wz * Math.min(sp, d)]; M.facing = Math.atan2(wx, wz); M.moving = true;
           for (const N of this.men) if (N !== M && N.hp > 0) { const ox = M.pos[0] - N.pos[0], oz = M.pos[2] - N.pos[2], od = Math.hypot(ox, oz); if (od < 0.62 && od > 1e-4) { M.pos[0] += ox / od * (0.62 - od); M.pos[2] += oz / od * (0.62 - od); } }
           { const q = this.push(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2]), 1.7, 0.3); if (q) { M.pos[0] = q[0]; M.pos[2] = q[1]; } }
           if (this.resolve) { const [rx, rz] = this.resolve(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2])); M.pos[0] = rx; M.pos[2] = rz; }
+          if (this.town && sp > 1e-4 && Math.hypot(M.pos[0] - x0, M.pos[2] - z0) < Math.min(sp, d) * 0.4) { M.slip = M.slipT > 0 ? -(M.slip || 1) : (M.slip || (Math.random() < 0.5 ? 1 : -1)); M.slipT = 1.2 + Math.random() * 1.6; }
           M.pos[1] = this.ground(M.pos[0], M.pos[2]); }
       } else if (M.state === 'hold') {
         M.dwell -= dt * (pinned ? 0.15 : 1);      // (pinned, he stays put)

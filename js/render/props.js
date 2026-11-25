@@ -150,6 +150,8 @@ export class PropView {
     (this.place.get(v.name) || this.place.set(v.name, []).get(v.name)).push({ m, c: new THREE.Color(...c), p: [cx, cz], y: o[1] });
     return true;
   }
+  // what stood in a building that's come down: gone (inside(x, z): is that point in it, in the town's own frame)
+  clearIn(inside) { for (const list of this.place.values()) for (const it of list) if (!it.dead && inside(it.p[0], it.p[1])) it.dead = true; }
   build() {
     this.meshes = [];
     for (const [name, list] of this.place) {
@@ -171,7 +173,7 @@ export class PropView {
       let n = 0;
       for (const it of list) {
         const dx = it.p[0] - x, dz = it.p[1] - z;
-        if (dx * dx + dz * dz > R2 || Math.abs(it.y - y) > 7) continue;      // other floors are behind slabs
+        if (it.dead || dx * dx + dz * dz > R2 || Math.abs(it.y - y) > 7) continue;      // other floors are behind slabs
         im.setMatrixAt(n, it.m);
         if (tinted) im.setColorAt(n, it.c);
         n++;

@@ -61,6 +61,7 @@ export class MeshBuilder {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = opts.castShadow ?? true; mesh.receiveShadow = true;
       out.push(mesh);
+      (this.meshOf ||= new Map()).set(mat, mesh);      // (which mesh a material's geometry went into: render/settlement-mesh.js takes a building back out of it)
     }
     this.groups.clear();
     return out;

@@ -16,10 +16,13 @@ export function frontPoint(planet, a, b, w = 0) {
 // a front that would lie over water is found further along the same border, where there's land, if there is any within 30 km.
 let fit = null; export function setFrontFit(fn) { fit = fn; memo = new WeakMap(); }
 let memo = new WeakMap();
+let town = null; export function setFrontTown(fn) { town = fn; memo = new WeakMap(); }
 function frontOfPair(planet, a, b) {
   let M = memo.get(planet); if (!M) memo.set(planet, M = new Map()); const k = a.id + ':' + b.id; let F = M.get(k); if (F) return F;
   F = frontPoint(planet, a, b);
   if (fit && !fit(planet, F)) for (let i = 1; i <= 20; i++) { const P = frontPoint(planet, a, b, 1500 * i), Q = fit(planet, P) ? P : frontPoint(planet, a, b, -1500 * i); if (Q === P || fit(planet, Q)) { if (nationAt(planet, Q.x - Math.sin(Q.dir) * 200, Q.z - Math.cos(Q.dir) * 200).nation === a) { F = Q; break; } } }
+  // a town on that stretch of the border (set by the game: setFrontTown) is what's fought over: the front's there, in its streets
+  { const T = town?.(planet, F); if (T) { F = { ...F, x: T.x, z: T.z, town: T.key, townName: T.name }; } }
   M.set(k, F); return F;
 }
 // The fronts a nation has: one with each enemy it's at war (or in a border war) with.

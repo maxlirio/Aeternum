@@ -121,7 +121,7 @@ export function buildBlocks(planet, s, ruin = null) {
   for (const b of s.buildings) {
     const plan = buildingPlan(planet, s, b), { mat, col } = facadeOf(b, M);
     mb.setFrame(...buildingFrame(s, b));
-    if (ruin?.(b)) { const k = 0.025; mb.box(mat, 0.25, -0.5, 0.25, b.w - 0.25, Math.max(2.4, plan.F * plan.H * 0.45), b.d - 0.25, [k, k, k], new Set(['ny', 'py'])); continue; }      // (far off, a burnt one is a low black shell)
+    if (ruin?.(b) && ruin(b) !== 'shot') { const k = ruin(b) === 'down' ? 0.2 : 0.025; mb.box(mat, 0.25, -0.5, 0.25, b.w - 0.25, Math.max(2.4, plan.F * plan.H * 0.45), b.d - 0.25, [k, k, k], new Set(['ny', 'py'])); continue; }      // (far off, a burnt one is a low black shell)
     mb.box({ default: mat, py: M.concrete }, 0.25, -0.5, 0.25, b.w - 0.25, plan.F * plan.H - 0.1, b.d - 0.25, col, new Set(['ny']));
     const F = formOfBuilding(planet, b, plan); if (F) { const dr = plan.doors[plan.entrance]; emitForm(mb, F, plan.F * plan.H - 0.1, { x: dr.x, w: dr.width }, 0.4, mat, col); }
   }
@@ -143,19 +143,22 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   if (streets) group.add(...buildStreets(planet, s));
 
   // ---- buildings
-  const doors = [];
+  const doors = [], spans = new Map(), ruins = new Map();
   const t0 = performance.now();
   for (let i = 0; i < s.buildings.length; i++) {
     const b = s.buildings[i];
     const plan = buildingPlan(planet, s, b);
     const cu = (b.rect[0] + b.rect[2]) / 2, cv = (b.rect[1] + b.rect[3]) / 2;
     const frame = buildingFrame(s, b);
-    const burnt = ruin?.(b), mbB = cellFor(cu, cv), snap = burnt ? snapshot(mbB) : null, sink = mbB.propSink; if (burnt) mbB.propSink = null;
+    const st = ruin?.(b), burnt = st && st !== 'shot', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;      // (st: true burnt, 'down' knocked down by shellfire, 'shot' its windows out)
     buildBuilding(mbB, plan, b, frame, planet);
-    if (burnt) { ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H); mbB.propSink = sink; }      // (and its doors burnt away)
+    if (st === 'shot') ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
+    if (burnt) { ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, st === 'down' ? { k: 0.55, grey: true } : {}); mbB.propSink = sink; }      // (and its doors burnt away)
     else { const lad = ladderOf(planet, s, b);
       if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
       for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame }); }
+    // where this building's own geometry lies in its block's, by material: so it can be taken out again when it's hit (setState, below)
+    { const at = new Map(); for (const [mat, g] of mbB.groups) { const i0 = snap.get(mat)?.i ?? 0; if (g.idx.length > i0) at.set(mat, [i0, g.idx.length]); } spans.set(b.key, { mb: mbB, at, plan, frame, b }); }
     if (slice) { if (performance.now() - lastBreath > slice) await breathe(); }
     else if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
   }
@@ -198,7 +201,18 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   group.add(...(lampParts.length ? lampParts : [poleMesh, headMesh]), poolMesh);
 
   onProgress(1);
-  return { group, doors, lamps: lamps.length };
+  // A building hit after the town was built (main.js damageBuildings): 'shot', its glass is taken out of the block it was built into; 'down', the whole
+  // of it is, and it's built again on its own as what's left of it (render/ruin.js), with what stood inside gone. No more of the town is touched.
+  const setState = (b, st) => {
+    const S = spans.get(b.key); if (!S || S.st === 'down' || S.st === st) return false; S.st = st;
+    for (const [mat, [i0, i1]] of S.at) { if (st === 'shot' && !(mat === M.glass || mat === M.pane || mat.transparent)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
+    if (st !== 'down') return true;
+    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); ruinPass(mb, snap, S.frame, b, new Set([M.glass, M.pane]), S.plan.F * S.plan.H, { k: 0.55, grey: true });
+    const meshes = mb.build(); group.add(...meshes); ruins.set(b.key, meshes);
+    const [o, ex, ez] = S.frame; propView?.clearIn((x, z) => { const dx = x - o[0], dz = z - o[2], lx = dx * ex[0] + dz * ex[2], lz = dx * ez[0] + dz * ez[2]; return lx > -0.5 && lz > -0.5 && lx < b.w + 0.5 && lz < b.d + 0.5; });
+    return true;
+  };
+  return { group, doors, lamps: lamps.length, setState };
 }
 
 let pool = null;

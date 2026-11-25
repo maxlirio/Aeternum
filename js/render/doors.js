@@ -30,7 +30,10 @@ export class DoorView {
     const x = door.x, z = door.z, y = door.k * this.doors[i].plan.H + door.height / 2;
     return [o[0] + ex[0] * x + ez[0] * z, o[1] + y, o[2] + ex[2] * x + ez[2] * z];
   }
-  place(i) {
+  // the doors of a building that's come down go with it
+  drop(key) { (this.gone ||= new Set()).add(key); this.doors.forEach((d, i) => { if (d.b.key === key) this.place(i); }); }
+  place(i) { if (this.gone?.has(this.doors[i].b.key)) { this.m.makeScale(0, 0, 0); this.mesh.setMatrixAt(i, this.m); this.mesh.instanceMatrix.needsUpdate = true; return; }      // (its building's come down)
+   
     const { door, frame } = this.doors[i];
     const [, ex, ez] = frame;
     const dirW = door.axis === 'x' ? ex : ez;
