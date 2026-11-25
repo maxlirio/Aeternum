@@ -357,6 +357,7 @@ async function start(fresh) {
   const cam = new FollowCamera(camera, world, renderer.domElement);
   cam.yaw = ctrl.facing;
   const roomLight = new THREE.PointLight(0xffe2c0, 0, 14, 1.6); scene.add(roomLight);
+  const headLamp = new THREE.PointLight(0xfff0d8, 0, 9, 1.4); scene.add(headLamp);
   const lightPool = new LightPool(scene, 3); let lightTick = 0;      // (render/lightpool.js: three real point lights, shared out each frame among everything that asks for one)
   // ---- residents
   ui.loading('Waking the town…', 0.68); await tick();
@@ -1639,6 +1640,7 @@ async function start(fresh) {
       const wo = [o.x + origin[0], o.y + origin[1], o.z + origin[2]];
       // what's in the way stops it: the land, walls, cars, stones, trees, rocks (CollisionWorld.hardAt)
       let wall = world.rayHard(wo, [dir.x, dir.y, dir.z], W.reach, 0.15, 1.2) ?? W.reach;
+      if (tiltIn) wall = Math.min(wall, world.rayHard(tiltIn.dk.toLevel(wo), tiltIn.dk.vecTo([dir.x, dir.y, dir.z]), W.reach, 0.15, 1.2) ?? W.reach);      // (aboard a wreck: its bulkheads stop a round)
       let best = wall;
       for (const a of agents) {
         if (String(a.id).startsWith('tr:') || bodies.some(b => b.id === a.id)) continue;
@@ -2651,6 +2653,9 @@ async function start(fresh) {
     vehView.update(traffic.filter(v => !trafficGone.has(v.id)).map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => !wrecks.get(v.id)?.hits?.length && !(wrecks.get(v.id)?.burnt > 0) && (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
       .concat(ride && !(wrecks.get(ride.v.id)?.hits?.length) ? [{ type: ride.v.type, pos: toRender(...ride.pos), facing: ride.facing, pitch: ride.pitch, roll: ride.roll, colour: ride.v.colour }] : [])));
     avatar.setOpacity?.(Math.min(1, Math.max(0, (cam.cur - 0.6) / 0.9)));
+    // aboard a wreck, in from its mouth: the sun's off you, and the lamp you carry lights you and what's close
+    { const D = tiltIn?.dk, depth = D ? Math.max(0, Math.min(1, (D.ship(ctrl.pos)[0] * -1 + (D.place[0] - 6)) / 26)) : 0; avatar.setShade?.(1 - 0.93 * depth);
+      headLamp.intensity = 7 * depth; if (depth > 0) headLamp.position.set(...toRender(ctrl.pos[0] - Math.sin(cam.yaw) * 1.4, ctrl.pos[1] + 2.1, ctrl.pos[2] - Math.cos(cam.yaw) * 1.4)); }
     // residents (ACTIVE tier): positions are a pure function of time
     agents = residents.agents(t, dt, ctrl.pos, world);
     for (const a of agents) {           // knocked down: on the ground, dazed, where they fell until they get up (and then they get up off it)
@@ -2774,7 +2779,7 @@ async function start(fresh) {
       if (ride) { const gap = ctrl.pos[1] - (rideCamY ?? ctrl.pos[1]); rideCamY = Math.abs(gap) > 4 ? ctrl.pos[1] : (rideCamY ?? ctrl.pos[1]) + gap * Math.min(1, dt * 7); cam.update(dt, [ctrl.pos[0], rideCamY, ctrl.pos[2]], toRender); }
       else { rideCamY = null;
         if (tankV) { const d0 = cam.dist; cam.dist = 11; cam.update(dt, [tankV.pos[0], tankV.pos[1] + 1.3, tankV.pos[2]], toRender); cam.dist = d0; }
-        else cam.update(dt, crouchK > 0.01 || proneK > 0.01 ? [ctrl.pos[0], ctrl.pos[1] - 0.5 * crouchK - 1.15 * proneK, ctrl.pos[2]] : ctrl.pos, toRender);
+        else cam.map = tiltIn ? tiltIn.dk.toLevel : null, cam.update(dt, crouchK > 0.01 || proneK > 0.01 ? [ctrl.pos[0], ctrl.pos[1] - 0.5 * crouchK - 1.15 * proneK, ctrl.pos[2]] : ctrl.pos, toRender);
         // through the sight: the eye at it, looking where you aim (and where its wander takes it)
         if (scoped()) { const y = cam.yaw + sway[0], pt = cam.pitch + sway[1], d = [Math.sin(y) * Math.cos(pt), -Math.sin(pt), Math.cos(y) * Math.cos(pt)];
           let e; if (tankV) { const V = tankV, b = armor.pivot(V), fx = Math.sin(V.turret), fz = Math.cos(V.turret); e = [b[0] + fx * 2.2, b[1] + 0.5, b[2] + fz * 2.2]; }

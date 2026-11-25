@@ -23,7 +23,9 @@ export class FollowCamera {
     let free = dist;
     for (let d = 0.3; d <= dist; d += 0.15) {
       const f = d / dist;
-      if (this.world.solidAt(tx + rx * f + dx * d, ty + dy * d, tz + rz * f + dz * d, 0.2)) { free = Math.max(0.4, d - 0.25); break; }
+      let qx = tx + rx * f + dx * d, qy = ty + dy * d, qz = tz + rz * f + dz * d;
+      if (this.map) [qx, qy, qz] = this.map([qx, qy, qz]);      // (aboard a wreck: what's solid is asked of the level copy of its decks, main.js tiltIn)
+      if (this.world.solidAt(qx, qy, qz, 0.2)) { free = Math.max(0.4, d - 0.25); break; }
     }
     this.cur = free < this.cur - 1.2 ? free : free < this.cur ? this.cur + (free - this.cur) * Math.min(1, dt * 16) : this.cur + (free - this.cur) * Math.min(1, dt * 3);     // (a wall's a snap in; grazing a bump is not)
     const f = this.cur / dist;

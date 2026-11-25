@@ -90,13 +90,14 @@ function bakedLit(base) {
 // The decks of a ship that's down (gen/hulk.js): no power. What light there is comes in at the dock's mouth, and from the lamp you carry: it lights
 // what you look at, falling off with distance. Its wall and ceiling panels have sprung and buckled; the decks themselves are as they were (you walk them).
 export const deadLamp = { value: 1 };
-function deadLit(base, deckY) {
+function deadLit(base, deckY, bend = { z: 1e6, k: 0 }) {
   const m = base.clone(); m.vertexColors = false; m.side = THREE.DoubleSide;
   m.onBeforeCompile = sh => {
     sh.uniforms.uLamp = deadLamp;
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRoom;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
       vRoom = position;
+      transformed.y += ${bend.k.toFixed(4)} * max(0.0, position.z - ${bend.z.toFixed(1)});      // its back's broken: gen/hulk.js hulkDecks
       { float wall = 1.0 - smoothstep(0.3, 0.7, normal.y), up = smoothstep(0.4, 2.6, position.y - ${deckY.toFixed(1)});
         float a = sin(position.z * 0.83 + position.y * 0.6) * sin(position.x * 0.71 + position.y * 1.1), b = sin(position.x * 0.19 + 1.7) * sin(position.z * 0.23);
         transformed += normal * wall * up * 0.16 * a;                                    // sprung panels
@@ -111,7 +112,7 @@ function deadLit(base, deckY) {
         reflectedLight.directDiffuse = vec3(0.0); reflectedLight.directSpecular *= 0.0;
         reflectedLight.indirectDiffuse = diffuseColor.rgb * lit; reflectedLight.indirectSpecular *= 0.04 + 0.5 * cone * uLamp / (1.0 + 0.02 * d * d); }`);
   };
-  m.customProgramCacheKey = () => 'dead-' + deckY + '-' + base.uuid;
+  m.customProgramCacheKey = () => 'dead-' + deckY + '-' + bend.z + '-' + bend.k + '-' + base.uuid;
   return m;
 }
 const ACCENT = { harrow: [1.0, 0.25, 0.1], bastion: [1.0, 0.42, 0.18], anvil: [1.0, 0.3, 0.15], meridian: [1.0, 0.78, 0.4], vesper: [0.95, 0.85, 0.55], halcyon: [0.55, 0.85, 1.0], sable: [0.6, 0.4, 1.0], longshore: [1.0, 0.7, 0.2], tiller: [0.9, 0.85, 0.3] };
@@ -215,7 +216,7 @@ export class CapitalView {
       if (C.wreck) { if (C.dk) { const rp = C.mesh.position, far = Math.hypot(rp.x - cam.x, rp.y - cam.y, rp.z - cam.z), dk = this.models[C.deckModel], base = C.model;
           if (far < 6000 && !(this.deckLoads ||= new Set()).has(base)) { this.deckLoads.add(base); this.fetch('./assets/decks-' + base + '.glb'); }
           if (dk && !C.decks && far < 5000) { C.decks = new THREE.Group(); const black = new THREE.MeshStandardMaterial({ color: 0x060606, roughness: 0.9 }), mats = new Map();
-            for (const { g, slot } of dk) { const glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot); let mt = black; if (!glows) { mt = mats.get(slot); if (!mt) mats.set(slot, mt = deadLit(this.deckSurface(slot, C), 1)); }
+            for (const { g, slot } of dk) { const glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot); let mt = (mats.get('#dead') || mats.set('#dead', deadLit(black, 1, C.dk.bend)).get('#dead')); if (!glows) { mt = mats.get(slot); if (!mt) mats.set(slot, mt = deadLit(this.deckSurface(slot, C), 1, C.dk.bend)); }
               const m = new THREE.Mesh(g, mt); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); }
             C.decks.position.set(...C.dk.place); C.decks.rotation.y = -Math.PI / 2; C.mesh.children[C.dk.part].add(C.decks); }
           if (C.decks) C.decks.visible = far < 5200; }

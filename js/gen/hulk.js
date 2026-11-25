@@ -72,14 +72,18 @@ export function hulkDecks(H, layout) {
   const F = FLEET[H.model];
   if (F?.dock && layout) {
     const [mx, my, mz] = F.dock, W = layout.W, D = layout.D, Hh = layout.H, Fo = foreOf(H.model), part = mz < Fo.z ? 0 : 1, P = hulkParts(H)[part], c = Math.cos(H.yaw), s = Math.sin(H.yaw), f = Math.atan2(-c, s);
-    const lvl = q => [H.x + c * q[0] + s * q[2], LEVEL_Y + q[1], H.z - s * q[0] + c * q[2]], unl = p => { const dx = p[0] - H.x, dz = p[2] - H.z; return [c * dx - s * dz, p[1] - LEVEL_Y, s * dx + c * dz]; };
+    // bent: past a line across them (zb in from the mouth) the decks have dropped away or been driven up, k metres in each metre further in; the level
+    // copy stays level, so the bend is taken out going into it and put back coming out (and render/capital.js draws it the same)
+    const hb = Math.abs(Math.sin(H.x * 0.013 + H.z * 0.007)), zb = D * (0.3 + 0.2 * hb), kb = (hb > 0.5 ? 1 : -1) * (0.035 + 0.03 * hb), drop = xs => kb * Math.max(0, mx - xs - zb);
+    const lvl0 = q => [H.x + c * q[0] + s * q[2], LEVEL_Y + q[1], H.z - s * q[0] + c * q[2]], unl0 = p => { const dx = p[0] - H.x, dz = p[2] - H.z; return [c * dx - s * dz, p[1] - LEVEL_Y, s * dx + c * dz]; };
+    const flat = q => [q[0], q[1] - drop(q[0]), q[2]], bent = q => [q[0], q[1] + drop(q[0]), q[2]], lvl = q => lvl0(flat(q)), unl = p => bent(unl0(p));
     const wx = H.x + mx * c + mz * s, wz = H.z - mx * s + mz * c;
-    out = { W, D, part, place: [mx, my, mz - W / 2], at: { c: [wx + Math.sin(f) * D / 2, LEVEL_Y + my, wz + Math.cos(f) * D / 2], facing: f },
+    out = { W, D, part, bend: { z: zb, k: kb }, place: [mx, my, mz - W / 2], at: { c: [wx + Math.sin(f) * D / 2, LEVEL_Y + my, wz + Math.cos(f) * D / 2], facing: f },
       ship: p => appT(P.M, [p[0] - P.o[0], p[1] - P.o[1], p[2] - P.o[2]]),
       toLevel: p => lvl(appT(P.M, [p[0] - P.o[0], p[1] - P.o[1], p[2] - P.o[2]])), fromLevel: q => { const w = app(P.M, unl(q)); return [P.o[0] + w[0], P.o[1] + w[1], P.o[2] + w[2]]; },
       vecTo: v => { const q = appT(P.M, v); return [c * q[0] + s * q[2], q[1], -s * q[0] + c * q[2]]; }, vecFrom: v => app(P.M, [c * v[0] - s * v[2], v[1], s * v[0] + c * v[2]]),
       // (in the hull's frame the decks run in from the mouth at x = mx toward −x, W wide about z = mz)
-      inShip: (q, pad = 0) => q[0] < mx + 0.4 + pad && q[0] > mx - D - 1 - pad && Math.abs(q[2] - mz) < W / 2 + 1 + pad && q[1] > my - 3 - pad && q[1] < my + Hh + 3 + pad };
+      inShip: (q0, pad = 0) => { const q = flat(q0); return q[0] < mx + 0.4 + pad && q[0] > mx - D - 1 - pad && Math.abs(q[2] - mz) < W / 2 + 1 + pad && q[1] > my - 3 - pad && q[1] < my + Hh + 3 + pad; } };
     out.inside = (q, pad = 0) => out.inShip(unl(q), pad);
   }
   Object.defineProperty(H, '_decks', { value: out, enumerable: false, writable: true }); return out;

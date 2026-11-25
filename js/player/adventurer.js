@@ -166,6 +166,8 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
         const want = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, Y, Z));
         held.quaternion.copy(socket.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(want)); held.position.copy(socket.worldToLocal(at));
         held.userData.slung = true; } },
+    // out of the daylight (the decks of a dead ship): the sun's kept off you, all but a little
+    setShade(k) { if (Math.abs(k - (this._shade ?? 1)) < 0.01) return; this._shade = k; for (const m of mats) { if (!m.color) continue; m.userData.c0 ||= m.color.clone(); m.userData.e0 ??= m.envMapIntensity ?? 1; m.color.copy(m.userData.c0).multiplyScalar(k); m.envMapIntensity = m.userData.e0 * k; } },
     setOpacity(o) {
       if (Math.abs(o - opacity) < 0.01) return; opacity = o; root.visible = o > 0.02;
       for (const m of mats) { m.transparent = o < 0.99 || m.userData.t0; m.opacity = o; m.depthWrite = o >= 0.99 ? m.userData.d0 : false; }
