@@ -5,6 +5,7 @@
 // power and falls. Plain numbers, no three.js: the whole fight runs in Node for tests.
 import { Flight, fromEuler } from '../player/flight.js';
 import { shipPlan } from '../gen/ships.js';
+import { nextPylon } from '../gen/ordnance.js';
 
 const GUN_V = 950, GUN_RANGE = 1300, GUN_DMG = 11, MSL_V = 640, MSL_LIFE = 14, MSL_DMG = 140, MSL_FUSE = 14;
 const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
@@ -92,7 +93,10 @@ export class AirWar {
     if (!c.missiles || c.mslCool > 0 || !c.lock || !c.lock.alive) return false;
     c.missiles--; c.mslCool = 1.2;
     const F = c.f.fwd;
-    this.missiles.push({ p: add(add(c.f.pos, c.f.up, -1.2), F, 2), v: add(c.f.vel, F, 40), target: c.lock, life: MSL_LIFE, from: c, trail: [] });
+    // it leaves the pylon it hangs on (gen/ordnance.js): let go, it falls clear of the wing for a moment with the aircraft's own speed, then its motor lights
+    const py = nextPylon(c.model, c.missiles + 1);
+    if (py) this.missiles.push({ p: add(add(add(c.f.pos, c.f.left, py[0]), c.f.up, py[1]), F, py[2]), v: add(c.f.vel, c.f.up, -2.5), drop: 0.32, target: c.lock, life: MSL_LIFE, from: c, trail: [] });
+    else this.missiles.push({ p: add(add(c.f.pos, c.f.up, -1.2), F, 2), v: add(c.f.vel, F, 40), target: c.lock, life: MSL_LIFE, from: c, trail: [] });
     this.events.push({ type: 'missile', from: c, target: c.lock });
     return true;
   }
@@ -212,6 +216,7 @@ export class AirWar {
     // missiles: proportional navigation, proximity fuse
     for (const m of this.missiles) {
       m.life -= dt;
+      if (m.drop > 0) { m.drop -= dt; m.v[1] -= 9.8 * dt; m.p = add(m.p, m.v, dt); if (m.drop <= 0) { m.lit = true; m.v = add(m.v, m.from?.f ? m.from.f.fwd : norm(m.v), 40); } continue; }
       const tgt = m.target, sp = Math.min(MSL_V, len(m.v) + 260 * dt);
       if (tgt.alive) {
         const los = sub(tgt.f.pos, m.p), r = len(los), vr = sub(tgt.f.vel, m.v), closing = -dot(vr, norm(los));

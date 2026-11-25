@@ -2608,7 +2608,7 @@ async function start(fresh) {
     const vacOf = y => Math.min(1, Math.max(0, (y - 12000) / 28000)), heatOf = c => c ? Math.min(1, Math.max(0, (0.6 - c.hp / c.maxHp) / 0.45)) : 0;
     // the ship you're flying, wherever it came from (your own, or one issued for a sortie or a drop that isn't parked anywhere)
     const flown = sh => { const agl = flight.altitude(), dk = docking && (docking.settle || docking.s > docking.sIn - 40);
-        return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false,
+        return { id: sh.id, model: sh.model, c: toRender(...flight.pos), facing: flight.facing, pitch: flight.pitch, roll: flight.roll, colour: sh.colour, rampDown: false, msl: myCraft && myCraft.model === sh.model ? myCraft.missiles : null,
           gear: flight.onGround || dk || (agl < 45 && flight.airspeed < 40) || (flight.vtol && flight.hover > 0.25 && agl < 90) ? 1 : 0, thrust: flight.throttle * (keys.has('ShiftLeft') && flight.throttle > 0.95 ? 1.7 : 1), hover: flight.hover, heat: heatOf(myCraft), vac: vacOf(flight.pos[1]), ground: agl, landed: flight.onGround }; };
     const shipList = ships.filter(sh => !sh.fleet).map(sh => {
       if (flight && flight.ship.id === sh.id) return flown(sh);
@@ -2621,7 +2621,7 @@ async function start(fresh) {
       const { c, facing } = centreOf(shipTown(sh), sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean).concat(flight && !ships.some(sh => sh.id === flight.ship.id && !sh.fleet) ? [flown(flight.ship)] : []).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c), gear: 0, thrust: 0.7, hover: 0 })))
-      .concat(war.craft.filter(c => c !== myCraft && !c.fixed).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
+      .concat(war.craft.filter(c => c !== myCraft && !c.fixed).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, msl: c.missiles, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
     shipView.update(shipList, dt); thrustView.update(shipList, dt, origin);
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
     stepCrashes(dt, t, wx0 => wx0, traffic); lastTraffic = traffic;

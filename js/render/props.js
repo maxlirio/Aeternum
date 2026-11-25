@@ -9,6 +9,7 @@
 import { share } from './share.js';
 import * as THREE from 'three';
 import { gltfLoader, bakedPart } from './gltf.js';
+import { splitOrdnance } from '../gen/ordnance.js';
 import { weather } from './grime.js';
 
 const FABRICS = [[0.32, 0.38, 0.46], [0.5, 0.33, 0.28], [0.42, 0.44, 0.40], [0.62, 0.58, 0.50], [0.22, 0.24, 0.27], [0.55, 0.5, 0.42], [0.3, 0.34, 0.3]];
@@ -82,10 +83,11 @@ export async function loadPropLibrary(base = './assets/', anisotropy = 8, only =
     }
     variants.get(name).prims.push({ geometry: g, slot: o.material.name });
   });
-  for (const v of variants.values()) for (const p of v.prims) {
+  for (const v of variants.values()) { v.ordnance = splitOrdnance(v.kind, v.prims, THREE); if (v.ordnance) v.prims.push(...v.ordnance.prims.map(p => (p.ord = true, p))); }      // (a fighter's missiles, cut out of its hull to be parts of their own: gen/ordnance.js)
+  for (const v of variants.values()) { for (const p of v.prims) {
     p.tinted = p.slot === 'tint';
     p.material = surface(p.tinted ? 'tint-' + (/^(tent|tarp|leanto|stall_)/.test(v.kind) ? 'canvas' : SOFT.has(v.kind) ? 'fabric' : SLEEK.test(v.kind) ? 'sleek' : HULLED.has(v.kind) ? 'craft' : v.kind.startsWith('veh_') ? 'paint' : 'paint') : p.slot);
-  }
+  } v.prims = v.prims.filter(p => !p.ord); }
   // the city kit: kind → parts (geometry in the kit's own frame, its surface, tinted?)
   const cityKit = new Map(), worn = new Map();
   for (const kit of [city, itemsG, commonG, familyG]) {

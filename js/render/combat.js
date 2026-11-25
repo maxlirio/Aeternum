@@ -1,6 +1,7 @@
 // What air combat looks like: tracers, missiles with smoke trails, explosions, flares,
 // burning wrecks' smoke. Reads AirWar's plain state each frame; draws in render space.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export class CombatView {
   constructor(scene) {
@@ -15,8 +16,13 @@ export class CombatView {
     const smokeMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(sc), color: 0x45413d, transparent: true, opacity: 0.85, depthWrite: false });
     smokeMat.onBeforeCompile = sh => { sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0); float sc = length(instanceMatrix[0].xyz); mvPosition.xy += position.xy * sc * 2.2; gl_Position = projectionMatrix * mvPosition;`); };
     this.smoke = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), smokeMat, cap);
-    this.mis = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.12, 0.12, 2.6, 8).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0xff9040, emissiveIntensity: 0.4 }), 200);
-    for (const m of [this.fire, this.smoke, this.mis]) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
+    // a missile as it hangs under the wing (tools/assets/build.py jet): the body, its pointed nose, four fins at the tail; and behind it, the motor's flame
+    { const parts = [new THREE.CylinderGeometry(0.11, 0.11, 2.8, 12).rotateX(Math.PI / 2), new THREE.ConeGeometry(0.11, 0.3, 12).rotateX(Math.PI / 2).translate(0, 0, 1.55)];
+      for (let a = 0; a < 4; a++) parts.push(new THREE.BoxGeometry(0.16, 0.02, 0.4).translate(0.19, 0, -1.2).rotateZ(a * Math.PI / 2 + Math.PI / 4));
+      const body = mergeGeometries(parts.map(g => g.toNonIndexed()));
+      this.mis = new THREE.InstancedMesh(body, new THREE.MeshStandardMaterial({ color: 0x8a8d90, roughness: 0.45, metalness: 0.5 }), 200);
+      this.misFlame = new THREE.InstancedMesh(new THREE.ConeGeometry(0.1, 1.6, 10).rotateX(-Math.PI / 2).translate(0, 0, -2.2), new THREE.MeshBasicMaterial({ color: 0xffc070, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }), 200); this.misFlame.count = 0; this.misFlame.frustumCulled = false; }
+    for (const m of [this.fire, this.smoke, this.mis, this.misFlame]) { m.frustumCulled = false; m.count = 0; this.group.add(m); }
     this.light = new THREE.PointLight(0xffa050, 0, 600, 2); this.group.add(this.light);
     this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._v = new THREE.Vector3(); this._s = new THREE.Vector3();
   }
@@ -26,13 +32,13 @@ export class CombatView {
     for (const r of war.rounds) { if (n >= 2000) break; const a = toRender(...r.p), b = toRender(r.p[0] - r.v[0] * 0.025, r.p[1] - r.v[1] * 0.025, r.p[2] - r.v[2] * 0.025); pa.set([...a, ...b], n * 6); n++; }
     this.tracers.geometry.setDrawRange(0, n * 2); this.tracers.geometry.attributes.position.needsUpdate = true;
     // missiles and their smoke
-    pa = this.trails.geometry.attributes.position.array; n = 0; let k = 0;
+    pa = this.trails.geometry.attributes.position.array; n = 0; let k = 0, kf = 0;
     for (const m of war.missiles) {
       const p = toRender(...m.p); this._v.set(m.v[0], m.v[1], m.v[2]).normalize(); this._q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), this._v);
-      if (k < 200) { this._m.compose(new THREE.Vector3(...p), this._q, this._s.set(1, 1, 1)); this.mis.setMatrixAt(k++, this._m); }
+      if (k < 200) { this._m.compose(new THREE.Vector3(...p), this._q, this._s.set(1, 1, 1)); this.mis.setMatrixAt(k, this._m); if (!(m.drop > 0)) this.misFlame.setMatrixAt(kf++, this._m); k++; }
       for (let i = 1; i < m.trail.length && n < 4000; i++) { pa.set([...toRender(...m.trail[i - 1]), ...toRender(...m.trail[i])], n * 6); n++; }
     }
-    this.mis.count = k; this.mis.instanceMatrix.needsUpdate = true;
+    this.mis.count = k; this.mis.instanceMatrix.needsUpdate = true; this.misFlame.count = kf; this.misFlame.instanceMatrix.needsUpdate = true;
     this.trails.geometry.setDrawRange(0, n * 2); this.trails.geometry.attributes.position.needsUpdate = true;
     // explosions, sparks, flares; smoke
     let f = 0, sm = 0, bright = 0, bp = null;

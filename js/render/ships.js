@@ -41,6 +41,8 @@ export class ShipView {
         hull: mk(hull ? hull.prims : box(hx1 - hx0 + 0.6, L.ceiling - L.deck + 1, hz1 - hz0, (hx0 + hx1) / 2, (L.deck + L.ceiling) / 2, (hz0 + hz1) / 2)),
         ramp: mk(ramp ? ramp.prims : box(L.ramp.x1 - L.ramp.x0, 0.1, L.ramp.z1 - L.ramp.z0, hinge.x, L.deck / 2, (L.ramp.z0 + L.ramp.z1) / 2)),
       };
+      // the missiles under its wings, each its own part (gen/ordnance.js): one hangs on its pylon until it's fired
+      if (hull?.ordnance) { const O = hull.ordnance; this.models[model].ord = { pylons: O.pylons, prims: O.prims, ims: O.prims.map(pr => { const im = new THREE.InstancedMesh(pr.geometry, pr.material, MAX * O.pylons.length); im.count = 0; im.frustumCulled = false; im.castShadow = true; if (pr.tinted) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * O.pylons.length * 3), 3); this.group.add(im); return { im, tinted: pr.tinted }; }) }; }
     }
     // landing gear, made of its parts and drawn here so it can move: a leg at each of the four points the ship stands on (player/flight.js
     // feet), its strut down from inside the hull, a polished piston, a torque link, a foot; bay doors that swing open for it
@@ -52,15 +54,20 @@ export class ShipView {
     for (const M of Object.values(this.models)) Object.defineProperty(M, 'gear', { get() { return this._gear ||= gearSpots(this); }, configurable: true });     // (worked out the first time the ship is drawn)
     this.gearAnim = new Map();   // ship id → how far its gear is down, 0..1
     this.anim = new Map();      // ship id → ramp openness 0..1
-    this._m = new THREE.Matrix4(); this._r = new THREE.Matrix4(); this._c = new THREE.Color(); this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
+    this._m = new THREE.Matrix4(); this._t = new THREE.Matrix4(); this._r = new THREE.Matrix4(); this._c = new THREE.Color(); this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
   // list: [{ id, model, c (render space ground point under the centre), facing, pitch?, roll?, colour, rampDown }]
   putGear(k, m) { const im = this.gearParts[k], i = this.gearN[im.uuid] = (this.gearN[im.uuid] || 0); if (i >= 512) return; im.setMatrixAt(i, m); this.gearN[im.uuid]++; }
   gearOf(id) { return this.gearAnim.get(id); }
   update(list, dt) {
-    const n = {}; this.gearN = {}; this.gearSeen = new Set(); this.cockSeen = false;
+    const n = {}, no = {}; this.gearN = {}; this.gearSeen = new Set(); this.cockSeen = false;
     for (const s of list) {
       const M = this.models[s.model || 'shuttle']; if (!M || this.hidden?.(s)) continue;
+      if (M.ord) { const P = M.ord.pylons, gone = s.msl == null ? 0 : Math.max(0, P.length - s.msl); let k = no[s.model] || 0;       // (the first `gone` have left their pylons)
+        this._e.set(-(s.pitch || 0), s.facing, s.roll || 0); this._r.compose(new THREE.Vector3(...s.c), this._q.setFromEuler(this._e), new THREE.Vector3(1, 1, 1));
+        const col = LIVERY[(((s.colour | 0) % LIVERY.length) + LIVERY.length) % LIVERY.length]; this._c.setRGB(col[0], col[1], col[2]);
+        for (let j = gone; j < P.length && k < MAX * P.length; j++, k++) { this._m.copy(this._r).multiply(this._t.makeTranslation(P[j].x - M.L.W / 2, P[j].y, P[j].z - M.L.D / 2)); for (const { im, tinted } of M.ord.ims) { im.setMatrixAt(k, this._m); if (tinted) im.setColorAt(k, this._c); } }
+        no[s.model] = k; }
       if (this.cock?.id === s.id) { this.drawCockpit(M, s); continue; }       // (the ship you're flying, seen from its seat: drawn on its own, cut open ahead of you behind a windscreen) if (this.viewer && Math.hypot(s.c[0] - this.viewer[0], s.c[2] - this.viewer[2]) > 2400) continue;     // (too far to see)
       const i = n[s.model || 'shuttle'] = (n[s.model || 'shuttle'] ?? 0); if (i >= MAX) continue;
       const { W, D } = M.L;
@@ -99,6 +106,7 @@ export class ShipView {
     for (const [model, M] of Object.entries(this.models)) for (const { im, tinted } of [...M.hull, ...M.ramp]) {
       im.count = n[model] || 0; im.instanceMatrix.needsUpdate = true; if (tinted && im.instanceColor) im.instanceColor.needsUpdate = true;
     }
+    for (const [model, M] of Object.entries(this.models)) if (M.ord) for (const { im, tinted } of M.ord.ims) { im.count = no[model] || 0; im.instanceMatrix.needsUpdate = true; if (tinted && im.instanceColor) im.instanceColor.needsUpdate = true; }
   }
   rampOpen(id) { return (this.anim.get(id) ?? 1) > 0.98; }
   // The pilot's view (main.js cockpit view): whatever of the hull stands ahead of your eye is cut away, and a windscreen stands there instead,

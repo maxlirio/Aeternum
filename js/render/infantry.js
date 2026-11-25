@@ -36,10 +36,16 @@ export class InfantryView {
   build(I) {
     if (this.line) { this.root.remove(this.line); this.line.traverse(o => { if (o.isMesh) o.geometry.dispose(); }); }
     const g = this.line = new THREE.Group(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), P = p => new THREE.Vector3(...p);       // (the works stand in the world group, which carries the floating origin)
-    // sandbags: each one a squashed, rounded sack, laid in two courses with the joints staggered, the wall bowed toward the enemy
-    const bag = new THREE.SphereGeometry(0.5, 12, 8); bag.scale(0.62, 0.26, 0.36); { const a = bag.attributes.position; for (let i = 0; i < a.count; i++) { const x = a.getX(i), y = a.getY(i); a.setY(i, Math.sign(y) * Math.min(Math.abs(y), 0.11) + y * 0.15); a.setX(i, x * (1 - 0.15 * Math.abs(y) / 0.13)); } bag.computeVertexNormals(); }
-    const bags = []; for (const C of I.cover) { const n = Math.round(C.len / 0.6); for (let row = 0; row < 3; row++) for (let k = 0; k < n - (row === 2 ? 2 : 0); k++) { const f = (k + (row % 2) * 0.5 + (row === 2 ? 1 : 0)) / n - 0.5, s = f * C.len, bow = C.curve * (f * f * 4 - 1) * 0.8, ca = Math.cos(C.face), sa = Math.sin(C.face);
-      const x = C.pos[0] + ca * s + sa * bow, z = C.pos[2] - sa * s + ca * bow; bags.push([x, (I.wallYAt ? I.wallYAt(C, x, z) : C.pos[1]) + 0.12 + row * 0.25, z, C.face + Math.PI / 2 + f * C.curve * 1.2 + (Math.random() - 0.5) * 0.12, C, row]); } }
+    // sandbags: each a filled sack, flat where it beds on the one below and bulging at its sides, laid lengthways along the wall in four courses.
+    // Each course is bedded into the one under it with the joints broken (a bag sits over the joint of the two below), the top course short of the ends.
+    const BL = 0.6, BH = 0.25, BD = 0.4, LIFT = 0.205;
+    const bag = new THREE.SphereGeometry(1, 16, 10); { const a = bag.attributes.position, pw = (v, e) => Math.sign(v) * Math.pow(Math.abs(v), e); for (let i = 0; i < a.count; i++) { const x = a.getX(i), y = a.getY(i), z = a.getZ(i), r = Math.hypot(x, z) || 1, sag = 1 + 0.1 * (1 - Math.abs(y)) * (y < 0 ? 1 : 0.4);
+      a.setXYZ(i, pw(x, 0.55) * BL / 2 * 1.04 * sag, pw(y, 0.5) * BH / 2, pw(z, 0.62) * BD / 2 * sag); } bag.computeVertexNormals(); }
+    const bags = []; for (const C of I.cover) { const n = Math.max(2, Math.round(C.len / BL)), step = C.len / n, ca = Math.cos(C.face), sa = Math.sin(C.face);
+      for (let row = 0; row < 4; row++) { const odd = row % 2, cnt = n - odd - (row === 3 ? 2 : 0), off = (odd ? 0.5 : 0) + (row === 3 ? 1 : 0);
+        for (let k = 0; k < cnt; k++) { const f = (k + off + 0.5) / n - 0.5, s = f * C.len, bow = C.curve * (f * f * 4 - 1) * 0.8, x = C.pos[0] + ca * s + sa * bow, z = C.pos[2] - sa * s + ca * bow;
+          // (the bag lies along the wall where it is: the wall's own line, turned by its bow there)
+          bags.push([x, (I.wallYAt ? I.wallYAt(C, x, z) : C.pos[1]) + BH / 2 - 0.03 + row * LIFT, z, C.face - Math.atan2(C.curve * 6.4 * f, C.len) + (Math.random() - 0.5) * 0.07, C, row]); } } }
     const bm = this.bagMesh = new THREE.InstancedMesh(bag, plain('canvas'), bags.length); this.bags = bags; bags.forEach(([x, y, z, a], i) => { q.setFromAxisAngle(up, a); m.compose(P([x, y, z]), q, new THREE.Vector3(1, 1, 1)); bm.setMatrixAt(i, m); bm.setColorAt(i, this.col.setRGB(0.62 + Math.random() * 0.08, 0.55 + Math.random() * 0.06, 0.4)); }); bm.castShadow = bm.receiveShadow = true; g.add(bm);
     // hedgehogs: three steel angles crossed and welded at the middle
     const beam = new THREE.BoxGeometry(0.16, 0.16, 2.3), hh = [], parts = [];
