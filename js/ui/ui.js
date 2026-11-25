@@ -166,7 +166,11 @@ export class UI {
         <button data-a="backup">Download backup</button>
         <button data-a="restore">Restore from backup…</button>
         <button data-a="log">World log</button>
-        <details class="controls"><summary>Controls</summary><p>Mouse look · WASD move · Shift run · Space jump, grab a wall · E use, talk, take · click or R attack · G grenade · F force, hotwire · I inventory · L light · J work · C you<br><br>On a wall: WASD climb · Shift faster · Space leap · Q let go<br>Vehicles: W/S throttle · A/D steer · Shift boost · Space/Q up and down<br>Flying: W/S thrust · mouse stick · A/D rudder · Space/Q lift · B brakes · X assist · V view · hold click guns · F missile · G flares</p></details>`, 'menu');
+        <details class="controls"><summary>Controls</summary><p>Mouse look · WASD move · Shift run · Space jump, grab a wall, vault · E use, talk, take, get in or on · I inventory · L light · J work · C you<br><br>
+<b>Body</b>: Z or Ctrl crouch (at a full run: slide) · X lie down, X again to get up (or move off)<br>
+<b>Fighting</b>: click or hold R fire, strike · aim: hold right click, or hold Alt, or tap right click / V to keep the gun up (same again to lower it) · G grenade · Q launcher · F force, hotwire<br>
+<b>Trackpad</b>: two-finger tap puts the gun up and leaves it up, then click to fire; or V to aim and R to fire<br><br>
+On a wall: WASD climb · Shift faster · Space leap · Q let go<br>Vehicles: W/S throttle · A/D steer · Shift boost · Space/Q up and down<br>Flying: W/S thrust · mouse stick · A/D rudder · Space/Q lift · B brakes · X assist · V view · hold click guns · F missile · G flares</p></details>`, 'menu');
       p.addEventListener('click', e => { const a = e.target.dataset.a; if (a) res(a); });
     });
   }

@@ -477,10 +477,16 @@ async function start(fresh) {
   addEventListener('blur', () => keys.clear());
   renderer.domElement.addEventListener('click', () => { sound.wake(); if (paused) return; if (document.pointerLockElement === renderer.domElement) { if (!heldRanged() && !tankV) attack(); } else renderer.domElement.requestPointerLock?.(); });
   // a gun: held down, it keeps firing; the other button puts your eye to its sight (in a tank, the gunner's)
-  renderer.domElement.addEventListener('mousedown', e => { if (paused || document.pointerLockElement !== renderer.domElement || flight || ride) return; if (e.button === 0 && (heldRanged() || tankV)) { trigger = true; if (!tankV) attack(); } if (e.button === 2) aimHeld = true; });
-  addEventListener('mouseup', e => { if (e.button === 0) trigger = false; if (e.button === 2) aimHeld = false; });
+  // Aiming: hold the right button, as ever. For a trackpad, where you can't hold one click and make another: a quick right click (a two-finger tap)
+  // puts the gun up and leaves it up till the next one, V does the same from the keys, Alt held aims while it's down; and R held is the trigger.
+  let aimBtn = false, aimStick = false, aimT0 = 0, aimWasStuck = false;
+  const aimSync = () => { aimHeld = aimBtn || aimStick || keys.has('AltLeft') || keys.has('AltRight'); };
+  renderer.domElement.addEventListener('mousedown', e => { if (paused || document.pointerLockElement !== renderer.domElement || flight || ride) return; if (e.button === 0 && (heldRanged() || tankV)) { trigger = true; if (!tankV) attack(); } if (e.button === 2) { aimBtn = true; aimT0 = performance.now(); aimWasStuck = aimStick; aimStick = false; aimSync(); } });
+  addEventListener('mouseup', e => { if (e.button === 0) trigger = false; if (e.button === 2) { aimBtn = false; if (!aimWasStuck && performance.now() - aimT0 < 230) aimStick = true; aimSync(); } });
+  addEventListener('keydown', e => { if (e.repeat || paused || flight || ride) return; if (e.code === 'KeyV') { aimStick = !aimStick; aimSync(); } if (e.code === 'AltLeft' || e.code === 'AltRight') { e.preventDefault(); aimHeld = true; } if (e.code === 'KeyR' && (heldRanged() || tankV)) trigger = true; });
+  addEventListener('keyup', e => { if (e.code === 'KeyR') trigger = false; if (e.code === 'AltLeft' || e.code === 'AltRight') { keys.delete(e.code); aimSync(); } });
   renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
-  addEventListener('blur', () => { trigger = false; wantShot = false; aimHeld = false; });
+  addEventListener('blur', () => { trigger = false; wantShot = false; aimHeld = aimBtn = aimStick = false; });
   document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && !paused && window.ORBIS.ready && !params.has('cam')) openMenu(); });
 
   const save = async () => {
@@ -1515,10 +1521,10 @@ async function start(fresh) {
     if (tankV) { leaveTank(); return true; }
     if (!onLine()) return false;
     const V = armor.list.filter(V => !V.dead && V.side === 'ours' && V.crew === 'ai' && armor.inHull(V, ctrl.pos[0], ctrl.pos[2], 2.2)).sort((a, b) => Math.hypot(a.pos[0] - ctrl.pos[0], a.pos[2] - ctrl.pos[2]) - Math.hypot(b.pos[0] - ctrl.pos[0], b.pos[2] - ctrl.pos[2]))[0]; if (!V) return false;
-    armor.board(V); tankV = V; aimHeld = false; trigger = false; aimK = 0; chud.log(`You climb into the ${V.T.name}`, 'you'); sound.clink(V.pos); cam.yaw = V.turret; return true;
+    armor.board(V); tankV = V; aimHeld = aimBtn = aimStick = false; trigger = false; aimK = 0; chud.log(`You climb into the ${V.T.name}`, 'you'); sound.clink(V.pos); cam.yaw = V.turret; return true;
   }
   function leaveTank() {
-    const V = tankV; if (!V) return; armor.leave(V); tankV = null; aimHeld = false; trigger = false; aimK = 0;
+    const V = tankV; if (!V) return; armor.leave(V); tankV = null; aimHeld = aimBtn = aimStick = false; trigger = false; aimK = 0;
     const rx = Math.cos(V.facing), rz = -Math.sin(V.facing), x = V.pos[0] + rx * (V.T.W / 2 + 1.0), z = V.pos[2] + rz * (V.T.W / 2 + 1.0); ctrl.pos = [x, landY(x, z) + 0.05, z]; ctrl.vel = [0, 0, 0]; ctrl.mode = 'walk';
   }
   // where you're looking from the tank, out to 600 m: the ground, a hull, else far off

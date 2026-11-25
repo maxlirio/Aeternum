@@ -19,7 +19,7 @@ function aim(bone, child, dir) { bone.getWorldPosition(_v); const c = child.getW
 
 export async function loadAdventurer(url = './assets/adventurer.glb') {
   const [g] = await Promise.all([new GLTFLoader().loadAsync(url), loadMixamo().catch(e => console.warn('recorded clips', e))]), root = g.scene, by = {};
-  for (const id of ['sprint', 'rifle_back', 'strafe_l', 'strafe_r', 'rifle_aim', 'rifle_fire', 'rifle_draw', 'bayonet', 'slash', 'hook', 'grenade', 'hit_a', 'hit_b', 'punched', 'land_hard', 'jump_down', 'get_up', 'dazed', 'death_front', 'death_back', 'dying', 'prone_fire', 'fight_a', 'fight_b', 'nade_stand', 'nade_crouch', 'jump_run', 'jump_up']) { const c = clipFor(id); if (c && !g.animations.some(a => a.name === id)) g.animations.push(c); }      // (the recorded takes: player/mixamo.js)
+  for (const id of ['sprint', 'rifle_back', 'strafe_l', 'strafe_r', 'rifle_aim', 'rifle_fire', 'rifle_draw', 'bayonet', 'slash', 'hook', 'grenade', 'hit_a', 'hit_b', 'punched', 'land_hard', 'jump_down', 'get_up', 'dazed', 'death_front', 'death_back', 'dying', 'prone_fire', 'fight_a', 'fight_b', 'nade_stand', 'nade_crouch', 'jump_run', 'jump_up', 'fall']) { const c = clipFor(id); if (c && !g.animations.some(a => a.name === id)) g.animations.push(c); }      // (the recorded takes: player/mixamo.js)
   root.traverse(o => { if (o.name && !by[o.name]) by[o.name] = o; if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
   root.traverse(o => { if (o.isBone) o.userData.q0 = o.quaternion.clone(); });
   const skinned = []; root.traverse(o => { if (o.isSkinnedMesh) skinned.push(o); });
@@ -44,17 +44,17 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
   let opacity = 1, onWall = false, phase = 0, oneShot = null, heldId = null, aimIdle = null, gunUp = 0, gunPitch = 0, ranged = false, crouchK = 0, moveAng = 0, guard = false, long = false, prone = false, proneFire = 0, firing = 0, side = 0;
   // The recorded takes (player/mixamo.js) played over the body: a stretch of one (from..to s, at a rate), the whole body or the upper half, weighted, eased in and out;
   // held on its last frame (a death), or let go. still: the hips kept over the feet (a stumble or a landing mustn't carry the body off from where you are).
-  const takes = [];
+  const takes = [], AIR = /^(jump_|fall$)/; let jumping = false;
   const play = (id, o = {}) => { const c = clip(id); if (!c) return null; let A = o.upper ? (upperActs[id] ||= upperOf(id)) : act[id]; if (!A) return null;
     if (!o.upper && takes.some(T => T.A === A)) { const alt = altActs[id] ||= [mixer.clipAction(c.clone())]; A = alt.find(a => !takes.some(T => T.A === a)) || (alt.push(mixer.clipAction(c.clone())), alt.at(-1)); }      // (the same take again while the last is still easing out — a jump's landing after its flight: a second copy of it, so each eases on its own)
     for (const T of takes) if (T.A === A || T.id === id || (!o.upper && !T.upper && !T.hold)) T.out = true;
-    const T = { id, A, from: o.from || 0, t: o.from || 0, to: o.to ?? c.duration, rate: o.rate || 1, w: o.w ?? 1, k: 0, upper: !!o.upper, hold: !!o.hold, still: !!o.still, loop: !!o.loop, flat: !!o.flat, out: false, done: o.done || null };
+    const T = { id, A, from: o.from || 0, t: o.from || 0, to: o.to ?? c.duration, rate: o.rate || 1, w: o.w ?? 1, k: 0, upper: !!o.upper, hold: !!o.hold, still: !!o.still, loop: !!o.loop, flat: !!o.flat, fast: !!o.fast, out: false, done: o.done || null };
     A.play(); A.enabled = true; A.timeScale = 0; A.weight = 0; takes.push(T); return T; };
   const upperActs = {}, altActs = {};
   const fullK = () => takes.reduce((m, T) => T.upper ? m : Math.max(m, T.k * T.w), 0);
   function stepTakes(dt) {
     for (const T of takes) { if (!T.out) { T.t += dt * T.rate; if (T.t >= T.to) { if (T.loop) T.t = T.t - T.to + (T.from || 0); else if (T.hold) T.t = T.to - 1e-3; else { T.t = T.to - 1e-3; T.out = true; T.done?.(); } } }
-      T.k = Math.max(0, Math.min(1, T.k + (T.out ? -1 : 1) * dt * (T.hold ? 4 : 7))); T.A.time = T.t; T.A.weight = T.k * T.w * (T.upper ? 4 : 1); }
+      T.k = Math.max(0, Math.min(1, T.k + (T.out ? -1 : 1) * dt * (T.fast ? 16 : T.hold && !T.loop ? 4 : 7))); T.A.time = T.t; T.A.weight = T.k * T.w * (T.upper ? 4 : 1); }
     for (let i = takes.length - 1; i >= 0; i--) if (takes[i].out && takes[i].k <= 0) { takes[i].A.weight = 0; takes[i].A.stop(); takes.splice(i, 1); } }
   const stillHips = () => { const k = takes.reduce((m, T) => T.still ? Math.max(m, T.k) : m, 0); if (k <= 0 || !pelvis0) return; const P = by.pelvis.position, up = upAxis;
     for (const a of ['x', 'y', 'z']) if (a !== up) P[a] += (pelvis0[a] - P[a]) * k;
@@ -192,15 +192,15 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
     weights() { const o = {}; for (const A of mixer._actions) if (A.weight > 0.05 && mixer._isActiveAction(A)) o[A.getClip().name] = +A.weight.toFixed(2); if (window.__dbg) Object.assign(o, { _guard: guard, _ang: +moveAng.toFixed(2), _ranged: ranged, _gunUp: +gunUp.toFixed(2), _two: !!held.children[0]?.userData.meta?.two, _held: held.children.length }); return o; },      // (what's playing: for the tests)      // which way you're going, against the way you face (+ to your left)
     fired() { firing = 0.35; proneFire = 0.4; },
     setProne(on) { prone = !!on; },
-    // down from a height: a long drop's hard landing, or a jump down's crouched one
-    land(v) { for (const T of takes) if (/^jump_/.test(T.id) && T.hold) T.out = true;
-      if (v > 12) play('land_hard', { from: 0.05, rate: 1.1, still: true }); else if (v > 6.5) play('jump_down', { from: 1.85, rate: 1.25, still: true }); else play('jump_down', { from: 1.95, to: 2.6, rate: 1.9, w: 0.75, still: true }); },
-    // a jump: the recorded one's push off and flight, its legs reaching for the ground at the end, held there till you're down
-    // (at a run it's the recorded running jump: off one foot, arms thrown wide, legs coming through; from a stand, the jump straight up: the spring and the reach)
-    jump(speed = 0) { if (prone || !clip('jump_down') || takes.some(T => /^jump_/.test(T.id) && !T.out)) return;
-      if (speed > 3.5 && clip('jump_run')) play('jump_run', { from: 0.1, to: 0.52, rate: 0.75, hold: true, still: true, flat: true });
-      else if (speed < 1.2 && clip('jump_up')) play('jump_up', { from: 0.36, to: 0.7, rate: 0.9, hold: true, still: true, flat: true });
-      else play('jump_down', { from: 0.85, to: 1.75, rate: 1.05, hold: true, still: true, flat: true }); },
+    // down again. The landing take starts at the moment the feet meet the ground (the recorded fall's landing: the knees give, and up), so it's
+    // brought in at once, deeper the harder you come down; from a real height, the recorded jump down's landing, right down into a crouch
+    land(v) { for (const T of takes) if (AIR.test(T.id)) T.out = T.fast = true; jumping = false;
+      if (v > 12) play('jump_down', { from: 1.9, rate: 1.2, still: true, fast: true }); else if (clip('land_hard')) play('land_hard', { from: 0.04, rate: v > 6.5 ? 1.15 : 1.5, w: Math.min(1, 0.5 + v / 14), still: true, fast: true }); },
+    // a jump: only the push off of the recorded one (off one foot at a run, the spring from a stand), and then, for as long as you're in the air,
+    // the recorded fall: arms out for balance, legs loose under you (update), till land()
+    jump(speed = 0) { if (prone || !clip('jump_down') || takes.some(T => AIR.test(T.id) && !T.out)) return; jumping = true;
+      if (speed > 3.5 && clip('jump_run')) play('jump_run', { from: 0.1, to: 0.4, rate: 0.95, still: true, flat: true });
+      else if (clip('jump_up')) play('jump_up', { from: 0.38, to: 0.66, rate: 1, still: true, flat: true }); },
     // knocked over: up off the ground over `sec` seconds
     knockedDown(sec = 3) { const I = infoOf('get_up'); if (!I) return; play('get_up', { from: 1.6, to: 6.6, rate: Math.max(1, Math.min(3.2, 5 / sec)), still: true }); },
     // killed: the way the shot (or whatever it was) took you; held there
@@ -255,10 +255,11 @@ export async function loadAdventurer(url = './assets/adventurer.glb') {
           aim(by['upperarm_' + s], by['lowerarm_' + s], down.clone().addScaledVector(f, 0.35).normalize()); aim(by['lowerarm_' + s], by['hand_' + s], f.clone().addScaledVector(down, 0.5).normalize()); }
       } else if (pose === 'lie') { root.rotateX(-Math.PI / 2); root.position.y += 0.12; }
       else if (pose === 'swim') { root.rotateX(1.25); root.position.y += 0.75; }
-      // in the air without having jumped (off an edge): the jump's legs drawn up; down, it's let go (land() plays the landing)
+      // in the air: the recorded fall, looped, once the push off's done (or a moment after you've walked off an edge); down, it's let go (land() plays the landing)
       airT = grounded || climb || pose ? 0 : airT + dt;
-      if (airT > 0.3 && !takes.some(T => /^jump_/.test(T.id) && !T.out)) play('jump_down', { from: 1.4, to: 1.75, rate: 0.8, hold: true, still: true, flat: true });
-      if ((grounded || climb || pose) && airT === 0) for (const T of takes) if (/^jump_/.test(T.id) && T.hold) T.out = true;
+      if (airT > (jumping ? 0.04 : 0.3) && !takes.some(T => AIR.test(T.id) && !T.out)) play(clip('fall') ? 'fall' : 'jump_down', clip('fall') ? { loop: true, hold: true, still: true, flat: true } : { from: 1.4, to: 1.75, rate: 0.8, hold: true, still: true, flat: true });
+      if ((grounded || climb || pose) && airT === 0 && !jumping) for (const T of takes) if (AIR.test(T.id) && T.hold) T.out = true;
+      if (jumping && airT > 0.1) jumping = 1; else if (jumping === 1 && airT === 0) jumping = false;      // (a jump that never got a landing call: over once you're down)
       // a take with the whole body (a death, a fall, a flinch, getting up) or lying stunned: the clip guides, the ground and the walls stop it
       if (contactQ && !climb && pose !== 'sit' && pose !== 'swim' && (fullK() > 0.02 || pose === 'lie')) { root.updateMatrixWorld(true); contact.apply(contactQ, dt, root.getWorldPosition(_v).y); }
       else contact.reset();
