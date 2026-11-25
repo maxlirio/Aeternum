@@ -57,7 +57,7 @@ export class GrassField {
     const C = planet.climate, norm = v => { const k = Math.max(...v); return [v[0] / k, v[1] / k, v[2] / k]; };
     this.green = norm(C.grass); this.dry = norm(C.dry);
     this.mat = this.material();
-    this.layers = [this.layer(bladeGeometry(SEG), 200000), this.layer(bladeGeometry(1), 160000), this.layer(flowerGeometry(), 12000)];
+    this.layers = [this.layer(bladeGeometry(SEG), 198000, PATCH * PATCH * DENS_NEAR), this.layer(bladeGeometry(1), 168000, PATCH * PATCH * DENS_FAR), this.layer(flowerGeometry(), 12000, 500)];      // (blades in all, and how many a patch may have)
     this.patches = new Map(); this.queue = []; this.at = null;
   }
   material() {
@@ -99,14 +99,15 @@ export class GrassField {
     };
     return m;
   }
-  layer(geo, cap) {
+  layer(geo, cap, slot) {
     geo.setAttribute('aPos', new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4));
     geo.setAttribute('aShape', new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4));
     geo.setAttribute('aCol', new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3));
+    for (const k of ['aPos', 'aShape', 'aCol']) geo.attributes[k].setUsage(THREE.DynamicDrawUsage);
     geo.instanceCount = 0;
     const mesh = new THREE.Mesh(geo, this.mat); mesh.frustumCulled = false; mesh.receiveShadow = true;
     this.group.add(mesh);
-    return { geo, cap, mesh };
+    return { geo, cap, mesh, slot };
   }
   // one patch's blades for one ring: Float32Array [x, y, z, facing, h, w, lean, phase, r, g, b] per blade
   patch(pi, pj, far) {
@@ -175,20 +176,28 @@ export class GrassField {
     for (const [i, j, near] of need) {
       if (!this.patches.has(i + ',' + j + (near ? 'n' : 'f'))) { if (performance.now() - t0 > 8) { missing = true; continue; } this.patch(i, j, !near); }
     }
-    const fill = (L, list, keep = () => true) => {
-      const A = L.geo.attributes, pos = A.aPos.array, shp = A.aShape.array, col = A.aCol.array; let n = 0;
-      for (const arr of list) for (let o = 0; o < arr.length && n < L.cap; o += 11) {
-        if (!keep(arr[o + 7])) continue;
-        pos[n * 4] = arr[o]; pos[n * 4 + 1] = arr[o + 1]; pos[n * 4 + 2] = arr[o + 2]; pos[n * 4 + 3] = arr[o + 3];
-        shp[n * 4] = arr[o + 4]; shp[n * 4 + 1] = arr[o + 5]; shp[n * 4 + 2] = arr[o + 6]; shp[n * 4 + 3] = arr[o + 7];
-        col[n * 3] = arr[o + 8]; col[n * 3 + 1] = arr[o + 9]; col[n * 3 + 2] = arr[o + 10]; n++;
-      }
-      L.geo.instanceCount = n; A.aPos.needsUpdate = A.aShape.needsUpdate = A.aCol.needsUpdate = true;
+    // Each patch keeps a stretch of the buffers to itself for as long as it's wanted, so moving on writes (and sends to the card) only the patches
+    // that have just come into range, never the whole meadow again. A stretch let go has its blades shrunk to nothing until something else takes it.
+    const fill = (L, want, kind, keep = () => true) => {
+      const A = L.geo.attributes, pos = A.aPos.array, shp = A.aShape.array, col = A.aCol.array, S = L.slot, slots = L.slots ||= new Map(), free = L.free ||= Array.from({ length: Math.floor(L.cap / S) }, (_, i) => i).reverse();
+      const keys = new Set(want.map(([i, j]) => i + ',' + j));
+      for (const [k, sl] of slots) if (!keys.has(k)) { slots.delete(k); free.push(sl); free.sort((p, q) => q - p); shp.fill(0, sl * S * 4, (sl + 1) * S * 4); A.aShape.addUpdateRange(sl * S * 4, S * 4); A.aShape.needsUpdate = true; }
+      for (const [i, j] of want) { const k = i + ',' + j; if (slots.has(k)) continue; const arr = this.patches.get(k + kind); if (!arr || !free.length) continue;
+        const sl = free.pop(), n0 = sl * S; let n = n0; slots.set(k, sl);
+        for (let o = 0; o < arr.length && n < n0 + S; o += 11) {
+          if (!keep(arr[o + 7])) continue;
+          pos[n * 4] = arr[o]; pos[n * 4 + 1] = arr[o + 1]; pos[n * 4 + 2] = arr[o + 2]; pos[n * 4 + 3] = arr[o + 3];
+          shp[n * 4] = arr[o + 4]; shp[n * 4 + 1] = arr[o + 5]; shp[n * 4 + 2] = arr[o + 6]; shp[n * 4 + 3] = arr[o + 7];
+          col[n * 3] = arr[o + 8]; col[n * 3 + 1] = arr[o + 9]; col[n * 3 + 2] = arr[o + 10]; n++;
+        }
+        shp.fill(0, n * 4, (n0 + S) * 4);
+        if (n > n0) { A.aPos.addUpdateRange(n0 * 4, (n - n0) * 4); A.aCol.addUpdateRange(n0 * 3, (n - n0) * 3); } A.aShape.addUpdateRange(n0 * 4, S * 4); A.aPos.needsUpdate = A.aShape.needsUpdate = A.aCol.needsUpdate = true; }
+      let top = -1; for (const sl of slots.values()) if (sl > top) top = sl; L.geo.instanceCount = (top + 1) * S;
     };
-    const nearP = need.filter(q => q[2]).map(([i, j]) => this.patches.get(i + ',' + j + 'n')).filter(Boolean);
-    fill(this.layers[0], nearP, o => o < 2);
-    fill(this.layers[2], nearP, o => o >= 2);
-    fill(this.layers[1], need.filter(q => !q[2]).map(([i, j]) => this.patches.get(i + ',' + j + 'f')).filter(Boolean));
+    const nearW = need.filter(q => q[2]), farW = need.filter(q => !q[2]);
+    fill(this.layers[0], nearW, 'n', o => o < 2);
+    fill(this.layers[2], nearW, 'n', o => o >= 2);
+    fill(this.layers[1], farW, 'f');
     this.at = missing ? null : [x, z];
   }
 }

@@ -29036,6 +29036,8 @@ class WebGLRenderer {
 
 			const program = setProgram( camera, scene, geometry, material, object );
 
+			if ( program === null ) return; // AETERNUM: not linked yet (lazyPrograms)
+
 			state.setMaterial( material, frontFaceCW );
 
 			//
@@ -30223,6 +30225,10 @@ class WebGLRenderer {
 				program = getProgram( material, scene, object );
 
 			}
+
+			// AETERNUM: with lazyPrograms set, a program still being compiled and linked by the driver isn't waited for (that wait is a frozen frame):
+			// what uses it is left out of the picture until it's ready. Off by default, so one-off renders get everything.
+			if ( _this.lazyPrograms === true && program.isReady() === false ) return null;
 
 			let refreshProgram = false;
 			let refreshMaterial = false;

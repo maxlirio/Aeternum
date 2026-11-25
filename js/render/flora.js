@@ -56,7 +56,7 @@ export class FloraView {
       scene.add(m);
     }
     const rt = new THREE.WebGLRenderTarget(W, Hh, { samples: 4 }), r = this.renderer, oldT = r.getRenderTarget(), oldC = r.getClearColor(new THREE.Color()), oldA = r.getClearAlpha();
-    r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(scene, cam); r.setRenderTarget(oldT); r.setClearColor(oldC, oldA);
+    const lazy = r.lazyPrograms; r.lazyPrograms = false; r.setRenderTarget(rt); r.setClearColor(0x000000, 0); r.clear(); r.render(scene, cam); r.setRenderTarget(oldT); r.setClearColor(oldC, oldA); r.lazyPrograms = lazy;      // (a picture taken once: it waits for its shaders)
     const geo = new THREE.BufferGeometry(), Pp = [], U = [], I = [];
     for (let k = 0; k < 3; k++) {
       const a = k * Math.PI / 3, cx = Math.cos(a) * L * 0.62, cz = Math.sin(a) * L * 0.62, o = Pp.length / 3;

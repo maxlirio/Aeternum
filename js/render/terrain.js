@@ -47,7 +47,12 @@ function terrainMaterial(planet) {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
       attribute vec4 aS0; attribute vec4 aS1; attribute vec4 aS2; attribute vec4 aR; attribute vec3 aRock; varying vec3 vRock;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRock = aRock; vWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRock = aRock; vWP = vec3(uv.x, position.y, uv.y); vWN = normal; vS0 = aS0; vS1 = aS1; vS2 = aS2; vR = aR;')
+      // The ground is the dearest thing on screen to shade and a great deal of it is behind something. Its depth is put by its corners (it's finely
+      // cut, so that's as good as per pixel) and not written per pixel, which lets the card throw away covered ground before shading it.
+      .replace('#include <common>', '#include <common>\nuniform float logDepthBufFC;')
+      .replace('#include <logdepthbuf_vertex>', '#include <logdepthbuf_vertex>\n#ifdef USE_LOGDEPTHBUF\nif (isPerspectiveMatrix(projectionMatrix)) gl_Position.z = (log2(max(1e-6, 1.0 + gl_Position.w)) * logDepthBufFC - 1.0) * gl_Position.w;\n#endif');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <logdepthbuf_fragment>', '');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
       varying vec3 vRock; uniform sampler2D tNoise; uniform sampler2D tSlopes; uniform vec3 uFar; uniform mat3 normalMatrix; uniform sampler2DArray tG; uniform sampler2DArray tGN; uniform vec3 uMean[16]; uniform float uTile[16]; uniform float uSea; uniform float uTime; uniform vec2 uWind; uniform float uMarkOn; uniform sampler2D tMark; uniform vec2 uMarkC; uniform float uMarkS; float markH(vec2 p) { vec2 q = (p - uMarkC) / uMarkS + 0.5; if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return 0.0; return (texture2D(tMark, q).r - 0.5) * 2.0; }  uniform vec2 uPrev; uniform vec3 uCanopy; uniform vec3 uRockBase; uniform float uTree;
       varying vec3 vWP; varying vec3 vWN; varying vec4 vS0; varying vec4 vS1; varying vec4 vS2; varying vec4 vR;
@@ -333,7 +338,7 @@ export class TerrainStreamer {
     g.setAttribute('aS0', new THREE.InterleavedBufferAttribute(ib, 4, 0, true)); g.setAttribute('aS1', new THREE.InterleavedBufferAttribute(ib, 4, 4, true)); g.setAttribute('aS2', new THREE.InterleavedBufferAttribute(ib, 4, 8, true)); g.setAttribute('aR', new THREE.InterleavedBufferAttribute(ib, 4, 12, true));
     g.boundingBox = new THREE.Box3(new THREE.Vector3(0, d.minH - 40, 0), new THREE.Vector3(d.size, d.maxH, d.size));
     g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
-    const mesh = new THREE.Mesh(g, this.material); mesh.renderOrder = -1;     // (while the land's fading it draws in the see-through pass: first in it, or it would paint over glass and haze)
+    const mesh = new THREE.Mesh(g, this.material); mesh.renderOrder = this.material.transparent ? -1 : 6; mesh.userData.land = true;     // (while the land's fading it draws in the see-through pass: first in it, or it would paint over glass and haze)
     mesh.position.set(d.x0, 0, d.z0);
     mesh.receiveShadow = true; mesh.castShadow = l <= 1;
     mesh.matrixAutoUpdate = false; mesh.updateMatrix();

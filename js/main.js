@@ -110,6 +110,8 @@ import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, st
 import { Flight, fromEuler } from './player/flight.js';
 import { AirWar, raidAt, raidIndex, steerToward } from './sim/aircombat.js';
 import { CombatView } from './render/combat.js';
+import { heightCache } from './world/heightcache.js';
+import { LightPool } from './render/lightpool.js';
 import { ShipView, cockpitReadout, LIVERY } from './render/ships.js';
 import { FloraView } from './render/flora.js';
 import { RockView } from './render/rocks.js';
@@ -215,9 +217,10 @@ async function start(fresh) {
   const arriving = params.get('auto') === 'arrive' && !!ftlHandoff(); let ftl = null, ftlOut = null, ftlPumpOff = false; if (arriving) ui.hush = true;
   ui.loading('Generating the world…', 0);
   // ---- renderer (first: coming out of FTL, the tunnel's drawn with it from the start), and the built models, loading while the world's worked out
-  const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const renderer = new THREE.WebGLRenderer({ antialias: !params.has('noaa'), logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2) > 1.4 && !params.has('auto') ? Math.min(devicePixelRatio, 2) * 0.75 : Math.min(devicePixelRatio, 2));      // (a high-density screen starts at three quarters of its own grain; the frame rate then says whether it can have more: see the end of frame())
   renderer.setSize(innerWidth, innerHeight);
+  renderer.lazyPrograms = params.has('lazyshaders');      // (vendor/three: leaves a thing out while the driver's still building its shader, not stopping for it. Off: it left things unlit once they did appear)
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -354,6 +357,7 @@ async function start(fresh) {
   const cam = new FollowCamera(camera, world, renderer.domElement);
   cam.yaw = ctrl.facing;
   const roomLight = new THREE.PointLight(0xffe2c0, 0, 14, 1.6); scene.add(roomLight);
+  const lightPool = new LightPool(scene, 3); let lightTick = 0;      // (render/lightpool.js: three real point lights, shared out each frame among everything that asks for one)
   // ---- residents
   ui.loading('Waking the town…', 0.68); await tick();
   let residents = new Residents(pop); const jostle = new Jostle();
@@ -844,7 +848,7 @@ async function start(fresh) {
     world.carBoxes = out;
   }
   let rideCamY = null;
-  let lastTraffic = [], waterTick = 0, shadowTick = 0, rezT = 0, rezN = 0, resolution = Math.min(devicePixelRatio, 2);
+  let lastTraffic = [], waterTick = 0, shadowTick = 0, rezT = 0, rezN = 0, rezUp = 0, rezCap = 9, rezCapT = 0, resolution = Math.min(devicePixelRatio, 2) > 1.4 && !params.has('auto') ? Math.min(devicePixelRatio, 2) * 0.75 : Math.min(devicePixelRatio, 2);
   // Things you can hit that aren't walls: parked vehicles, the road's and the city's traffic
   function rideBumps(t) {
     if (!ride) return; const me = ride.pos, T = ride.T, R0 = Math.max(T.L, T.W) * 0.5;
@@ -1750,7 +1754,7 @@ async function start(fresh) {
     if (hit) { sound.hit?.(true); fx.shake = Math.max(fx.shake, Math.min(0.5, 0.1 + sp * 0.015) / V.kg); if (ride) ride.speed *= Math.max(0.55, 1 - 0.18 / V.kg); }
   }
   // ---- air combat (sim/aircombat.js): your ship in the fight, raids, and Civic Security's fighters
-  const war = new AirWar(world, planet), combatView = new CombatView(scene);
+  const war = new AirWar(world, planet), combatView = new CombatView(scene); war.lookY = (x, z) => farY(x, z);
   // the great ships in the fight (sim/fleetwar.js): Anvil's lasers and missiles, Bastion's fighters, Sable's bombing runs. What lands, wrecks.
   planet.craters = [...store.deltas].filter(([k]) => k.startsWith('crater/')).map(([, v]) => v);
   const groundY = (x, z) => Math.max(world.groundAt(x, z, 1e5).h, cloudW ? -1e9 : planet.seaLevel);
@@ -1808,7 +1812,7 @@ async function start(fresh) {
     const d = Math.hypot(ctrl.pos[0] - p[0], ctrl.pos[1] - p[1], ctrl.pos[2] - p[2]); if (d < R * 2.5 && !flight) hurtPlayer(Math.round(80 * (1 - d / (R * 2.5))), `a blast from the ${by === 'sable' ? 'Sable' : 'Anvil'}`);
     if (!cloudW && p[1] > planet.seaLevel + 0.5) {        // a crater, kept: the ground stays broken (gen/surface.js craterAt)
       const C = { x: Math.round(p[0] * 10) / 10, z: Math.round(p[2] * 10) / 10, r: R * 0.55, d: R * 0.16 }, id = 'crater/' + Math.round(p[0]) + ',' + Math.round(p[2]);
-      if (!store.getDelta(id) && planet.craters.length < 600) { planet.craters.push(C); store.patchDelta(id, C); terrain.refresh(p[0], p[2], C.r * 1.7); }
+      if (!store.getDelta(id) && planet.craters.length < 600) { planet.craters.push(C); store.patchDelta(id, C); terrain.refresh(p[0], p[2], C.r * 1.7); battleY.drop(p[0], p[2], C.r * 1.7); farY.drop(p[0], p[2], C.r * 1.7); }
     }
     for (const b of nearBuildingsOf(p, R * 1.6)) if (!store.getDelta('scorch/' + b.key)) store.patchDelta('scorch/' + b.key, { t: clock.now() });     // (what was hit is marked: render keeps it scorched)
   }
@@ -1816,7 +1820,8 @@ async function start(fresh) {
   const landY = (x, z) => Math.max(surfaceHeight(planet, x, z), planet.seaLevel);      // (the land itself, loaded or not: the line can be a long way off)
   let aloft = false;      // (flying more than 300 m up: set each frame)
   const roughY = (x, z) => Math.max(rawHeight(planet, x, z), planet.seaLevel);      // (how high you are, flying: the land's own shape, which costs nothing; landY asks for the towns, rivers and roads round it)
-  const infantry = new Infantry({ ground: landY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), hard: (o, d, far) => world.rayHard(o, d, far, 0.3, 0.5) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
+  const battleY = heightCache(landY, 0.5), farY = heightCache(landY, 12, 400);      // (world/heightcache.js: what the battle stands on, and what its aircraft look ahead at)
+  const infantry = new Infantry({ ground: battleY, resolve: (x, z, y) => world.resolve(x, z, y + 0.05, 0.3, 1.7, true), hooks: { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), hard: (o, d, far) => world.rayHard(o, d, far, 0.3, 0.5) } }), infantryView = new InfantryView(scene, root, planet, toRender);      // (sim/infantry.js: the war on foot along the same line)
   // what a hull drives on besides the land: the rocks lying about, and the rock standing out of a steep hillside
   const armorRocks = (x, z, R, fn) => { const f = q => fn({ x: q.x, z: q.z, r: q.r, g: q.g, top: q.top, flat: q.shape === 'slab' || q.deep !== undefined }); rocksNear(planet, x, z, R, f); ledgesNear(planet, x, z, R, f); };
   // everything else solid a hull meets: buildings, outposts, trees, cars and wrecks (the world's own collision, less the line's works and the hulls, which sim/armor.js does itself)
@@ -2895,7 +2900,7 @@ async function start(fresh) {
         if (Math.hypot(x - ctrl.pos[0], z - ctrl.pos[2]) > 1500) continue;
         if (hot) { fx.flame([x, top, z], 3); fx.burnLight?.([x, top, z], 2.5, 1); } fx.smoke([x, top + 1, z], hot ? 6 : 3, weatherAt(planet, t).wind, hot ? 0.05 : 0.14, hot ? 0.55 : 0.3); } }
     if (skyIsles) skyIsles.update(ctrl.pos[0], ctrl.pos[1], ctrl.pos[2], dt, skyState.dir, origin, THREE.MathUtils.smoothstep(skyState.dir.y, -0.12, 0.08));
-    { const alt = ctrl.pos[1] - altRef; terrainFar.value.set(8000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000 && !cloudW; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
+    { const alt = ctrl.pos[1] - altRef; terrainFar.value.set(8000, 15700, alt > 2500 ? alt : 0); { const fadeOn = alt > 2500, tm = terrain.material; if (tm.transparent !== fadeOn) { tm.transparent = fadeOn; tm.needsUpdate = true; root.traverse(o => { if (o.userData.land) o.renderOrder = fadeOn ? -1 : 6; }); } } inSpace = alt > 45000; root.visible = !inSpace; sea.visible = alt < 7000 && !cloudW; if (weatherView.clouds) weatherView.clouds.visible = alt < 22000;
       globeView.update(dt, ctrl.pos[0], ctrl.pos[2], rp[0], rp[2], alt, skyState.dir, camera, origin[1]);
       const far = alt > 2500 ? Math.max(60000, globeOf(planet).R * 2.4 + alt * 3) : 60000; if (camera.far !== far) { camera.far = far; camera.updateProjectionMatrix(); } sky.stars.scale.setScalar(far > 60000 ? far * 0.92 / 40000 : 1); }
     weatherView.update(dt, wx, skyState, camera, origin, !!world.locate(...ctrl.pos)?.room && !(flight && !cockpitView));   // under a roof: no rain
@@ -2984,14 +2989,18 @@ async function start(fresh) {
     if (!params.has('norefl') && !cloudW) sea.renderReflection(renderer, scene, camera, [ringView.group, fx.group, grass.group, weatherView.rain, crowd.group, vehView.group, rocks.group, faunaView.group, prints.group, flora.group].filter(Boolean));
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = (shadowTick++ & 1) === 0 || !!ride || !!flight || ctrl.speed > 3 || !!ringHere();     // (in a ring everything's turning: a map a frame stale shakes everyone in it)     // (every other frame only while nothing near you is moving fast: at speed a stale map shakes the car's own shadows)
     // If this machine can't keep up, draw fewer pixels rather than drop frames; go back up when it can
-    rezT += dt; rezN++; if (rezT > 2.5) { const fps = rezN / rezT; rezT = 0; rezN = 0; const top = Math.min(devicePixelRatio, 2); if (document.hasFocus?.() !== false || params.has('auto')) { if (fps < 34 && resolution > Math.max(1, top * 0.6)) { resolution = Math.max(1, resolution - 0.25); renderer.setPixelRatio(resolution); } else if (fps > 56 && resolution < top) { resolution = Math.min(top, resolution + 0.25); renderer.setPixelRatio(resolution); } } }
+    { const nowR = performance.now(); rezN++; if (!rezT) rezT = nowR; if (nowR - rezT > 1200) { const fps = rezN * 1000 / (nowR - rezT); rezT = nowR; rezN = 0; const top = Math.min(devicePixelRatio, 2), floor = params.has('auto') ? Math.min(1, top) : Math.max(0.75, top * 0.5);
+      // (a quick step down when it's slow, a slow one back up when there's room; a level that proved too much isn't tried again for a minute, so it doesn't hunt)
+      if ((document.hasFocus?.() !== false || params.has('auto')) && !paused) { let want = resolution; if (fps > 58) { if (++rezUp >= 4) { rezUp = 0; if (resolution + 0.1 < rezCap || nowR > rezCapT) want = resolution + 0.1; } } else rezUp = 0;
+        if (fps < 30) want = resolution * 0.8; else if (fps < 47) want = resolution - 0.1; if (want < resolution) { rezCap = resolution; rezCapT = nowR + 60000; }
+        want = Math.max(floor, Math.min(top, want)); if (Math.abs(want - resolution) > 0.01) { resolution = want; renderer.setPixelRatio(resolution); } } } }
     if (ftl) {      // in FTL: the tunnel, not the world; coming out, the world goes on being built behind it until the ground under you is there
       if (paused && !cloudW && !inSpace) terrain.update(ctrl.pos[0], ctrl.pos[2], 8, flight ? ctrl.pos[1] - roughY(ctrl.pos[0], ctrl.pos[2]) : 0, 0, 0);
       ftl.render(dt);
       if (ftlOut && ((ftlOut.t += dt) > 1.2 && terrain.pending < 3 || ftlOut.t > 30)) {
         renderer.compile(scene, camera); ftl.dispose(); window.__ftlDone = performance.now(); ftl = null; paused = false; ui.hush = false; ftlFlash(1100); if (ftlOut.say) ui.toast(ftlOut.say, '', 10000); ftlOut = null;
       }
-    } else { fogCull(); cullFix(); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
+    } else { fogCull(); cullFix(); if ((lightTick++ & 255) === 0) lightPool.adopt(); lightPool.update(camera); renderer.render(scene, camera); if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
   window.ORBIS = { toRender, fromRender, probe, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, warTable, warZones, warMove, dreadBegin, dreadEnd, camp, get run() { return run; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, get battle() { return battle; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
