@@ -35,6 +35,7 @@ export function ringPlots(g) {
 // the plot's building, in the ring's flat frame: where its front left corner is, and which way its front and its depth run ([x, s] each)
 export function plotFrame(P) { return P.side === 0 ? { O: [P.fx, P.a0], bx: [0, 1], bz: [-1, 0] } : { O: [P.fx, P.a1], bx: [0, -1], bz: [1, 0] }; }
 // building-local (lx, lz) → the ring's (x, s), and back
+export const ringToPlot = (P, x, s) => { const F = plotFrame(P), dx = x - F.O[0], ds = s - F.O[1]; return [dx * F.bx[0] + ds * F.bx[1], dx * F.bz[0] + ds * F.bz[1]]; };
 export const plotToRing = (P, lx, lz) => { const F = plotFrame(P); return [F.O[0] + F.bx[0] * lx + F.bz[0] * lz, F.O[1] + F.bx[1] * lx + F.bz[1] * lz]; };
 
 // the building record of a plot: ringB is the ring's own structure in the collision world (world/rings.js), s the settlement it's framed in

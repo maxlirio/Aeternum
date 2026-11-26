@@ -9,7 +9,9 @@ import { PropView } from './props.js';
 import { ringLit } from './rings.js';
 import { shellMaterial } from './vesperreal.js';
 import { W } from '../gen/rings.js';
-import { ringPlots, plotReal, plotFrame } from '../world/ringreal.js';
+import { ringPlots, plotReal, plotFrame, plotPeople, personAt, ringToPlot } from '../world/ringreal.js';
+import { AutoDoors } from './doors.js';
+import { materials } from './materials.js';
 
 const NEAR = 110, FAR = 150;
 const WALLS = [[0.82, 0.76, 0.66], [0.62, 0.66, 0.7], [0.74, 0.6, 0.52], [0.55, 0.58, 0.52], [0.86, 0.84, 0.8], [0.48, 0.5, 0.56], [0.7, 0.68, 0.6], [0.66, 0.55, 0.48]];
@@ -39,7 +41,7 @@ export class RingHouses {
     im.frustumCulled = false; im.name = 'ring-houses'; turn.add(im); this.shells.set(g.key, im); return im;
   }
   // ringB: the ring you're in (its structure), or null. pos: where you are (flat, world)
-  update(ringB, pos) {
+  update(ringB, pos, dt = 0, hour = 12) {
     if (!this.ringView.built) return;
     for (const b of this.structs) { const g = b.plan.ring; if (!ringPlots(g).length || this.shells.has(g.key)) continue; const turn = this.turnOf(g); if (turn) this.shellsFor(g, turn); }
     const g = ringB?.plan.ring, here = g && ringPlots(g).length ? this.world.toB(ringB, pos[0], pos[2]) : null;
@@ -48,13 +50,18 @@ export class RingHouses {
       for (const P of ringPlots(g)) { if (this.live.has(P) || away(P, NEAR)) continue;
         const rec = plotReal(this.planet, this.s, ringB, g, P); if (!rec || !turn) continue;
         const F = plotFrame(P), mb = new MeshBuilder(), pv = this.lib ? new PropView(this.lib, 1e5) : null; if (pv) mb.propSink = (pr, fr, len, dep, rng) => pv.add(pr, fr, len, dep, rng);
-        buildBuilding(mb, rec.plan, rec, [[F.O[0], 0, F.O[1]], [F.bx[0], 0, F.bx[1]], [F.bz[0], 0, F.bz[1]]], this.planet);
+        buildBuilding(mb, rec.plan, rec, [[F.O[0], 0, F.O[1]], [F.bx[0], 0, F.bx[1]], [F.bz[0], 0, F.bz[1]]]);      // (the ship's own building: none of the home world's roof forms)
         const M = bendMatrix(g, F.O[0] + F.bz[0] * P.depth / 2, (P.a0 + P.a1) / 2), meshes = mb.build();
         for (const m of meshes) { m.geometry.applyMatrix4(M); m.material = this.lit(g, m.material); m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false; }
         if (pv) { const grp = pv.build(); if (grp) { pv.update(F.O[0], 0, F.O[1]); const q = new THREE.Matrix4();
             grp.traverse(o => { if (!o.isInstancedMesh) return; for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, q); o.setMatrixAt(i, q.premultiply(M)); } o.instanceMatrix.needsUpdate = true; o.material = this.lit(g, o.material, true); o.frustumCulled = false; o.castShadow = false; }); meshes.push(grp); } }
+        const doors = new AutoDoors(rec, [[F.O[0], 0, F.O[1]], [F.bx[0], 0, F.bx[1]], [F.bz[0], 0, F.bz[1]]], M, this.lit(g, materials().door, true)); doors.mesh.castShadow = false; meshes.push(doors.mesh);
         turn.add(...meshes); const im = this.shells.get(g.key); if (im) { im.setMatrixAt(P.id, this.shellMatrix(g, P, true)); im.instanceMatrix.needsUpdate = true; }
-        this.live.set(P, { g, turn, meshes }); break; } }      // (one a frame)
+        this.live.set(P, { g, turn, meshes, doors, rec }); break; } }      // (one a frame)
+    // their doors open for whoever's at them: you, and the people of the house going in and out
+    if (here && dt) for (const [P, L] of this.live) { if (away(P, 45)) continue; const [px, pz] = this.world.toB(L.rec, pos[0], pos[2]), pts = [[px, pos[1] - L.rec.base, pz]];
+      for (const m of plotPeople(this.planet, this.s, ringB, g, P)) { const a = personAt(g, P, m, hour, g.C); if (a.moving && a.x !== m.lane) { const [lx, lz] = ringToPlot(P, a.x, a.s); pts.push([lx, a.y, lz]); } }
+      L.doors.update(dt, pts); }
     for (const [P, L] of this.live) { if (!away(P, FAR)) continue;
       for (const m of L.meshes) { L.turn.remove(m); m.traverse?.(o => o.geometry?.dispose?.()); }
       const im = this.shells.get(L.g.key); if (im) { im.setMatrixAt(P.id, this.shellMatrix(L.g, P)); im.instanceMatrix.needsUpdate = true; }

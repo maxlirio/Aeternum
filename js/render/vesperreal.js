@@ -6,6 +6,8 @@ import { MeshBuilder } from './meshbuilder.js';
 import { buildBuilding } from './building-mesh.js';
 import { PropView } from './props.js';
 import { unitReal } from '../world/vesperreal.js';
+import { AutoDoors } from './doors.js';
+import { homeFolk, folkAt } from '../world/homefolk.js';
 
 const NEAR = 380, FAR = 460;
 const WALLS = [[0.82, 0.76, 0.66], [0.62, 0.66, 0.7], [0.74, 0.6, 0.52], [0.55, 0.58, 0.52], [0.86, 0.84, 0.8], [0.48, 0.5, 0.56], [0.7, 0.68, 0.6], [0.66, 0.55, 0.48]];
@@ -45,7 +47,7 @@ export class VesperStreets {
     return this._m.compose(new THREE.Vector3(cx, this.V.DY + h / 2, cz), new THREE.Quaternion(), hide ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(along ? u.w : u.d, h, along ? u.d : u.w)).clone();
   }
   frame(rec) { const s = this.s, rot = ([u, v]) => [u * s.cos - v * s.sin, 0, u * s.sin + v * s.cos], o = rot(rec.O); return [[o[0], rec.base, o[2]], rot(rec.ex), rot(rec.ez)]; }
-  update(pos) {
+  update(pos, dt = 0, hour = 12) {
     const C = this.C, c = Math.cos(C.yaw), sn = Math.sin(C.yaw), dx = pos[0] - C.x, dz = pos[2] - C.z, lx = dx * c - dz * sn, lz = dx * sn + dz * c, ly = pos[1] - C.y;      // (you, in the ship's frame)
     const far = Math.abs(ly - this.V.DY) > 600 || Math.abs(lx) > 1400 || Math.abs(lz) > 3200;
     if (far && !this.live.size) return;
@@ -60,13 +62,15 @@ export class VesperStreets {
       buildBuilding(mb, rec.plan, rec, this.frame(rec));
       const meshes = mb.build(); for (const m of meshes) { m.castShadow = true; m.receiveShadow = true; }
       if (pv) meshes.push(pv.build());
+      const doors = new AutoDoors(rec, this.frame(rec)); meshes.push(doors.mesh);
       this.group.add(...meshes); this.world.addStructure(rec);
       if (this.shells) { this.shells.setMatrixAt(u.id, this.shellMatrix(u, true)); this.shells.instanceMatrix.needsUpdate = true; }
-      this.live.set(u.id, { rec, meshes, pv, u, ux, uz }); built++;
+      this.live.set(u.id, { rec, meshes, pv, u, ux, uz, doors }); built++;
     }
     const sx = pos[0] - this.s.cx, sz = pos[2] - this.s.cz;
     for (const [id, L] of this.live) {
       if (L.pv) L.pv.update(sx, pos[1], sz);
+      if (dt && Math.hypot(L.ux - lx, L.uz - lz) < 90) { const [px, pz] = this.world.toB(L.rec, pos[0], pos[2]), pts = [[px, pos[1] - L.rec.base, pz]]; for (const m of homeFolk(L.rec)) { const a = m.kind === 'home' && folkAt(m, hour); if (a && a.moving) pts.push(a.p); } L.doors.update(dt, pts); }      // (its doors open for whoever's at them)
       if (!far && Math.hypot(L.ux - lx, L.uz - lz) < FAR) continue;
       for (const m of L.meshes) { this.group.remove(m); m.geometry?.dispose(); }
       this.world.removeStructure(L.rec); this.world.cols.delete(L.rec.key);

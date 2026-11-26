@@ -47,6 +47,7 @@ export class DoorView {
     this.m.makeBasis(X.clone().multiplyScalar(W), Y.clone().multiplyScalar(hgt), Z.clone().multiplyScalar(0.07));
     if (roll) this.m.setPosition(c[0], c[1] + (Hh - hgt) / 2, c[2]);
     else { const off = a * (door.width - 0.15); this.m.setPosition(c[0] + dirW[0] * off, c[1], c[2] + dirW[2] * off); }
+    if (this.pre) this.m.premultiply(this.pre);
     this.mesh.setMatrixAt(i, this.m);
   }
   // Re-read state for every door (cheap; called ~1 Hz and after interactions).
@@ -73,4 +74,15 @@ export class DoorView {
     if (moved) this.mesh.instanceMatrix.needsUpdate = true;
   }
   isPassable(i) { return this.anim[i] > 0.8; }
+}
+
+// The doors of one building that stands on a ship (a spin ring's house, the Vesper's street buildings): no locks and no hours, each leaf slides
+// open for whoever comes up to it and shut behind them. pre: a move applied to every leaf (the ring's bend); material: what they're drawn with there
+export class AutoDoors {
+  constructor(rec, frame, pre = null, material = null) {
+    this.rec = rec; this.view = new DoorView(null, rec.plan.doors.map(door => ({ b: rec, plan: rec.plan, door, frame }))); this.mesh = this.view.mesh; this.mesh.frustumCulled = false;
+    if (material) this.mesh.material = material; if (pre) { this.view.pre = pre; for (let i = 0; i < this.view.doors.length; i++) this.view.place(i); this.mesh.instanceMatrix.needsUpdate = true; }
+  }
+  // pts: where people are, building-local [x, y, z] (you among them)
+  update(dt, pts) { const H = this.rec.plan.H, T = new Set(); this.view.doors.forEach(({ door }, i) => { const y0 = door.k * H; if (pts.some(p => Math.abs(p[1] - y0) < 1.6 && Math.hypot(p[0] - door.x, p[2] - door.z) < 1.9)) T.add(i); }); this.view.transient = T; this.view.update(dt); }
 }

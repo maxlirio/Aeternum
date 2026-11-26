@@ -25,6 +25,8 @@ export function unitReal(planet, s, C, V, u) {
   if (!rec.plan.rooms.length) return null;
   if (shop) fitOut(rec, u.label, rng);
   rec.doorPassable = id => { const dr = rec.plan.doors[id]; return !dr || dr.access !== 'unit'; };
+  // (the pavement along its side of the block: from the first building of the terrace to the last)
+  { let lo = 0, hi = u.w; for (const q of V.units) { if (q.podium !== u.podium || q.ex[0] * u.ex[0] + q.ex[1] * u.ex[1] < 0.9) continue; const dx = q.O[0] - u.O[0], dz = q.O[1] - u.O[1]; if (Math.abs(dx * u.ez[0] + dz * u.ez[1]) > 1) continue; const t = dx * u.ex[0] + dz * u.ex[1]; lo = Math.min(lo, t); hi = Math.max(hi, t + q.w); } rec.walk = [lo, hi]; }
   u.real = rec;
   return rec;
 }

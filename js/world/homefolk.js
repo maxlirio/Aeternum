@@ -20,7 +20,7 @@ export function homeFolk(rec) {
       const pts = path.map(q => [q[0], q[1], q[2]]), door = pts[pts.length - 1], z = -2.2 - rng.range(0, 1.2); pts.push([door[0], door[1], z]);
       const len = [0]; for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]));
       const outH = rng.range(6.6, 10.5), seats = plan.anchors.filter(q => q.pose === 'sit' && q.unit === A.unit);
-      out.push({ id: `${rec.key}:r${out.length}`, kind: 'home', age: rng.chance(0.14) ? rng.int(7, 15) : rng.int(18, 82), bed: A, k, out: outH, back: rng.range(16.5, 21.5), wake: outH - rng.range(0.4, 1.2), sleep: rng.range(21.6, 23.4), z, dir: rng.chance(0.5) ? 1 : -1, reach: rng.range(14, 34), v: rng.range(1.05, 1.4), pts, len, seat: seats.length ? rng.pick(seats) : null }); } }
+      out.push({ id: `${rec.key}:r${out.length}`, kind: 'home', age: rng.chance(0.14) ? rng.int(7, 15) : rng.int(18, 82), bed: A, k, out: outH, back: rng.range(16.5, 21.5), wake: outH - rng.range(0.4, 1.2), sleep: rng.range(21.6, 23.4), z, dir: rng.chance(0.5) ? 1 : -1, lo: rec.walk ? rec.walk[0] + rng.range(0.5, 3) : door[0] - rng.range(14, 34), hi: rec.walk ? rec.walk[1] - rng.range(0.5, 3) : door[0] + rng.range(14, 34), v: rng.range(1.05, 1.4), pts, len, seat: seats.length ? rng.pick(seats) : null }); } }
   return out;
 }
 // where one of them is at hour h (0..24) → { p: [x, y, z], face: [dx, dz] the way they look, pose, moving }, or null when they're not there (a keeper out of hours)
@@ -32,8 +32,10 @@ export function folkAt(m, h) {
   if (h < m.wake || h >= m.sleep) return { p: [m.bed.x + (m.bed.slots > 1 ? (m.k ? 0.45 : -0.45) : 0), m.bed.y, m.bed.z], face: dirOf(m.bed.facing), pose: 'lie', moving: false };
   if (h >= m.out && h < m.out + walk) { const q = onPath((h - m.out) * 3600 * m.v); return { p: q.p, face: q.face, pose: 'stand', moving: true }; }
   if (h >= m.back - walk && h < m.back) { const q = onPath((m.back - h) * 3600 * m.v); return { p: q.p, face: [-q.face[0], -q.face[1]], pose: 'stand', moving: true }; }
-  if (h >= m.out + walk && h < m.back - walk) { const D = (m.back - m.out - 2 * walk) * 3600, n = Math.max(1, Math.round(D * m.v / (2 * m.reach))), sp = 2 * m.reach * n / D, d = (h - m.out - walk) * 3600 * sp, u = d % (2 * m.reach), fwd = u < m.reach, off = fwd ? u : 2 * m.reach - u, door = m.pts[m.pts.length - 1];
-    return { p: [door[0] + m.dir * off, door[1], m.z], face: [m.dir * (fwd ? 1 : -1), 0], pose: 'stand', moving: true }; }
+  if (h >= m.out + walk && h < m.back - walk) {      // out: along the pavement to its end, back past the door to the other, and home on the hour they turn in
+    const door = m.pts[m.pts.length - 1], lo = Math.min(m.lo, door[0] - 2), hi = Math.max(m.hi, door[0] + 2), L = hi - lo, D = (m.back - m.out - 2 * walk) * 3600, n = Math.max(1, Math.round(D * m.v / (2 * L))), sp = 2 * L * n / D;
+    let u = ((h - m.out - walk) * 3600 * sp * m.dir + (door[0] - lo)) % (2 * L); if (u < 0) u += 2 * L; const up = u < L;
+    return { p: [lo + (up ? u : 2 * L - u), door[1], m.z], face: [(up ? 1 : -1) * m.dir, 0], pose: 'stand', moving: true }; }
   if (m.seat) return { p: [m.seat.x, m.seat.y, m.seat.z], face: dirOf(m.seat.facing), pose: 'sit', moving: false };
   const q = onPath(Math.min(1.6, total * 0.2)); return { p: q.p, face: q.face, pose: 'stand', moving: false };
 }
