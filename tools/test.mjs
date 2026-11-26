@@ -7,6 +7,7 @@ import { makePlanet as realPlanet } from '../js/gen/planet.js';
 import { rawHeight } from '../js/gen/terrain.js';
 import { surfaceHeight } from '../js/gen/surface.js';
 import { getSettlement, roadRect, rectsOverlap } from '../js/gen/settlement.js';
+import { structureOf, strike as strikeAt, settle } from '../js/gen/structure.js';
 import { buildingPlan, roomGraph } from '../js/gen/building.js';
 
 // Nearly every suite here is about the home town, over hundreds of worlds; working out the rivers of all the towns around each one would take minutes. (suites.towns and the browser tests use the real thing.)
@@ -22,6 +23,19 @@ const digest = obj => seedHex([hashStr(1, JSON.stringify(obj)), hashStr(2, JSON.
 
 const uni = n => seedFromString('test-universe-' + n);
 
+suites.structure = () => {
+  // What holds a building up (gen/structure.js): as built nothing's unsupported; a hole in a wall is a hole, and the building stands; a storey that
+  // loses its outer walls brings down everything over it and leaves what's beside and below
+  const P = makePlanet(uni(1), HOMEWORLD), s = getSettlement(P, 0, 0); let n = 0;
+  for (const b of s.buildings) { if (b.type === 'ship' || n >= 12) continue; n++; const plan = buildingPlan(P, s, b), S = structureOf(b, plan), tag = `${b.type} ${b.w}x${b.d} F${plan.F}`;
+    check(settle(S, new Set()).length === 0, `${tag}: nothing falls as built`); check(S.count > 20, `${tag}: has parts (${S.count})`);
+    const a = strikeAt(S, new Set(), [b.w / 2, 1.2, 0], 1.6), solid = L => L.filter(i => S.nodes[i].solid).length;
+    check(a.hit.length > 0 && solid(a.hit) + solid(a.fell) < S.count * 0.2, `${tag}: a hole in the wall is a hole (${solid(a.hit)} broken, ${solid(a.fell)} fell of ${S.count})`);
+    const g = new Set(); for (const [x, z] of [...Array(Math.ceil(b.w / 1.2) + 1).keys()].flatMap(i => [[i * 1.2, 0], [i * 1.2, b.d]]).concat([...Array(Math.ceil(b.d / 1.2) + 1).keys()].flatMap(i => [[0, i * 1.2], [b.w, i * 1.2]]))) { const r = strikeAt(S, g, [x, 1.2, z], 1.6); for (const i of r.hit.concat(r.fell)) g.add(i); }
+    const up = S.nodes.filter(N => N.solid && (N.wall ? N.k >= 1 : N.lvl >= 1)), left = up.filter(N => !g.has(N.i));
+    check(left.length === 0, `${tag}: with the ground floor's outer wall gone, nothing over it is left up (${left.length} of ${up.length})`);
+    check(settle(S, g).length === 0, `${tag}: and it's come to rest`); }
+};
 suites.determinism = () => {
   // Same address + seed → identical content; different seeds → different content.
   const a = makePlanet(uni(1), HOMEWORLD), b = makePlanet(uni(1), HOMEWORLD), c = makePlanet(uni(2), HOMEWORLD);

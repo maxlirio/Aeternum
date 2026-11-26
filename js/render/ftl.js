@@ -72,11 +72,13 @@ export class FtlTunnel {
     this.render(0); try { out.frame = cv.toDataURL('image/jpeg', 0.72); } catch { }
     try { const w = Math.min(960, cv.width), h = Math.max(2, Math.round(w * cv.height / cv.width)), rt = new THREE.WebGLRenderTarget(w, h), was = [this.wall.visible, this.rods.visible, this.eye.visible], bg = this.scene.background, fog = this.scene.fog, cc = R.getClearColor(new THREE.Color()), ca = R.getClearAlpha();
       this.wall.visible = this.rods.visible = this.eye.visible = false; this.scene.background = null; this.scene.fog = null; R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); R.render(this.scene, this.cam);
-      const px = new Uint8Array(w * h * 4); R.readRenderTargetPixels(rt, 0, 0, w, h, px); R.setRenderTarget(null); R.setClearColor(cc, ca); rt.dispose();
+      const px = new Uint8Array(w * h * 4); R.readRenderTargetPixels(rt, 0, 0, w, h, px); R.setRenderTarget(null); R.setClearColor(0x000000, 1); rt.dispose();
+      // (its colours as the screen shows them: the same view drawn to the screen on black, and read back from there; the first picture gives only its outline)
+      const tm = R.toneMappingExposure; R.toneMappingExposure = 1; R.clear(); R.render(this.scene, this.cam); R.toneMappingExposure = tm; const scr = document.createElement('canvas'); scr.width = w; scr.height = h; const sg = scr.getContext('2d', { willReadFrequently: true }); sg.drawImage(cv, 0, 0, w, h); const sp = sg.getImageData(0, 0, w, h).data; R.setClearColor(cc, ca);
       [this.wall.visible, this.rods.visible, this.eye.visible] = was; this.scene.background = bg; this.scene.fog = fog;
       let x0 = w, x1 = -1, y0 = h, y1 = -1; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (px[4 * (y * w + x) + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      if (x1 > x0 && y1 > y0) { const c = document.createElement('canvas'); c.width = x1 - x0 + 1; c.height = y1 - y0 + 1; const g = c.getContext('2d'), im = g.createImageData(c.width, c.height), lut = Array.from({ length: 256 }, (_, i) => Math.round(255 * Math.pow(i / 255, 1 / 2.2)));
-        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) { const k = 4 * ((y1 - y) * w + x0 + x), q = 4 * (y * c.width + x); im.data[q] = lut[px[k]]; im.data[q + 1] = lut[px[k + 1]]; im.data[q + 2] = lut[px[k + 2]]; im.data[q + 3] = px[k + 3]; }
+      if (x1 > x0 && y1 > y0) { const c = document.createElement('canvas'); c.width = x1 - x0 + 1; c.height = y1 - y0 + 1; const g = c.getContext('2d'), im = g.createImageData(c.width, c.height);
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) { const k = 4 * ((y1 - y) * w + x0 + x), q = 4 * (y * c.width + x); const sk = 4 * ((h - 1 - (y1 - y)) * w + x0 + x); im.data[q] = sp[sk]; im.data[q + 1] = sp[sk + 1]; im.data[q + 2] = sp[sk + 2]; im.data[q + 3] = px[k + 3]; }
         g.putImageData(im, 0, 0); out.ship = c.toDataURL('image/png'); out.rect = [x0 / w, (h - 1 - y1) / h, c.width / w, c.height / h]; } } catch (e) { console.warn('ftl snapshot', e); }
     this.render(0); return out;
   }

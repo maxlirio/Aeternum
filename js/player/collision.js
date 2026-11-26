@@ -2,6 +2,7 @@
 // building plans (walls with door gaps, floor slabs, stair ramps, furniture).
 // Buildings are axis-aligned in their own frame, so every test is circle-vs-AABB in
 // building-local coordinates. No three.js here.
+import { cellOf } from '../gen/structure.js';
 import { surfaceHeight } from '../gen/surface.js';
 import { rawHeight } from '../gen/terrain.js';
 import { buildingPlan, SLAB_T } from '../gen/building.js';
@@ -107,17 +108,25 @@ export class CollisionWorld {
     // burnt (this.ruined(b): how high its walls still stand, else null): the walls only up to there, no floors over it, its doors and its things gone
     const low = this.ruined?.(b, plan.F * plan.H) ?? null;
     if (low != null) plan = { ...plan, walls: plan.walls.filter(w => w.y0 < low).map(w => ({ ...w, y1: Math.min(w.y1, low), openings: w.openings.map(o => o.kind === 'door' ? { ...o, door: -2 } : o) })), slabs: plan.slabs.filter(sl => sl.y < low - 0.3), props: [], solids: this.pile?.(b) || [] };      // (and what came down lies in a heap: render/ruin.js)
+    // hit (this.holes(b): { S, gone, flat } — gen/structure.js, the parts of it that are down): no wall where a panel's gone, no floor where a square has,
+    // nothing standing where its floor's fallen, and the heap of what came down lying in it (render/ruin.js)
+    const HL = low == null ? this.holes?.(b) || null : null, S = HL?.S, out = k => HL.flat || HL.gone.has(S.index.get(k)), cutUp = (cuts, p, q) => { const o = [p]; for (const c of cuts) if (c > p + 0.01 && c < q - 0.01) o.push(c); o.push(q); return o; };
+    if (HL) plan = { ...plan, solids: (plan.solids || []).concat(HL.flat ? [] : this.pile?.(b) || []),      // (pressed flat, it's low enough to walk over)
+      slabs: plan.slabs.map(sl => sl.k < 1 ? sl : { ...sl, rects: sl.rects.flatMap(r => { const X = cutUp(S.gx, r[0], r[2]), Z = cutUp(S.gz, r[1], r[3]), o = []; for (let i = 0; i + 1 < X.length; i++) for (let j = 0; j + 1 < Z.length; j++) if (!out('f' + cellOf(S.gx, (X[i] + X[i + 1]) / 2) + ':' + cellOf(S.gz, (Z[j] + Z[j + 1]) / 2) + ':' + sl.k)) o.push([X[i], Z[j], X[i + 1], Z[j + 1]]); return o; }) }),
+      props: plan.props.filter(p => { const lvl = Math.round(p.y / plan.H); return !HL.flat && (lvl < 1 || !out('f' + cellOf(S.gx, (p.x0 + p.x1) / 2) + ':' + cellOf(S.gz, (p.z0 + p.z1) / 2) + ':' + lvl)); }) };
     const walls = [];
-    for (const wl of plan.walls) {
+    for (let wi = 0; wi < plan.walls.length; wi++) { const wl = plan.walls[wi];
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;
       const a0 = alongX ? wl.x0 : wl.z0, a1 = alongX ? wl.x1 : wl.z1, cc = alongX ? wl.z0 : wl.x0;
-      const add = (p, q, door) => { if (q - p > 0.001) walls.push(alongX ? [p, cc - t, q, cc + t, wl.y0, wl.y1, door] : [cc - t, p, cc + t, q, wl.y0, wl.y1, door]); };
+      const put = (p, q, y0, y1, door) => { if (q - p > 0.001) walls.push(alongX ? [p, cc - t, q, cc + t, y0, y1, door] : [cc - t, p, cc + t, q, y0, y1, door]); };
+      const add = !HL ? (p, q, door) => put(p, q, wl.y0, wl.y1, door) : (p, q, door) => { const W = S.walls[wi], U = cutUp(W.cuts, p, q), ym = wl.y0 + W.Hh;
+        for (let i = 0; i + 1 < U.length; i++) { const ci = cellOf(W.cuts, (U[i] + U[i + 1]) / 2), lo = !out('w' + wi + ':' + ci + ':0'), hi = !out('w' + wi + ':' + ci + ':1'); if (lo && hi) put(U[i], U[i + 1], wl.y0, wl.y1, door); else if (lo) put(U[i], U[i + 1], wl.y0, ym, -1); else if (hi) put(U[i], U[i + 1], ym, wl.y1, -1); } };
       let cur = a0;
       for (const o of wl.openings.filter(o => o.kind === 'door').sort((p, q) => p.a - q.a)) {
         add(cur, o.a, -1); if (o.door !== -2) add(o.a, o.b, o.door); cur = o.b;
       }
       add(cur, a1, -1);
-      if (wl.exterior && wl.k === plan.F - 1 && !b.footing && low == null) { // roof parapet
+      if (wl.exterior && wl.k === plan.F - 1 && !b.footing && low == null && !HL) { // roof parapet
         const top = plan.F * plan.H;
         walls.push(alongX ? [a0, cc - t, a1, cc + t, top, top + 0.7, -1] : [cc - t, a0, cc + t, a1, top, top + 0.7, -1]);
       }
@@ -128,7 +137,7 @@ export class CollisionWorld {
     const soft = plan.props.filter(p => p.soft && p.h > 0.05 && p.x1 > p.x0 && p.z1 > p.z0).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]);
     // window openings (a round goes through one where a wall would stop it): [x0, z0, x1, z1, y0, y1], building-local, with the wall and the opening they are
     const wins = [];
-    for (const wl of plan.walls) { const alongX = wl.z0 === wl.z1, t = wl.t / 2 + 0.06, cc = alongX ? wl.z0 : wl.x0; for (const o of wl.openings) if (o.kind === 'window' && wl.y0 + o.y1 <= (low ?? 1e9)) wins.push(alongX ? [o.a, cc - t, o.b, cc + t, wl.y0 + o.y0, wl.y0 + o.y1, wl, o] : [cc - t, o.a, cc + t, o.b, wl.y0 + o.y0, wl.y0 + o.y1, wl, o]); }
+    for (let wi = 0; wi < plan.walls.length; wi++) { const wl = plan.walls[wi], alongX = wl.z0 === wl.z1, t = wl.t / 2 + 0.06, cc = alongX ? wl.z0 : wl.x0; for (const o of wl.openings) if (o.kind === 'window' && wl.y0 + o.y1 <= (low ?? 1e9) && !(HL && (out('w' + wi + ':' + cellOf(S.walls[wi].cuts, (o.a + o.b) / 2) + ':0') || out('w' + wi + ':' + cellOf(S.walls[wi].cuts, (o.a + o.b) / 2) + ':1')))) wins.push(alongX ? [o.a, cc - t, o.b, cc + t, wl.y0 + o.y0, wl.y0 + o.y1, wl, o] : [cc - t, o.a, cc + t, o.b, wl.y0 + o.y0, wl.y0 + o.y1, wl, o]); }
     c = { b, plan, walls, props, soft, wins };
     this.cols.set(b.key, c);
     return c;

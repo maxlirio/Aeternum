@@ -331,6 +331,8 @@ export class Infantry {
     if (M.pi >= M.path.length - 1) return g; return M.path[M.pi]; }
   // a building's come down (main.js damageBuildings): whoever was in it is under it, and its posts are gone
   changed(bkey) { this.losMemo?.clear(); this.navV?.forget(); for (const P of this.posts || []) if (P.b === bkey) P.dead = true; for (const M of this.men) if (M.hp > 0 && (M.post?.b === bkey || M.walk?.P.b === bkey)) { M.post = null; M.walk = null; M.climb = false; this.hurt(M, 400, 'shell', null, 'blast'); } }
+  // a hole's been knocked in a building at p (it still stands): whoever held a post within r of it is caught by it, and those posts are gone
+  holed(bkey, p, r) { this.losMemo?.clear(); this.navV?.forget(); for (const P of this.posts || []) if (P.b === bkey && !P.dead && Math.hypot(P.pos[0] - p[0], P.pos[1] - p[1], P.pos[2] - p[2]) < r) { P.dead = true; for (const M of this.men) if (M.hp > 0 && (M.post === P || M.walk?.P === P)) { M.post = null; M.walk = null; M.climb = false; this.hurt(M, 400, 'shell', null, 'blast'); } } }
   // a sandbag wall across the ray from o along dir (unit) before `best`: → { along, C }, else null. Each wall runs along the line
   // (the s direction) at its a, 0.8 m high: a ray low enough meets it, one over the top goes on.
   coverOnRay(o, dir, best) {

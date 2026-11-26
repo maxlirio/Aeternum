@@ -55,7 +55,7 @@ export class TownStreamer {
     if (!this.shells.has(s.key)) this.shell(s);
     const propView = this.propLib ? new PropView(this.propLib) : null, T = { s, ready: false, propView };
     this.full.set(s.key, T);
-    const town = await buildSettlementMesh(this.planet, s, () => {}, propView, { streets: false, slice: 4, into: this.group, ruin: this.ruinOf?.(s), panes: this.panesOf });
+    const town = await buildSettlementMesh(this.planet, s, () => {}, propView, { streets: false, slice: 4, into: this.group, ruin: this.ruinOf?.(s), panes: this.panesOf, holes: this.holesOf });
     T.town = town; T.doorView = new DoorView(s, town.doors); town.group.add(T.doorView.mesh);
     T.doorIndex = new Map(town.doors.map((d, i) => [d.b.key + '#' + d.door.id, i]));
     T.ready = true; this.busy = null;

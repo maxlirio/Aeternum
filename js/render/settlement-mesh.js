@@ -9,6 +9,7 @@ import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
 import { snapshot, ruinPass, breakPanes, collapsePass, fallStep } from './ruin.js';
+import { structureOf } from '../gen/structure.js';
 import { materials } from './materials.js';
 import { buildBuilding, facadeOf, emitForm, formOfBuilding } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
@@ -130,7 +131,7 @@ export function buildBlocks(planet, s, ruin = null) {
 
 // Options: streets (false: only what stands on them), slice (ms: give each frame back after this long, for a town built while you play), into (the group's put in the world as it fills).
 // ruin(b): true for a building that's been burnt (sim/planetwar.js): it's built as its ruin (render/ruin.js), with no ladder and no props to use
-export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null, { streets = true, slice = 0, into = null, ruin = null, panes = null } = {}) {
+export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null, { streets = true, slice = 0, into = null, ruin = null, panes = null, holes = null } = {}) {
   const M = materials();
   const group = new THREE.Group();
   group.name = 'settlement:' + s.name;
@@ -151,10 +152,13 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const plan = buildingPlan(planet, s, b);
     const cu = (b.rect[0] + b.rect[2]) / 2, cv = (b.rect[1] + b.rect[3]) / 2;
     const frame = buildingFrame(s, b);
-    const st = ruin?.(b), burnt = st && st !== 'shot', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;      // (st: true burnt, 'down' knocked down by shellfire, 'shot' its windows out)
+    // st: true burnt (sim/planetwar.js), or as it's been hit: 'shot' its glass out, 'down' most of it fallen, 'flat'; HL: which of its parts are down (gen/structure.js)
+    const st = ruin?.(b), HL = st && st !== true ? holes?.(b) : null, broken = !!HL && (HL.flat || HL.gone.length > 0), burnt = st === true || st === 'down' || st === 'flat', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;
     buildBuilding(mbB, plan, b, frame, planet);
-    if (st === 'shot') ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
-    if (burnt) { if (st === 'down' || st === 'flat') collapsePass(mbB, snap, frame, b, plan, st, new Set([M.glass, M.pane])); else ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, {}); mbB.propSink = sink; }      // (and its doors burnt away)
+    if (broken) collapsePass(mbB, snap, frame, b, plan, structureOf(b, plan), { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]) });
+    else if (st === true) ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, {});
+    else if (st) ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
+    if (burnt) mbB.propSink = sink;      // (and its doors gone)
     else { const lad = ladderOf(planet, s, b);
       if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
       for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame }); }
@@ -209,22 +213,26 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   const breakGlass = (b, boxes) => { const S = spans.get(b.key); if (!S || S.st) return false; let n = 0;
     for (const [mat, [i0, i1]] of S.at) { if (!isGlass(mat)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const k = breakPanes(mesh.geometry.index.array, mesh.geometry.attributes.position.array, i0, i1, S.frame, boxes); if (k) { mesh.geometry.index.needsUpdate = true; n += k; } }
     return n > 0; };
-  const setState = (b, st) => {
-    const S = spans.get(b.key); if (!S || S.st === 'flat' || S.st === st || S.st === 'down' && st !== 'flat') return false; S.st = st;
-    const before = ruins.get(b.key) || null; for (let k = falls.length - 1; k >= 0; k--) if (falls[k].key === b.key) falls.splice(k, 1);
-    if (before) { for (const m of before) group.remove(m); ruins.delete(b.key); }      // (what was left standing of it goes too)
-    else
-    for (const [mat, [i0, i1]] of S.at) { if (st === 'shot' && !(mat === M.glass || mat === M.pane || mat.transparent)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
-    if (st !== 'down' && st !== 'flat') return true;
-    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); const A = collapsePass(mb, snap, S.frame, b, S.plan, st, new Set([M.glass, M.pane]), { anim: true });
+  // st as above; HL: { gone, flat } the parts of it now down; fresh: a Set of those coming down this moment (they're seen to fall)
+  const setState = (b, st, HL = null, fresh = null) => {
+    const S = spans.get(b.key); if (!S) return false; const broken = !!HL && (HL.flat || HL.gone.length > 0), isG = mat => mat === M.glass || mat === M.pane || mat.transparent;
+    if (!broken) { if (S.st) return false; S.st = st; for (const [mat, [i0, i1]] of S.at) { if (!isG(mat)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; } return true; }
+    S.st = st; const before = ruins.get(b.key) || null; for (let k = falls.length - 1; k >= 0; k--) if (falls[k].key === b.key) falls.splice(k, 1);
+    if (before) { for (const m of before) group.remove(m); ruins.delete(b.key); }
+    else if (!S.out) for (const [mat, [i0, i1]] of S.at) { const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
+    S.out = true;      // (it's out of the block it was built into, and stands on its own from now on)
+    const St = structureOf(b, S.plan), mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet);
+    const A = collapsePass(mb, snap, S.frame, b, S.plan, St, { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]), fresh, anim: true });
     const meshes = mb.build(); for (const m of meshes) m.frustumCulled = false; group.add(...meshes); ruins.set(b.key, meshes);
-    // seen coming down: from standing, every part falls to where it lies; a heap pressed flat goes from how it lay
+    // seen coming down: every part that's only now gone falls from where it stood to where it lies; a heap pressed flat goes from how it lay
     if (A) { const pos = mat => meshes.find(m => m.material === mat)?.geometry.attributes.position, F = { key: b.key, A, pos, press: null };
-      if (before) { F.press = meshes.map(m => { const old = before.find(q => q.material === m.material), to = m.geometry.attributes.position.array; return old && old.geometry.attributes.position.array.length === to.length ? { m, from: old.geometry.attributes.position.array.slice(), to: to.slice() } : null; }).filter(Boolean); F.t = 0; }
+      if (before && HL.flat) { F.press = meshes.map(m => { const old = before.find(q => q.material === m.material), to = m.geometry.attributes.position.array; return old && old.geometry.attributes.position.array.length === to.length ? { m, from: old.geometry.attributes.position.array.slice(), to: to.slice() } : null; }).filter(Boolean); F.t = 0; }
       else fallStep(A, 0, mat => pos(mat)?.array);
       for (const m of meshes) m.geometry.attributes.position.needsUpdate = true; falls.push(F); }
     for (const m of before || []) m.geometry.dispose();
-    const [o, ex, ez] = S.frame; propView?.clearIn((x, z) => { const dx = x - o[0], dz = z - o[2], lx = dx * ex[0] + dz * ex[2], lz = dx * ez[0] + dz * ez[2]; return lx > -0.5 && lz > -0.5 && lx < b.w + 0.5 && lz < b.d + 0.5; });
+    // what stood in it: all of it gone with a building that's down; else whatever stood on a floor that's fallen or against a wall that has
+    const [o, ex, ez] = S.frame, down = HL.flat || st === 'down' || st === 'flat', lost = HL.gone.map(i => St.nodes[i]).filter(N => N.solid);
+    propView?.clearIn((x, z) => { const dx = x - o[0], dz = z - o[2], lx = dx * ex[0] + dz * ex[2], lz = dx * ez[0] + dz * ez[2]; if (lx < -0.5 || lz < -0.5 || lx > b.w + 0.5 || lz > b.d + 0.5) return false; return down || lost.some(N => lx > N.box[0] - 0.7 && lx < N.box[3] + 0.7 && lz > N.box[2] - 0.7 && lz < N.box[5] + 0.7); });
     return true;
   };
   // (main.js, each frame: whatever's coming down goes on coming down)
