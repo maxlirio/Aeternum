@@ -9,7 +9,7 @@ import { unitReal } from '../world/vesperreal.js';
 
 const NEAR = 380, FAR = 460;
 const WALLS = [[0.82, 0.76, 0.66], [0.62, 0.66, 0.7], [0.74, 0.6, 0.52], [0.55, 0.58, 0.52], [0.86, 0.84, 0.8], [0.48, 0.5, 0.56], [0.7, 0.68, 0.6], [0.66, 0.55, 0.48]];
-function shellMaterial() {
+export function shellMaterial() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0.05 });
   m.onBeforeCompile = sh => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vL; varying vec3 vLN; varying vec3 vSz;')

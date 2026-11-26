@@ -141,7 +141,7 @@ function makeTownFace(world, b, side) {
 }
 function townFaces(world, x, y, z, r, fn) {
   for (const b of world.near(x, z)) {
-    if (b.city || b.type === 'ship') continue;
+    if (b.city && !b.vesper || b.type === 'ship' || b.type === 'ring') continue;      // (the Vesper's street buildings are climbed like a town's; a ring's own shell isn't a wall)
     const [lx, lz] = world.toB(b, x, z);
     if (!world.inside(b, lx, lz, r)) continue;
     const plan = world.colliders(b).plan, base = world.baseOf(b);

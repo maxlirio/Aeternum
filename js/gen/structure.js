@@ -36,6 +36,8 @@ export function structureOf(b, plan) {
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const M = at('f' + (N.ix + dx) + ':' + (N.iz + dz) + ':' + N.lvl); if (M) N.side.push(M.i); } } }
   S = { plan, key: b.key, H, F, walls, gx, gz, gy, nodes, index, w: b.w, d: b.d };
   // how far each part already hangs out from what bears it, as built (a wide room's floor, an eave): it may hang that far and one more, no further
+  // (a partition built on a floor's open span, with no wall under it: that floor carries it anyway, as built)
+  { const a = spans(S, null, true, false, true), w = spans(S, null, true, true, true); for (const N of nodes) if (N.wall && a[N.i] >= 99 && w[N.i] >= 99) N.onFloor = true; }
   const span0 = spans(S, null, false, false), spanW = spans(S, null, false, true); for (const N of nodes) { N.real = span0[N.i] < 99 || spanW[N.i] < 99; N.max = Math.max(N.wall ? 1 : 2, (span0[N.i] < 99 ? span0[N.i] : 0) + (N.wall ? 0 : 1)); }
   // (the parts there's certainly something of: the walls, and the floors and roof over the plot; an eave's square or one over the roof may be empty air)
   for (const N of nodes) N.solid = N.real && (!!N.wall || N.lvl <= F && N.box[0] < b.w && N.box[3] > 0 && N.box[2] < b.d && N.box[5] > 0);
@@ -44,12 +46,12 @@ export function structureOf(b, plan) {
 }
 // how far each standing part is from something that bears it (0: borne; 99: by nothing), with the parts in `gone` out. lim: held to how far each may
 // hang. weak: counted from the partitions inside only (which hold up what's on them and one part beside, no more); else from the outer walls
-function spans(S, gone, lim, weak) {
+function spans(S, gone, lim, weak, anyReach = false) {
   const n = S.nodes.length, sp = new Int16Array(n).fill(99), q = [];
   for (const N of S.nodes) if (N.wall && N.k === 0 && N.row === 0 && !N.wall.wl.exterior === weak && !gone?.has(N.i)) { sp[N.i] = 0; q.push(N.i); }
   for (let h = 0; h < q.length; h++) { const N = S.nodes[q[h]], s = sp[N.i];
-    for (const i of N.up) if (!gone?.has(i) && sp[i] > 0) { sp[i] = 0; q.push(i); }
-    for (const i of N.side) if (!gone?.has(i) && sp[i] > s + 1 && (!lim || s + 1 <= (weak ? 1 : S.nodes[i].max))) { sp[i] = s + 1; q.push(i); } }
+    for (const i of N.up) if (!gone?.has(i) && sp[i] > 0 && (s === 0 || N.wall || !S.nodes[i].wall || S.nodes[i].onFloor || !lim)) { sp[i] = 0; q.push(i); }      // (a floor carries a wall only where the floor itself is carried, not out on its overhang)
+    for (const i of N.side) if (!gone?.has(i) && sp[i] > s + 1 && (!lim || anyReach || s + 1 <= (weak ? 1 : S.nodes[i].max))) { sp[i] = s + 1; q.push(i); } }
   return sp;
 }
 // with `gone` (a Set of part numbers) out: the parts still standing that nothing bears any more → their numbers, lowest first

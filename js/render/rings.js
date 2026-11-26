@@ -8,7 +8,7 @@ import { plantSet } from '../gen/flora.js';
 
 // Lit from inside: the sunline down the crown is the ring's sun (its daylight follows the hours at home), what comes in at the glass, a glow
 // off the floor, lamps at night. Directions are the ring's own, read from where each surface is: the sun outside means nothing in here.
-function ringLit(base, g, U, inst = false) {
+export function ringLit(base, g, U, inst = false) {
   const m = base.clone();
   m.onBeforeCompile = sh => {
     sh.uniforms.uDay = U.day; sh.uniforms.uGlass = U.glass;
@@ -29,6 +29,14 @@ function ringLit(base, g, U, inst = false) {
   m.customProgramCacheKey = () => 'ring-' + g.key + (inst ? '-i' : '') + base.uuid;
   return m;
 }
+// a model's triangles that lie in the terraces' own space (between the hull and the pavement, from the floor to over the roofs, where a house stands) dropped
+function stripTerrace(geo, g, occ) {
+  const P = geo.attributes.position, ix = geo.index, n = ix ? ix.count : P.count, keep = [], C = g.C, at = i => ix ? ix.getX(i) : i;
+  for (let i = 0; i + 2 < n; i += 3) { const a = at(i), b = at(i + 1), c = at(i + 2), X = (P.getX(a) + P.getX(b) + P.getX(c)) / 3, Y = (P.getY(a) + P.getY(b) + P.getY(c)) / 3, Z = (P.getZ(a) + P.getZ(b) + P.getZ(c)) / 3;
+    const y = g.Rf - Math.hypot(X, Y), x = W / 2 - Z; let s = Math.atan2(X, -Y) * g.Rf; if (s < 0) s += C; const side = x < W / 2 ? 0 : 1, d = side ? W - x : x;
+    if (y > 0.06 && y < 17.5 && d > 0.7 && (d < 11.25 || d < 12.4 && y > 2.3) && occ[side][Math.round(s * 2)]) continue; keep.push(a, b, c); }
+  if (keep.length < n) geo.setIndex(keep);
+}
 const COL = { thatch: [0.76, 0.64, 0.3], corrugated: [0.6, 0.62, 0.6], render: [0.86, 0.8, 0.68], ceramic: [0.56, 0.7, 0.72], laminate: [0.78, 0.52, 0.46], plastic: [0.84, 0.68, 0.36], tint: [0.56, 0.64, 0.52], paint: [0.24, 0.27, 0.3], metal: [0.42, 0.43, 0.45], fabric: [0.78, 0.74, 0.66] };
 const FLOWER = { neonpink: [0.85, 0.12, 0.38], neonamber: [0.98, 0.5, 0.04], neonviolet: [0.38, 0.12, 0.8], neoncyan: [0.15, 0.55, 0.9], neongreen: [0.4, 0.75, 0.2], hazard: [1.0, 0.78, 0.08], navwhite: [0.95, 0.93, 0.9], navred: [0.8, 0.08, 0.06] };
 
@@ -44,6 +52,10 @@ export class RingView {
     gltfLoader().load('./assets/rings.glb', gltf => {
       gltf.scene.updateMatrixWorld(true); const M = {};
       gltf.scene.traverse(o => { if (!o.isMesh) return; let top = o; while (top.parent && top.parent !== gltf.scene) top = top.parent; const k = top.userData.kind; (M[k] ||= []).push({ g: bakedPart(o), slot: o.material.name }); });
+      // (the Commons' terraces are real buildings now, render/ringreal.js: what the model drew of them is taken out of it)
+      { const g = RINGS.find(q => q.kind === 'town'), list = g && M['ring_' + g.key]; if (list) { const L = ringLayout(g), occ = [new Uint8Array(Math.ceil(L.C * 2) + 2), new Uint8Array(Math.ceil(L.C * 2) + 2)];
+          for (const it of L.items) if (it.t === 'house') for (let k = Math.floor(it.s0 * 2); k <= Math.ceil(it.s1 * 2); k++) occ[it.side][k] = 1;
+          for (const q of list) stripTerrace(q.g, g, occ); } }
       this.models = M;
     }, undefined, e => console.warn('rings model', e?.message || e));
   }

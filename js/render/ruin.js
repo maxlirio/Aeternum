@@ -86,9 +86,8 @@ export function collapsePass(mb, snap, frame, b, plan, S, opt = {}) {
   const walls = S.walls, gx = S.gx, gz = S.gz, gy = S.gy, order = new Map((opt.gone || []).map((i, n) => [S.nodes[i].key, n]));
   const G = []; let wallG = null, most = 0;
   for (const [mat, g] of [...mb.groups]) { const s = snap.get(mat) || { v: 0, i: 0 }; if (g.idx.length <= s.i) continue;
-    if (gone.has(mat) || mat.transparent) { g.idx.length = s.i; continue; }
-    const q = { mat, g, s, own: [] }; G.push(q); const n = g.p.length / 3 - s.v; if (n > most) { most = n; wallG = q; } }
-  if (!G.length) return null;
+    const q = { mat, g, s, own: [], glass: gone.has(mat) || !!mat.transparent }; G.push(q); const n = g.p.length / 3 - s.v; if (n > most && !q.glass) { most = n; wallG = q; } }
+  if (!G.length || !wallG) return null;
   const lx = (g, v) => (g.p[3 * v] - o[0]) * ex[0] + (g.p[3 * v + 2] - o[2]) * ex[2], lz = (g, v) => (g.p[3 * v] - o[0]) * ez[0] + (g.p[3 * v + 2] - o[2]) * ez[2], ly = (g, v) => g.p[3 * v + 1] - o[1];
   const mix = (g, a, c, f) => { const v = g.p.length / 3; for (let k = 0; k < 3; k++) { g.p.push(g.p[3 * a + k] + (g.p[3 * c + k] - g.p[3 * a + k]) * f); g.n.push(g.n[3 * a + k] + (g.n[3 * c + k] - g.n[3 * a + k]) * f); g.c.push(g.c[3 * a + k] + (g.c[3 * c + k] - g.c[3 * a + k]) * f); }
     for (let k = 0; k < 2; k++) g.uv.push(g.uv[2 * a + k] + (g.uv[2 * c + k] - g.uv[2 * a + k]) * f); g.lit.push(0); return v; };
@@ -132,6 +131,8 @@ export function collapsePass(mb, snap, frame, b, plan, S, opt = {}) {
   const ap = Math.min(5, 1.5 + Htot * 0.25), x0 = Math.floor(-ap - 1), z0 = Math.floor(-ap - 1), nx = Math.ceil(b.w + ap + 1) - x0, nz = Math.ceil(b.d + ap + 1) - z0, hgt = new Float32Array(nx * nz);
   for (const P of list) { const bb = P.bb, W = P.W; P.c = [(bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2];
     P.n = order.get(P.key); P.fall = bb[4] > 0.3 && (flat ? !P.key.endsWith(':0') || !!W : P.n !== undefined); }
+  // (the glass of a part that's come down is gone: what's still in its wall stays in its frame)
+  G.forEach((q, gi) => { if (!q.glass) return; const g = q.g; g.idx.length = q.s.i; for (const P of list) { if (P.fall) continue; const t = P.tris; for (let k = 0; k < t.length; k += 4) if (t[k] === gi) g.idx.push(t[k + 1], t[k + 2], t[k + 3]); } });
   for (const P of list.filter(P => P.fall).sort((p, q) => (p.n ?? 1e9) - (q.n ?? 1e9) || p.bb[1] - q.bb[1] || p.i - q.i)) { const bb = P.bb, W = P.W, i = P.i, dx = Math.max(0.06, bb[3] - bb[0]), dy = Math.max(0.06, bb[4] - bb[1]), dz = Math.max(0.06, bb[5] - bb[2]);
     const thin = W ? (W.alongX ? 'z' : 'x') : dy <= dx && dy <= dz ? 'y' : dx < dz ? 'x' : 'z', th = thin === 'y' ? dy : thin === 'x' ? dx : dz;
     let sgn = R(420 + i) < 0.5 ? -1 : 1; const outw = W?.wl.exterior && R(440 + i) < 0.45; if (W?.wl.exterior) { const o1 = W.cc < (W.alongX ? b.d : b.w) / 2 ? -1 : 1; sgn = outw ? o1 : -o1; }
@@ -156,7 +157,7 @@ export function collapsePass(mb, snap, frame, b, plan, S, opt = {}) {
   if (flat) for (let k = 0; k < hgt.length; k++) hgt[k] = Math.min(hgt[k], 0.5);
   piles.set(b.key, { x0, z0, nx, nz, h: hgt });
   // every corner taken where its part went (a standing one stays, dusted), then all of it onto surfaces seen from both sides (a part lies any way up)
-  const anim = opt.anim ? { o, ex, ez, groups: [], pieces: list.map(P => P.fall && (!opt.fresh || opt.fresh.has(S.index.get(P.key))) ? { c: P.c, q: P.q, d: P.d, T: P.T, t0: P.t0 } : null), t: 0, T: 0 } : null;
+  const anim = opt.anim ? { o, ex, ez, groups: [], node: list.map(P => S.index.get(P.key)), pieces: list.map(P => { const ni = S.index.get(P.key), on = opt.carry?.get(ni); return P.fall && (!opt.fresh || opt.fresh.has(ni) || on !== undefined) ? { c: P.c, q: P.q, d: P.d, T: P.T, t0: on !== undefined ? on : P.t0 } : null; }), t: 0, T: 0 } : null;      // (carry: parts still in the air from the last time, with when each started, reckoned from now)
   for (const q of G) { const g = q.g, s = q.s, n = g.p.length / 3 - s.v, loc = anim && new Float32Array(3 * n), pid = anim && new Int32Array(n).fill(-1);
     for (let v = s.v; v < g.p.length / 3; v++) { const P = list[q.own[v]]; if (!P) continue; if (P.fall) g.lit[v] = 0; const x = lx(g, v), y = ly(g, v), z = lz(g, v);
       if (anim) { loc[3 * (v - s.v)] = x; loc[3 * (v - s.v) + 1] = y; loc[3 * (v - s.v) + 2] = z; }
@@ -165,7 +166,7 @@ export function collapsePass(mb, snap, frame, b, plan, S, opt = {}) {
       g.p[3 * v] = o[0] + ex[0] * X + ez[0] * Z; g.p[3 * v + 1] = o[1] + (flat ? Math.min(Y, 0.4 + 0.12 * P.dust) : Y); g.p[3 * v + 2] = o[2] + ex[2] * X + ez[2] * Z;
       const nlx = g.n[3 * v] * ex[0] + g.n[3 * v + 2] * ex[2], nlz = g.n[3 * v] * ez[0] + g.n[3 * v + 2] * ez[2], [mx2, my2, mz2] = qrot(P.q, nlx, g.n[3 * v + 1], nlz);
       g.n[3 * v] = ex[0] * mx2 + ez[0] * mz2; g.n[3 * v + 1] = my2; g.n[3 * v + 2] = ex[2] * mx2 + ez[2] * mz2; }
-    const C = fallOf(q.mat), h = mb.g(C), base = h.p.length / 3 - s.v;
+    const C = fallOf(q.mat), h = mb.g(C), base = h.p.length / 3 - s.v; if (q.glass) C.userData.glassy = true;
     for (let k = 3 * s.v; k < g.p.length; k++) { h.p.push(g.p[k]); h.n.push(g.n[k]); h.c.push(g.c[k]); } for (let k = 2 * s.v; k < g.uv.length; k++) h.uv.push(g.uv[k]); for (let k = s.v; k < g.lit.length; k++) h.lit.push(g.lit[k]);
     for (let k = s.i; k < g.idx.length; k++) h.idx.push(g.idx[k] + base);
     g.p.length = 3 * s.v; g.n.length = 3 * s.v; g.uv.length = 2 * s.v; g.c.length = 3 * s.v; g.lit.length = s.v; g.idx.length = s.i;

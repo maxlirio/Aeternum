@@ -110,7 +110,7 @@ export function ringPlan(g) {
   lineX(0, 0, C, CEIL); lineX(W, 0, C, CEIL);
   const slabs = [];
   for (const it of L.items) {
-    if (it.t === 'house' || it.t === 'barn') block(it.x0, it.s0, it.x1, it.s1, it.t === 'barn' ? 9 : it.floors * 3.3 + 1.2);
+    if (it.t === 'barn') block(it.x0, it.s0, it.x1, it.s1, 9);      // (a house is a building of its own: world/ringreal.js)
     else if (it.t === 'station') block(it.x - 3, it.s - 3, it.x + 3, it.s + 3, CEIL);
     else if (it.t === 'stall') block(it.x - 1.4, it.s - 1.6, it.x + 1.4, it.s + 1.6, 2.6);
     else if (it.t === 'fountain' || it.t === 'silo') block(it.x - it.r * 0.9, it.s - it.r * 0.9, it.x + it.r * 0.9, it.s + it.r * 0.9, it.t === 'silo' ? it.h : 0.6);
@@ -145,7 +145,7 @@ const roomOf = (L, s) => Math.max(0, Math.min(5, Math.floor(s / (L.C / 6))));
 const folks = new Map();
 export function ringFolk(g) {
   if (folks.has(g.key)) return folks.get(g.key);
-  const L = ringLayout(g), rng = new Rng([g.seed * 31337, g.seed + 99]), out = [], n = g.kind === 'town' ? 170 : g.kind === 'garden' ? 70 : 34;
+  const L = ringLayout(g), rng = new Rng([g.seed * 31337, g.seed + 99]), out = [], n = g.kind === 'town' ? 50 : g.kind === 'garden' ? 70 : 34;
   const lanes = g.kind === 'town' ? [12.4, 13.2, 19.6, 20.2, 33.8, 34.4, 40.8, 41.6] : g.kind === 'farm' ? [23.6, 30.4] : null;
   for (let i = 0; i < n; i++) out.push({ id: `ring:${g.key}:${i}`, lane: lanes ? rng.pick(lanes) + rng.range(-0.25, 0.25) : rng.range(-0.7, 0.7), s0: rng.range(0, L.C), v: (rng.chance(0.5) ? 1 : -1) * rng.range(0.9, 1.5), age: rng.chance(0.12) ? rng.int(7, 15) : rng.int(18, 80), dwell: rng.range(0, 1) });
   for (const it of L.items) if (it.t === 'bench' && rng.chance(0.45)) out.push({ id: `ring:${g.key}:b${Math.round(it.s)}`, bench: it, age: rng.int(16, 85) });

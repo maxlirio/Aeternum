@@ -12,7 +12,7 @@ export class Goods {
   update(t, pos) {
     const now = performance.now(); if (now < this.next) return; this.next = now + 2500;
     const loc = this.world.locate(pos[0], pos[1], pos[2]), b = loc?.b; let list = [];
-    if (b && b.type !== 'ship' && !this.gone?.(b)) for (const u of usablesOf(this.planet, this.s, b)) if (u.verbs.includes('buy') && u.pr.k === (loc.k ?? 0) && u.box) list.push(u);
+    if (b && b.type !== 'ship' && !this.gone?.(b)) for (const u of usablesOf(this.planet, this.s, b)) if (u.verbs.includes('buy') && u.pr.k === (loc.k ?? 0) && u.box && !this.lost?.(b, u.pr)) list.push(u);
     const sig = (b?.key || '') + '|' + list.map(u => contents(this.store, this.planet, b, u, t).map(i => i.id + i.n).join()).join(';');
     if (sig === this.key) return; this.key = sig;
     this.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); this.group.clear();

@@ -153,7 +153,8 @@ export class UI {
   showPrompt(html) { if (html) html = noKeys(html); if (!html || this.quiet) { this.prompt.classList.add('hidden'); return; } this.prompt.innerHTML = html; this.prompt.classList.remove('hidden'); }
   toast(html, kind = '', ms = 4500) {
     html = noKeys(html); if (!html) return;
-    const t = el('div', 'toast ' + kind, html); this.toasts.append(t);
+    const t = el('div', 'toast ' + kind, html); if (!this.notices) t.style.display = 'none';      // (no notices on screen: asked for; what's said is still kept here, unseen)
+    this.toasts.append(t);
     setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600);
   }
 

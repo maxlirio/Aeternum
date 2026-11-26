@@ -145,7 +145,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
 
   // ---- buildings
   const doors = [], spans = new Map(), ruins = new Map(), falls = [];
-  const isGlass = mat => mat === M.glass || mat === M.pane || mat.transparent;
+  const isGlass = mat => mat === M.glass || mat === M.pane || mat.transparent || !!mat.userData?.glassy;
   const t0 = performance.now();
   for (let i = 0; i < s.buildings.length; i++) {
     const b = s.buildings[i];
@@ -155,7 +155,8 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     // st: true burnt (sim/planetwar.js), or as it's been hit: 'shot' its glass out, 'down' most of it fallen, 'flat'; HL: which of its parts are down (gen/structure.js)
     const st = ruin?.(b), HL = st && st !== true ? holes?.(b) : null, broken = !!HL && (HL.flat || HL.gone.length > 0), burnt = st === true || st === 'down' || st === 'flat', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;
     buildBuilding(mbB, plan, b, frame, planet);
-    if (broken) collapsePass(mbB, snap, frame, b, plan, structureOf(b, plan), { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]) });
+    if (broken) { collapsePass(mbB, snap, frame, b, plan, structureOf(b, plan), { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]) });
+      const P = panes?.(b); if (P?.length) for (const [mat, g] of mbB.groups) if (isGlass(mat)) breakPanes(g.idx, g.p, snap.get(mat)?.i ?? 0, g.idx.length, frame, P); }
     else if (st === true) ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, {});
     else if (st) ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
     if (burnt) mbB.propSink = sink;      // (and its doors gone)
@@ -210,19 +211,23 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   // A building hit after the town was built (main.js damageBuildings): 'shot', its glass is taken out of the block it was built into; 'down', the whole
   // of it is, and it's built again on its own as what's left of it (render/ruin.js), with what stood inside gone. No more of the town is touched.
   // one window's glass shot out (boxes: [[x0, z0, x1, z1, y0, y1]] building-local, player/collision.js wins) → whether any was there to break
-  const breakGlass = (b, boxes) => { const S = spans.get(b.key); if (!S || S.st) return false; let n = 0;
+  const breakGlass = (b, boxes) => { const S = spans.get(b.key); if (!S) return false; let n = 0;
+    if (S.out) { for (const mesh of ruins.get(b.key) || []) if (isGlass(mesh.material)) { const k = breakPanes(mesh.geometry.index.array, mesh.geometry.attributes.position.array, 0, mesh.geometry.index.count, S.frame, boxes); if (k) { mesh.geometry.index.needsUpdate = true; n += k; } } return n > 0; }
+    if (S.st) return false;
     for (const [mat, [i0, i1]] of S.at) { if (!isGlass(mat)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const k = breakPanes(mesh.geometry.index.array, mesh.geometry.attributes.position.array, i0, i1, S.frame, boxes); if (k) { mesh.geometry.index.needsUpdate = true; n += k; } }
     return n > 0; };
   // st as above; HL: { gone, flat } the parts of it now down; fresh: a Set of those coming down this moment (they're seen to fall)
   const setState = (b, st, HL = null, fresh = null) => {
     const S = spans.get(b.key); if (!S) return false; const broken = !!HL && (HL.flat || HL.gone.length > 0), isG = mat => mat === M.glass || mat === M.pane || mat.transparent;
     if (!broken) { if (S.st) return false; S.st = st; for (const [mat, [i0, i1]] of S.at) { if (!isG(mat)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; } return true; }
-    S.st = st; const before = ruins.get(b.key) || null; for (let k = falls.length - 1; k >= 0; k--) if (falls[k].key === b.key) falls.splice(k, 1);
+    S.st = st; const before = ruins.get(b.key) || null, carry = new Map();
+    for (let k = falls.length - 1; k >= 0; k--) if (falls[k].key === b.key) { const A0 = falls[k].A; if (!falls[k].press) A0.pieces.forEach((P, i) => { if (P && A0.t < P.t0 + P.T) carry.set(A0.node[i], P.t0 - A0.t); }); falls.splice(k, 1); }      // (what's still in the air goes on falling)
     if (before) { for (const m of before) group.remove(m); ruins.delete(b.key); }
     else if (!S.out) for (const [mat, [i0, i1]] of S.at) { const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
     S.out = true;      // (it's out of the block it was built into, and stands on its own from now on)
     const St = structureOf(b, S.plan), mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet);
-    const A = collapsePass(mb, snap, S.frame, b, S.plan, St, { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]), fresh, anim: true });
+    const A = collapsePass(mb, snap, S.frame, b, S.plan, St, { gone: HL.gone, flat: HL.flat, glass: new Set([M.glass, M.pane]), fresh, carry, anim: true });
+    { const P = panes?.(b); if (P?.length) for (const [mat, g] of mb.groups) if (isGlass(mat)) breakPanes(g.idx, g.p, 0, g.idx.length, S.frame, P); }      // (the panes already out of it)
     const meshes = mb.build(); for (const m of meshes) m.frustumCulled = false; group.add(...meshes); ruins.set(b.key, meshes);
     // seen coming down: every part that's only now gone falls from where it stood to where it lies; a heap pressed flat goes from how it lay
     if (A) { const pos = mat => meshes.find(m => m.material === mat)?.geometry.attributes.position, F = { key: b.key, A, pos, press: null };

@@ -50,8 +50,8 @@ export class Jostle {
       const [x, z] = world.resolve(px, pz, a.pos[1] + 0.05, R, 1.7, true);
       S.o = [x - a.pos[0], z - a.pos[2]];
       const moved = Math.hypot(S.o[0], S.o[1]);
-      if (moved > 0.25) { const g = world.groundAt(x, z, a.pos[1] + 0.6).h; if (Math.abs(g - a.pos[1]) < 0.6) a.pos[1] = g; }
-      a.pos = [x, a.pos[1], z];
+      let y = a.pos[1]; if (moved > 0.25) { const g = world.groundAt(x, z, y + 0.6).h; if (Math.abs(g - y) < 0.6) y = g; }
+      a.pos = [x, y, z];      // (a new place for the body, never written back into the path it's following: on a stair that pinned a man to the floor above)
     }
     for (const id of this.s.keys()) if (!seen.has(id)) this.s.delete(id);
   }

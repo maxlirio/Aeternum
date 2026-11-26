@@ -111,9 +111,10 @@ export class CollisionWorld {
     // hit (this.holes(b): { S, gone, flat } — gen/structure.js, the parts of it that are down): no wall where a panel's gone, no floor where a square has,
     // nothing standing where its floor's fallen, and the heap of what came down lying in it (render/ruin.js)
     const HL = low == null ? this.holes?.(b) || null : null, S = HL?.S, out = k => HL.flat || HL.gone.has(S.index.get(k)), cutUp = (cuts, p, q) => { const o = [p]; for (const c of cuts) if (c > p + 0.01 && c < q - 0.01) o.push(c); o.push(q); return o; };
+    const lost = HL && !HL.flat ? [...HL.gone].map(i => S.nodes[i]).filter(N => N.solid) : [];
     if (HL) plan = { ...plan, solids: (plan.solids || []).concat(HL.flat ? [] : this.pile?.(b) || []),      // (pressed flat, it's low enough to walk over)
       slabs: plan.slabs.map(sl => sl.k < 1 ? sl : { ...sl, rects: sl.rects.flatMap(r => { const X = cutUp(S.gx, r[0], r[2]), Z = cutUp(S.gz, r[1], r[3]), o = []; for (let i = 0; i + 1 < X.length; i++) for (let j = 0; j + 1 < Z.length; j++) if (!out('f' + cellOf(S.gx, (X[i] + X[i + 1]) / 2) + ':' + cellOf(S.gz, (Z[j] + Z[j + 1]) / 2) + ':' + sl.k)) o.push([X[i], Z[j], X[i + 1], Z[j + 1]]); return o; }) }),
-      props: plan.props.filter(p => { const lvl = Math.round(p.y / plan.H); return !HL.flat && (lvl < 1 || !out('f' + cellOf(S.gx, (p.x0 + p.x1) / 2) + ':' + cellOf(S.gz, (p.z0 + p.z1) / 2) + ':' + lvl)); }) };
+      props: HL.flat ? [] : plan.props.filter(p => !lost.some(N => p.x1 > N.box[0] - 0.7 && p.x0 < N.box[3] + 0.7 && p.z1 > N.box[2] - 0.7 && p.z0 < N.box[5] + 0.7)) };      // (as they're taken off the screen: render/settlement-mesh.js setState)
     const walls = [];
     for (let wi = 0; wi < plan.walls.length; wi++) { const wl = plan.walls[wi];
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;
@@ -432,7 +433,7 @@ export class CollisionWorld {
   // Which building/floor/room is this point in (for HUD, lights, interaction)?
   locate(x, y, z) {
     if (y > SPACE) return null;
-    let outside = null;      // (over or under one structure, maybe inside another stacked with it: the one you're in wins)
+    let outside = null, ring = null;      // (over or under one structure, maybe inside another stacked with it: the one you're in wins; and a house standing in a spin ring wins over the ring)
     for (const b of this.near(x, z)) {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz)) continue;
@@ -441,8 +442,9 @@ export class CollisionWorld {
       if (ly < -0.3 || ly > plan.F * plan.H) { outside ||= { b, roof: ly >= plan.F * plan.H }; continue; }
       const k = Math.max(0, Math.min(plan.F - 1, Math.floor(ly / plan.H)));
       const room = plan.rooms.find(r => r.k === k && lx >= r.rect[0] && lx <= r.rect[2] && lz >= r.rect[1] && lz <= r.rect[3]);
+      if (b.type === 'ring') { ring ||= { b, plan, k, room, lx, lz }; continue; }
       return { b, plan, k, room, lx, lz };
     }
-    return outside;
+    return ring || outside;
   }
 }

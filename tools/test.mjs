@@ -8,6 +8,9 @@ import { rawHeight } from '../js/gen/terrain.js';
 import { surfaceHeight } from '../js/gen/surface.js';
 import { getSettlement, roadRect, rectsOverlap } from '../js/gen/settlement.js';
 import { structureOf, strike as strikeAt, settle } from '../js/gen/structure.js';
+import { RINGS } from '../js/gen/rings.js';
+import { ringStructure } from '../js/world/rings.js';
+import { ringPlots, plotReal, plotPeople, personAt, plotToRing, DEPTH } from '../js/world/ringreal.js';
 import { buildingPlan, roomGraph } from '../js/gen/building.js';
 
 // Nearly every suite here is about the home town, over hundreds of worlds; working out the rivers of all the towns around each one would take minutes. (suites.towns and the browser tests use the real thing.)
@@ -23,6 +26,23 @@ const digest = obj => seedHex([hashStr(1, JSON.stringify(obj)), hashStr(2, JSON.
 
 const uni = n => seedFromString('test-universe-' + n);
 
+suites.ringreal = () => {
+  // The Commons' houses as real buildings (world/ringreal.js): every plot has a plan with rooms and a way in; its people are in their beds at night,
+  // inside their own walls, and out on the street by day; and nobody jumps from one moment to the next
+  const P = makePlanet(uni(1), HOMEWORLD), s = getSettlement(P, 0, 0), g = RINGS.find(q => q.kind === 'town'), ringB = ringStructure(s, g, [0, 900, 0], 0.3), plots = ringPlots(g);
+  check(plots.length > 150, `plots (${plots.length})`); let rooms = 0, people = 0, bad = 0, jumps = 0, out = 0, abed = 0, homes = 0;
+  for (const Q of plots) { check(Q.w >= 6.5 && Q.a0 > Q.s0 && Q.a1 < Q.s1, `plot ${Q.id} stands clear of its neighbours (${Q.w.toFixed(1)} m)`); }
+  for (const Q of plots.filter((_, i) => i % 4 === 0)) { const rec = plotReal(P, s, ringB, g, Q); if (!check(!!rec, `plot ${Q.id} has a building`)) continue; rooms += rec.plan.rooms.length;
+    check(rec.plan.entrance >= 0 && rec.plan.doors[rec.plan.entrance], `plot ${Q.id} ${Q.type}: a way in`);
+    const [fx] = plotToRing(Q, Q.w / 2, -1), [bx] = plotToRing(Q, Q.w / 2, DEPTH + 0.5); check(Math.abs(fx - 27) < Math.abs(bx - 27), `plot ${Q.id}: its front is to the street`);
+    const folk = plotPeople(P, s, ringB, g, Q); if (Q.type !== 'store') homes++; people += folk.length;
+    for (const m of folk) { const n = personAt(g, Q, m, 3), d = personAt(g, Q, m, 13); if (n.pose === 'lie') abed++; if (d.y === 0 && d.x > 11.5 && d.x < 42.5) out++;
+      const lo = Math.min(Q.a0, Q.a1) - 0.2, hi = Math.max(Q.a0, Q.a1) + 0.2, dx = Q.side === 0 ? n.x : 54 - n.x; if (!(n.s > lo && n.s < hi && dx > 1 && dx < 11.3)) bad++;
+      let last = null; for (let h = 0; h < 24; h += 1 / 240) { const a = personAt(g, Q, m, h); if (last) { let ds = Math.abs(a.s - last.s); if (ds > g.C / 2) ds = g.C - ds; if (Math.hypot(a.x - last.x, ds, a.y - last.y) > 26 && !(a.pose !== last.pose && (a.pose !== 'stand' || last.pose !== 'stand'))) jumps++; } last = a; } } }
+  check(rooms > 200, `rooms (${rooms})`); check(people > homes, `people live there (${people} in ${homes} homes sampled)`);
+  check(abed === people, `at night all are in bed (${abed} of ${people})`); check(bad === 0, `and in their own houses (${bad} out of place)`);
+  check(out > people * 0.9, `at midday they're out on the street (${out} of ${people})`); check(jumps === 0, `nobody jumps (${jumps})`);
+};
 suites.structure = () => {
   // What holds a building up (gen/structure.js): as built nothing's unsupported; a hole in a wall is a hole, and the building stands; a storey that
   // loses its outer walls brings down everything over it and leaves what's beside and below
@@ -31,6 +51,10 @@ suites.structure = () => {
     check(settle(S, new Set()).length === 0, `${tag}: nothing falls as built`); check(S.count > 20, `${tag}: has parts (${S.count})`);
     const a = strikeAt(S, new Set(), [b.w / 2, 1.2, 0], 1.6), solid = L => L.filter(i => S.nodes[i].solid).length;
     check(a.hit.length > 0 && solid(a.hit) + solid(a.fell) < S.count * 0.2, `${tag}: a hole in the wall is a hole (${solid(a.hit)} broken, ${solid(a.fell)} fell of ${S.count})`);
+    if (plan.F >= 2) { const f = new Set(); for (let x = 0; x <= b.w; x += 1.2) { const r = strikeAt(S, f, [x, 1.2, 0], 1.3); for (const i of r.hit.concat(r.fell)) f.add(i); }
+      const upW = S.nodes.filter(N => N.wall && N.k === 1 && N.wall.wl.exterior), front = upW.filter(N => N.box[5] < 0.6), back = upW.filter(N => N.box[2] > b.d - 0.6);
+      // (the wall over it comes down only where no cross wall inside still carries the floor it stands on: that differs house to house)
+      check(back.every(N => !f.has(N.i)), `${tag}: and the back of the house stands`); }
     const g = new Set(); for (const [x, z] of [...Array(Math.ceil(b.w / 1.2) + 1).keys()].flatMap(i => [[i * 1.2, 0], [i * 1.2, b.d]]).concat([...Array(Math.ceil(b.d / 1.2) + 1).keys()].flatMap(i => [[0, i * 1.2], [b.w, i * 1.2]]))) { const r = strikeAt(S, g, [x, 1.2, z], 1.6); for (const i of r.hit.concat(r.fell)) g.add(i); }
     const up = S.nodes.filter(N => N.solid && (N.wall ? N.k >= 1 : N.lvl >= 1)), left = up.filter(N => !g.has(N.i));
     check(left.length === 0, `${tag}: with the ground floor's outer wall gone, nothing over it is left up (${left.length} of ${up.length})`);

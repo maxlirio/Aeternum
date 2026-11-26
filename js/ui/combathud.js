@@ -98,6 +98,6 @@ export class CombatHud {
     for (const b of st.barks || []) { const a = Math.min(1, b.life * 2); g.lineWidth = 3; g.strokeStyle = `rgba(0,0,0,${0.6 * a})`; g.strokeText(b.text, b.x, b.y); g.fillStyle = b.side === 'ours' ? `rgba(190,215,255,${a})` : `rgba(255,190,170,${a})`; g.fillText(b.text, b.x, b.y); }
     // who's down: top right, fading
     g.font = '500 13px system-ui, sans-serif'; g.textAlign = 'right'; g.textBaseline = 'top';
-    this.feed.forEach((f, i) => { const a = Math.min(1, (7 - f.t) / 1.5); g.fillStyle = `rgba(0,0,0,${0.35 * a})`; const tw = g.measureText(f.html).width; g.fillRect(W - 24 - tw - 8, 80 + i * 22 - 3, tw + 16, 20); g.fillStyle = f.kind === 'you' ? `rgba(255,220,140,${a})` : f.kind === 'bad' ? `rgba(255,150,130,${a})` : `rgba(235,235,230,${a})`; g.fillText(f.html, W - 24, 80 + i * 22); });
+    if (this.showFeed) this.feed.forEach((f, i) => { const a = Math.min(1, (7 - f.t) / 1.5); g.fillStyle = `rgba(0,0,0,${0.35 * a})`; const tw = g.measureText(f.html).width; g.fillRect(W - 24 - tw - 8, 80 + i * 22 - 3, tw + 16, 20); g.fillStyle = f.kind === 'you' ? `rgba(255,220,140,${a})` : f.kind === 'bad' ? `rgba(255,150,130,${a})` : `rgba(235,235,230,${a})`; g.fillText(f.html, W - 24, 80 + i * 22); });
   }
 }
