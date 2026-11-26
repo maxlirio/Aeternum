@@ -97,6 +97,10 @@
 </style>
 </head>
 <body>
+<script>
+// out of a jump (js/main.js ftlJump): the last moment of the tunnel, ship and all, shown from the first instant until the tunnel's running again
+if (/[?&]auto=arrive/.test(location.search)) try { var P = JSON.parse(sessionStorage.getItem('orbis-ftl-pic') || 'null'); if (P && P.frame) { var d = document.createElement('img'); d.id = 'ftl-still'; d.src = P.frame; d.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:2;pointer-events:none;background:#01030a'; document.body.appendChild(d); } } catch (e) { }
+</script>
 <div id="ui"></div>
 <script type="module" src="js/main.js" onerror="document.title='ERROR could not load the game'"></script>
 </body>

@@ -106,7 +106,7 @@ export class CollisionWorld {
     let plan = b.plan || buildingPlan(this.planet, this.townOf(b), b);
     // burnt (this.ruined(b): how high its walls still stand, else null): the walls only up to there, no floors over it, its doors and its things gone
     const low = this.ruined?.(b, plan.F * plan.H) ?? null;
-    if (low != null) plan = { ...plan, walls: plan.walls.filter(w => w.y0 < low).map(w => ({ ...w, y1: Math.min(w.y1, low), openings: w.openings.map(o => o.kind === 'door' ? { ...o, door: -2 } : o) })), slabs: plan.slabs.filter(sl => sl.y < low - 0.3), props: [], solids: [] };
+    if (low != null) plan = { ...plan, walls: plan.walls.filter(w => w.y0 < low).map(w => ({ ...w, y1: Math.min(w.y1, low), openings: w.openings.map(o => o.kind === 'door' ? { ...o, door: -2 } : o) })), slabs: plan.slabs.filter(sl => sl.y < low - 0.3), props: [], solids: this.pile?.(b) || [] };      // (and what came down lies in a heap: render/ruin.js)
     const walls = [];
     for (const wl of plan.walls) {
       const alongX = wl.z0 === wl.z1, t = wl.t / 2;

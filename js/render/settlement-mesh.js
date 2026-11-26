@@ -8,7 +8,7 @@ import { linksOfTown } from '../gen/network.js';
 import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
-import { snapshot, ruinPass, breakPanes } from './ruin.js';
+import { snapshot, ruinPass, breakPanes, collapsePass, fallStep } from './ruin.js';
 import { materials } from './materials.js';
 import { buildBuilding, facadeOf, emitForm, formOfBuilding } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
@@ -116,7 +116,6 @@ export function buildStreets(planet, s) {
 }
 
 // Each building as a plain block in its own colours: a town from a long way off, standing in until the real one's built.
-const FLAT = { k: 0.08, min: 0.45, grey: true };      // (a ruin driven over or shelled again: nothing of it over knee height)
 export function buildBlocks(planet, s, ruin = null) {
   const M = materials(), mb = new MeshBuilder();
   for (const b of s.buildings) {
@@ -144,7 +143,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   if (streets) group.add(...buildStreets(planet, s));
 
   // ---- buildings
-  const doors = [], spans = new Map(), ruins = new Map();
+  const doors = [], spans = new Map(), ruins = new Map(), falls = [];
   const isGlass = mat => mat === M.glass || mat === M.pane || mat.transparent;
   const t0 = performance.now();
   for (let i = 0; i < s.buildings.length; i++) {
@@ -155,7 +154,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const st = ruin?.(b), burnt = st && st !== 'shot', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;      // (st: true burnt, 'down' knocked down by shellfire, 'shot' its windows out)
     buildBuilding(mbB, plan, b, frame, planet);
     if (st === 'shot') ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
-    if (burnt) { ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, st === 'down' ? { k: 0.55, grey: true } : st === 'flat' ? FLAT : {}); mbB.propSink = sink; }      // (and its doors burnt away)
+    if (burnt) { if (st === 'down' || st === 'flat') collapsePass(mbB, snap, frame, b, plan, st, new Set([M.glass, M.pane])); else ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, {}); mbB.propSink = sink; }      // (and its doors burnt away)
     else { const lad = ladderOf(planet, s, b);
       if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
       for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame }); }
@@ -212,16 +211,28 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     return n > 0; };
   const setState = (b, st) => {
     const S = spans.get(b.key); if (!S || S.st === 'flat' || S.st === st || S.st === 'down' && st !== 'flat') return false; S.st = st;
-    if (ruins.has(b.key)) { for (const m of ruins.get(b.key) || []) { group.remove(m); m.geometry.dispose(); } ruins.delete(b.key); }      // (what was left standing of it goes too)
+    const before = ruins.get(b.key) || null; for (let k = falls.length - 1; k >= 0; k--) if (falls[k].key === b.key) falls.splice(k, 1);
+    if (before) { for (const m of before) group.remove(m); ruins.delete(b.key); }      // (what was left standing of it goes too)
     else
     for (const [mat, [i0, i1]] of S.at) { if (st === 'shot' && !(mat === M.glass || mat === M.pane || mat.transparent)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
     if (st !== 'down' && st !== 'flat') return true;
-    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); ruinPass(mb, snap, S.frame, b, new Set([M.glass, M.pane]), S.plan.F * S.plan.H, st === 'flat' ? FLAT : { k: 0.55, grey: true });
-    const meshes = mb.build(); group.add(...meshes); ruins.set(b.key, meshes);
+    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); const A = collapsePass(mb, snap, S.frame, b, S.plan, st, new Set([M.glass, M.pane]), { anim: true });
+    const meshes = mb.build(); for (const m of meshes) m.frustumCulled = false; group.add(...meshes); ruins.set(b.key, meshes);
+    // seen coming down: from standing, every part falls to where it lies; a heap pressed flat goes from how it lay
+    if (A) { const pos = mat => meshes.find(m => m.material === mat)?.geometry.attributes.position, F = { key: b.key, A, pos, press: null };
+      if (before) { F.press = meshes.map(m => { const old = before.find(q => q.material === m.material), to = m.geometry.attributes.position.array; return old && old.geometry.attributes.position.array.length === to.length ? { m, from: old.geometry.attributes.position.array.slice(), to: to.slice() } : null; }).filter(Boolean); F.t = 0; }
+      else fallStep(A, 0, mat => pos(mat)?.array);
+      for (const m of meshes) m.geometry.attributes.position.needsUpdate = true; falls.push(F); }
+    for (const m of before || []) m.geometry.dispose();
     const [o, ex, ez] = S.frame; propView?.clearIn((x, z) => { const dx = x - o[0], dz = z - o[2], lx = dx * ex[0] + dz * ex[2], lz = dx * ez[0] + dz * ez[2]; return lx > -0.5 && lz > -0.5 && lx < b.w + 0.5 && lz < b.d + 0.5; });
     return true;
   };
-  return { group, doors, lamps: lamps.length, setState, breakGlass };
+  // (main.js, each frame: whatever's coming down goes on coming down)
+  const tick = dt => { for (let k = falls.length - 1; k >= 0; k--) { const F = falls[k]; let on;
+      if (F.press) { F.t += dt; const f = Math.min(1, F.t / 0.5); for (const { m, from, to } of F.press) { const a = m.geometry.attributes.position.array; for (let i = 0; i < a.length; i++) a[i] = from[i] + (to[i] - from[i]) * f; m.geometry.attributes.position.needsUpdate = true; } on = f < 1; }
+      else { on = fallStep(F.A, dt, mat => F.pos(mat)?.array); for (const g of F.A.groups) { const at = F.pos(g.mat); if (at) at.needsUpdate = true; } }
+      if (!on) falls.splice(k, 1); } };
+  return { group, doors, lamps: lamps.length, setState, breakGlass, tick };
 }
 
 let pool = null;

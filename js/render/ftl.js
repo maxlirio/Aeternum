@@ -63,11 +63,28 @@ export class FtlTunnel {
     this.L = { W: L.W, D: L.D, H: (L.ceiling ?? 3) + 1 };
     this.drive.position.set(0, 0, -L.D / 2 - 2);
   }
+  // Coming out: drawn over the world as it now is (nothing of the tunnel but its streaks, which slow and shorten to points among the real stars and go)
+  leave() { this.over = true; this.target = 0; this.scene.background = null; this.scene.fog = null; this.shipG.visible = false; this.wall.visible = false; this.eye.visible = false; this.rods.material.fog = false; this.rods.material.needsUpdate = true; }
+  // A picture of this moment to carry across the page's reload (main.js ftlJump): the whole view, and the ship alone cut out of it with where it sits
+  // ([left, top, width, height] as parts of the view), so the ship is on screen from the first instant of the new page, before its model's loaded
+  snapshot() {
+    const R = this.renderer, cv = R.domElement, out = { frame: null, ship: null, rect: null };
+    this.render(0); try { out.frame = cv.toDataURL('image/jpeg', 0.72); } catch { }
+    try { const w = Math.min(960, cv.width), h = Math.max(2, Math.round(w * cv.height / cv.width)), rt = new THREE.WebGLRenderTarget(w, h), was = [this.wall.visible, this.rods.visible, this.eye.visible], bg = this.scene.background, fog = this.scene.fog, cc = R.getClearColor(new THREE.Color()), ca = R.getClearAlpha();
+      this.wall.visible = this.rods.visible = this.eye.visible = false; this.scene.background = null; this.scene.fog = null; R.setRenderTarget(rt); R.setClearColor(0x000000, 0); R.clear(); R.render(this.scene, this.cam);
+      const px = new Uint8Array(w * h * 4); R.readRenderTargetPixels(rt, 0, 0, w, h, px); R.setRenderTarget(null); R.setClearColor(cc, ca); rt.dispose();
+      [this.wall.visible, this.rods.visible, this.eye.visible] = was; this.scene.background = bg; this.scene.fog = fog;
+      let x0 = w, x1 = -1, y0 = h, y1 = -1; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (px[4 * (y * w + x) + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 > x0 && y1 > y0) { const c = document.createElement('canvas'); c.width = x1 - x0 + 1; c.height = y1 - y0 + 1; const g = c.getContext('2d'), im = g.createImageData(c.width, c.height), lut = Array.from({ length: 256 }, (_, i) => Math.round(255 * Math.pow(i / 255, 1 / 2.2)));
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) { const k = 4 * ((y1 - y) * w + x0 + x), q = 4 * (y * c.width + x); im.data[q] = lut[px[k]]; im.data[q + 1] = lut[px[k + 1]]; im.data[q + 2] = lut[px[k + 2]]; im.data[q + 3] = px[k + 3]; }
+        g.putImageData(im, 0, 0); out.ship = c.toDataURL('image/png'); out.rect = [x0 / w, (h - 1 - y1) / h, c.width / w, c.height / h]; } } catch (e) { console.warn('ftl snapshot', e); }
+    this.render(0); return out;
+  }
   render(dt) {
     const R = this.renderer, cv = R.domElement, w = cv.clientWidth || innerWidth, h = cv.clientHeight || innerHeight;
     if (Math.abs(this.cam.aspect - w / h) > 1e-3) { this.cam.aspect = w / h; this.cam.updateProjectionMatrix(); }
     this.t += dt; this.speed += (this.target - this.speed) * Math.min(1, dt * (this.target > this.speed ? 0.9 : 2.5));
-    const t = this.t, sp = this.speed, V = 60 + 1500 * sp * sp;
+    const t = this.t, sp = this.speed, V = (this.over ? 0 : 60) + 1500 * sp * sp;
     this.wall.material.uniforms.uT.value = t; this.wall.material.uniforms.uS.value = Math.min(1, sp * 1.2); this.wall.rotation.z = t * 0.12;
     // the rods: back past the ship, longer the faster it goes
     const len = 0.8 + 90 * sp * sp;
@@ -77,7 +94,8 @@ export class FtlTunnel {
       this._p.set(Math.cos(s.a + t * 0.12) * r, Math.sin(s.a + t * 0.12) * r, s.z); this._s.set(s.w, s.w, len * s.v);
       this._m.compose(this._p, this._q.identity(), this._s); this.rods.setMatrixAt(i, this._m);
     }
-    this.rods.instanceMatrix.needsUpdate = true; this.rods.material.opacity = Math.min(1, 0.25 + sp);
+    this.rods.instanceMatrix.needsUpdate = true; this.rods.material.opacity = this.over ? Math.min(1, sp * 9) : Math.min(1, 0.25 + sp);
+    if (this.over) { this.cam.position.set(0, 0, 0); this.cam.rotation.set(0, Math.PI, 0); const ac = R.autoClear; R.autoClear = false; R.clearDepth(); const tm0 = R.toneMappingExposure; R.toneMappingExposure = 1; R.render(this.scene, this.cam); R.toneMappingExposure = tm0; R.autoClear = ac; return; }
     this.eye.material.opacity = 0.35 + 0.65 * sp; const pulse = 1 + 0.06 * Math.sin(t * 7); this.eye.scale.set(420 * pulse * (0.6 + 0.4 * sp), 420 * pulse * (0.6 + 0.4 * sp), 1);
     // the ship rides it: a slow sway, a shudder that grows with speed
     const sh = 0.004 + 0.01 * sp;

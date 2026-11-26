@@ -107,6 +107,8 @@ export class GlobeView {
     if (!show) return;
     const F = frameAt(this.G, px, pz), { ex, up, ez } = F, M = new THREE.Matrix4().set(ex[0], ex[1], ex[2], 0, up[0], up[1], up[2], 0, ez[0], ez[1], ez[2], 0, 0, 0, 0, 1);
     this.group.quaternion.setFromRotationMatrix(M); this.group.scale.copy(this.scale); this.group.position.set(rx, this.planet.seaLevel - this.G.R - oy - Math.min(1, Math.max(0, 20000 - alt) / 17500) * 60, rz);
+    // (out of FTL, main.js: not there, then all at once there — it comes in from far off dead ahead, small, and stops where it is)
+    if (this.rush != null) { if (this.rush < 0) { this.group.visible = false; return; } const e = 1 - Math.pow(1 - this.rush, 3), fwd = camera.getWorldDirection(new THREE.Vector3()), D = Math.max(0, camera.far * 0.7 - this.G.R) * (1 - e); this.group.position.addScaledVector(fwd, D); this.group.scale.multiplyScalar(0.08 + 0.92 * e); }
     this.sun.value.copy(sunDir); this.time.value += dt; this.thick.value = THREE.MathUtils.smoothstep(alt, 14000, 60000);     // (this shell is the air seen from outside: down inside it, the sky is the sky)
     if (this.sunDisc.visible) { const D = Math.max(camera.far * 0.8, 1e6); this.sunDisc.position.copy(camera.position).addScaledVector(sunDir, D); this.sunDisc.scale.setScalar(D * 0.0052); }
   }

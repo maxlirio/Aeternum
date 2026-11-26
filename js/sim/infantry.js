@@ -146,7 +146,7 @@ export class Infantry {
       M.postCd -= dt;
       // going in to a post or coming out from one: along its way (through the door, up the stairs; up the ladder to a roof), nothing else until he's there
       if (M.walk) { const W = M.walk, pts = W.P.path, j = W.i + W.dir; M.moving = true; M.aim = 0; M.duck = 0; M.prone = false;
-        if (W.P.dead || j < 0 || j >= pts.length) { if (W.dir > 0 && !W.P.dead) { M.post = W.P; M.state = 'hold'; M.pos = W.P.pos.slice(); M.facing = W.P.face; M.dwell = 25 + Math.random() * 25; } else { if (W.P.by === M.id) W.P.by = null; M.post = null; M.state = 'move'; M.goal = null; M.postCd = 25 + Math.random() * 20; M.pos[1] = W.P.dead ? M.pos[1] : this.ground(M.pos[0], M.pos[2]); } M.walk = null; M.climb = false; M.moving = false; continue; }
+        if (W.P.dead || j < 0 || j >= pts.length) { if (W.dir > 0 && !W.P.dead) { M.post = W.P; M.state = 'hold'; M.pos = W.P.pos.slice(); M.facing = W.P.face; if (!W.P.roof) this.hooks.glass?.(W.P); M.dwell = 25 + Math.random() * 25; } else { if (W.P.by === M.id) W.P.by = null; M.post = null; M.state = 'move'; M.goal = null; M.postCd = 25 + Math.random() * 20; M.pos[1] = W.P.dead ? M.pos[1] : this.ground(M.pos[0], M.pos[2]); } M.walk = null; M.climb = false; M.moving = false; continue; }
         const g = pts[j], lad = pts.lad != null && Math.max(W.i, j) === pts.lad, dx = g[0] - M.pos[0], dy = g[1] - M.pos[1], dz = g[2] - M.pos[2], d = Math.hypot(dx, dy, dz), sp = (lad ? 1.3 : 3.1) * dt; M.climb = lad;
         if (g.door) this.hooks.door?.(g.door); if (pts[W.i]?.door) this.hooks.door?.(pts[W.i].door);
         if (d <= sp) { M.pos = [g[0], g[1], g[2]]; W.i = j; } else { M.pos = [M.pos[0] + dx / d * sp, M.pos[1] + dy / d * sp, M.pos[2] + dz / d * sp]; }
@@ -248,8 +248,9 @@ export class Infantry {
       if (!M) { let bd = 500; for (const N of alive) if (N.hp > 0 && N.side === own && !N.gun && !N.prone && !N.at && !N.post && !N.walk) { const d = this.near(N.pos, G.pos); if (d < bd) { bd = d; M = N; } } if (!M) continue; if (M.goal?.C?.by === M.id) M.goal.C.by = null; M.goal = null; M.gun = O; G.crew = M; M.state = 'hold'; }
       // to the gun, behind it (on his own side of it)
       const sg = own === 'ours' ? -1 : 1, seat = this.at(O.a + sg * 0.9, O.s + 2.4), d = this.near(M.pos, seat);
-      if (d > 0.5) { if ((M.routeT -= dt) <= 0 || !M.gunVia) { M.routeT = 0.5; M.gunVia = this.route(M.pos, seat) || seat; }      // (round the walls and the wire, as any man goes)
-        const g = this.near(M.pos, M.gunVia) < 0.8 ? seat : M.gunVia, gd = this.near(M.pos, g) || 1, sp = Math.min(gd, 4.4 * dt); M.pos = [M.pos[0] + (g[0] - M.pos[0]) / gd * sp, 0, M.pos[2] + (g[2] - M.pos[2]) / gd * sp];
+      if (d > 0.5) { const to = this.nav ? this.navNext(M, seat, dt) : seat;      // (in a town, by its streets)
+        if ((M.routeT -= dt) <= 0 || !M.gunVia) { M.routeT = 0.5; M.gunVia = this.route(M.pos, to) || to; }      // (round the walls and the wire, as any man goes)
+        const g = this.near(M.pos, M.gunVia) < 0.8 ? to : M.gunVia, gd = this.near(M.pos, g) || 1, sp = Math.min(gd, 4.4 * dt); M.pos = [M.pos[0] + (g[0] - M.pos[0]) / gd * sp, 0, M.pos[2] + (g[2] - M.pos[2]) / gd * sp];
         { const q = this.push(M.pos[0], M.pos[2], this.ground(M.pos[0], M.pos[2]), 1.7, 0.3); if (q) { M.pos[0] = q[0]; M.pos[2] = q[1]; } }
         M.pos[1] = this.ground(M.pos[0], M.pos[2]); M.facing = Math.atan2(g[0] - M.pos[0], g[2] - M.pos[2]); M.gunMoving = true; continue; }
       M.gunMoving = false; const fwd = own === 'ours' ? this.dir : this.dir + Math.PI; if (M.sup > 0.8) continue;      // (kept down)
@@ -307,9 +308,11 @@ export class Infantry {
   explode(N, you) {
     const p = N.to, by = N.by === 'player' ? 'player' : N.side; this.events.push({ type: 'nade', p, R: NADE_R, by });
     this.armor?.splash(p, NADE_R, 120, by); this.damageCover(p, NADE_R, 90); this.cutWire(p, NADE_R * 0.45); this.hitGuns(p, NADE_R * 0.7, 300, by);
-    for (const M of this.men) if (M.hp > 0) { const d = this.near(M.pos, p); if (d < NADE_R) { const shelter = M.duck > 0.5 && M.goal?.C && this.coverBetween([p[0], p[1] + 0.3, p[2]], [M.pos[0], M.pos[1] + 0.6, M.pos[2]]); this.hurt(M, (130 * (1 - d / NADE_R) + 15) * (shelter ? 0.3 : 1), by, [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); } else if (d < NADE_R * 2.5) M.sup = Math.min(1, M.sup + 0.5); }
+    for (const M of this.men) if (M.hp > 0) { const d = this.near(M.pos, p); if (d < NADE_R) { const shelter = M.duck > 0.5 && M.goal?.C && this.coverBetween([p[0], p[1] + 0.3, p[2]], [M.pos[0], M.pos[1] + 0.6, M.pos[2]]); this.hurt(M, (130 * (1 - d / NADE_R) + 15) * (shelter ? 0.3 : 1) * this.walled(p, M), by, [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); } else if (d < NADE_R * 2.5) M.sup = Math.min(1, M.sup + 0.5); }
     if (you?.alive && !you.tank) { const d = this.near(you.pos, p); if (d < NADE_R) { const dmg = Math.round((70 * (1 - d / NADE_R) + 8) * (N.by === 'player' ? 0.6 : 1)); this.int += dmg / 50; this.hooks.hitPlayer?.(dmg, N.by === 'player' ? 'your own grenade' : 'a grenade', p); } else if (d < NADE_R * 3) this.int += 0.25; }
   }
+  // how much of a blast at p reaches him: a wall of something built between them takes most of it (he feels it; it doesn't throw him)
+  walled(p, M) { if (!this.town || !this.hooks.los) return 1; return this.hooks.los([p[0], p[1] + 0.8, p[2]], [M.pos[0], M.pos[1] + 1.1, M.pos[2]]) ? 1 : 0.15; }
   local(p) { const dx = p[0] - this.F.x, dz = p[2] - this.F.z, ux = Math.sin(this.dir), uz = Math.cos(this.dir); return [dx * ux + dz * uz, dx * -uz + dz * ux]; }
   near(p, q) { return Math.hypot(p[0] - q[0], p[2] - q[2]); }
   // the ground in the way? sampled along the line at chest height
@@ -390,7 +393,7 @@ export class Infantry {
     for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (d < R) { if (this.hurt(M, 60 * (1 - d / R) + 18, by, [M.pos[0] - p[0], M.pos[2] - p[2]])) n++; } else if (d < R * 3.5) M.sup = Math.min(1, M.sup + 0.35); }
     return n;
   }
-  blast(p, R) { if (!this.F) return; this.hitGuns(p, R * 0.6, 320, 'shell'); this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (M.post && M.post.k > 0 && Math.abs(M.pos[1] - p[1]) > R * 0.8 + 2) continue; if (d < R * 1.3) this.hurt(M, 160 * (1 - d / (R * 1.3)) + 20, 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
+  blast(p, R) { if (!this.F) return; this.hitGuns(p, R * 0.6, 320, 'shell'); this.damageCover(p, R, 260); this.cutWire(p, R * 0.7); this.armor?.splash(p, R, 220, 'shell'); for (const M of this.men) if (M.hp > 0) { const d = Math.hypot(M.pos[0] - p[0], M.pos[2] - p[2]); if (M.post && M.post.k > 0 && Math.abs(M.pos[1] - p[1]) > R * 0.8 + 2) continue; if (d < R * 1.3) this.hurt(M, (160 * (1 - d / (R * 1.3)) + 20) * this.walled(p, M), 'shell', [M.pos[0] - p[0], M.pos[2] - p[2]], 'blast'); else if (d < R * 3) M.sup = Math.min(1, M.sup + 0.5); } }
   // your shot along a ray: the first soldier it meets before `best`, → { along, M, head }. A man ducked behind his wall shows only
   // his head and shoulders over it.
   onRay(o, dir, best) {

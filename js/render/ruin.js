@@ -61,3 +61,129 @@ export function breakPanes(idx, pos, i0, i1, frame, boxes) {
     for (const w of boxes) if (lx > w[0] - 0.05 && lx < w[2] + 0.05 && lz > w[1] - 0.05 && lz < w[3] + 0.05 && y > w[4] - 0.05 && y < w[5] + 0.05) { idx[i + 1] = idx[i + 2] = a; n++; break; } }
   return n;
 }
+
+// ---- A building knocked down (shellfire, a tank through it): it comes apart into its own parts and they lie where they fell.
+// Its walls break into panels (between floors, a couple of metres along), its floors and its roof into slabs, each with whatever
+// was on it (a window's frame, a sill, a length of pipe); every part keeps its own facing and falls as one stiff piece onto the heap.
+// 'down': the foot of the walls is left standing, ragged; 'flat': nothing is, and the heap's pressed to under knee height.
+// Done to the building's own geometry in mb (as ruinPass). → with opt.anim, what's needed to play the fall (fallStep).
+export const standH = (key, H) => Math.max(2.4, H * ruinKeep(key) * 0.55 - 2.85);
+export const piles = new Map();      // b.key → { st, x0, z0, nx, nz, h } how high the heap lies, per metre square, building-local
+// the heap as boxes something walking meets ([x0, z0, x1, z1, y0, y1], building-local, over its base)
+export function pileBoxes(key) { const P = piles.get(key), out = []; if (!P) return out;
+  for (let j = 0; j + 1 < P.nz; j += 2) for (let i = 0; i + 1 < P.nx; i += 2) { const h = Math.max(P.h[j * P.nx + i], P.h[j * P.nx + i + 1], P.h[(j + 1) * P.nx + i], P.h[(j + 1) * P.nx + i + 1]); if (h > 0.3) out.push([P.x0 + i, P.z0 + j, P.x0 + i + 2, P.z0 + j + 2, 0, h]); }
+  return out; }
+const qmul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+const qax = (x, y, z, ang) => { const s = Math.sin(ang / 2); return [x * s, y * s, z * s, Math.cos(ang / 2)]; };
+const qrot = (q, x, y, z) => { const a = q[0], b = q[1], c = q[2], w = q[3], tx = b * z - c * y + w * x, ty = c * x - a * z + w * y, tz = a * y - b * x + w * z; return [x + 2 * (b * tz - c * ty), y + 2 * (c * tx - a * tz), z + 2 * (a * ty - b * tx)]; };
+const fallen = new Map();
+function fallOf(mat) { let C = fallen.get(mat); if (!C) { C = mat.clone(); C.side = 2; C.onBeforeCompile = mat.onBeforeCompile; if (mat.customProgramCacheKey) C.customProgramCacheKey = mat.customProgramCacheKey; C.name = (mat.name || '') + ':fallen'; C.userData = { ...mat.userData, fallen: true }; fallen.set(mat, C); } return C; }
+
+export function collapsePass(mb, snap, frame, b, plan, st, gone = new Set(), opt = {}) {
+  const [o, ex, ez] = frame, flat = st === 'flat', H = plan.H, Htot = plan.F * plan.H, stand = flat ? 0 : standH(b.key, Htot), R = k => rnd(b.key, k);
+  const walls = plan.walls.map((wl, wi) => { const alongX = wl.z0 === wl.z1, a0 = Math.min(alongX ? wl.x0 : wl.z0, alongX ? wl.x1 : wl.z1), a1 = Math.max(alongX ? wl.x0 : wl.z0, alongX ? wl.x1 : wl.z1), cuts = [];
+    for (let a = a0 + 1.2 + 1.4 * R(900 + wi), n = 0; a < a1 - 0.8; a += 1.7 + 1.6 * R(1000 + wi * 13 + ++n)) cuts.push(a);
+    const Hh = Math.max(1, (wl.y1 - wl.y0) / 2), ys = []; for (let j = -4; j <= 12; j++) ys.push(wl.y0 + j * Hh);
+    return { wl, wi, alongX, a0, a1, cc: alongX ? wl.z0 : wl.x0, t: wl.t, cuts, Hh, ys, m: wl.t / 2 + (wl.exterior ? 0.4 : 0.12) }; });
+  const gx = [], gz = [], gy = []; for (let x = 1.1 + 1.2 * R(701), n = 0; x < b.w + 3; x += 1.9 + 1.3 * R(710 + ++n)) gx.push(x); for (let z = 1.1 + 1.2 * R(702), n = 0; z < b.d + 3; z += 1.9 + 1.3 * R(760 + ++n)) gz.push(z); for (let k = 0; k <= plan.F + 6; k++) gy.push((k + 0.5) * H);
+  const cellOf = (cuts, v) => { let i = 0; while (i < cuts.length && v > cuts[i]) i++; return i; };
+  const G = []; let wallG = null, most = 0;
+  for (const [mat, g] of [...mb.groups]) { const s = snap.get(mat) || { v: 0, i: 0 }; if (g.idx.length <= s.i) continue;
+    if (gone.has(mat) || mat.transparent) { g.idx.length = s.i; continue; }
+    const q = { mat, g, s, own: [] }; G.push(q); const n = g.p.length / 3 - s.v; if (n > most) { most = n; wallG = q; } }
+  if (!G.length) return null;
+  const lx = (g, v) => (g.p[3 * v] - o[0]) * ex[0] + (g.p[3 * v + 2] - o[2]) * ex[2], lz = (g, v) => (g.p[3 * v] - o[0]) * ez[0] + (g.p[3 * v + 2] - o[2]) * ez[2], ly = (g, v) => g.p[3 * v + 1] - o[1];
+  const mix = (g, a, c, f) => { const v = g.p.length / 3; for (let k = 0; k < 3; k++) { g.p.push(g.p[3 * a + k] + (g.p[3 * c + k] - g.p[3 * a + k]) * f); g.n.push(g.n[3 * a + k] + (g.n[3 * c + k] - g.n[3 * a + k]) * f); g.c.push(g.c[3 * a + k] + (g.c[3 * c + k] - g.c[3 * a + k]) * f); }
+    for (let k = 0; k < 2; k++) g.uv.push(g.uv[2 * a + k] + (g.uv[2 * c + k] - g.uv[2 * a + k]) * f); g.lit.push(0); return v; };
+  // a run of triangles cut where co() crosses each of cuts (so that none of them lies across a break)
+  const cut = (g, T, co, cuts) => { const E = 0.02;
+    for (const c of cuts) { let hit = false; for (let i = 0; i < T.length && !hit; i += 3) { const sa = co(g, T[i]) - c, sb = co(g, T[i + 1]) - c, sd = co(g, T[i + 2]) - c; hit = !((sa >= -E && sb >= -E && sd >= -E) || (sa <= E && sb <= E && sd <= E)); } if (!hit) continue;
+      const out = [];
+      for (let i = 0; i < T.length; i += 3) { let a = T[i], e = T[i + 1], d = T[i + 2]; const sa = co(g, a) - c, sb = co(g, e) - c, sd = co(g, d) - c;
+        if ((sa >= -E && sb >= -E && sd >= -E) || (sa <= E && sb <= E && sd <= E)) { out.push(a, e, d); continue; }
+        const pa = sa > 0, pb = sb > 0, pd = sd > 0; let s0 = sa, s1 = sb, s2 = sd;
+        if (pb !== pa && pb !== pd) { [a, e, d] = [e, d, a]; [s0, s1, s2] = [sb, sd, sa]; } else if (pd !== pa && pd !== pb) { [a, e, d] = [d, a, e]; [s0, s1, s2] = [sd, sa, sb]; }
+        const ae = mix(g, a, e, s0 / (s0 - s1 || 1e-9)), ad = mix(g, a, d, s0 / (s0 - s2 || 1e-9)); out.push(a, ae, ad, ae, e, d, ae, d, ad); }
+      T = out; }
+    return T; };
+  // every triangle to the part it's of: a panel of the wall it lies on, or a square of floor, roof or whatever else
+  const pieces = new Map(), list = [];
+  const pieceOf = (key, W) => { let P = pieces.get(key); if (!P) { P = { i: list.length, W, tris: [], bb: [1e9, 1e9, 1e9, -1e9, -1e9, -1e9] }; pieces.set(key, P); list.push(P); } return P; };
+  G.forEach((q, gi) => { const g = q.g, T0 = g.idx.slice(q.s.i); g.idx.length = q.s.i;
+    for (let i = 0; i < T0.length; i += 3) { const a = T0[i], e = T0[i + 1], d = T0[i + 2]; if (a === e || e === d || a === d) continue;
+      const cx = (lx(g, a) + lx(g, e) + lx(g, d)) / 3, cy = (ly(g, a) + ly(g, e) + ly(g, d)) / 3, cz = (lz(g, a) + lz(g, e) + lz(g, d)) / 3; let W = null, bd = 1e9;
+      for (const w of walls) { if (cy < w.wl.y0 - 0.1 || cy > w.wl.y1 + 0.1) continue; const al = w.alongX ? cx : cz, pp = Math.abs((w.alongX ? cz : cx) - w.cc); if (pp > w.m || al < w.a0 - 0.3 || al > w.a1 + 0.3) continue; if (pp < bd) { bd = pp; W = w; } }
+      let T = [a, e, d];
+      if (W) { T = cut(g, T, W.alongX ? lx : lz, W.cuts); T = cut(g, T, ly, W.ys); } else { T = cut(g, T, lx, gx); T = cut(g, T, lz, gz); T = cut(g, T, ly, gy); }
+      for (let k = 0; k < T.length; k += 3) { const x = (lx(g, T[k]) + lx(g, T[k + 1]) + lx(g, T[k + 2])) / 3, y = (ly(g, T[k]) + ly(g, T[k + 1]) + ly(g, T[k + 2])) / 3, z = (lz(g, T[k]) + lz(g, T[k + 1]) + lz(g, T[k + 2])) / 3;
+        const P = W ? pieceOf('w' + W.wi + ':' + cellOf(W.cuts, W.alongX ? x : z) + ':' + Math.floor((y - W.wl.y0) / W.Hh), W) : pieceOf('f' + cellOf(gx, x) + ':' + cellOf(gz, z) + ':' + cellOf(gy, y), null);
+        P.tris.push(gi, T[k], T[k + 1], T[k + 2]); } } });
+  // each corner belongs to one part only (where two meet at a corner, each gets its own), and how big each part is
+  for (const P of list) { const t = P.tris, bb = P.bb;
+    for (let k = 0; k < t.length; k += 4) { const q = G[t[k]], g = q.g; for (let j = 1; j <= 3; j++) { let v = t[k + j]; const w = q.own[v]; if (w !== undefined && w !== P.i) { let dup = (q.dup ||= new Map()).get(v + ':' + P.i); if (dup === undefined) { dup = mix(g, v, v, 0); q.dup.set(v + ':' + P.i, dup); } v = t[k + j] = dup; } q.own[v] = P.i;
+        const x = lx(g, v), y = ly(g, v), z = lz(g, v); if (x < bb[0]) bb[0] = x; if (y < bb[1]) bb[1] = y; if (z < bb[2]) bb[2] = z; if (x > bb[3]) bb[3] = x; if (y > bb[4]) bb[4] = y; if (z > bb[5]) bb[5] = z; }
+      g.idx.push(t[k + 1], t[k + 2], t[k + 3]); } }
+  // the broken stuff inside a panel or a slab, seen at its edges: a block of it, just under its faces
+  { const g = wallG.g, gi = G.indexOf(wallG); mb.setFrame(...frame);
+    for (const P of list) { const bb = P.bb, W = P.W, v0 = g.p.length / 3, k = 0.2 + 0.1 * R(300 + P.i), col = [k, k * 0.96, k * 0.92]; let box = null;
+      if (W) { const al0 = W.alongX ? bb[0] : bb[2], al1 = W.alongX ? bb[3] : bb[5]; if (al1 - al0 < 0.3 || bb[4] - bb[1] < 0.3) continue;
+        if (W.wl.openings.some(op => op.a < al1 - 0.05 && op.b > al0 + 0.05 && W.wl.y0 + op.y0 < bb[4] - 0.05 && W.wl.y0 + op.y1 > bb[1] + 0.05)) continue;
+        const t = Math.max(0.02, W.t / 2 - 0.015); box = W.alongX ? [al0, bb[1], W.cc - t, al1, bb[4], W.cc + t] : [W.cc - t, bb[1], al0, W.cc + t, bb[4], al1]; }
+      else if (bb[4] - bb[1] < 0.45 && bb[3] - bb[0] > 0.6 && bb[5] - bb[2] > 0.6 && !(plan.roofSlopes && bb[4] > Htot - 0.3)) box = [bb[0], bb[4] - Math.max(bb[4] - bb[1], 0.16) + 0.015, bb[2], bb[3], bb[4] - 0.015, bb[5]];
+      if (!box) continue; mb.box(wallG.mat, ...box, col); for (let v = v0; v < g.p.length / 3; v++) wallG.own[v] = P.i; if (!W) bb[1] = Math.min(bb[1], box[1]); } }
+  // where each part comes to rest: the lowest first, each laid on its flat on what's already down under it
+  const ap = Math.min(5, 1.5 + Htot * 0.25), x0 = Math.floor(-ap - 1), z0 = Math.floor(-ap - 1), nx = Math.ceil(b.w + ap + 1) - x0, nz = Math.ceil(b.d + ap + 1) - z0, hgt = new Float32Array(nx * nz);
+  for (const P of list) { const bb = P.bb, W = P.W; P.c = [(bb[0] + bb[3]) / 2, (bb[1] + bb[4]) / 2, (bb[2] + bb[5]) / 2];
+    P.fall = bb[4] > 0.3 && !(W && !flat && (bb[4] <= stand + 0.2 || bb[1] < stand - 0.5 && R(400 + P.i) < 0.5)); }
+  for (const P of list.filter(P => P.fall).sort((p, q) => p.bb[1] - q.bb[1] || p.i - q.i)) { const bb = P.bb, W = P.W, i = P.i, dx = Math.max(0.06, bb[3] - bb[0]), dy = Math.max(0.06, bb[4] - bb[1]), dz = Math.max(0.06, bb[5] - bb[2]);
+    const thin = W ? (W.alongX ? 'z' : 'x') : dy <= dx && dy <= dz ? 'y' : dx < dz ? 'x' : 'z', th = thin === 'y' ? dy : thin === 'x' ? dx : dz;
+    let sgn = R(420 + i) < 0.5 ? -1 : 1; const outw = W?.wl.exterior && R(440 + i) < 0.45; if (W?.wl.exterior) { const o1 = W.cc < (W.alongX ? b.d : b.w) / 2 ? -1 : 1; sgn = outw ? o1 : -o1; }
+    let q = [0, 0, 0, 1], cx = P.c[0] + (R(460 + i) - 0.5) * 1.2, cz = P.c[2] + (R(480 + i) - 0.5) * 1.2; const yb = Math.max(0, bb[1]), throwD = sgn * (dy / 2 + yb * (0.1 + 0.5 * R(500 + i)));
+    if (W && thin === 'x') { q = qax(0, 0, 1, -sgn * Math.PI / 2); cx += throwD; } else if (W) { q = qax(1, 0, 0, sgn * Math.PI / 2); cz += throwD; }
+    else { const far = yb * 0.25; cx += (R(520 + i) - 0.5) * far; cz += (R(540 + i) - 0.5) * far;
+      // (a piece of a roof, a dome, a stair: laid on its flat, whichever way that is — the way most of its surface faces goes up)
+      let ax = 0, ay = 0, az = 0; { const t = P.tris; for (let k = 0; k < t.length; k += 4) { const g = G[t[k]].g, a = t[k + 1], e = t[k + 2], d = t[k + 3], ux = lx(g, e) - lx(g, a), uy = ly(g, e) - ly(g, a), uz = lz(g, e) - lz(g, a), vx = lx(g, d) - lx(g, a), vy = ly(g, d) - ly(g, a), vz = lz(g, d) - lz(g, a); let nx2 = uy * vz - uz * vy, ny2 = uz * vx - ux * vz, nz2 = ux * vy - uy * vx; if (nx2 * ax + ny2 * ay + nz2 * az < 0) { nx2 = -nx2; ny2 = -ny2; nz2 = -nz2; } ax += nx2; ay += ny2; az += nz2; } }
+      const al = Math.hypot(ax, ay, az); if (al > 1e-6) { ax /= al; ay /= al; az /= al; if (ay < 0) { ax = -ax; ay = -ay; az = -az; } const hz = Math.hypot(ax, az); if (hz > 0.25) { q = qax(-az / hz, 0, ax / hz, Math.acos(Math.min(1, ay))); const out = dy / 2 + yb * (0.1 + 0.4 * R(500 + i)); cx -= ax / hz * out * hz; cz -= az / hz * out * hz; } } }
+    const lim = outw || !W && bb[1] > Htot - 0.5 ? ap - 0.8 : -0.4; cx = Math.max(-lim, Math.min(b.w + lim, cx)); cz = Math.max(-lim, Math.min(b.d + lim, cz));
+    const tilt = (flat ? 0.05 : (0.08 + 0.34 * R(560 + i)) * Math.min(1, 1.4 / Math.max(dx, dy, dz))) * (R(580 + i) < 0.5 ? -1 : 1), ph = R(600 + i) * Math.PI * 2;
+    q = qmul(qax(Math.cos(ph), 0, Math.sin(ph), tilt), qmul(qax(0, 1, 0, (R(620 + i) - 0.5) * (flat ? 1.2 : 0.7)), q));
+    // (how it lies, turned: its lowest corner is what touches, and how far it reaches round)
+    let lowY = 0, reach = 0.3; { const t = P.tris; for (let k = 0; k < t.length; k += 4) { const g = G[t[k]].g; for (let j = 1; j <= 3; j++) { const v = t[k + j], w = qrot(q, lx(g, v) - P.c[0], ly(g, v) - P.c[1], lz(g, v) - P.c[2]); if (w[1] < lowY) lowY = w[1]; const h = Math.hypot(w[0], w[2]); if (h > reach) reach = h; } } }
+    const r = Math.min(2.2, reach * 0.6);
+    let mx = 0, sum = 0, n = 0; const i0 = Math.max(0, Math.floor(cx - r - x0)), i1 = Math.min(nx - 1, Math.floor(cx + r - x0)), j0 = Math.max(0, Math.floor(cz - r - z0)), j1 = Math.min(nz - 1, Math.floor(cz + r - z0));
+    for (let j = j0; j <= j1; j++) for (let ii = i0; ii <= i1; ii++) { const h = hgt[j * nx + ii]; if (h > mx) mx = h; sum += h; n++; }
+    const base = n ? 0.55 * mx + 0.45 * sum / n : 0, top = base + Math.min(th, 0.3) * (flat ? 0.2 : 0.6); for (let j = j0; j <= j1; j++) for (let ii = i0; ii <= i1; ii++) if (hgt[j * nx + ii] < top) hgt[j * nx + ii] = top;
+    let cy = base - lowY + 0.02; if (flat) cy = Math.min(cy, -lowY + 0.25 * R(640 + i));
+    P.q = q; P.d = [cx - P.c[0], cy - P.c[1], cz - P.c[2]]; P.dust = 0.58 + 0.27 * R(660 + i);
+    const drop = Math.max(0.3, P.c[1] - cy); P.T = Math.min(1.9, Math.max(0.4, Math.sqrt(2 * drop / 9.8) * 1.15)); P.t0 = 0.3 * R(680 + i) + Math.min(0.5, yb * 0.02); }
+  if (flat) for (let k = 0; k < hgt.length; k++) hgt[k] = Math.min(hgt[k], 0.5);
+  piles.set(b.key, { st, x0, z0, nx, nz, h: hgt });
+  // every corner taken where its part went (a standing one stays, dusted), then all of it onto surfaces seen from both sides (a part lies any way up)
+  const anim = opt.anim ? { o, ex, ez, groups: [], pieces: list.map(P => P.fall ? { c: P.c, q: P.q, d: P.d, T: P.T, t0: P.t0 } : null), t: 0, T: 0 } : null;
+  for (const q of G) { const g = q.g, s = q.s, n = g.p.length / 3 - s.v, loc = anim && new Float32Array(3 * n), pid = anim && new Int32Array(n).fill(-1);
+    for (let v = s.v; v < g.p.length / 3; v++) { const P = list[q.own[v]]; g.lit[v] = 0; if (!P) continue; const x = lx(g, v), y = ly(g, v), z = lz(g, v);
+      if (anim) { loc[3 * (v - s.v)] = x; loc[3 * (v - s.v) + 1] = y; loc[3 * (v - s.v) + 2] = z; }
+      const k = P.fall ? P.dust : 0.8; g.c[3 * v] *= k; g.c[3 * v + 1] *= k * 0.98; g.c[3 * v + 2] *= k * 0.95; if (!P.fall) continue; if (anim) pid[v - s.v] = P.i;
+      const [rx, ry, rz] = qrot(P.q, x - P.c[0], y - P.c[1], z - P.c[2]), X = P.c[0] + P.d[0] + rx, Y = P.c[1] + P.d[1] + ry, Z = P.c[2] + P.d[2] + rz;
+      g.p[3 * v] = o[0] + ex[0] * X + ez[0] * Z; g.p[3 * v + 1] = o[1] + (flat ? Math.min(Y, 0.4 + 0.12 * P.dust) : Y); g.p[3 * v + 2] = o[2] + ex[2] * X + ez[2] * Z;
+      const nlx = g.n[3 * v] * ex[0] + g.n[3 * v + 2] * ex[2], nlz = g.n[3 * v] * ez[0] + g.n[3 * v + 2] * ez[2], [mx2, my2, mz2] = qrot(P.q, nlx, g.n[3 * v + 1], nlz);
+      g.n[3 * v] = ex[0] * mx2 + ez[0] * mz2; g.n[3 * v + 1] = my2; g.n[3 * v + 2] = ex[2] * mx2 + ez[2] * mz2; }
+    const C = fallOf(q.mat), h = mb.g(C), base = h.p.length / 3 - s.v;
+    for (let k = 3 * s.v; k < g.p.length; k++) { h.p.push(g.p[k]); h.n.push(g.n[k]); h.c.push(g.c[k]); } for (let k = 2 * s.v; k < g.uv.length; k++) h.uv.push(g.uv[k]); for (let k = s.v; k < g.lit.length; k++) h.lit.push(0);
+    for (let k = s.i; k < g.idx.length; k++) h.idx.push(g.idx[k] + base);
+    g.p.length = 3 * s.v; g.n.length = 3 * s.v; g.uv.length = 2 * s.v; g.c.length = 3 * s.v; g.lit.length = s.v; g.idx.length = s.i;
+    if (anim) anim.groups.push({ mat: C, v0: base + s.v, n, loc, pid }); }
+  if (anim) for (const P of anim.pieces) if (P) anim.T = Math.max(anim.T, P.t0 + P.T);
+  return anim;
+}
+// the fall played: every part from where it stood to where it lies, turning as it drops. pos(mat) → the positions it's drawn from (or null).
+// → false once it's all down
+export function fallStep(A, dt, pos) {
+  A.t += dt; const done = A.t >= A.T, { o, ex, ez } = A;
+  for (const Gp of A.groups) { const arr = pos(Gp.mat); if (!arr) continue; const { loc, pid, v0, n } = Gp; let last = -2, P = null, f = 0, q = null, dx = 0, dy = 0, dz = 0;
+    for (let v = 0; v < n; v++) { const pi = pid[v]; if (pi < 0) continue;
+      if (pi !== last) { last = pi; P = A.pieces[pi]; const e = Math.max(0, Math.min(1, (A.t - P.t0) / P.T)); f = e * e; const w = Math.max(-1, Math.min(1, P.q[3])), ang = 2 * Math.acos(w), sn = Math.sqrt(1 - w * w) || 1; q = qax(P.q[0] / sn, P.q[1] / sn, P.q[2] / sn, ang * f); dx = P.d[0] * e; dy = P.d[1] * f; dz = P.d[2] * e; }
+      const [rx, ry, rz] = qrot(q, loc[3 * v] - P.c[0], loc[3 * v + 1] - P.c[1], loc[3 * v + 2] - P.c[2]), X = P.c[0] + dx + rx, Y = P.c[1] + dy + ry, Z = P.c[2] + dz + rz, k = 3 * (v0 + v);
+      arr[k] = o[0] + ex[0] * X + ez[0] * Z; arr[k + 1] = o[1] + Y; arr[k + 2] = o[2] + ex[2] * X + ez[2] * Z; } }
+  return !done;
+}

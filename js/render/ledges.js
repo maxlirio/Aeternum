@@ -16,7 +16,7 @@ export class LedgeView {
   // which rows of a face need drawing here, and where along them (a town wall draws its own sills, heads, bands and coping)
   static spansOf(f, row) {
     if (row.kind === 'ground' || row.kind === 'top') return [];
-    if (f.town) return row.kind === 'rail' ? rowSpans(f, row, true) || [[0.05, f.w - 0.05]] : [];
+    if (f.town) return [];      // (a town wall is climbed at its corners: nothing is put across its face)
     if (!f.b) return [];
     return rowSpans(f, row) || [[0.02, f.w - 0.02]];
   }

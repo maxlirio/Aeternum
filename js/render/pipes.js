@@ -19,7 +19,7 @@ export class PipeView {
     let n = 0, b = 0;
     const seen = new Set(); facesNear(world, x, y, z, R, f => seen.add(f)); const allIn = siteFacesNear(world, x, z, R, f => seen.add(f));
     if (!allIn) this.at = null;      // (a couple of new buildings a frame: more next time)
-    for (const f of seen) { if (!f.pipes?.length || f.y1 - f.y0 < 3) continue;
+    for (const f of seen) { if (!f.pipes?.length || f.y1 - f.y0 < 3 || f.town) continue;      // (a town house has its own downpipes, built with it)
       for (const a of f.pipes) { if (n >= MAX) break;
         const px = f.o[0] + f.t[0] * a + f.n[0] * 0.09, pz = f.o[1] + f.t[1] * a + f.n[1] * 0.09; if (Math.hypot(px - x, pz - z) > R) continue;
         const y0 = f.y0 + 0.2, y1 = Math.min(f.y1, Math.max(y0 + 2, y + 150)); this._s.set(1, y1 - y0, 1); this.pipe.setMatrixAt(n++, this._m.compose(this._v.set(px, (y0 + y1) / 2, pz), this._q.identity(), this._s));
