@@ -235,7 +235,8 @@ export class Armor {
       if (d < arrive) { want = 0; if (V.kind === 'apc' && V.state === 'run') { V.state = 'drop'; V.holdT = 4; } if (V.kind === 'apc' && V.state === 'back' && V.holdT > 0) V.holdT = 0; }
       else {
         // pick the clearest heading near the way to the goal (looked at a few times a second)
-        if ((V.steerT = (V.steerT || 0) - dt) <= 0) { V.steerT = 0.25; V.steer = this.clearHeading(V, Math.atan2(dx, dz)); }
+        // (in a town: by its streets, sim/townnav.js; where there's no way round, straight at it and through)
+        if ((V.steerT = (V.steerT || 0) - dt) <= 0) { V.steerT = 0.25; const w = I.navV ? this.navNext(V) : V.goal; V.steer = this.clearHeading(V, Math.atan2(w[0] - V.pos[0], w[2] - V.pos[2])); }
         const e = wrap(V.steer - V.facing), back = V.kind === 'apc' && V.state === 'back' && Math.abs(wrap(Math.atan2(dx, dz) - V.facing)) > 2.2 && d < 50;      // (backing off, a carrier keeps its nose to the enemy)
         if (back) { want = -T.top * 0.4; turn = 0; }
         else { turn = Math.max(-T.turn, Math.min(T.turn, e * 2)); want = T.top * Math.max(0.15, Math.cos(Math.min(1.5, Math.abs(e)))) * Math.min(1, d / 18); }
@@ -265,7 +266,8 @@ export class Armor {
       const sf = Math.sin(V.facing), cf = Math.cos(V.facing), r = T.W / 2, sg = Math.sign(V.speed || 1);
       if (Math.abs(V.speed) > 1.2) this.hooks.fell?.(nx + sf * T.L * 0.5 * sg, nz + cf * T.L * 0.5 * sg, T.W / 2 + 0.8, V.facing, V.pos[1]);
       for (const k of [1, 0, -1]) { const ox = sf * k * (T.L / 2 - r), oz = cf * k * (T.L / 2 - r), [rx, rz] = this.hooks.solid(nx + ox, nz + oz, V.pos[1] + T.climb, r, T.H - T.climb);
-        const mx = rx - (nx + ox), mz = rz - (nz + oz); if (mx * mx + mz * mz > 1e-6) { nx += mx; nz += mz; V.speed *= 0.5; V.steerT = 0; } } }
+        const mx = rx - (nx + ox), mz = rz - (nz + oz); if (mx * mx + mz * mz > 1e-6) { nx += mx; nz += mz; V.speed *= 0.5; V.steerT = 0;
+          if (k === sg && Math.abs(want) > 1) this.hooks.ram?.(nx + ox + sf * sg * (r + 0.6), nz + oz + cf * sg * (r + 0.6), V, dt); } } }      // (its nose hard against something built, and still driving: it breaks it, main.js armorRam)
     for (const E of this.list) { if (E === V) continue; const dx = nx - E.pos[0], dz = nz - E.pos[2], d = Math.hypot(dx, dz), R = (T.L + E.T.L) * 0.32 + 0.4; if (d < R && d > 1e-3) { const k = (R - d) / d * 0.5; nx += dx * k; nz += dz * k; V.speed *= 0.7; } }
     V.dist += Math.hypot(nx - V.pos[0], nz - V.pos[2]) * Math.sign(V.speed || 1);
     // the hull rests on the highest things under its tracks: nose up a rise or a rock, a lean across a slope
@@ -286,6 +288,13 @@ export class Armor {
     const climb = V.T.climb;
     return (x, z, tall = false) => { let h = I.ground(x, z); for (const q of rk) { if (tall && q.top <= climb) continue; const d2 = ((x - q.x) ** 2 + (z - q.z) ** 2) / (q.r * q.r); if (d2 >= 1) continue; const y = q.flat ? q.y - q.top * Math.max(0, (Math.sqrt(d2) - 0.7) / 0.3) : q.y - q.top * (1 - Math.sqrt(1 - d2)); if (y > h) h = y; } return h; };
   }
+  // the next corner of its way through the streets to its goal (the goal itself when that's in plain sight, or when there's no way: V.ram)
+  navNext(V) {
+    const I = this.I, N = I.navV, g = V.goal, [a0, s0] = I.local(V.pos), [a1, s1] = I.local(g);
+    if (!V.path || (V.pathT || 0) < this.t || Math.hypot(V.pathG[0] - g[0], V.pathG[2] - g[2]) > 3) { V.pathT = this.t + 5; V.pathG = g; V.pi = 0; V.ram = false;
+      if (N.clear(a0, s0, a1, s1)) V.path = []; else { const P = N.path(a0, s0, a1, s1, 6000); V.ram = !P; V.path = (P || []).map(([a, s]) => I.at(a, s)); } }
+    while (V.pi < V.path.length - 1 && I.near(V.pos, V.path[V.pi]) < 5) V.pi++;
+    return V.pi >= V.path.length - 1 ? g : V.path[V.pi]; }
   toLocalAt(x0, z0, f, x, z) { const dx = x - x0, dz = z - z0, fx = Math.sin(f), fz = Math.cos(f); return [dx * fz - dz * fx, dx * fx + dz * fz]; }
   // the heading near `want` with the clearest 12 m ahead of it
   clearHeading(V, want) {
@@ -294,7 +303,7 @@ export class Armor {
       let hPrev = gnd(V.pos[0] + fx * 1, V.pos[2] + fz * 1, true);
       for (let d = 3; d <= 14; d += 2.75) { const x = V.pos[0] + fx * d, z = V.pos[2] + fz * d, hh = gnd(x, z, true); if ((hh - hPrev) / 2.75 > 0.5) block += 4; hPrev = hh;
         for (const P of I.props) if (P.kind === 'hedgehog' && Math.hypot(P.pos[0] - x, P.pos[2] - z) < T.W / 2 + 1.4) block += 3;
-        if (this.hooks.solid) { const [rx, rz] = this.hooks.solid(x, z, hh + T.climb, T.W / 2, T.H - T.climb); if (Math.hypot(rx - x, rz - z) > 0.05) block += 3; }
+        if (this.hooks.solid && !V.ram) { const [rx, rz] = this.hooks.solid(x, z, hh + T.climb, T.W / 2, T.H - T.climb); if (Math.hypot(rx - x, rz - z) > 0.05) block += 3; }
         for (const E of this.list) if (E !== V && Math.hypot(E.pos[0] - x, E.pos[2] - z) < (T.W + E.T.L) / 2 + 0.6) block += E.dead ? 3 : 1.5;
         for (const C of I.cover) if (!C.down && !C.wreck && C.side === V.side && C.line && this.nearWall(C, x, z) < T.W / 2 + 0.4) block += 1; }
       const cost = block * 10 + Math.abs(off) * 3; if (cost < bc) { bc = cost; best = h; } }

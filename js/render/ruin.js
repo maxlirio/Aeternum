@@ -19,7 +19,7 @@ export function ruinPass(mb, snap, frame, b, gone = new Set(), wallH = null, opt
   const H = wallH ?? top - y0; if (H < 1) return;
   // the line it's broken off at: lower or higher by building, ragged along every wall
   const keep = ruinKeep(b.key) * (opt.k || 1), ph = rnd(b.key, 2) * 40;
-  const cut = (x, z) => y0 + Math.max(2.4, H * keep + Math.sin(x * 0.83 + ph) * 1.3 + Math.sin(z * 1.21 - ph) * 1.1 + Math.sin((x + z) * 2.7) * 0.45);
+  const cut = (x, z) => y0 + Math.max(opt.min ?? 2.4, H * keep + Math.sin(x * 0.83 + ph) * 1.3 + Math.sin(z * 1.21 - ph) * 1.1 + Math.sin((x + z) * 2.7) * 0.45);
   for (const [mat, g] of [...mb.groups]) { if (mat.userData.burnt) continue;      // (a copy: burnt surfaces are added as it goes, and they're done)
     const s = snap.get(mat) || { v: 0, i: 0 }, glass = gone.has(mat) || mat.transparent;
     // triangles wholly above the break are gone (the roof, the upper floors, what stood on them); glass is all gone
@@ -51,3 +51,13 @@ export function ruinPass(mb, snap, frame, b, gone = new Set(), wallH = null, opt
 const NY = new Set(['ny']);
 const chars = new Map();
 function charOf(mat) { let C = chars.get(mat); if (!C) { C = mat.clone(); C.vertexColors = true; C.name = (mat.name || '') + ':burnt'; C.userData = { ...mat.userData, burnt: true }; chars.set(mat, C); } return C; }
+
+// Panes of glass taken out one at a time (a round through a window): the triangles of idx[i0..i1) whose middles lie in one of the boxes
+// ([x0, z0, x1, z1, y0, y1], building-local) are closed up to nothing. pos: the positions they index, in the space of frame. → how many went
+export function breakPanes(idx, pos, i0, i1, frame, boxes) {
+  const [o, ex, ez] = frame; let n = 0;
+  for (let i = i0; i + 2 < i1; i += 3) { const a = idx[i], b = idx[i + 1], c = idx[i + 2]; if (a === b && b === c) continue;
+    const x = (pos[3 * a] + pos[3 * b] + pos[3 * c]) / 3 - o[0], y = (pos[3 * a + 1] + pos[3 * b + 1] + pos[3 * c + 1]) / 3 - o[1], z = (pos[3 * a + 2] + pos[3 * b + 2] + pos[3 * c + 2]) / 3 - o[2], lx = x * ex[0] + z * ex[2], lz = x * ez[0] + z * ez[2];
+    for (const w of boxes) if (lx > w[0] - 0.05 && lx < w[2] + 0.05 && lz > w[1] - 0.05 && lz < w[3] + 0.05 && y > w[4] - 0.05 && y < w[5] + 0.05) { idx[i + 1] = idx[i + 2] = a; n++; break; } }
+  return n;
+}

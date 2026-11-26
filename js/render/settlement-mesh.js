@@ -8,7 +8,7 @@ import { linksOfTown } from '../gen/network.js';
 import { ladderOf } from '../gen/climb.js';
 import * as THREE from 'three';
 import { MeshBuilder } from './meshbuilder.js';
-import { snapshot, ruinPass } from './ruin.js';
+import { snapshot, ruinPass, breakPanes } from './ruin.js';
 import { materials } from './materials.js';
 import { buildBuilding, facadeOf, emitForm, formOfBuilding } from './building-mesh.js';
 import { buildingPlan } from '../gen/building.js';
@@ -116,12 +116,13 @@ export function buildStreets(planet, s) {
 }
 
 // Each building as a plain block in its own colours: a town from a long way off, standing in until the real one's built.
+const FLAT = { k: 0.08, min: 0.45, grey: true };      // (a ruin driven over or shelled again: nothing of it over knee height)
 export function buildBlocks(planet, s, ruin = null) {
   const M = materials(), mb = new MeshBuilder();
   for (const b of s.buildings) {
     const plan = buildingPlan(planet, s, b), { mat, col } = facadeOf(b, M);
     mb.setFrame(...buildingFrame(s, b));
-    if (ruin?.(b) && ruin(b) !== 'shot') { const k = ruin(b) === 'down' ? 0.2 : 0.025; mb.box(mat, 0.25, -0.5, 0.25, b.w - 0.25, Math.max(2.4, plan.F * plan.H * 0.45), b.d - 0.25, [k, k, k], new Set(['ny', 'py'])); continue; }      // (far off, a burnt one is a low black shell)
+    if (ruin?.(b) && ruin(b) !== 'shot') { const st = ruin(b), k = 0.025; mb.box(mat, 0.25, -0.5, 0.25, b.w - 0.25, st === 'flat' ? 0.7 : Math.max(2.4, plan.F * plan.H * (st === 'down' ? 0.25 : 0.45)), b.d - 0.25, st === 'down' || st === 'flat' ? col.map(v => v * 0.45) : [k, k, k], new Set(['ny', 'py'])); continue; }      // (far off, a burnt one is a low black shell)
     mb.box({ default: mat, py: M.concrete }, 0.25, -0.5, 0.25, b.w - 0.25, plan.F * plan.H - 0.1, b.d - 0.25, col, new Set(['ny']));
     const F = formOfBuilding(planet, b, plan); if (F) { const dr = plan.doors[plan.entrance]; emitForm(mb, F, plan.F * plan.H - 0.1, { x: dr.x, w: dr.width }, 0.4, mat, col); }
   }
@@ -130,7 +131,7 @@ export function buildBlocks(planet, s, ruin = null) {
 
 // Options: streets (false: only what stands on them), slice (ms: give each frame back after this long, for a town built while you play), into (the group's put in the world as it fills).
 // ruin(b): true for a building that's been burnt (sim/planetwar.js): it's built as its ruin (render/ruin.js), with no ladder and no props to use
-export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null, { streets = true, slice = 0, into = null, ruin = null } = {}) {
+export async function buildSettlementMesh(planet, s, onProgress = () => {}, propView = null, { streets = true, slice = 0, into = null, ruin = null, panes = null } = {}) {
   const M = materials();
   const group = new THREE.Group();
   group.name = 'settlement:' + s.name;
@@ -144,6 +145,7 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
 
   // ---- buildings
   const doors = [], spans = new Map(), ruins = new Map();
+  const isGlass = mat => mat === M.glass || mat === M.pane || mat.transparent;
   const t0 = performance.now();
   for (let i = 0; i < s.buildings.length; i++) {
     const b = s.buildings[i];
@@ -153,12 +155,13 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
     const st = ruin?.(b), burnt = st && st !== 'shot', mbB = cellFor(cu, cv), snap = snapshot(mbB), sink = mbB.propSink; if (burnt) mbB.propSink = null;      // (st: true burnt, 'down' knocked down by shellfire, 'shot' its windows out)
     buildBuilding(mbB, plan, b, frame, planet);
     if (st === 'shot') ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, { glassOnly: true });
-    if (burnt) { ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, st === 'down' ? { k: 0.55, grey: true } : {}); mbB.propSink = sink; }      // (and its doors burnt away)
+    if (burnt) { ruinPass(mbB, snap, frame, b, new Set([M.glass, M.pane]), plan.F * plan.H, st === 'down' ? { k: 0.55, grey: true } : st === 'flat' ? FLAT : {}); mbB.propSink = sink; }      // (and its doors burnt away)
     else { const lad = ladderOf(planet, s, b);
       if (lad) ladderMesh(cellFor(cu, cv), lad, frame, M);
       for (const dr of plan.doors) doors.push({ b, plan, door: dr, frame }); }
     // where this building's own geometry lies in its block's, by material: so it can be taken out again when it's hit (setState, below)
-    { const at = new Map(); for (const [mat, g] of mbB.groups) { const i0 = snap.get(mat)?.i ?? 0; if (g.idx.length > i0) at.set(mat, [i0, g.idx.length]); } spans.set(b.key, { mb: mbB, at, plan, frame, b }); }
+    { const at = new Map(); for (const [mat, g] of mbB.groups) { const i0 = snap.get(mat)?.i ?? 0; if (g.idx.length > i0) at.set(mat, [i0, g.idx.length]); } spans.set(b.key, { mb: mbB, at, plan, frame, b, st: st === true ? undefined : st || undefined }); }
+    { const P = !st && panes?.(b); if (P?.length) for (const [mat, [i0, i1]] of spans.get(b.key).at) if (isGlass(mat)) breakPanes(mbB.groups.get(mat).idx, mbB.groups.get(mat).p, i0, i1, frame, P); }      // (panes shot out before now)
     if (slice) { if (performance.now() - lastBreath > slice) await breathe(); }
     else if (performance.now() - t0 > 12 * (i + 1) / 10) { onProgress(i / s.buildings.length); await new Promise(r => setTimeout(r, 0)); }
   }
@@ -203,16 +206,22 @@ export async function buildSettlementMesh(planet, s, onProgress = () => {}, prop
   onProgress(1);
   // A building hit after the town was built (main.js damageBuildings): 'shot', its glass is taken out of the block it was built into; 'down', the whole
   // of it is, and it's built again on its own as what's left of it (render/ruin.js), with what stood inside gone. No more of the town is touched.
+  // one window's glass shot out (boxes: [[x0, z0, x1, z1, y0, y1]] building-local, player/collision.js wins) → whether any was there to break
+  const breakGlass = (b, boxes) => { const S = spans.get(b.key); if (!S || S.st) return false; let n = 0;
+    for (const [mat, [i0, i1]] of S.at) { if (!isGlass(mat)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const k = breakPanes(mesh.geometry.index.array, mesh.geometry.attributes.position.array, i0, i1, S.frame, boxes); if (k) { mesh.geometry.index.needsUpdate = true; n += k; } }
+    return n > 0; };
   const setState = (b, st) => {
-    const S = spans.get(b.key); if (!S || S.st === 'down' || S.st === st) return false; S.st = st;
+    const S = spans.get(b.key); if (!S || S.st === 'flat' || S.st === st || S.st === 'down' && st !== 'flat') return false; S.st = st;
+    if (ruins.has(b.key)) { for (const m of ruins.get(b.key) || []) { group.remove(m); m.geometry.dispose(); } ruins.delete(b.key); }      // (what was left standing of it goes too)
+    else
     for (const [mat, [i0, i1]] of S.at) { if (st === 'shot' && !(mat === M.glass || mat === M.pane || mat.transparent)) continue; const mesh = S.mb.meshOf?.get(mat); if (!mesh) continue; const ix = mesh.geometry.index; ix.array.fill(0, i0, i1); ix.needsUpdate = true; }
-    if (st !== 'down') return true;
-    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); ruinPass(mb, snap, S.frame, b, new Set([M.glass, M.pane]), S.plan.F * S.plan.H, { k: 0.55, grey: true });
+    if (st !== 'down' && st !== 'flat') return true;
+    const mb = new MeshBuilder(), snap = snapshot(mb); buildBuilding(mb, S.plan, b, S.frame, planet); ruinPass(mb, snap, S.frame, b, new Set([M.glass, M.pane]), S.plan.F * S.plan.H, st === 'flat' ? FLAT : { k: 0.55, grey: true });
     const meshes = mb.build(); group.add(...meshes); ruins.set(b.key, meshes);
     const [o, ex, ez] = S.frame; propView?.clearIn((x, z) => { const dx = x - o[0], dz = z - o[2], lx = dx * ex[0] + dz * ex[2], lz = dx * ez[0] + dz * ez[2]; return lx > -0.5 && lz > -0.5 && lx < b.w + 0.5 && lz < b.d + 0.5; });
     return true;
   };
-  return { group, doors, lamps: lamps.length, setState };
+  return { group, doors, lamps: lamps.length, setState, breakGlass };
 }
 
 let pool = null;

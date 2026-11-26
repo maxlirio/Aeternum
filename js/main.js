@@ -100,7 +100,8 @@ import { ShipDamage } from './render/damage.js';
 import { FlightHud } from './ui/flighthud.js';
 import { CombatHud } from './ui/combathud.js';
 import { Sound } from './render/sound.js';
-import { laddersIn } from './gen/climb.js';
+import { laddersIn, ladderOf } from './gen/climb.js';
+import { interiorPoints } from './gen/paths.js';
 import { SPEEDER, typeOf } from './gen/vehicles.js';
 import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/vehicles.js';
 import { Ride } from './player/ride.js';
@@ -303,8 +304,8 @@ async function start(fresh) {
   const ringView = new RingView(scene, propLib, planet, flora);
   const grass = new GrassField(planet); root.add(grass.group);
   // what shellfire's done to a building (hit/<key>: { d: damage taken }): its windows out ('shot'), or knocked down to broken walls ('down')
-  const hpOf = b => 130 + b.w * b.d * 0.8, bState = b => { const D = store.getDelta('hit/' + b.key); return !D ? null : D.d >= hpOf(b) ? 'down' : 'shot'; };
-  let town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView, { ruin: bState });
+  const hpOf = b => 130 + b.w * b.d * 0.8, bState = b => { const D = store.getDelta('hit/' + b.key); return !D || !(D.d > 0) ? null : D.d >= hpOf(b) * 1.7 ? 'flat' : D.d >= hpOf(b) ? 'down' : 'shot'; }, fallen = st => st === 'down' || st === 'flat', bPanes = b => store.getDelta('hit/' + b.key)?.w || null;      // (w: the panes shot out of it one by one, as window boxes)
+  let town = await buildSettlementMesh(planet, s, f => ui.loading(`Building ${s.name}…`, 0.1 + 0.6 * f), propView, { ruin: bState, panes: bPanes });
   root.add(town.group);
   const cityView = new CityView(planet, propLib); root.add(cityView.group);   // the megacity on the horizon (gen/city.js)
   const cityTraffic = new CityTrafficView(planet, cityView.city, propLib); scene.add(cityTraffic.group); root.add(cityTraffic.points);
@@ -1126,7 +1127,8 @@ async function start(fresh) {
   // (and level enough to be a battlefield: no more than a gentle roll across the 400 m of it and both sides' ground behind, not a mountainside or a ravine)
   const levelAt = F => { const ux = Math.sin(F.dir), uz = Math.cos(F.dir); let lo = 1e9, hi = -1e9, steep = 0; for (let s = -200; s <= 200; s += 50) { let prev = null; for (let a = -125; a <= 125; a += 25) { const y = landY(F.x + ux * a - uz * s, F.z + uz * a + ux * s); if (y <= planet.seaLevel + 0.3) return false; lo = Math.min(lo, y); hi = Math.max(hi, y); if (prev != null) steep = Math.max(steep, Math.abs(y - prev) / 25); prev = y; } } return hi - lo < 34 && steep < 0.3; };
   // a town within reach of that stretch of border is where the fighting is: in its streets (the megacity and anything in the sea aside)
-  setFrontTown((P, F) => { if (P !== planet || cloudW || params.has('fieldwar')) return null; let best = null, bd = 9000; try { for (const q of planetWar.h.townsNear(F.x, F.z, 9000)) { const d = Math.hypot(q.cx - F.x, q.cz - F.z); if (d < bd && q.buildings?.length > 6 && landY(q.cx, q.cz) > planet.seaLevel + 1) { bd = d; best = q; } } } catch { } return best && { x: best.cx, z: best.cz, key: best.key, name: best.name }; });
+  setFrontTown((P, F) => { if (P !== planet || cloudW || params.has('fieldwar')) return null; if (params.get('fronttown') === 'home') return { x: homeS.cx, z: homeS.cz, key: homeS.key, name: homeS.name };      // (a test: the war's in your own town)
+    let best = null, bd = 9000; try { for (const q of planetWar.h.townsNear(F.x, F.z, 9000)) { const d = Math.hypot(q.cx - F.x, q.cz - F.z); if (d < bd && q.buildings?.length > 6 && landY(q.cx, q.cz) > planet.seaLevel + 1) { bd = d; best = q; } } } catch { } return best && { x: best.cx, z: best.cz, key: best.key, name: best.name }; });
   setFrontFit((P, F) => P === planet && onLand(F) && levelAt(F));      // (sim/front.js: a front over water is found further along the border, on land)
   // ?auto=line: enlisted and on the line at once; a world whose nation has no war on land hands on to the next world
   function lineStart() {
@@ -1647,6 +1649,7 @@ async function start(fresh) {
       // what's in the way stops it: the land, walls, cars, stones, trees, rocks (CollisionWorld.hardAt)
       let wall = world.rayHard(wo, [dir.x, dir.y, dir.z], W.reach, 0.15, 1.2) ?? W.reach;
       if (tiltIn) wall = Math.min(wall, world.rayHard(tiltIn.dk.toLevel(wo), tiltIn.dk.vecTo([dir.x, dir.y, dir.z]), W.reach, 0.15, 1.2) ?? W.reach);      // (aboard a wreck: its bulkheads stop a round)
+      try { shotGlass(wo, [wo[0] + dir.x * wall, wo[1] + dir.y * wall, wo[2] + dir.z * wall]); } catch (e) { console.warn(e); }
       let best = wall;
       for (const a of agents) {
         if (String(a.id).startsWith('tr:') || bodies.some(b => b.id === a.id)) continue;
@@ -1838,8 +1841,9 @@ async function start(fresh) {
   // a tree in the way of a hull going at it goes down (as one in a car's way does)
   const armorFell = (x, z, R, facing, y) => { let n = 0; floraNear(planet, x, z, R, p => { if (!p.solid || p.felled || Math.abs(p.y - y) > 3 || p.size > 16) return; felledOf(planet).set(fellKey(p), +facing.toFixed(2)); p.felled = { a: facing }; n++; fx.dust([p.x, p.y + 0.2, p.z], 16, [0.32, 0.28, 0.2]); }); if (n) { store.patchDelta('felled', { list: [...felledOf(planet).entries()] }); flora.at = null; } return n; };
   { const blast0 = infantry.blast.bind(infantry); infantry.blast = (p, R, ...rest) => { try { damageBuildings(p, R ?? 6); } catch (e) { console.warn(e); } return blast0(p, R, ...rest); }; }      // (a grenade, a shell, a rocket: whatever bursts in a street)
-  infantry.hooks.built = (x, z, pad = 0.5) => { const q = battleTown(); if (!q?.buildings) return false; const [u, v] = q.toLocal(x, z); for (const b of q.buildings) { const du = u - b.O[0], dv = v - b.O[1], lx = du * b.ex[0] + dv * b.ex[1], lz = du * b.ez[0] + dv * b.ez[1]; if (lx > -pad && lz > -pad && lx < b.w + pad && lz < b.d + pad) return true; } return false; };
-  const armor = new Armor(infantry, { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), knock: (vx, vz) => ctrl.knock(vx, vz, 2.5, 0.9), rocks: armorRocks, solid: armorSolid, fell: armorFell }), armorView = new ArmorView(scene, toRender);      // (sim/armor.js: tanks and carriers on the same line)
+  infantry.hooks.built = (x, z, pad = 0.5, hull = false) => { const q = battleTown(); if (!q?.buildings) return false; const [u, v] = q.toLocal(x, z); for (const b of q.buildings) { if (hull && bState(b) === 'flat') continue;      // (a hull goes over what's been flattened)
+    const du = u - b.O[0], dv = v - b.O[1], lx = du * b.ex[0] + dv * b.ex[1], lz = du * b.ez[0] + dv * b.ez[1]; if (lx > -pad && lz > -pad && lx < b.w + pad && lz < b.d + pad) return true; } return false; };
+  const armor = new Armor(infantry, { hitPlayer: (d, by, from) => hurtPlayer(d, by, from), knock: (vx, vz) => ctrl.knock(vx, vz, 2.5, 0.9), rocks: armorRocks, solid: armorSolid, fell: armorFell, ram: (...q) => armorRam(...q) }), armorView = new ArmorView(scene, toRender);      // (sim/armor.js: tanks and carriers on the same line)
   // the dead of your line, each under a stone where they fell (render/memorials.js; solid, player/collision.js stones)
   const memorials = new MemorialView(); root.add(memorials.group);
   const syncStones = () => { const F = [...store.deltas].filter(([k]) => k.startsWith('fallen/')).map(([k, v]) => ({ key: k, ...v })).filter(f => Array.isArray(f.pos));
@@ -1857,21 +1861,65 @@ async function start(fresh) {
     getDelta: k => store.getDelta(k), patchDelta: (k, v) => store.patchDelta(k, v), clearDelta: k => { const D = store.getDelta(k); if (D) store.patchDelta(k, Object.fromEntries(Object.keys(D).map(q => [q, undefined]))); },
   }, params.has('strike') ? { firstIn: +params.get('strike') || 5 } : params.has('slot') ? { firstIn: 1e12, newsIn: 1e12 } : {});      // (?strike=s: one in s seconds; the test runs, ?slot=, have none)
   const townBurnt = q => planetWar.ruined(q, clock.now());
-  towns.ruinOf = q => { const burnt = townBurnt(q); return b => burnt ? true : bState(b); };
-  world.ruined = (b, H) => { const q = world.townOf(b); return q && q !== homeS && townBurnt(q) ? ruinFloor(b.key, H) : b.type !== 'ship' && bState(b) === 'down' ? Math.max(2.4, H * ruinKeep(b.key) * 0.55 - 2.85) : null; };
+  towns.ruinOf = q => { const burnt = townBurnt(q); return b => burnt ? true : bState(b); }; towns.panesOf = bPanes;
+  world.ruined = (b, H) => { const q = world.townOf(b); return q && q !== homeS && townBurnt(q) ? ruinFloor(b.key, H) : b.type === 'ship' ? null : bState(b) === 'flat' ? 0.6 : bState(b) === 'down' ? Math.max(2.4, H * ruinKeep(b.key) * 0.55 - 2.85) : null; };
   // Shellfire on a town. Every blast takes something off what stands near it; the first leaves a building's windows out, enough of them bring it
   // down to its broken walls (what's inside is under them). 
   const battleTown = () => { const k = infantry.F?.town; return k ? townOfKey(planet, k) : null; };
   const centreOfB = (q, b) => q.toWorld(b.O[0] + b.ex[0] * b.w / 2 + b.ez[0] * b.d / 2, b.O[1] + b.ex[1] * b.w / 2 + b.ez[1] * b.d / 2);
+  // A round through a window takes that pane out (the building's own glass in the town's mesh, render/settlement-mesh.js breakGlass), kept in the save
+  const shotGlass = (from, to) => { let n = 0; for (const h of world.windowsOn(from, to)) { const b = h.b; if (bState(b)) continue; const box = h.w.slice(0, 6).map(v => +v.toFixed(2)), D = store.getDelta('hit/' + b.key), W = D?.w || []; if (W.some(q => q[0] === box[0] && q[1] === box[1] && q[4] === box[4])) continue;
+      const q = world.townOf(b), T = q === homeS ? homeTown : towns.full.get(q.key); let was = false; try { was = !!T?.town?.breakGlass?.(b, [box]); } catch (e) { console.warn('glass', e); } if (!was) continue;
+      store.patchDelta('hit/' + b.key, { w: [...W, box].slice(-80), t: clock.now() }); fx.glass(h.p, 16); sound.glass?.(h.p); n++; } return n; };
+  // Where a man can fight from inside what's built there (sim/infantry.js posts): behind each window that has a room to stand in, reached from
+  // the door by the rooms and the stairs (gen/paths.js, the way the people who live there go); along the edge of each flat roof a fire ladder goes up to
+  infantry.hooks.posts = F => { const q = battleTown(), out = []; if (!q?.buildings) return out; const ux = Math.sin(F.dir), uz = Math.cos(F.dir);
+    for (const b of q.buildings) { if (b.type === 'ship' || fallen(bState(b))) continue; const [cx, cz] = centreOfB(q, b); if (Math.abs((cx - F.x) * ux + (cz - F.z) * uz) > 150 || Math.abs((cx - F.x) * -uz + (cz - F.z) * ux) > 250) continue;
+      let plan; try { plan = buildingPlan(planet, q, b); } catch { continue; } const W = (lx, ly, lz) => buildingToWorld(q, b, lx, ly, lz), grounded = p => { p[1] = landY(p[0], p[2]); return p; }; let n = 0;
+      for (const wl of plan.walls) { if (!wl.exterior || !wl.openings.length) continue; const alongX = wl.z0 === wl.z1, inw = wl.side === 'front' ? [0, 1] : wl.side === 'back' ? [0, -1] : wl.side === 'left' ? [1, 0] : [-1, 0], nw = world.fromBVec(b, -inw[0], -inw[1]);
+        for (const o of wl.openings) { if (o.kind !== 'window' || o.y0 > 1.25 || o.y1 < 1.7 || n >= 14) continue; const c = (o.a + o.b) / 2, cc = alongX ? wl.z0 : wl.x0, x = (alongX ? c : cc) + inw[0] * 0.85, z = (alongX ? cc : c) + inw[1] * 0.85, fy = wl.k * plan.H;
+          const room = plan.rooms.find(r => r.k === wl.k && x > r.rect[0] + 0.2 && x < r.rect[2] - 0.2 && z > r.rect[1] + 0.2 && z < r.rect[3] - 0.2); if (!room) continue;
+          if (plan.props.some(pr => !pr.soft && x > pr.x0 - 0.35 && x < pr.x1 + 0.35 && z > pr.z0 - 0.35 && z < pr.z1 + 0.35 && pr.y > fy - 0.5 && pr.y < fy + 2)) continue;      // (something stands at that window)
+          let pts = null; try { pts = interiorPoints(plan, b.key, 'outside', { k: wl.k, room: room.i, x, z }); } catch { } if (!pts || pts.length < 2) continue;
+          const path = pts.map(pt => { const w = W(pt[0], pt[1], pt[2]); if (pt.door) w.door = pt.door; return w; }); grounded(path[0]);
+          out.push({ pos: W(x, fy, z), face: Math.atan2(nw[0], nw[1]), n: nw, k: wl.k, roof: false, b: b.key, path }); n++; } }
+      const lad = !plan.roofSlopes && ladderOf(planet, q, b);
+      if (lad) { const top = plan.F * plan.H, add = (x, z, nl) => { const nw = world.fromBVec(b, nl[0], nl[1]), path = [grounded(lad.behind.slice()), grounded(lad.foot.slice()), lad.head.slice(), lad.roof.slice(), W(x, top, z)]; path.lad = 2; path.ladFace = lad.facing; out.push({ pos: W(x, top, z), face: Math.atan2(nw[0], nw[1]), n: nw, k: plan.F, roof: true, b: b.key, path }); };
+        for (let x = 1.6; x < b.w - 1.2; x += 6) { add(x, 0.85, [0, -1]); add(x, b.d - 0.85, [0, 1]); } for (let z = 3; z < b.d - 2.6; z += 6) { add(0.85, z, [-1, 0]); add(b.w - 0.85, z, [1, 0]); } } }
+    return out; };
+  // Can a man at a see a man at b past what's built (eye to chest)? Each building the line crosses: over its top, or (when one of them's inside it) out through a window
+  { let lk = null, list = [];
+    infantry.hooks.los = (a, b) => { const q = battleTown(); if (!q?.buildings) return true; if (lk !== q.key) { lk = q.key; list = q.buildings.filter(B => B.type !== 'ship').map(B => { const [x, z] = centreOfB(q, B); return { B, x, z, r: Math.hypot(B.w, B.d) / 2 + 0.2 }; }); }
+      const ex = b[0] - a[0], ez = b[2] - a[2], L2 = ex * ex + ez * ez || 1e-9;
+      for (const it of list) { const t = Math.max(0, Math.min(1, ((it.x - a[0]) * ex + (it.z - a[2]) * ez) / L2)), px = a[0] + ex * t - it.x, pz = a[2] + ez * t - it.z; if (px * px + pz * pz > it.r * it.r) continue;
+        const B = it.B, c = world.colliders(B), base = world.baseOf(B), [ax, az] = world.toB(B, a[0], a[2]), [bx, bz] = world.toB(B, b[0], b[2]), ay = a[1] - base, by = b[1] - base, dx = bx - ax, dz = bz - az; c.top ??= c.walls.reduce((m, w) => Math.max(m, w[5]), 0);
+        let t0 = 0, t1 = 1, out = false; for (const [p0, d, hi] of [[ax, dx, B.w], [az, dz, B.d]]) { if (Math.abs(d) < 1e-9) { if (p0 < 0 || p0 > hi) out = true; continue; } let u0 = -p0 / d, u1 = (hi - p0) / d; if (u0 > u1) [u0, u1] = [u1, u0]; t0 = Math.max(t0, u0); t1 = Math.min(t1, u1); }
+        if (out || t0 >= t1) continue; const inA = t0 <= 0, inB = t1 >= 1; if (inA && inB) { if (Math.abs(ay - by) > 1.2) return false; continue; }
+        const through = tt => { const y = ay + (by - ay) * tt; if (y > c.top + 0.05) return 2; const lx = ax + dx * tt, lz = az + dz * tt; return c.wins.some(w => y > w[4] + 0.05 && y < w[5] - 0.05 && lx > w[0] - 0.12 && lx < w[2] + 0.12 && lz > w[1] - 0.12 && lz < w[3] + 0.12) ? 1 : 0; };
+        if (!inA && !inB) { if (through(t0) !== 2 || through(t1) !== 2) return false; continue; }
+        const y = inA ? ay : by; if (y >= c.plan.F * c.plan.H - 0.3 && !c.plan.roofSlopes ? through(inA ? t1 : t0) !== 2 : !through(inA ? t1 : t0)) return false; }
+      return true; }; }
+  // (a door a man of the line goes through is held open for him: render/doors.js transient)
+  const warDoors = new Map(); infantry.hooks.door = key => warDoors.set(key, clock.now() + 1.5);
   let lastHitKey = '';
+  // what a building's taken is added to (hit/<key>), and when that changes how it stands, it's done again where it stands: its glass out, then down to
+  // its broken walls, then (shelled on, or driven over by a tank) to nothing over knee height
+  function hitBuilding(q, b, dmg) {
+    const was = bState(b), D = store.getDelta('hit/' + b.key); if (was === 'flat') return; store.patchDelta('hit/' + b.key, { d: (D?.d || 0) + dmg, t: clock.now() }); const is = bState(b); if (is === was) return;
+    const [x, z] = centreOfB(q, b), half = Math.max(b.w, b.d) / 2;
+    world.cols.delete(b.key); { const T = q === homeS ? homeTown : towns.full.get(q.key); try { T?.town?.setState?.(b, is); if (fallen(is)) T?.doorView?.drop(b.key); } catch (e) { console.warn('building', e); } }      // (that building alone: render/settlement-mesh.js setState; a town not built yet is built as it now is)
+    if (fallen(is)) { towns.reblock(q.key); infantry.changed?.(b.key, is); }
+    if (fallen(is)) { const g = landY(x, z), c = [x, g + 1, z], k = is === 'flat' && was === 'down' ? 0.5 : 1; fx.dustRing(c, half * 2.2 * k); if (k === 1) fx.blast([x, g + 3, z], half * 0.5); for (let n = 0; n < 10 * k; n++) fx.smoke([x + (Math.random() - 0.5) * b.w, g + 1 + Math.random() * 5 * k, z + (Math.random() - 0.5) * b.d], 2 + Math.random() * 2.5); sound.boom(c, 30 * k); fx.shake = Math.max(fx.shake, Math.min(0.8, 40 * k / (Math.hypot(ctrl.pos[0] - x, ctrl.pos[2] - z) + 20)));
+      if (k === 1 && world.locate(...ctrl.pos)?.b?.key === b.key && !flight) hurtPlayer(75, 'a building coming down on you'); } }
   function damageBuildings(p, R) {
     const key = Math.round(p[0] * 4) + ',' + Math.round(p[2] * 4) + ',' + Math.round(clock.now() * 4); if (key === lastHitKey) return; lastHitKey = key;
     for (const q of new Set([s, battleTown()])) { if (!q?.buildings || Math.hypot(q.cx - p[0], q.cz - p[2]) > (q.R || 300) + R + 80) continue;
       for (const b of q.buildings) { if (b.type === 'ship') continue; const [x, z] = centreOfB(q, b), half = Math.max(b.w, b.d) / 2, d = Math.hypot(x - p[0], z - p[2]), reach = R * 1.5 + half; if (d > reach) continue;
-        const was = bState(b), D = store.getDelta('hit/' + b.key), now = clock.now(); store.patchDelta('hit/' + b.key, { d: (D?.d || 0) + Math.min(60, R * 2) * Math.max(0.25, 1 - d / reach), t: now }); const is = bState(b); if (is === was) continue;
-        world.cols.delete(b.key); { const T = q === homeS ? homeTown : towns.full.get(q.key); try { T?.town?.setState?.(b, is); if (is === 'down') T?.doorView?.drop(b.key); } catch (e) { console.warn('building', e); } }      // (that building alone is done again where it stands: render/settlement-mesh.js setState; a town not built yet is built as it now is)
-        if (is === 'down') { const g = landY(x, z), c = [x, g + 1, z]; fx.dustRing(c, half * 2.2); fx.blast([x, g + 3, z], half * 0.5); for (let k = 0; k < 10; k++) fx.smoke([x + (Math.random() - 0.5) * b.w, g + 1 + Math.random() * 5, z + (Math.random() - 0.5) * b.d], 2 + Math.random() * 2.5); sound.boom(c, 30); fx.shake = Math.max(fx.shake, Math.min(0.8, 40 / (Math.hypot(ctrl.pos[0] - x, ctrl.pos[2] - z) + 20)));
-          if (world.locate(...ctrl.pos)?.b?.key === b.key && !flight) hurtPlayer(75, 'a building coming down on you'); } } } }
+        hitBuilding(q, b, Math.min(60, R * 2) * Math.max(0.25, 1 - d / reach)); } } }
+  // a hull pushing at something built (sim/armor.js ram: the point of its nose): a tank goes through a house; a carrier only shakes it
+  const armorRam = (x, z, V, dt) => { const q = battleTown() || s; if (!q?.buildings) return; const [u, v] = q.toLocal(x, z);
+    for (const b of q.buildings) { if (b.type === 'ship') continue; const du = u - b.O[0], dv = v - b.O[1], lx = du * b.ex[0] + dv * b.ex[1], lz = du * b.ez[0] + dv * b.ez[1]; if (lx < -1.5 || lz < -1.5 || lx > b.w + 1.5 || lz > b.d + 1.5) continue;
+      hitBuilding(q, b, dt * (V.kind === 'tank' ? 70 : 9)); if (Math.random() < dt * 6) fx.dust([x, landY(x, z) + 1 + Math.random() * 1.5, z], 6, [0.55, 0.5, 0.45]); return; } };
   let ruinsNear = [], ruinsT = 0, beamSnd = 0, sirenT = 0, smokeK = 0;
   // the great ships brought down, lying where they fell (gen/hulk.js; hulk/… in the save): drawn (render/capital.js wreckOf) and solid to everything
   // a great ship down (gen/hulk.js). Its decks are still in it, at the angle it lies: a level copy of them stands in the collision world far overhead,
@@ -2786,6 +2834,7 @@ async function start(fresh) {
       world.bodies = B; }
     crowd.update(ringPeople.concat(agents.filter(a => !burntAt(a.pos[0], a.pos[2])).map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security), crew: pop.gangOf?.(a.person.id)?.colour || null })).concat(riders, walkers.map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
+    if (warDoors.size) { const now = clock.now(); for (const [k, till] of warDoors) if (till < now) warDoors.delete(k); else inUse.push(k); }
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));
     if (!shot && flight && cockpitView) { // the pilot's eye, looking out of the windscreen
       // the eye is fixed in the ship, turned with it: bank and the world tilts, the cockpit stays put round you
@@ -2877,7 +2926,7 @@ async function start(fresh) {
       }
       if (infantry.F) {
         // what you hear of it: every shot from where it was fired (the nearest few each moment), the snap of the ones that come close
-        for (const S of infantry.shots) { if (S.n <= lastHeard) continue; lastHeard = Math.max(lastHeard, S.n);
+        for (const S of infantry.shots) { if (S.n <= lastHeard) continue; lastHeard = Math.max(lastHeard, S.n); if (infantry.town) try { shotGlass(S.from, S.to); } catch (e) { console.warn(e); }
           const d = Math.hypot(S.from[0] - ctrl.pos[0], S.from[2] - ctrl.pos[2]); if (d < 260 && (shotsHeard += 1) < 14) sound.shot(S.from);
           const ax = S.to[0] - S.from[0], az = S.to[2] - S.from[2], L = Math.hypot(ax, az) || 1, f = Math.max(0, Math.min(1.15, ((ctrl.pos[0] - S.from[0]) * ax + (ctrl.pos[2] - S.from[2]) * az) / (L * L))), off = Math.hypot(S.from[0] + ax * f - ctrl.pos[0], S.from[2] + az * f - ctrl.pos[2]);
           if (S.stop && Math.hypot(S.to[0] - ctrl.pos[0], S.to[2] - ctrl.pos[2]) < 120) fx.dust(S.to, 3, [0.6, 0.55, 0.45]);      // (the round into what was in its way: a puff off it)
@@ -2909,7 +2958,7 @@ async function start(fresh) {
     if (!paused) stepMayhem(dt);
     // walking onto a guarded place: nobody asked you in
     if (!paused && mayhem && !flight) { let g = null; sitesNear(planet, ctrl.pos[0], ctrl.pos[2], 100, S => { if (S.guarded && Math.hypot(S.x - ctrl.pos[0], S.z - ctrl.pos[2]) < 58) g = S; }); if (g && clock.now() > (trespassAt ?? 0)) { const first = trespassAt === null; trespassAt = clock.now() + 25; const seen = mayhem.crime(clock.now(), 'trespassing', 0.9, ctrl.pos); if (first || seen) ui.toast(`You're inside <b>${esc(g.label)}</b> with no business being here${seen ? ', and they\'ve seen you' : ''}.`, 'bad', 6000); } }
-    if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
+    if (!goods && propLib) { goods = new Goods(propLib, planet, s, store, world); goods.gone = b => fallen(bState(b)); root.add(goods.group); } goods?.update(clock.now(), ctrl.pos);
     if (!inSpace) cityRooms.update(ctrl.pos);
     vesperStreets?.update(flight ? flight.pos : ctrl.pos);
     if (!siteRooms && propLib) { siteRooms = new SiteInteriors(planet, homeS, world, outposts, propLib, store, k => cityView.kit(k)); root.add(siteRooms.group); } if (!inSpace) siteRooms?.update(ctrl.pos, clock.now()); setWindowGlow(1 - (sky.state.day ?? 1));

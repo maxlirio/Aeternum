@@ -85,6 +85,13 @@ export class Sound {
     this.noise(v.t, { len: 1.3, f0: 90, f1: 60, type: 'lowpass', q: 1.2, vol, attack: 0.15 }, v.g); this.noise(v.t, { len: 1.3, f0: 2600, f1: 2200, q: 2, vol: vol * 0.25, attack: 0.15 }, v.g);
     this.tone(v.t, { len: 1.3, f0: 46, f1: 44, type: 'sawtooth', vol: vol * 0.3, attack: 0.15 }, v.g);
   }
+  // a pane going: the crack of it, then the bits ringing as they land
+  glass(p) {
+    if (!this.ok()) return; const P = this.place(p), vol = Math.min(0.8, 14 / (P.d + 8)); if (vol < 0.015) return;
+    const v = this.chain(P.d / C, P.pan, vol, 0.9);
+    this.noise(v.t, { len: 0.12, f0: 7500, f1: 3200, type: 'highpass', q: 0.6, vol }, v.g);
+    for (let k = 0; k < 5; k++) this.tone(v.t + 0.05 + Math.random() * 0.35, { len: 0.09 + Math.random() * 0.1, f0: 3200 + Math.random() * 4200, type: 'triangle', vol: vol * 0.22 }, v.g);
+  }
   boom(p, R = 6) {
     if (!this.ok()) return; const P = this.place(p), vol = Math.min(1, R * 6 / (P.d + 10)), far = Math.min(1, P.d / 1500); if (vol < 0.01) return;
     const v = this.chain(P.d / C, P.pan, vol, 2.6);

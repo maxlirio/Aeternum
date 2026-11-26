@@ -126,7 +126,10 @@ export class CollisionWorld {
     const props = plan.props.filter(p => !p.soft).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h + (p.kind === 'tvstand' ? 0.85 : 0)]).concat(plan.solids || []);      // (a stand's solid up to the top of the screen on it)
     // the chairs and the small things on tables and shelves: solid to you (people walking to a chair to sit in it go into it)
     const soft = plan.props.filter(p => p.soft && p.h > 0.05 && p.x1 > p.x0 && p.z1 > p.z0).map(p => [p.x0, p.z0, p.x1, p.z1, p.y, p.y + p.h]);
-    c = { b, plan, walls, props, soft };
+    // window openings (a round goes through one where a wall would stop it): [x0, z0, x1, z1, y0, y1], building-local, with the wall and the opening they are
+    const wins = [];
+    for (const wl of plan.walls) { const alongX = wl.z0 === wl.z1, t = wl.t / 2 + 0.06, cc = alongX ? wl.z0 : wl.x0; for (const o of wl.openings) if (o.kind === 'window' && wl.y0 + o.y1 <= (low ?? 1e9)) wins.push(alongX ? [o.a, cc - t, o.b, cc + t, wl.y0 + o.y0, wl.y0 + o.y1, wl, o] : [cc - t, o.a, cc + t, o.b, wl.y0 + o.y0, wl.y0 + o.y1, wl, o]); }
+    c = { b, plan, walls, props, soft, wins };
     this.cols.set(b.key, c);
     return c;
   }
@@ -368,6 +371,7 @@ export class CollisionWorld {
       const [lx, lz] = this.toB(b, x, z);
       if (!this.inside(b, lx, lz, pad + 0.5)) continue;
       const c = this.colliders(b), ly = y - this.baseOf(b);
+      if (pad < 0.05 && c.wins.some(w => ly > w[4] && ly < w[5] && lx > w[0] && lx < w[2] && lz > w[1] && lz < w[3])) continue;      // (a point in a window opening: a round's way through)
       for (const w of c.walls) {
         if (ly < w[4] - pad || ly > w[5] + pad) continue;
         if (w[6] >= 0 && this.passable(b, w[6]) && ly < c.plan.doors[w[6]].height + c.plan.doors[w[6]].k * c.plan.H) continue;
@@ -402,6 +406,18 @@ export class CollisionWorld {
   rayHard(o, dir, far, step = 0.2, from = 0.3) {
     for (let d = from; d < far; d += step) if (this.hardAt(o[0] + dir[0] * d, o[1] + dir[1] * d, o[2] + dir[2] * d)) return d;
     return null;
+  }
+
+  // The window openings a round from a to b (world points) goes through: [{ b, w (the colliders' window box), p (world point in it) }]
+  windowsOn(a, b) {
+    const out = [], seen = new Set(), L = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]); if (!(L > 0.2) || a[1] > SPACE) return out;
+    for (let d = 0; d <= L + 3; d += 3) { const f = Math.min(1, d / L), x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+      for (const B of this.near(x, z)) { if (seen.has(B) || B.type === 'ship') continue; seen.add(B); const c = this.colliders(B); if (!c.wins.length) continue;
+        const [ax, az] = this.toB(B, a[0], a[2]), [bx, bz] = this.toB(B, b[0], b[2]), base = this.baseOf(B), ay = a[1] - base, by = b[1] - base;
+        for (const w of c.wins) { const alongX = w[6].z0 === w[6].z1, c0 = alongX ? (w[1] + w[3]) / 2 : (w[0] + w[2]) / 2, p0 = alongX ? az : ax, p1 = alongX ? bz : bx; if ((p0 - c0) * (p1 - c0) > 0 || p0 === p1) continue;
+          const t = (c0 - p0) / (p1 - p0), lx = ax + (bx - ax) * t, lz = az + (bz - az) * t, ly = ay + (by - ay) * t; if (ly < w[4] || ly > w[5] || (alongX ? lx < w[0] || lx > w[2] : lz < w[1] || lz > w[3])) continue;
+          out.push({ b: B, w, p: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t] }); } } }
+    return out;
   }
 
   // Which building/floor/room is this point in (for HUD, lights, interaction)?

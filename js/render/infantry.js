@@ -120,7 +120,7 @@ export class InfantryView {
       if (M.hp <= 0 && !ok) { const lying = M.dead >= FALL; rig.root.rotation.set(0, M.fall + Math.PI, 0); rig.root.rotateX(-Math.PI / 2 * (lying ? 1 : rig.fallTilt || 0)); }      // (no recorded fall: he faced the one who shot him, and goes over backwards)
       rig.root.updateMatrixWorld(true);
       for (const im of this.meshes) { const part = rig.parts[this.meshes.indexOf(im)]; im.setMatrixAt(i, part.mesh.matrixWorld); im.setColorAt(i, this.col.setHex(im.userData.kind === 'skin' ? SKIN[h % SKIN.length] : L[im.userData.kind])); }
-      this.m.copy(rig.gunSock.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0);
+      this.m.copy(rig.gunSock.matrixWorld); if (M.hp <= 0) this.m.makeTranslation(0, -100, 0); else if (M.climb) this.m.copy(rig.torso.matrixWorld).multiply(SLUNG);      // (on a ladder: slung across his back)
       for (const im of this.guns) im.setMatrixAt(i, this.m);
     }
     for (const im of this.meshes.concat(this.guns)) { im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
@@ -155,6 +155,7 @@ export function soldierPose(rig, M, ph, now = 0, mv = null) {
     if (M.hp <= 0) { const k = M.fall != null ? Math.cos(M.fall - M.facing) : -1, id = M.diedBy === 'blast' || (M.id.length * 13) % 5 === 0 ? 'dying' : k > 0 ? 'death_back' : 'death_front';
       if (M.diedBy === 'blast' && take('death_blast', M.dead * 1.1)) { if (rig.gunSock) rig.gunSock.visible = false; rig.fallTilt = 0; return true; }      // (thrown by a shell or a grenade)      // (the round going his way: shot from behind)
       if (take(id, M.dead * (id === 'dying' ? 1.3 : 1))) { if (rig.gunSock) rig.gunSock.visible = false; rig.fallTilt = 0; return true; } }
+    else if (M.climb) { applyPose(rig, { mode: 'climb', phase: now * 5.5 + M.id.length, blend: 1, k: 1, lean: 0 }); rig.fallTilt = 0; if (rig.gunSock) rig.gunSock.visible = false; return true; }      // (on a ladder: hand over hand, the rifle slung)
     else {
       rig.fallTilt = 0; let placed = false, hands = false;
       if (M.stab != null && now - M.stab < 1.3) { placed = take('bayonet', 0.55 + (now - M.stab) * 1.6); hands = true; }
@@ -190,7 +191,7 @@ export function soldierPose(rig, M, ph, now = 0, mv = null) {
   // hit: thrown back a little at the shoulders
   if (M.flinch > 0) { const k = M.flinch / 0.28; rig.torso.rotation.x -= 0.45 * k; rig.torso.rotation.z = (((M.id.length * 7) % 2) ? 0.2 : -0.2) * k; }
 }
-const FALL = 0.55;
+const FALL = 0.55, SLUNG = new THREE.Matrix4().compose(new THREE.Vector3(0.04, 0.22, -0.17), new THREE.Quaternion().setFromEuler(new THREE.Euler(-1.3, 0, 0.5)), new THREE.Vector3(1, 1, 1));
 const hashId = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; };
 function mergeGeo(list) {
   const pos = [], nor = [], uv = []; for (const g0 of list) { const g = g0.index ? g0.toNonIndexed() : g0; pos.push(...g.attributes.position.array); nor.push(...g.attributes.normal.array); uv.push(...g.attributes.uv.array); }
