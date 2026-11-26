@@ -10,7 +10,8 @@ import { getSettlement, roadRect, rectsOverlap } from '../js/gen/settlement.js';
 import { structureOf, strike as strikeAt, settle } from '../js/gen/structure.js';
 import { RINGS } from '../js/gen/rings.js';
 import { ringStructure } from '../js/world/rings.js';
-import { ringPlots, plotReal, plotPeople, personAt, plotToRing, DEPTH } from '../js/world/ringreal.js';
+import { homeFolk, folkAt as folkAtHome } from '../js/world/homefolk.js';
+import { ringPlots, plotReal, plotPeople, personAt, plotToRing } from '../js/world/ringreal.js';
 import { buildingPlan, roomGraph } from '../js/gen/building.js';
 
 // Nearly every suite here is about the home town, over hundreds of worlds; working out the rivers of all the towns around each one would take minutes. (suites.towns and the browser tests use the real thing.)
@@ -34,11 +35,16 @@ suites.ringreal = () => {
   for (const Q of plots) { check(Q.w >= 6.5 && Q.a0 > Q.s0 && Q.a1 < Q.s1, `plot ${Q.id} stands clear of its neighbours (${Q.w.toFixed(1)} m)`); }
   for (const Q of plots.filter((_, i) => i % 4 === 0)) { const rec = plotReal(P, s, ringB, g, Q); if (!check(!!rec, `plot ${Q.id} has a building`)) continue; rooms += rec.plan.rooms.length;
     check(rec.plan.entrance >= 0 && rec.plan.doors[rec.plan.entrance], `plot ${Q.id} ${Q.type}: a way in`);
-    const [fx] = plotToRing(Q, Q.w / 2, -1), [bx] = plotToRing(Q, Q.w / 2, DEPTH + 0.5); check(Math.abs(fx - 27) < Math.abs(bx - 27), `plot ${Q.id}: its front is to the street`);
+    const [fx] = plotToRing(Q, Q.w / 2, -1), [bx] = plotToRing(Q, Q.w / 2, Q.depth + 0.5); check(Math.abs(fx - 27) < Math.abs(bx - 27), `plot ${Q.id}: its front is to the street`);
     const folk = plotPeople(P, s, ringB, g, Q); if (Q.type !== 'store') homes++; people += folk.length;
     for (const m of folk) { const n = personAt(g, Q, m, 3), d = personAt(g, Q, m, 13); if (n.pose === 'lie') abed++; if (d.y === 0 && d.x > 11.5 && d.x < 42.5) out++;
       const lo = Math.min(Q.a0, Q.a1) - 0.2, hi = Math.max(Q.a0, Q.a1) + 0.2, dx = Q.side === 0 ? n.x : 54 - n.x; if (!(n.s > lo && n.s < hi && dx > 1 && dx < 11.3)) bad++;
       let last = null; for (let h = 0; h < 24; h += 1 / 240) { const a = personAt(g, Q, m, h); if (last) { let ds = Math.abs(a.s - last.s); if (ds > g.C / 2) ds = g.C - ds; if (Math.hypot(a.x - last.x, ds, a.y - last.y) > 26 && !(a.pose !== last.pose && (a.pose !== 'stand' || last.pose !== 'stand'))) jumps++; } last = a; } } }
+  { const f = RINGS.find(q => q.kind === 'farm'), fb = ringStructure(s, f, [200, 900, 0], 0.3), barns = ringPlots(f); check(barns.length === 12, `the Fields' barns are buildings too (${barns.length})`);
+    for (const Q of barns) { const rec = plotReal(P, s, fb, f, Q); check(!!rec && rec.plan.entrance >= 0, `barn ${Q.id}: a way in`); const [fx] = plotToRing(Q, Q.w / 2, -1), [bx] = plotToRing(Q, Q.w / 2, Q.depth + 0.5); check(Math.abs(fx - 27) < Math.abs(bx - 27), `barn ${Q.id}: its doors are to the path`); } }
+  { let keepers = 0, home = 0, wrong = 0; for (const Q of plots.filter((_, i) => i % 4 === 0)) { const rec = Q.real; if (!rec) continue; for (const m of homeFolk(rec)) { if (m.kind === 'keeper') { keepers++; const a = folkAtHome(m, (m.from + m.to) / 2); if (!a || a.p[0] < 0 || a.p[0] > rec.w || a.p[2] < 0 || a.p[2] > rec.d) wrong++; if (folkAtHome(m, (m.from + 24 - 0.5) % 24 < m.from ? m.from - 0.5 : 2)) wrong++; }
+        else { home++; const n = folkAtHome(m, 3), d = folkAtHome(m, 13); if (n.pose !== 'lie' || d.p[2] > 0) wrong++; } } }
+    check(keepers > 5, `shops have keepers (${keepers})`); check(home > 20, `the generic household model fills homes too (${home})`); check(wrong === 0, `keepers at their counters in hours and gone after; residents abed at night, out by day (${wrong} wrong)`); }
   check(rooms > 200, `rooms (${rooms})`); check(people > homes, `people live there (${people} in ${homes} homes sampled)`);
   check(abed === people, `at night all are in bed (${abed} of ${people})`); check(bad === 0, `and in their own houses (${bad} out of place)`);
   check(out > people * 0.9, `at midday they're out on the street (${out} of ${people})`); check(jumps === 0, `nobody jumps (${jumps})`);

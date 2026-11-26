@@ -110,7 +110,7 @@ export function ringPlan(g) {
   lineX(0, 0, C, CEIL); lineX(W, 0, C, CEIL);
   const slabs = [];
   for (const it of L.items) {
-    if (it.t === 'barn') block(it.x0, it.s0, it.x1, it.s1, 9);      // (a house is a building of its own: world/ringreal.js)
+    if (it.t === 'house' || it.t === 'barn') { /* a building of its own: world/ringreal.js */ }
     else if (it.t === 'station') block(it.x - 3, it.s - 3, it.x + 3, it.s + 3, CEIL);
     else if (it.t === 'stall') block(it.x - 1.4, it.s - 1.6, it.x + 1.4, it.s + 1.6, 2.6);
     else if (it.t === 'fountain' || it.t === 'silo') block(it.x - it.r * 0.9, it.s - it.r * 0.9, it.x + it.r * 0.9, it.s + it.r * 0.9, it.t === 'silo' ? it.h : 0.6);

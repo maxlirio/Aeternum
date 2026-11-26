@@ -9,7 +9,7 @@ import { PropView } from './props.js';
 import { ringLit } from './rings.js';
 import { shellMaterial } from './vesperreal.js';
 import { W } from '../gen/rings.js';
-import { ringPlots, plotReal, plotFrame, DEPTH, STOREY } from '../world/ringreal.js';
+import { ringPlots, plotReal, plotFrame } from '../world/ringreal.js';
 
 const NEAR = 110, FAR = 150;
 const WALLS = [[0.82, 0.76, 0.66], [0.62, 0.66, 0.7], [0.74, 0.6, 0.52], [0.55, 0.58, 0.52], [0.86, 0.84, 0.8], [0.48, 0.5, 0.56], [0.7, 0.68, 0.6], [0.66, 0.55, 0.48]];
@@ -28,8 +28,8 @@ export class RingHouses {
   turnOf(g) { return this.ringView.spin.find(q => q.g === g)?.turn || null; }
   lit(g, base, inst = false) { const k = g.key + (inst ? 'i' : '') + base.uuid; let m = this.mats.get(k); if (!m) { m = ringLit(base, g, { day: this.ringView.U.day, glass: { value: 0.4 } }, inst); this.mats.set(k, m); } return m; }
   shellMatrix(g, P, hide = false) {
-    const h = P.floors * STOREY + 0.6, F = plotFrame(P), xc = F.O[0] + F.bz[0] * DEPTH / 2, sc = (P.a0 + P.a1) / 2, M = bendMatrix(g, xc, sc, this._m);
-    return M.multiply(new THREE.Matrix4().compose(new THREE.Vector3(xc, h / 2, sc), new THREE.Quaternion(), hide ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(DEPTH, h, P.w))).clone();
+    const h = P.floors * P.storey + 0.6, F = plotFrame(P), xc = F.O[0] + F.bz[0] * P.depth / 2, sc = (P.a0 + P.a1) / 2, M = bendMatrix(g, xc, sc, this._m);
+    return M.multiply(new THREE.Matrix4().compose(new THREE.Vector3(xc, h / 2, sc), new THREE.Quaternion(), hide ? new THREE.Vector3(0, 0, 0) : new THREE.Vector3(P.depth, h, P.w))).clone();
   }
   // every plot's shell, in the ring's turning frame
   shellsFor(g, turn) {
@@ -41,15 +41,15 @@ export class RingHouses {
   // ringB: the ring you're in (its structure), or null. pos: where you are (flat, world)
   update(ringB, pos) {
     if (!this.ringView.built) return;
-    for (const b of this.structs) { const g = b.plan.ring; if (g.kind !== 'town' || this.shells.has(g.key)) continue; const turn = this.turnOf(g); if (turn) this.shellsFor(g, turn); }
-    const g = ringB?.plan.ring, here = g && g.kind === 'town' ? this.world.toB(ringB, pos[0], pos[2]) : null;
+    for (const b of this.structs) { const g = b.plan.ring; if (!ringPlots(g).length || this.shells.has(g.key)) continue; const turn = this.turnOf(g); if (turn) this.shellsFor(g, turn); }
+    const g = ringB?.plan.ring, here = g && ringPlots(g).length ? this.world.toB(ringB, pos[0], pos[2]) : null;
     const away = (P, lim) => { if (!here || P.ring !== g.key) return true; let d = Math.abs((P.a0 + P.a1) / 2 - here[1]); if (d > g.C / 2) d = g.C - d; return d > lim; };
     if (here) { const turn = this.turnOf(g);
       for (const P of ringPlots(g)) { if (this.live.has(P) || away(P, NEAR)) continue;
         const rec = plotReal(this.planet, this.s, ringB, g, P); if (!rec || !turn) continue;
         const F = plotFrame(P), mb = new MeshBuilder(), pv = this.lib ? new PropView(this.lib, 1e5) : null; if (pv) mb.propSink = (pr, fr, len, dep, rng) => pv.add(pr, fr, len, dep, rng);
         buildBuilding(mb, rec.plan, rec, [[F.O[0], 0, F.O[1]], [F.bx[0], 0, F.bx[1]], [F.bz[0], 0, F.bz[1]]], this.planet);
-        const M = bendMatrix(g, F.O[0] + F.bz[0] * DEPTH / 2, (P.a0 + P.a1) / 2), meshes = mb.build();
+        const M = bendMatrix(g, F.O[0] + F.bz[0] * P.depth / 2, (P.a0 + P.a1) / 2), meshes = mb.build();
         for (const m of meshes) { m.geometry.applyMatrix4(M); m.material = this.lit(g, m.material); m.castShadow = false; m.receiveShadow = false; m.frustumCulled = false; }
         if (pv) { const grp = pv.build(); if (grp) { pv.update(F.O[0], 0, F.O[1]); const q = new THREE.Matrix4();
             grp.traverse(o => { if (!o.isInstancedMesh) return; for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, q); o.setMatrixAt(i, q.premultiply(M)); } o.instanceMatrix.needsUpdate = true; o.material = this.lit(g, o.material, true); o.frustumCulled = false; o.castShadow = false; }); meshes.push(grp); } }

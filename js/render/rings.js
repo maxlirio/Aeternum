@@ -30,11 +30,13 @@ export function ringLit(base, g, U, inst = false) {
   return m;
 }
 // a model's triangles that lie in the terraces' own space (between the hull and the pavement, from the floor to over the roofs, where a house stands) dropped
-function stripTerrace(geo, g, occ) {
+function stripTerrace(geo, g, occ, barns = []) {
   const P = geo.attributes.position, ix = geo.index, n = ix ? ix.count : P.count, keep = [], C = g.C, at = i => ix ? ix.getX(i) : i;
   for (let i = 0; i + 2 < n; i += 3) { const a = at(i), b = at(i + 1), c = at(i + 2), X = (P.getX(a) + P.getX(b) + P.getX(c)) / 3, Y = (P.getY(a) + P.getY(b) + P.getY(c)) / 3, Z = (P.getZ(a) + P.getZ(b) + P.getZ(c)) / 3;
     const y = g.Rf - Math.hypot(X, Y), x = W / 2 - Z; let s = Math.atan2(X, -Y) * g.Rf; if (s < 0) s += C; const side = x < W / 2 ? 0 : 1, d = side ? W - x : x;
-    if (y > 0.06 && y < 17.5 && d > 0.7 && (d < 11.25 || d < 12.4 && y > 2.3) && occ[side][Math.round(s * 2)]) continue; keep.push(a, b, c); }
+    if (y > 0.06 && y < 17.5 && d > 0.7 && (d < 11.25 || d < 12.4 && y > 2.3) && occ[side][Math.round(s * 2)]) continue;
+    if (y > 0.06 && y < 12 && barns.some(q => x > q.x0 - 0.6 && x < q.x1 + 0.6 && s > q.s0 - 0.6 && s < q.s1 + 0.6)) continue;      // (and a farm ring's barns)
+    keep.push(a, b, c); }
   if (keep.length < n) geo.setIndex(keep);
 }
 const COL = { thatch: [0.76, 0.64, 0.3], corrugated: [0.6, 0.62, 0.6], render: [0.86, 0.8, 0.68], ceramic: [0.56, 0.7, 0.72], laminate: [0.78, 0.52, 0.46], plastic: [0.84, 0.68, 0.36], tint: [0.56, 0.64, 0.52], paint: [0.24, 0.27, 0.3], metal: [0.42, 0.43, 0.45], fabric: [0.78, 0.74, 0.66] };
@@ -53,9 +55,9 @@ export class RingView {
       gltf.scene.updateMatrixWorld(true); const M = {};
       gltf.scene.traverse(o => { if (!o.isMesh) return; let top = o; while (top.parent && top.parent !== gltf.scene) top = top.parent; const k = top.userData.kind; (M[k] ||= []).push({ g: bakedPart(o), slot: o.material.name }); });
       // (the Commons' terraces are real buildings now, render/ringreal.js: what the model drew of them is taken out of it)
-      { const g = RINGS.find(q => q.kind === 'town'), list = g && M['ring_' + g.key]; if (list) { const L = ringLayout(g), occ = [new Uint8Array(Math.ceil(L.C * 2) + 2), new Uint8Array(Math.ceil(L.C * 2) + 2)];
-          for (const it of L.items) if (it.t === 'house') for (let k = Math.floor(it.s0 * 2); k <= Math.ceil(it.s1 * 2); k++) occ[it.side][k] = 1;
-          for (const q of list) stripTerrace(q.g, g, occ); } }
+      for (const g of RINGS) { const list = M['ring_' + g.key], L = ringLayout(g), occ = [new Uint8Array(Math.ceil(L.C * 2) + 2), new Uint8Array(Math.ceil(L.C * 2) + 2)], barns = L.items.filter(it => it.t === 'barn'); if (!list) continue;
+        for (const it of L.items) if (it.t === 'house') for (let k = Math.floor(it.s0 * 2); k <= Math.ceil(it.s1 * 2); k++) occ[it.side][k] = 1;
+        if (g.kind === 'town' || barns.length) for (const q of list) stripTerrace(q.g, g, occ, barns); }
       this.models = M;
     }, undefined, e => console.warn('rings model', e?.message || e));
   }

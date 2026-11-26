@@ -80,7 +80,8 @@ import { ThrustView } from './render/thrust.js';
 import { fleetOf, fleetContact, bayShelter, HULLS } from './gen/capital.js';
 import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
 import { ringStructure, spinOf, wrapRing } from './world/rings.js';
-import { ringPlots, plotReal, plotPeople, personAt } from './world/ringreal.js';
+import { ringPlots, plotReal, plotPeople, personAt, plotToRing, plotFrame } from './world/ringreal.js';
+import { homeFolk, folkAt as homeAt } from './world/homefolk.js';
 import { RingHouses } from './render/ringreal.js';
 import { vesperStructure } from './world/vesper.js';
 import { VesperStreets } from './render/vesperreal.js';
@@ -1060,7 +1061,7 @@ async function start(fresh) {
   const ringStructs = meridian ? RINGS.map((g, i) => { const f = meridian.yaw, b = ringStructure(homeS, g, [meridian.x + Math.cos(f) * (i - 1) * 140, meridian.y + 700, meridian.z - Math.sin(f) * (i - 1) * 140], f); world.addStructure(b, homeS); return b; }) : [];     // (side by side over the ship, so none is over another)
   // the houses of a ring's town, each a building of its own in there (world/ringreal.js): put in a few a frame from when the ship's near
   const ringHouses = new RingHouses(planet, homeS, world, propLib, ringView, ringStructs); let plotQ = null;
-  const ringPlotsIn = () => { plotQ ??= ringStructs.flatMap(b => b.plan.ring.kind === 'town' ? ringPlots(b.plan.ring).map(P => [b, P]) : []); for (let n = 0; n < 6 && plotQ.length; n++) { const [b, P] = plotQ.pop(), rec = plotReal(planet, homeS, b, b.plan.ring, P); if (rec) world.addStructure(rec, homeS); } };
+  const ringPlotsIn = () => { plotQ ??= ringStructs.flatMap(b => ringPlots(b.plan.ring).map(P => [b, P])); for (let n = 0; n < 6 && plotQ.length; n++) { const [b, P] = plotQ.pop(), rec = plotReal(planet, homeS, b, b.plan.ring, P); if (rec) world.addStructure(rec, homeS); } };
   const ringHere = (p = ctrl.pos) => { for (const b of ringStructs) { if (p[1] < b.base - 3 || p[1] > b.base + 40) continue; const [lx, lz] = world.toB(b, p[0], p[2]); if (lx > -1 && lx < b.w + 1 && lz > -2 && lz < b.d + 2) return b; } return null; };
   const ringStop = (b, k = 0) => { const g = b.plan.ring, sk = (k + 0.5) * g.C / 6; return b2w(b, RING_W / 2, 0.05, sk - 4.4); };
   const yawOf = ([dx, dz]) => Math.atan2(dx, dz), ringFace = b => yawOf(world.fromBVec(b, 0, -1));
@@ -2888,7 +2889,8 @@ async function start(fresh) {
         }
         // and those who live in its houses, wherever each is at this hour: in bed, about the house, out on the street
         if (g.kind === 'town') { const hr = solarHour(planet, t), near = [];
-          for (const P of ringPlots(g)) { let dp = ((P.a0 + P.a1) / 2 - ps) % g.C; if (dp > g.C / 2) dp -= g.C; if (dp < -g.C / 2) dp += g.C; if (Math.abs(dp) > 320 || !P.real) continue; for (const m of plotPeople(planet, homeS, rb, g, P)) { const a = personAt(g, P, m, hr, g.C); let ds = (a.s - ps) % g.C; if (ds > g.C / 2) ds -= g.C; if (ds < -g.C / 2) ds += g.C; if (Math.abs(ds) < 120) near.push([Math.abs(ds), m, a, ds]); } }
+          for (const P of ringPlots(g)) { let dp = ((P.a0 + P.a1) / 2 - ps) % g.C; if (dp > g.C / 2) dp -= g.C; if (dp < -g.C / 2) dp += g.C; if (Math.abs(dp) > 320 || !P.real) continue; if (P.shop) for (const m of homeFolk(P.real)) { const k = homeAt(m, hr); if (!k) continue; const [kx, ks] = plotToRing(P, k.p[0], k.p[2]), F = plotFrame(P); let ds = (ks - ps) % g.C; if (ds > g.C / 2) ds -= g.C; if (ds < -g.C / 2) ds += g.C; if (Math.abs(ds) < 120) near.push([Math.abs(ds), m, { x: kx, y: k.p[1], s: ks, facing: [F.bx[0] * k.face[0] + F.bz[0] * k.face[1], F.bx[1] * k.face[0] + F.bz[1] * k.face[1]], pose: k.pose, moving: false }, ds]); }      // (and whoever keeps its shop)
+            for (const m of plotPeople(planet, homeS, rb, g, P)) { const a = personAt(g, P, m, hr, g.C); let ds = (a.s - ps) % g.C; if (ds > g.C / 2) ds -= g.C; if (ds < -g.C / 2) ds += g.C; if (Math.abs(ds) < 120) near.push([Math.abs(ds), m, a, ds]); } }
           near.sort((p, q) => p[0] - q[0]);
           for (const [, m, a, ds] of near) { if (ringPeople.length >= 90) break; const w = b2w(rb, a.x, a.y, ps + ds), r0 = toRender(...w), fa = toWorldDir(rb, Math.atan2(a.facing[0], a.facing[1]));
             bendAt(world, rb, meridian, t, w[0], w[1], w[2], toRender, M); V.set(...r0).applyMatrix4(M); M.decompose(S, Q, S); Q.multiply(new THREE.Quaternion().setFromAxisAngle(Y, fa));
@@ -2899,7 +2901,12 @@ async function start(fresh) {
     { const B = []; if (!flight && !ride) { const me = ctrl.pos, add = p => { if (Math.abs(p[0] - me[0]) < 4 && Math.abs(p[2] - me[2]) < 4) B.push(p); };     // (the people round you, for your own collision: player/collision.js)
       for (const a of agents) if (a.pose !== 'lie') add(a.pos); for (const w of walkers) add(w.pos); for (const w of mayhem ? mayhem.crowd() : []) if (w.pose !== 'lie') add(w.pos); for (const M of infantry.men || []) if (M.hp > 0) add(M.pos); }
       world.bodies = B; }
-    crowd.update(ringPeople.concat(agents.filter(a => !burntAt(a.pos[0], a.pos[2])).map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security), crew: pop.gangOf?.(a.person.id)?.colour || null })).concat(riders, walkers.map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
+    // the people of the Vesper's street buildings (world/homefolk.js): at home, in their shops, out on the pavement in front
+    const shipFolk = []; if (vesperStreets?.live.size && !flight) { const hr = solarHour(planet, t);
+      for (const L of vesperStreets.live.values()) { const rec = L.rec, c = b2w(rec, rec.w / 2, 0, rec.d / 2); if (Math.hypot(c[0] - ctrl.pos[0], c[2] - ctrl.pos[2]) > 130 || Math.abs(c[1] - ctrl.pos[1]) > 60) continue;
+        for (const m of homeFolk(rec)) { const a = homeAt(m, hr); if (!a || shipFolk.length >= 60) continue; const w = b2w(rec, a.p[0], a.p[1], a.p[2]); shipFolk.push({ id: m.id, pos: toRender(...w), facing: toWorldDir(rec, Math.atan2(a.face[0], a.face[1])), pose: a.pose, moving: a.moving, age: m.age }); } } }
+    window.__shipFolk = shipFolk;
+    crowd.update(ringPeople.concat(shipFolk, agents.filter(a => !burntAt(a.pos[0], a.pos[2])).map(a => ({ ...a, pos: toRender(...a.pos), uniform: !!(a.person.job && pop.jobById.get(a.person.job).security), crew: pop.gangOf?.(a.person.id)?.colour || null })).concat(riders, walkers.map(w => ({ ...w, pos: toRender(...w.pos) })), (mayhem ? mayhem.crowd() : []).map(w => ({ ...w, pos: toRender(...w.pos) })))), dt);
     const inUse = [...residents.doorsInUse(agents)].filter(k => { const [bk, id] = k.split('#'); return !store.getDelta(doorKey(bk, id))?.held; });
     if (warDoors.size) { const now = clock.now(); for (const [k, till] of warDoors) if (till < now) warDoors.delete(k); else inUse.push(k); }
     doorView.transient = new Set(inUse.map(k => doorIndex.get(k)).filter(i => i !== undefined));

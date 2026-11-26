@@ -26,12 +26,14 @@ export function ringPlots(g) {
       if (!cur) cur = { side, s0: h.s0, s1: h.s1, floors: h.floors, shop: h.shop, colour: h.colour, k: h.k }; else { cur.s1 = h.s1; cur.floors = Math.max(cur.floors, h.floors); }
     }
     shut(); }
-  out.forEach((P, i) => { P.id = i; P.ring = g.key; const w = P.s1 - P.s0, lean = (P.floors * STOREY + 1.5) * w / g.Rf / 2 + 0.06; P.a0 = P.s0 + lean; P.a1 = P.s1 - lean; P.w = P.a1 - P.a0;
-    const r = hashStr(P.k + 17, g.key) / 4294967296; P.shop = P.shop && r < 0.55; P.floors = P.shop ? Math.min(P.floors, 2) : P.floors; P.type = P.shop ? 'store' : P.floors <= 2 ? 'house' : 'hab'; });
+  // (a farm ring's barns: each a workshop standing by the path, its doors to the middle of the ring)
+  for (const h of L.items) if (h.t === 'barn') out.push({ side: h.side, s0: h.s0, s1: h.s1, floors: 1, shop: false, colour: 3, k: h.k, barn: true, fx: h.side === 0 ? h.x1 - 0.2 : h.x0 + 0.2, depth: h.x1 - h.x0 - 0.6, storey: 5.2 });
+  out.forEach((P, i) => { P.id = i; P.ring = g.key; P.fx ??= P.side === 0 ? 1.2 + DEPTH : W - 1.2 - DEPTH; P.depth ??= DEPTH; P.storey ??= STOREY; const w = P.s1 - P.s0, lean = (P.floors * P.storey + 1.5) * w / g.Rf / 2 + 0.06; P.a0 = P.s0 + lean; P.a1 = P.s1 - lean; P.w = P.a1 - P.a0;
+    const r = hashStr(P.k + 17, g.key) / 4294967296; P.shop = P.shop && r < 0.55; P.floors = P.shop ? Math.min(P.floors, 2) : P.floors; P.type = P.barn ? 'workshop' : P.shop ? 'store' : P.floors <= 2 ? 'house' : 'hab'; });
   plotsOf.set(g.key, out); return out;
 }
 // the plot's building, in the ring's flat frame: where its front left corner is, and which way its front and its depth run ([x, s] each)
-export function plotFrame(P) { return P.side === 0 ? { O: [1.2 + DEPTH, P.a0], bx: [0, 1], bz: [-1, 0] } : { O: [W - 1.2 - DEPTH, P.a1], bx: [0, -1], bz: [1, 0] }; }
+export function plotFrame(P) { return P.side === 0 ? { O: [P.fx, P.a0], bx: [0, 1], bz: [-1, 0] } : { O: [P.fx, P.a1], bx: [0, -1], bz: [1, 0] }; }
 // building-local (lx, lz) → the ring's (x, s), and back
 export const plotToRing = (P, lx, lz) => { const F = plotFrame(P); return [F.O[0] + F.bx[0] * lx + F.bz[0] * lz, F.O[1] + F.bx[1] * lx + F.bz[1] * lz]; };
 
@@ -40,9 +42,9 @@ export function plotReal(planet, s, ringB, g, P) {
   if (P.real !== undefined) return P.real;
   P.real = null;
   const F = plotFrame(P), R = ringB, at = ([x, z]) => [R.O[0] + R.ex[0] * x + R.ez[0] * z, R.O[1] + R.ex[1] * x + R.ez[1] * z], vec = ([x, z]) => [R.ex[0] * x + R.ez[0] * z, R.ex[1] * x + R.ez[1] * z];
-  const O = at(F.O), ex = vec(F.bx), ez = vec(F.bz), cs = [[0, 0], [P.w, 0], [0, DEPTH], [P.w, DEPTH]].map(([x, z]) => [O[0] + ex[0] * x + ez[0] * z, O[1] + ex[1] * x + ez[1] * z]);
-  const rng = new Rng([P.k >>> 0, 0x51de + P.id]), label = P.shop ? rng.pick(SHOPS) : P.type === 'hab' ? 'flats' : 'house';
-  const rec = { key: `${s.key}/building:${90000 + g.seed * 1000 + P.id}`, n: -1, ringHouse: true, plot: P, type: P.type, O, ex, ez, w: P.w, d: DEPTH, floors: P.floors, storeyH: STOREY,
+  const O = at(F.O), ex = vec(F.bx), ez = vec(F.bz), cs = [[0, 0], [P.w, 0], [0, P.depth], [P.w, P.depth]].map(([x, z]) => [O[0] + ex[0] * x + ez[0] * z, O[1] + ex[1] * x + ez[1] * z]);
+  const rng = new Rng([P.k >>> 0, 0x51de + P.id]), label = P.barn ? 'barn' : P.shop ? rng.pick(SHOPS) : P.type === 'hab' ? 'flats' : 'house';
+  const rec = { key: `${s.key}/building:${90000 + g.seed * 1000 + P.id}`, n: -1, ringHouse: true, plot: P, type: P.type, O, ex, ez, w: P.w, d: P.depth, floors: P.floors, storeyH: P.storey,
     rect: [Math.min(...cs.map(q => q[0])), Math.min(...cs.map(q => q[1])), Math.max(...cs.map(q => q[0])), Math.max(...cs.map(q => q[1]))],
     access: 'hours', hours: P.shop ? HOURS[label] : [0, 24], owner: P.shop && rng.chance(0.5) ? companyName(rng) : personName(rng), label, base: R.base };
   try { rec.plan = buildingPlan(planet, s, rec); } catch { return null; }
@@ -55,7 +57,7 @@ export function plotReal(planet, s, ringB, g, P) {
 // ---- the people who live in a plot. → [{ id, age, bed (its anchor), out, back (hours they leave and come home), lane, dir, reach, seat }]
 export function plotPeople(planet, s, ringB, g, P) {
   if (P.people) return P.people; P.people = [];
-  const rec = plotReal(planet, s, ringB, g, P); if (!rec || P.shop) return P.people;
+  const rec = plotReal(planet, s, ringB, g, P); if (!rec || P.shop || P.barn) return P.people;
   const plan = rec.plan, rng = new Rng([P.k >>> 0, 0x9e0 + P.id]), lanes = P.side === 0 ? [12.4, 13.2, 19.6, 20.2] : [41.6, 40.8, 34.4, 33.8];
   for (const A of plan.anchors) { if (A.pose !== 'lie') continue; for (let k = 0; k < (A.slots || 1); k++) { if (!rng.chance(0.6)) continue;
       const out = rng.range(6.6, 10.5), back = rng.range(16.5, 21.5), seats = plan.anchors.filter(q => q.pose === 'sit' && q.unit === A.unit);
