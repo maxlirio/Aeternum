@@ -38,17 +38,21 @@ export function fleetOf(planet, S) {
   const seed = hashStr(planet.universeSeed[0], 'fleet');
   return Object.keys(FLEET).map((model, i) => {
     const F = FLEET[model], [dx, h, dz] = SPOTS[model], yaw = ((seed >>> (i * 4)) % 628) / 100, x = S.cx + dx, z = S.cz + dz, y = planet.seaLevel + h;
-    const c = Math.cos(yaw), s = Math.sin(yaw), [mx, my, mz] = F.dock, wx = x + mx * c + mz * s, wz = z - mx * s + mz * c, f = Math.atan2(-c, s);   // the decks run inward from the dock's mouth
     const D = deckLen[model];
-    return { model, name: F.name, x, y, z, yaw, colour: i, length: F.length, sleek: !!F.sleek, deckW: 34, deckD: D, dark: !!F.dark, livery: F.livery, ship: { id: `ship:${S.key}:fleet${i}`, model: model + '_decks', name: F.name, at: { c: [wx + Math.sin(f) * D / 2, y + my, wz + Math.cos(f) * D / 2], facing: f }, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } };
+    return seatDecks({ model, name: F.name, x, y, z, yaw, colour: i, length: F.length, span: F.span, sleek: !!F.sleek, deckW: 34, deckD: D, dark: !!F.dark, livery: F.livery, ship: { id: `ship:${S.key}:fleet${i}`, model: model + '_decks', name: F.name, at: null, field: true, fleet: true, colour: 4, owner: 'fleet', ownerName: 'the Fleet' } });
   });
+}
+// where a ship's decks are, from where the ship is (they run inward from the dock's mouth): set again whenever it moves (gen/voyages.js)
+export function seatDecks(C) {
+  const F = HULLS[C.model], c = Math.cos(C.yaw), s = Math.sin(C.yaw), [mx, my, mz] = F.dock, wx = C.x + mx * c + mz * s, wz = C.z - mx * s + mz * c, f = Math.atan2(-c, s), D = C.deckD;
+  C.ship.at = { c: [wx + Math.sin(f) * D / 2, C.y + my, wz + Math.cos(f) * D / 2], facing: f }; return C;
 }
 
 // How sheltered a point is by a great ship's bay: 1 inside its decks and doors, easing to 0 over the first 150 m out past the mouth (the weather doesn't blow in a hangar).
 export function bayShelter(list, px, py, pz) {
   let best = 0;
   for (const C of list) {
-    if (C.away) continue; const F = HULLS[C.model], dx = px - C.x, dz = pz - C.z; if (dx * dx + dz * dz > (F.length * 0.8) ** 2) continue;
+    if (C.off) continue; const F = HULLS[C.model], dx = px - C.x, dz = pz - C.z; if (dx * dx + dz * dz > (F.length * 0.8) ** 2) continue;
     const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, [mx, my, mz] = F.dock, o = Math.max(0, lx - mx);
     if (lx < mx - (F.bay || deckLen[C.model] || 100) - 4 || o > 150 || ly < my - 8 - o * 0.35 || ly > my + 12 + o * 0.6 || Math.abs(lz - mz) > 20 + o * 0.6) continue;
     best = Math.max(best, 1 - o / 150);
@@ -58,7 +62,7 @@ export function bayShelter(list, px, py, pz) {
 // If (px, py, pz) is inside a ship's solid parts: the shortest way out of it, in world coordinates. Otherwise null.
 export function fleetContact(list, px, py, pz, r = 3) {
   for (const C of list) {
-    const dx = px - C.x, dz = pz - C.z; const reach = Math.max(1200, Math.max(HULLS[C.model].span || 0, HULLS[C.model].length) * 0.7); if (dx * dx + dz * dz > reach * reach) continue;
+    if (C.off) continue; const dx = px - C.x, dz = pz - C.z; const reach = Math.max(1200, Math.max(HULLS[C.model].span || 0, HULLS[C.model].length) * 0.7); if (dx * dx + dz * dz > reach * reach) continue;
     const c = Math.cos(C.yaw), s = Math.sin(C.yaw), lx = dx * c - dz * s, lz = dx * s + dz * c, ly = py - C.y, F = HULLS[C.model];
     const back = (ox, oy, oz) => [ox * c + oz * s, oy, -ox * s + oz * c];
     // the way in and out of the dock is never solid: from the back of its decks out past the mouth, as high and wide as its doors (a wing or a hull box

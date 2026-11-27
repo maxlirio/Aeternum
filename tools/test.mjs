@@ -780,19 +780,43 @@ suites.stars = async () => {
   console.log(`  ${A.length} stars, ${n} worlds, ${kinds.size} kinds`);
 };
 suites.voyages = async () => {
-  // the great ships' runs (gen/voyages.js): on station, out, over the far town, home again, and back exactly where they stood
-  const { voyageAt, VOYAGES } = await import('../js/gen/voyages.js');
-  const home = { x: 1000, y: 3000, z: -2000, yaw: 0.7 }, dests = [{ x: 15000, z: 4000, name: 'Far' }, { x: -9000, z: 12000, name: 'Other' }], ground = () => 50;
-  for (const model of Object.keys(VOYAGES)) {
-    const C = { model }; let st = 0, out = 0, there = 0, back = 0, far = 0, jump = 0, prev = null;
-    for (let t = 0; t < VOYAGES[model].P * 2; t += 5) { const v = voyageAt(C, home, dests, ground, t); ({ station: () => st++, out: () => out++, there: () => there++, back: () => back++ })[v.phase](); far = Math.max(far, Math.hypot(v.x - home.x, v.z - home.z));
-      if (!v.away) check(v.x === home.x && v.z === home.z && v.yaw === home.yaw, `${model} on station where it stands`);
-      if (prev) jump = Math.max(jump, Math.hypot(v.x - prev.x, v.y - prev.y, v.z - prev.z)); prev = v; }
-    check(st && out && there && back, `${model} goes through every phase (${st}/${out}/${there}/${back})`);
-    check(far > 8000, `${model} goes ${Math.round(far)} m out`);
-    check(jump < 1200, `${model} moves smoothly (largest 5 s step ${Math.round(jump)} m)`);
-    const k = voyageAt(C, home, dests, ground, VOYAGES[model].P * 0.75 - (11 % 1)).k, sk = new Set([k]), v = voyageAt(C, home, dests, ground, VOYAGES[model].P * 0.75, sk); check(!v.away || v.k !== k, `${model} stays when its run is put off`);
+  // the great ships (gen/voyages.js): each one ship in the universe, calling at worlds in turn; over a world, working; its lighters and its wing
+  const { DUTY, routeOf, berthAt, inPort, shipAt, tendersAt, patrolsAt, HOME_PORT } = await import('../js/gen/voyages.js'), { starChart } = await import('../js/gen/stars.js');
+  const U = [0x1234abcd, 0x77aa0011], chart = starChart(U), home = { x: 1000, y: 3000, z: -2000, yaw: 0.7 }, dests = [{ x: 15000, z: 4000, name: 'Far' }, { x: -9000, z: 12000, name: 'Other' }], ground = () => 50;
+  let homeNow = 0, samples = 0;
+  for (const model of Object.keys(DUTY)) {
+    const R = routeOf(U, model), C = { model };
+    check(R.ports.length === 4 && R.ports.every(p => chart[p.system]?.bodies.some(b => b.n === p.body)), `${model} calls at real worlds`);
+    check(R.ports.some(p => p.system !== 0) && R.ports.some(p => p.system === 0 && p.body !== 3), `${model} calls in the home system and at another star`);
+    // one whole round: never in two places, every port called at, in FTL between, and the same again a round later
+    const seen = new Set(); let ftl = 0, prev = null, step = 0, phases = new Set(), far = 0, lighters = 0, loaded = 0, empty = 0, moved = 0;
+    for (let t = 0; t < R.T; t += 5) { const B = berthAt(U, model, t), B2 = berthAt(U, model, t + R.T);
+      check(B.ftl === B2.ftl && B.port.system === B2.port.system && B.port.body === B2.port.body && Math.abs(B.u - B2.u) < 1e-6, `${model} keeps its round`);
+      if (B.ftl) { ftl++; check(!inPort(B, B.port) && !inPort(B, B.from), `${model} in FTL is over no world`); prev = null; continue; }
+      seen.add(B.port.system + ':' + B.port.body); check(B.u >= 0 && B.u < B.stay, `${model} within its stay`);
+      const v = shipAt(C, home, dests, ground, B); phases.add(v.phase); far = Math.max(far, Math.hypot(v.x - home.x, v.z - home.z));
+      if (v.phase === 'station') check(v.x === home.x && v.z === home.z && v.yaw === home.yaw && !v.away, `${model} on station where it stands`);
+      if (B.u < 5 || B.u > B.stay - 5) check(v.phase === 'station', `${model} jumps from its station and comes out on it`);
+      if (prev) { const d = Math.hypot(v.x - prev.x, v.y - prev.y, v.z - prev.z); step = Math.max(step, d); if (d > 1) moved++; } prev = v;
+      if (!v.away) { const L = tendersAt(model, v, [v.x + 3000, 60, v.z + 1000], v.since, v.len, v.mode); lighters = Math.max(lighters, L.length); for (const q of L) { q.load ? loaded++ : empty++; check(q.c.every(Number.isFinite) && Number.isFinite(q.facing), `${model} lighter is somewhere`); check(q.c[1] > 55, `${model} lighter above the ground`); } }
+      else check(tendersAt(model, v, [0, 0, 0], v.since, v.len, v.mode).length >= 0, 'lighters asked under way'); }
+    check(seen.size === new Set(R.ports.map(p => p.system + ':' + p.body)).size, `${model} calls at every port (${seen.size})`);
+    check(ftl > 0, `${model} jumps`);
+    check(step < 700, `${model} moves smoothly (largest 5 s step ${Math.round(step)} m)`);
+    if (DUTY[model].local !== 'stay') { check(phases.has('out') && phases.has('there') && phases.has('back'), `${model} goes out, stands there and comes back`); check(far > 8000, `${model} goes ${Math.round(far)} m out`); }
+    else check(!moved, `${model} keeps its station`);
+    if (DUTY[model].n) { check(lighters >= 1 && lighters <= DUTY[model].n, `${model} has lighters flying (${lighters})`); if (DUTY[model].load) check(loaded > 0 && empty > 0, `${model}'s lighters go one way loaded, the other empty (${loaded}/${empty})`); }
+    for (let t = 0; t < 86400; t += 600) { samples++; if (inPort(berthAt(U, model, t), HOME_PORT)) homeNow++; }
   }
+  check(homeNow / samples > 0.5 && homeNow / samples < 0.85, `most of the fleet is over home at any time (${(homeNow / samples * 8).toFixed(1)} of 8)`);
+  // a lighter's whole trip: from the field to deep in the bay and back, without a jump in it
+  { const pose = home, pad = [4000, 60, -1000]; let prev = null, big = 0, deep = 1e9, low = 1e9;
+    for (let t = 0; t < 900; t += 0.5) { const q = tendersAt('longshore', pose, pad, t, 950, 'load')[0]; if (!q || q.id !== 'tender:longshore:0') { prev = null; continue; } if (prev) big = Math.max(big, Math.hypot(q.c[0] - prev[0], q.c[1] - prev[1], q.c[2] - prev[2])); prev = q.c; deep = Math.min(deep, Math.hypot(q.c[0] - pose.x, q.c[2] - pose.z)); low = Math.min(low, q.c[1] - pad[1]); }
+    check(big < 60, `a lighter flies without a jump (largest half-second step ${big.toFixed(1)} m)`); check(low < 5, `it comes down over the field (${low.toFixed(1)} m)`); check(deep < 700, `and goes in at the bay (${Math.round(deep)} m from the keel)`); }
+  // the carrier's wing: off the deck and back to it, with the ship wherever it is
+  { const a = patrolsAt('bastion', home, 0), b = patrolsAt('bastion', { ...home, x: home.x + 5000 }, 0); check(a.length === 4, 'four fighters in the wing'); check(a.every((q, i) => Math.abs(b[i].c[0] - q.c[0] - 5000) < 1e-6), 'the wing goes with the ship');
+    let near = 1e9, out = 0, prev = null, big = 0; for (let t = 0; t < 400; t += 0.5) { const q = patrolsAt('bastion', home, t)[0], d = Math.hypot(q.c[0] - home.x, q.c[2] - home.z); out = Math.max(out, d); if (q.ground) near = Math.min(near, q.c[1] - home.y); if (prev) big = Math.max(big, Math.hypot(q.c[0] - prev[0], q.c[1] - prev[1], q.c[2] - prev[2])); prev = q.c; }
+    check(out > 1500, `a fighter flies ${Math.round(out)} m out`); check(near < 70, 'and stands on the deck between'); check(big < 110, `without a jump (${big.toFixed(1)} m)`); }
 };
 suites.climb = async () => {
   const { riverAt: climbRiver } = await import('../js/gen/rivers.js'), { groundFeel: climbFeel } = await import('../js/gen/land.js');

@@ -32,7 +32,8 @@ import { isCloudWorld, cloudOf } from './gen/skyisles.js';
 import { cultureOf } from './gen/culture.js';
 import { makePlanet } from './gen/planet.js';
 import { getSettlement, settlementNear, townOfKey, address, regionOf } from './gen/settlement.js';
-import { voyageAt, VOYAGES } from './gen/voyages.js';
+import { DUTY, berthAt, inPort, shipAt as greatShipAt, tendersAt, patrolsAt } from './gen/voyages.js';
+import { TenderLoads } from './render/tenders.js';
 import { openHoloMap } from './ui/holomap.js';
 import { FtlTunnel, ftlFlash } from './render/ftl.js';
 import { starChart, jumpOf, addressOf } from './gen/stars.js';
@@ -77,7 +78,7 @@ import { catchUp } from './sim/offline.js';
 import { whereAt, dayIndex } from './gen/schedule.js';
 import { CapitalView } from './render/capital.js';
 import { ThrustView } from './render/thrust.js';
-import { fleetOf, fleetContact, bayShelter, HULLS } from './gen/capital.js';
+import { fleetOf, fleetContact, bayShelter, HULLS, seatDecks } from './gen/capital.js';
 import { RINGS, ringFolk, folkAt, W as RING_W } from './gen/rings.js';
 import { ringStructure, spinOf, wrapRing } from './world/rings.js';
 import { ringPlots, plotReal, plotPeople, personAt, plotToRing, plotFrame } from './world/ringreal.js';
@@ -113,7 +114,7 @@ import { vehiclesIn, park, buyVehicle, stealVehicle, isYours } from './world/veh
 import { Ride } from './player/ride.js';
 import { VehicleView } from './render/vehicles.js';
 import { SHIP_PRICE, PRICES, tripOf, LAYOUTS } from './gen/ships.js';
-import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
+import { shipsIn, onRun, holdRun, shipIsYours, rampDown, rampLocked, setRamp, structureOf, centreOf, frameOf, buyShip, stealShip, launch, land, forceRamp, shipKey } from './world/ships.js';
 import { Flight, fromEuler } from './player/flight.js';
 import { AirWar, raidAt, raidIndex, steerToward } from './sim/aircombat.js';
 import { CombatView } from './render/combat.js';
@@ -235,7 +236,7 @@ async function start(fresh) {
   const libP = params.has('boxprops') ? Promise.resolve(null) : loadPropLibrary(undefined, renderer.capabilities.getMaxAnisotropy()).catch(e => { console.warn('prop library', e); return null; });
   // coming out of FTL: the tunnel from the first frame, your ship in it as soon as its model's loaded
   let ftlPic = null;      // (your ship as it was a moment ago, a picture of it over the tunnel until its model's loaded: render/ftl.js snapshot)
-  const ftlShipIn = (view, H) => { ftl.ship(view, H.ship.model, H.ship.colour); if (ftl.shipG.children.length) { ftlPic?.remove(); ftlPic = null; } };
+  const ftlShipIn = (view, H) => { if (!H?.ship) return; ftl.ship(view, H.ship.model, H.ship.colour); if (ftl.shipG.children.length) { ftlPic?.remove(); ftlPic = null; } };
   if (arriving) { const H = ftlHandoff(); ftl = new FtlTunnel(renderer); ftl.speed = 1; ftl.render(0.016);
     try { const P = JSON.parse(sessionStorage.getItem('orbis-ftl-pic') || 'null'); sessionStorage.removeItem('orbis-ftl-pic'); if (P?.ship && P.rect) { ftlPic = document.createElement('img'); ftlPic.src = P.ship; ftlPic.style.cssText = `position:fixed;left:${P.rect[0] * 100}%;top:${P.rect[1] * 100}%;width:${P.rect[2] * 100}%;height:${P.rect[3] * 100}%;z-index:3;pointer-events:none`; document.body.append(ftlPic); } } catch { }
     requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('ftl-still')?.remove()));
@@ -309,6 +310,7 @@ async function start(fresh) {
   const shipView = new ShipView(propLib); scene.add(shipView.group);
   const shipDamage = new ShipDamage(shipView); shipView.damage = shipDamage; const hud = new FlightHud(), chud = new CombatHud(), sound = new Sound();
   if (arriving && ftl && !ftl.shipG.children.length) { const H = ftlHandoff(); if (H) ftlShipIn(shipView, H); }      // (your ship in the tunnel, if it isn't yet)
+  const tenderLoads = new TenderLoads(root);
   const capitalView = new CapitalView(scene, propLib); setTimeout(() => capitalView.load(), 2500);
   const flora = new FloraView(propLib, planet, renderer); root.add(flora.group);      // (world coordinates, under the floating origin)
   const ringView = new RingView(scene, propLib, planet, flora);
@@ -477,7 +479,7 @@ async function start(fresh) {
   const keys = new Set();
   let bootHold = null;      // (set once the world's up: below)
   let dying = false;      // (dead: sim/lineage.js, dieFlow; nothing more is saved over the death)
-  let paused = false, forceHold = 0, jumpQueued = false, slideQueued = false, lastSave = performance.now();
+  let paused = false, jumping = false, forceHold = 0, jumpQueued = false, slideQueued = false, lastSave = performance.now();
   addEventListener('keydown', e => {
     if (paused) return;
     sound.wake(); keys.add(e.code);
@@ -522,7 +524,9 @@ async function start(fresh) {
     else if (flight) { store.patchDelta(shipKey(flight.ship.id), { flying: true, at: { c: flight.pos.slice(), facing: flight.facing } }); player.piloting = flight.ship.id; player.pos = flight.pos.slice(); }
     else player.pos = ctrl.pos.slice();
     if (!flight) player.piloting = null;
-    { const L = !flight && !ride ? world.locate(...ctrl.pos) : null; player.aboard = L?.b?.type === 'ship' ? L.b.key : null; }      // (so it's there to stand in when you come back: below, at boot)
+    { const L = !flight && !ride ? world.locate(...ctrl.pos) : null; player.aboard = L?.b?.type === 'ship' ? L.b.key : null; }
+    if (jumping) return;
+    try { const A = !flight && !ride ? aboardOf() : null; player.berthed = A ? { model: A.model, l: shipLocal(A, ctrl.pos), f: ctrl.facing - A.yaw } : null; fleetClock.keep(); } catch { }      // (so it's there to stand in when you come back: below, at boot)
     player.facing = ctrl.facing;
     store.meta.gameTime = clock.now(); store.meta.realTime = Date.now();
     store.touchPlayer(); store.dirty.meta = true;
@@ -1022,10 +1026,25 @@ async function start(fresh) {
   // structure in the collision world, like a building; a flying one is a Flight.
   let flyAs = null;      // (?fly=<model>: whichever ship you take is that model)
   const fleet = fleetOf(planet, homeS);
+  // each of them is one ship in the universe: over this world or another, or between (gen/voyages.js). The fleet keeps its own time, the same on
+  // every world (each world's own clock starts when you first come to it), carried from page to page
+  const HERE = { system: WORLD.parts[2][1], body: WORLD.parts[3][1] }, STILL = params.has('still');       // (?still: all of them on station and staying, for the e2e runs)
+  const fleetClock = (() => { const key = 'orbis-fleet:' + store.meta.universe; let shift = 0;
+    try { const r = JSON.parse(localStorage.getItem(key) || 'null'); if (r && params.get('store') !== 'mem') shift = r.ut + (Date.now() - r.real) / 1000 - clock.now(); } catch { }
+    try { const r = JSON.parse(sessionStorage.getItem(key) || 'null'); if (r) shift = r.ut + (Date.now() - r.real) / 1000 - clock.now(); } catch { }
+    if (params.has('fleet')) shift = +params.get('fleet') - clock.now();
+    return { now: () => clock.now() + shift, skew: d => { shift += d; }, keep: () => { const j = JSON.stringify({ ut: clock.now() + shift, real: Date.now() }); for (const S of ['localStorage', 'sessionStorage']) try { window[S].setItem(key, j); } catch { } } }; })();
+  const townR = q => { let r = 260; for (const b of q.buildings || []) r = Math.max(r, Math.hypot((b.rect[0] + b.rect[2]) / 2, (b.rect[1] + b.rect[3]) / 2) + 90); return Math.min(1500, r); };
+  const voyDests = (() => { const out = [], [ri, rj] = regionOf(homeS.cx, homeS.cz);
+    if (!cloudW) for (let i = ri - 6; i <= ri + 6; i++) for (let j = rj - 6; j <= rj + 6; j++) { const q = getSettlement(planet, i, j); if (q && q.key !== homeS.key) { const d = Math.hypot(q.cx - homeS.cx, q.cz - homeS.cz); if (d > 5000 && d < 22000) out.push({ x: q.cx, z: q.cz, name: q.name, d, r: townR(q) }); } }
+    return out.sort((a, b) => a.d - b.d).slice(0, 6); })();
+  const voyH = new Map(), voyGround = (x, z) => { if (cloudW) return altRef; const k = Math.round(x) + ',' + Math.round(z); let h = voyH.get(k); if (h === undefined) voyH.set(k, h = Math.max(surfaceHeight(planet, x, z), planet.seaLevel)); return h; };
+  for (const C of fleet) { C.home = { x: C.x, y: C.y, z: C.z, yaw: C.yaw }; if (STILL) continue;
+    const B = berthAt(U, C.model, fleetClock.now()); C.off = C.away = !inPort(B, HERE); if (!C.off) { const v = greatShipAt(C, C.home, voyDests, voyGround, B); C.x = v.x; C.y = v.y; C.z = v.z; C.yaw = v.yaw; C.away = v.away; seatDecks(C); } }
   const visitorShip = () => { const V = store.getDelta('visitor/ship'); return V ? { ...V, ...(store.getDelta(shipKey(V.id)) || {}) } : null; };      // (a ship you flew in from another world: its record lives in this world's save)
   let strikeView = null;      // (the dreadnought over a town just now, if there's one: strikeTick, further on)
   let issuedShip = null;      // (the fighter you were issued, while it's standing somewhere: it's a ship like any other until it's handed back)
-  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.filter(C => !C.away).map(C => C.ship), visitorShip() ? [visitorShip()] : [], strikeView?.deck ? [strikeView.C.ship] : [], issuedShip && store.getDelta(shipKey(issuedShip.id))?.at ? [{ ...issuedShip, ...store.getDelta(shipKey(issuedShip.id)) }] : []); /* (a great ship away on a run has no decks here to walk: gen/voyages.js) */ if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
+  const allShips = t => { const L = [...fleetTowns].flatMap(q => shipsIn(store, planet, q, t)).concat(fleet.filter(C => !C.off).map(C => C.ship), visitorShip() ? [visitorShip()] : [], strikeView?.deck ? [strikeView.C.ship] : [], issuedShip && store.getDelta(shipKey(issuedShip.id))?.at ? [{ ...issuedShip, ...store.getDelta(shipKey(issuedShip.id)) }] : []); /* (a great ship away on a run has no decks here to walk: gen/voyages.js) */ if (flyAs) for (const x of L) if (x.id === flyAs.id) { x.model = flyAs.model; if (flyAs.paint !== null) x.colour = flyAs.paint; } return L; }, shipTown = sh => townOfKey(planet, sh.id) || homeS;
   let ships = allShips(clock.now()), flight = null, rampHold = 0, cockpitView = false;
   const stick = [0, 0];
   // In a ship the mouse aims: it swings a direction round the sky and the view follows it; your instructor flies the nose there, the guns with it
@@ -1061,8 +1080,8 @@ async function start(fresh) {
   const ringStructs = meridian ? RINGS.map((g, i) => { const f = meridian.yaw, b = ringStructure(homeS, g, [meridian.x + Math.cos(f) * (i - 1) * 140, meridian.y + 700, meridian.z - Math.sin(f) * (i - 1) * 140], f); world.addStructure(b, homeS); return b; }) : [];     // (side by side over the ship, so none is over another)
   // the houses of a ring's town, each a building of its own in there (world/ringreal.js): put in a few a frame from when the ship's near
   const ringHouses = new RingHouses(planet, homeS, world, propLib, ringView, ringStructs); let plotQ = null;
-  const ringPlotsIn = () => { plotQ ??= ringStructs.flatMap(b => ringPlots(b.plan.ring).map(P => [b, P])); for (let n = 0; n < 6 && plotQ.length; n++) { const [b, P] = plotQ.pop(), rec = plotReal(planet, homeS, b, b.plan.ring, P); if (rec) world.addStructure(rec, homeS); } };
-  const ringHere = (p = ctrl.pos) => { for (const b of ringStructs) { if (p[1] < b.base - 3 || p[1] > b.base + 40) continue; const [lx, lz] = world.toB(b, p[0], p[2]); if (lx > -1 && lx < b.w + 1 && lz > -2 && lz < b.d + 2) return b; } return null; };
+  const ringRecs = []; const ringPlotsIn = () => { if (meridian.off) return; plotQ ??= ringStructs.flatMap(b => ringPlots(b.plan.ring).map(P => [b, P])); for (let n = 0; n < 6 && plotQ.length; n++) { const [b, P] = plotQ.pop(), rec = plotReal(planet, homeS, b, b.plan.ring, P); if (rec) { ringRecs.push(rec); world.addStructure(rec, homeS); } } };
+  const ringHere = (p = ctrl.pos) => { if (meridian?.off) return null; for (const b of ringStructs) { if (p[1] < b.base - 3 || p[1] > b.base + 40) continue; const [lx, lz] = world.toB(b, p[0], p[2]); if (lx > -1 && lx < b.w + 1 && lz > -2 && lz < b.d + 2) return b; } return null; };
   const ringStop = (b, k = 0) => { const g = b.plan.ring, sk = (k + 0.5) * g.C / 6; return b2w(b, RING_W / 2, 0.05, sk - 4.4); };
   const yawOf = ([dx, dz]) => Math.atan2(dx, dz), ringFace = b => yawOf(world.fromBVec(b, 0, -1));
   const ringBend = new THREE.Matrix4(), _rm = new THREE.Matrix4(), _rp = new THREE.Vector3(), _rq = new THREE.Quaternion(), _rs = new THREE.Vector3();
@@ -1079,7 +1098,7 @@ async function start(fresh) {
   if (vesperB) { world.owner.set(vesperB, homeS); world.loose.push({ b: vesperB, x: vesper.x, z: vesper.z, r: 2800 }); }
   const VC = vesper ? vesperCity() : null;
   function vesperLift() {
-    if (!vesperB) return null; const p = ctrl.pos, near = (q, r = 2.4) => Math.hypot(q[0] - p[0], q[2] - p[2]) < r && Math.abs(q[1] - p[1]) < 1.8;
+    if (!vesperB || vesper.off) return null; const p = ctrl.pos, near = (q, r = 2.4) => Math.hypot(q[0] - p[0], q[2] - p[2]) < r && Math.abs(q[1] - p[1]) < 1.8;
     const db = placed.get(vesper.ship.id), dock = db && b2w(db, 3.3, db.plan.layout.deck, 48.25), plaza = vesperB.toWorld(VC.plaza[0], VC.DY, VC.plaza[1] - 2.6);
     const dir = (x, z) => { const a = vesperB.toWorld(0, 0, 0), b = vesperB.toWorld(x, 0, z); return yawOf([b[0] - a[0], b[2] - a[2]]); };
     const down = [dock && { label: 'The docks — promenade', at: [dock[0], dock[1] + 0.05, dock[2]], face: yawOf(world.fromBVec(db, 1, 0)) }, { label: 'The city deck — the spire plaza', at: [plaza[0], plaza[1] + 0.05, plaza[2]], face: dir(0, -1) }].filter(Boolean);
@@ -1176,32 +1195,122 @@ async function start(fresh) {
     ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; joinWar();
     ui.toast(`<b>Deployed.</b> A transport drops you at the staging field and you're in the air in a ${esc(sh.model)}, 6 km short of the ${esc(F.b.name)} line. Bring down what comes at you.`, '', 10000);
   }
-  // ---- the great ships' runs (gen/voyages.js): the freighters to other towns and back, the Anvil on patrol
-  const voyHome = new Map(fleet.map(C => [C.model, { x: C.x, y: C.y, z: C.z, yaw: C.yaw }])), voySkip = new Map(), voyDests = (() => { const out = [], [ri, rj] = regionOf(homeS.cx, homeS.cz);
-    if (!cloudW) for (let i = ri - 6; i <= ri + 6; i++) for (let j = rj - 6; j <= rj + 6; j++) { const q = getSettlement(planet, i, j); if (q && q.key !== homeS.key) { const d = Math.hypot(q.cx - homeS.cx, q.cz - homeS.cz); if (d > 5000 && d < 22000) out.push({ x: q.cx, z: q.cz, name: q.name, d }); } }
-    return out.sort((a, b) => a.d - b.d).slice(0, 6); })();
-  let voyBoot = true;
-  function voyageTick(t) {
-    if (params.has('still')) return;       // (?still: the fleet stays on station, for the e2e runs)
-    let changed = false;
-    for (const C of fleet) {
-      if (!VOYAGES[C.model] || docking?.C === C) continue;
-      const sk = voySkip.get(C.model) || voySkip.set(C.model, new Set()).get(C.model);
-      if (voyBoot) { const v0 = voyageAt(C, voyHome.get(C.model), voyDests, groundY, t); if (v0.away) sk.add(v0.k); }      // (you arrive with them all home: whatever run was under way is finished, the next goes out on time)
-      const v = voyageAt(C, voyHome.get(C.model), voyDests, groundY, t, sk);
-      if (v.away && !C.away) {      // about to put out: not with you aboard, nor while you're in its bay
-        const aboard = world.locate(...ctrl.pos)?.b?.key === C.ship.id || (flight && Math.hypot(flight.pos[0] - C.x, flight.pos[1] - C.y, flight.pos[2] - C.z) < C.length * 0.6);
-        if (aboard) { sk.add(v.k); continue; }
-        if (Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) < 12000) ui.toast(v.dest.name === 'patrol' ? `The <b>${esc(C.name)}</b> leaves station on patrol.` : `The <b>${esc(C.name)}</b> puts out ${C.model === 'halcyon' ? 'with passengers' : 'with cargo'} for ${esc(v.dest.name)}.`, '', 6000);
-      }
-      if (!v.away && C.away && Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) < 25000) ui.toast(`The <b>${esc(C.name)}</b> is back on station.`, '', 5000);
-      if (v.away !== !!C.away) changed = true;
-      C.away = v.away; C.x = v.x; C.y = v.y; C.z = v.z; C.yaw = v.yaw;
-    }
-    voyBoot = false; if (changed) syncShips();
+  // ---- the great ships at work (gen/voyages.js): each is over this world or isn't; over it, it stands on station with its lighters going up and down,
+  // or it's under way to another town or out on patrol, its decks and whoever's on them going with it; and when its stay's over it jumps, with
+  // you if you're aboard
+  const shipLocal = (C, p) => { const dx = p[0] - C.x, dz = p[2] - C.z, c = Math.cos(C.yaw), sn = Math.sin(C.yaw); return [dx * c - dz * sn, p[1] - C.y, dx * sn + dz * c]; };
+  const shipWorld = (C, l) => { const c = Math.cos(C.yaw), sn = Math.sin(C.yaw); return [C.x + l[0] * c + l[2] * sn, C.y + l[1], C.z - l[0] * sn + l[2] * c]; };
+  const inBayOf = (C, p) => { const [lx, ly, lz] = shipLocal(C, p), [mx, my, mz] = HULLS[C.model].dock; return lx > mx - C.deckD - 6 && lx < mx + 3 && ly > my - 3 && ly < my + 15 && Math.abs(lz - mz) < C.deckW / 2 + 3; };
+  const onHullOf = (C, p) => { const [lx, ly, lz] = shipLocal(C, p), F = HULLS[C.model]; if (C.model === 'vesper' && Math.abs(lx) < 780 && lz > -2750 && lz < 1710 && ly > 100 && ly < 900) return true;
+    for (const b of F.solid) if (lx > b[0] - 1 && lx < b[3] + 1 && lz > b[2] - 1 && lz < b[5] + 1 && ly > b[1] - 1 && ly < b[4] + 2.6) return true; return false; };
+  // the great ship you're aboard just now (in its decks or its bay, on its hull, in its rings or its streets), if any
+  function aboardOf() {
+    if (ride || dying) return null; const p = flight ? flight.pos : ctrl.pos, L = flight ? null : world.locate(...p);
+    for (const C of fleet) { if (C.off || C.wreck) continue; if (Math.hypot(p[0] - C.x, p[1] - C.y, p[2] - C.z) > Math.max(C.span || 0, C.length) + 900) continue; if (L?.b?.key === C.ship.id || inBayOf(C, p) || (!flight && onHullOf(C, p))) return C; }
+    if (!flight && meridian && !meridian.off && ringHere(p)) return meridian;
+    return null;
   }
+  const moveStruct = (b, sh) => { const town = shipTown(sh); world.removeStructure(b); const fr = frameOf(town, sh), { W, D } = b.plan.layout, cs = [[0, 0], [W, 0], [0, D], [W, D]].map(([x, z]) => [fr.O[0] + fr.ex[0] * x + fr.ez[0] * z, fr.O[1] + fr.ex[1] * x + fr.ez[1] * z]);
+    b.O = fr.O; b.ex = fr.ex; b.ez = fr.ez; b.base = fr.base; b.rect = [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))]; b.sig = JSON.stringify([sh.at, sh.O]); world.addStructure(b, town); };
+  // the ship goes to where it is now (v), and everything aboard goes with it: its decks, the ships standing in its bay, you
+  function carryWith(C, v) {
+    const who = aboardOf(), old = { x: C.x, y: C.y, z: C.z, yaw: C.yaw }, dyaw = v.yaw - C.yaw, move = p => shipWorld(v, shipLocal(old, p)); let any = false;
+    for (const sh of ships) { if (sh.fleet || !sh.at || sh.flying || flight?.ship.id === sh.id || !inBayOf(C, sh.at.c)) continue; store.patchDelta(shipKey(sh.id), { at: { c: move(sh.at.c), facing: sh.at.facing + dyaw } }); any = true; }
+    if (who === C) { if (flight) flight.pos = move(flight.pos); else { ctrl.pos = move(ctrl.pos); ctrl.facing += dyaw; cam.yaw += dyaw; } }
+    C.x = v.x; C.y = v.y; C.z = v.z; C.yaw = v.yaw; seatDecks(C);
+    const b = placed.get(C.ship.id); if (b) moveStruct(b, C.ship);
+    if (any) syncShips();
+  }
+  // the two that people live on: their rings and their streets are there to walk only while the ship is
+  function habitatOn(C, on) {
+    if (C === meridian) for (const b of ringStructs.concat(ringRecs)) { world.removeStructure(b); if (on) world.addStructure(b, homeS); }
+    if (C === vesper && vesperB) { const i = world.loose.findIndex(q => q.b === vesperB); if (i >= 0) world.loose.splice(i, 1); if (on) world.loose.push({ b: vesperB, x: vesper.x, z: vesper.z, r: 2800 }); else vesperStreets.update([1e9, 0, 1e9], 0, 12); vesperStreets.group.visible = on; }
+  }
+  const bayKey = C => 'fleet/bay:' + C.model, heard = (C, k) => { const d = Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[1] - C.y, ctrl.pos[2] - C.z); if (d < 40000) { fx.shake = Math.max(fx.shake, k * (1 - d / 40000) ** 2); try { sound.boom([C.x, C.y, C.z], C.length * 0.6); } catch { } } };
+  // out of FTL over this world: there, all at once
+  function fleetCame(C, v) {
+    C.off = false; C.x = v.x; C.y = v.y; C.z = v.z; C.yaw = v.yaw; C.away = v.away; seatDecks(C); habitatOn(C, true);
+    const L = store.getDelta(bayKey(C))?.list; if (L?.length) { for (const q of L) store.patchDelta(shipKey(q.id), { flying: undefined, gone: undefined, at: { c: shipWorld(C, q.l), facing: q.f + C.yaw } }); store.patchDelta(bayKey(C), { list: undefined }); }
+    syncShips(); heard(C, 0.6);
+  }
+  // it jumps: gone from this sky. What stood in its bay went with it (it's back when the ship is); so do you, if you're aboard
+  function fleetLeft(C, B) {
+    const who = aboardOf(), bay = []; for (const sh of ships) { if (sh.fleet || !sh.at || sh.flying || flight?.ship.id === sh.id || !inBayOf(C, sh.at.c)) continue; bay.push({ id: sh.id, l: shipLocal(C, sh.at.c), f: sh.at.facing - C.yaw }); }
+    if (who === C && !dying && !jumping) return shipJump(C, B, bay);
+    C.off = C.away = true; C.jump = 0; habitatOn(C, false);
+    if (bay.length) { for (const q of bay) store.patchDelta(shipKey(q.id), { flying: true, gone: C.model }); store.patchDelta(bayKey(C), { list: bay }); }
+    syncShips(); heard(C, 0.35);
+  }
+  let tenders = [];
+  function voyageTick() {
+    tenders = []; if (STILL || jumping) return;
+    const tau = fleetClock.now();
+    for (const C of fleet) {
+      if (C.wreck || docking?.C === C || fleetWar.away(C.model)) continue;
+      const B = berthAt(U, C.model, tau);
+      if (!inPort(B, HERE)) { if (!C.off) fleetLeft(C, B); continue; }
+      const v = greatShipAt(C, C.home, voyDests, voyGround, B);
+      if (C.off) fleetCame(C, v);
+      else if (v.x !== C.x || v.y !== C.y || v.z !== C.z || v.yaw !== C.yaw) carryWith(C, v);
+      C.away = v.away || v.jump > 0; C.jump = v.jump; C.drop = v.drop; C.phase = v.phase; C.mode = v.mode;
+      if (Math.hypot(ctrl.pos[0] - C.x, ctrl.pos[2] - C.z) > 30000) continue;
+      if (!v.away && !cloudW && !v.jump) { const T = v.phase === 'there' ? v.dest : { x: homeS.cx, z: homeS.cz, r: homeR }, d = Math.hypot(v.x - T.x, v.z - T.z) || 1, px = T.x + (v.x - T.x) / d * (T.r || 400), pz = T.z + (v.z - T.z) / d * (T.r || 400);
+        for (const q of tendersAt(C.model, v, [px, voyGround(px, pz), pz], v.since, v.len, v.mode)) tenders.push(q); }
+      if (!v.jump && !v.drop) for (const q of patrolsAt(C.model, v, tau)) tenders.push(q);
+    }
+  }
+  const homeR = townR(homeS);
+  const worldUrl = (to, hand) => { const q = new URLSearchParams(); for (const k of ['seed', 'hour', 'store']) if (params.has(k)) q.set(k, params.get(k)); if (!(to.system === 0 && to.body === 3)) { q.set('planet', to.body); q.set('system', to.system); } q.set('auto', 'arrive'); return location.pathname + '?' + q.toString() + hand; };
+  const carryOf = P => ({ name: P.name, given: P.given, family: P.family, age: P.age, credits: P.credits, inventory: P.inventory, weapon: P.weapon, skills: P.skills, hp: P.hp, fatigue: P.fatigue, hunger: P.hunger, soldier: P.soldier ? { ...P.soldier, world: P.soldier.world || WORLD.key } : null, worlds: [...new Set([...(P.worlds || []), WORLD.key])] });
+  const ashore = () => { const hq = pop.buildingByKey.get(polity.security), at = hq ? b2w(hq, hq.w / 2, 0, -2) : [s.cx, s.h, s.cz]; return [at[0], s.h + 0.1, at[2]]; };      // (where you'd be on this world if you came back to it some other way)
+  // the ship you're aboard goes into FTL, and you with it: the tunnel, and out of it over the world it's bound for, standing where you stood
+  async function shipJump(C, B, bay) {
+    jumping = true;
+    const to = { system: B.port.system, body: B.port.body }, p = flight ? flight.pos : ctrl.pos, recOf = sh => ({ id: sh.id, model: sh.model, name: sh.name, colour: sh.colour });
+    const mineQ = flight ? null : bay.find(q => { const sh = shipById(q.id); return sh && (shipIsYours(sh, player) || sh.id === visitorShip()?.id); }), own = flight ? flight.ship : mineQ ? shipById(mineQ.id) : null;
+    const aboard = { model: C.model, l: shipLocal(C, p), f: (flight ? flight.facing : ctrl.facing) - C.yaw, flying: !!flight, mine: own ? { ...recOf(own), l: mineQ?.l || null, f: mineQ?.f || 0 } : null };
+    let hand = ''; try { hand = ftlStash({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carryOf(player), ship: null, aboard }); } catch (e) { console.error('FTL', e); }
+    paused = true; keys.clear(); ui.hush = true; window.__shipJump = { model: C.model, to };
+    ftlFlash(450, 0.85); ftl = new FtlTunnel(renderer); if (C.mesh) ftl.shipBig(C.mesh, Math.max(C.length, C.span || 0)); ftl.speed = 0;
+    const effect = new Promise(r => setTimeout(r, 2600)), saving = (async () => {
+      try {
+        const rest = bay.filter(q => q !== mineQ); if (rest.length) { for (const q of rest) store.patchDelta(shipKey(q.id), { flying: true, gone: C.model }); store.patchDelta(bayKey(C), { list: rest }); }
+        if (own) { if (own.id === visitorShip()?.id) { dropDelta('visitor/ship'); dropDelta(shipKey(own.id)); } else store.patchDelta(shipKey(own.id), { flying: undefined, away: true }); }
+        player.piloting = null; player.aboard = null; player.berthed = null; player.pos = ashore();
+        fleetClock.keep(); store.meta.gameTime = clock.now(); store.meta.realTime = Date.now(); store.touchPlayer(); store.dirty.meta = true; await store.flush();
+      } catch (e) { console.warn('saving before the jump', e); }
+    })();
+    await Promise.race([Promise.all([effect, saving]), new Promise(r => setTimeout(r, 9000))]);
+    try { sessionStorage.removeItem('orbis-ftl-pic'); sessionStorage.setItem('orbis-ftl-pic', JSON.stringify(ftl.snapshot())); } catch (e) { console.warn('ftl picture', e); }
+    location.href = worldUrl(to, hand);
+  }
+  // out of FTL aboard: the ship's over this world now (or will be in a moment: the jump takes what it takes), and you're where you were in it
+  async function arriveAboard(H) {
+    const A = H.aboard, C = fleet.find(c => c.model === A.model), here = d => inPort(berthAt(U, C.model, fleetClock.now() + d), HERE);
+    for (let n = 0; n < 280 && !here(0); n++) await new Promise(r => setTimeout(r, 250));
+    if (!here(0)) { let d = 0; while (d < 60000 && !here(d)) d += 15; fleetClock.skew(d); }      // (the fleet's time didn't come across with you: it's taken from the ship you're in)
+    voyageTick(); if (C.off) fleetCame(C, greatShipAt(C, C.home, voyDests, voyGround, berthAt(U, C.model, fleetClock.now())));
+    const at = shipWorld(C, A.l), face = A.f + C.yaw; let sh = null;
+    if (A.mine) { sh = shipById(A.mine.id); const park = A.flying ? { flying: true } : { flying: undefined, at: { c: shipWorld(C, A.mine.l), facing: A.mine.f + C.yaw } };
+      if (!sh) { const V = { id: 'ship:visitor:' + A.mine.id.replace(/[^\w]/g, '').slice(-12), model: A.mine.model, name: A.mine.name, colour: A.mine.colour, owner: 'you:' + player.id, ownerName: 'you', from: H.from };
+        if (visitorShip() && visitorShip().id !== V.id) dropDelta(shipKey(visitorShip().id));
+        store.patchDelta('visitor/ship', V); store.patchDelta(shipKey(V.id), park); ships = allShips(clock.now()); sh = shipById(V.id); }
+      else store.patchDelta(shipKey(sh.id), { ...park, away: undefined, gone: undefined }); }
+    syncShips();
+    if (A.flying && sh) { const b = placed.get(sh.id); if (b) { world.removeStructure(b); placed.delete(sh.id); }
+      flight = new Flight(world, planet, sh, at, face); flight.onGround = false; flight.vel = [0, 0, 0]; flight.throttle = 0; ctrl.mode = 'pilot'; camDist = cam.dist; cam.dist = Math.max(22, flight.L.D * 1.6); cam.pitch = 0.25; ctrl.pos = at.slice(); player.piloting = sh.id; }
+    else { ctrl.mode = 'walk'; ctrl.pos = [at[0], at[1] + 0.05, at[2]]; ctrl.vel = [0, 0, 0]; ctrl.facing = face; cam.yaw = face; player.piloting = null; }
+    player.berthed = { model: C.model, l: A.l, f: A.f }; store.touchPlayer(); window.__aboardAt = { model: C.model, at, here: HERE };
+    if (ftl) { paused = true; keys.clear(); ftlOut = { t: 0, say: '' }; }
+  }
+  // loading where you last stood aboard one of them: it's moved on since, and you with it — to wherever over this world it is now, or to the world it's gone to
+  { const Bd = player.berthed, C = Bd && !arriving && !STILL && !player.piloting ? fleet.find(c => c.model === Bd.model) : null;
+    if (C) { const B = berthAt(U, C.model, fleetClock.now());
+      if (inPort(B, HERE)) { const at = shipWorld(C, Bd.l); ctrl.pos = [at[0], at[1] + 0.05, at[2]]; ctrl.vel = [0, 0, 0]; ctrl.facing = Bd.f + C.yaw; cam.yaw = ctrl.facing; }
+      else { const to = { system: B.port.system, body: B.port.body }; let hand = ''; try { hand = ftlStash({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carryOf(player), ship: null, aboard: { model: C.model, l: Bd.l, f: Bd.f, flying: false, mine: null } }); } catch { }
+        jumping = true; player.berthed = null; player.aboard = null; player.pos = ashore(); store.touchPlayer(); fleetClock.keep(); store.flush().catch(() => { }).finally(() => { location.href = worldUrl(to, hand); }); } } }
+  for (const C of fleet) if (C.off) habitatOn(C, false);
   // ---- interstellar travel: the holo map (ui/holomap.js), the jump, and coming out of it over another world
-  const HERE = { system: WORLD.parts[2][1], body: WORLD.parts[3][1] };
   const dropDelta = k => { const d = store.getDelta(k); if (d) store.patchDelta(k, Object.fromEntries(Object.keys(d).map(x => [x, undefined]))); };
   async function holoFlow() {
     let pick = null; await modal(async () => { pick = await openHoloMap(U, HERE); });
@@ -1214,7 +1323,7 @@ async function start(fresh) {
       var hand = ftlStash({ at: Date.now(), universe: store.meta.universe, from: WORLD.key, fromName: planet.name, to, player: carry, ship: { id: sh.id, model: sh.model, name: sh.name, colour: sh.colour } });
     } catch (e) { console.error('FTL', e); ui.toast(`The FTL drive won't spool: ${esc(e.message || e)}.`, 'bad', 6000); return; }
     // the jump starts the moment you engage it; what's left behind is saved while the stars stretch (and can't hold you here if the save is slow or fails)
-    paused = true; keys.clear();
+    paused = true; keys.clear(); jumping = true; fleetClock.keep();
     ui.toast(`<b>FTL.</b> ${to.system === HERE.system ? 'In-system jump' : J.ly.toFixed(1) + ' light years'} to ${esc(dest.name)}.`, '', 4000);
     ftlFlash(450, 0.85); ftl = new FtlTunnel(renderer); ftl.ship(shipView, sh.model, sh.colour); ftl.speed = 0;
     const effect = new Promise(r => setTimeout(r, 2600)), saving = (async () => {      // (long enough to see it take hold; the rest of the way is while the next world is built)
@@ -1234,6 +1343,7 @@ async function start(fresh) {
   async function arrival() {
     const H = ftlHandoff(); if (!H || H.to.system !== HERE.system || H.to.body !== HERE.body) { if (ftl) ftlOut = { t: 0, say: '' }; return; } ftlClear();
     const C = H.player; for (const k of ['name', 'given', 'family', 'age', 'credits', 'inventory', 'weapon', 'skills', 'hp', 'fatigue', 'hunger', 'worlds']) if (C[k] !== undefined) player[k] = C[k];
+    if (H.aboard) { player.soldier = C.soldier && C.soldier.world === WORLD.key ? C.soldier : player.soldier?.world === WORLD.key ? player.soldier : null; return arriveAboard(H); }
     player.soldier = C.soldier && C.soldier.world === WORLD.key ? C.soldier : player.soldier?.world === WORLD.key ? player.soldier : (C.soldier ? null : player.soldier);     // (enlistment is with a nation of the world you enlisted on)
     let sh = shipById(H.ship.id);
     if (!sh) { const V = { id: 'ship:visitor:' + H.ship.id.replace(/[^\w]/g, '').slice(-12), model: H.ship.model, name: H.ship.name, colour: H.ship.colour, owner: 'you:' + player.id, ownerName: 'you', from: H.from, flying: true };
@@ -2760,10 +2870,10 @@ async function start(fresh) {
     if (ctrl.landed > 9 && performance.now() > landSafeAt) { const v = ctrl.landed; hurtPlayer(Math.min(120, (v - 8.5) ** 2 * 0.9), v > 22 ? 'a long fall' : 'a hard landing'); ctrl.stun = Math.max(ctrl.stun || 0, Math.min(2.2, (v - 8) * 0.12)); ctrl.landed = 0; }
     ctrl.frame();      // (what the steps since the last frame did, read: cleared for the next's)
     if (ctrl.slipped) { ctrl.slipped = false; ui.toast('Your grip goes.', 'bad', 3000); }
-    voyageTick(t);
+    voyageTick();
     capitalView.day.value = sky.state.day ?? 1; capitalView.update(bigShips(), toRender, camera.position, t);
-    ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
-    if (ringView.built) { if (!plotQ || plotQ.length) ringPlotsIn(); ringHouses.update(!flight ? ringHere() : null, ctrl.pos, dt, solarHour(planet, t)); }
+    if (meridian?.off) ringView.group.visible = false; else ringView.update(meridian, t, toRender, camera.position, sky.state.day ?? 1, !flight && ringHere()?.plan.ring.key || null);
+    if (ringView.built && !meridian?.off) { if (!plotQ || plotQ.length) ringPlotsIn(); ringHouses.update(!flight ? ringHere() : null, ctrl.pos, dt, solarHour(planet, t)); }
     if (flight && !docking) { let P = fleetContact(strikeView ? fleet.concat(strikeView.C) : fleet, flight.pos[0], flight.pos[1], flight.pos[2], Math.max(2, flight.L.W * 0.35)); if (!P) for (const H of hulks) { P = hulkPush(H, flight.pos, Math.max(2, flight.L.W * 0.35)); if (P) break; } if (P) { flight.pos[0] += P[0]; flight.pos[1] += P[1]; flight.pos[2] += P[2]; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.2; flight.vel[1] *= 0.2; flight.vel[2] *= 0.2; } } }
     shipView.viewer = toRender(...ctrl.pos);
     const vacOf = y => Math.min(1, Math.max(0, (y - 12000) / 28000)), heatOf = c => c ? Math.min(1, Math.max(0, (0.6 - c.hp / c.maxHp) / 0.45)) : 0;
@@ -2782,8 +2892,12 @@ async function start(fresh) {
       const { c, facing } = centreOf(shipTown(sh), sh);
       return Math.abs(c[0] - ctrl.pos[0]) < 3000 && Math.abs(c[2] - ctrl.pos[2]) < 3000 ? { id: sh.id, model: sh.model, c: toRender(...c), facing, colour: sh.colour, rampDown: rampDown(sh, planet, t, player) } : null;
     }).filter(Boolean).concat(flight && !ships.some(sh => sh.id === flight.ship.id && !sh.fleet) ? [flown(flight.ship)] : []).concat(airTraffic(planet, s, t, ctrl.pos[0], ctrl.pos[2]).map(a => ({ ...a, c: toRender(...a.c), gear: 0, thrust: 0.7, hover: 0 })))
+      .concat(tenders.filter(a => Math.hypot(a.c[0] - ctrl.pos[0], a.c[1] - ctrl.pos[1], a.c[2] - ctrl.pos[2]) < 12000).map(a => ({ ...a, c: toRender(...a.c), gear: a.ground ? 1 : 0, thrust: a.moving ? 0.7 : 0.12, hover: a.moving ? 0.1 : 0.8, ground: a.ground ? 0 : 99, landed: a.ground }))) /* (the great ships' lighters and the carrier's wing: gen/voyages.js) */
       .concat(war.craft.filter(c => c !== myCraft && !c.fixed).map(c => ({ id: 'war' + c.id, model: c.model, c: toRender(c.f.pos[0], c.f.pos[1], c.f.pos[2]), facing: c.f.facing, pitch: c.f.pitch, roll: c.f.roll, colour: c.side === 'raider' ? 0 : 4, rampDown: false, msl: c.missiles, gear: 0, thrust: c.alive ? c.f.throttle : 0, hover: c.f.hover, heat: c.alive ? heatOf(c) : 1, vac: vacOf(c.f.pos[1]) })));
-    shipView.update(shipList, dt); thrustView.update(shipList, dt, origin);
+    shipView.update(shipList, dt); thrustView.update(shipList, dt, origin); tenderLoads.update(tenders, toRender);
+    // (a lighter's a solid thing: fly into one and you've hit it)
+    if (flight && !docking) for (const a of tenders) { const dx = flight.pos[0] - a.c[0], dy = flight.pos[1] - (a.c[1] + 1.5 - (a.load ? 1.6 : 0)), dz = flight.pos[2] - a.c[2], R = a.r + (a.load ? 1.5 : 0) + Math.max(2, flight.L.W * 0.4), d = Math.hypot(dx, dy, dz); if (d < R && d > 0.01) { const k = (R - d) / d; flight.pos[0] += dx * k; flight.pos[1] += dy * k; flight.pos[2] += dz * k; const sp = flight.airspeed; if (sp > 6) { flight.impact = Math.max(flight.impact || 0, sp); flight.vel[0] *= 0.3; flight.vel[1] *= 0.3; flight.vel[2] *= 0.3; } } }
+    else if (!flight && !ride) for (const a of tenders) { const dx = ctrl.pos[0] - a.c[0], dz = ctrl.pos[2] - a.c[2], top = a.c[1] + 4, low = a.c[1] - (a.load ? 4.4 : 0.2), R = a.load ? 3 : 4.5, d = Math.hypot(dx, dz); if (d < R && d > 0.01 && ctrl.pos[1] < top && ctrl.pos[1] + 1.8 > low) { ctrl.pos[0] += dx / d * (R - d); ctrl.pos[2] += dz / d * (R - d); } }
     const traffic = trafficNear(planet, s, t, ctrl.pos[0], ctrl.pos[2], 1400, cityTraffic.life.delayOf);
     stepCrashes(dt, t, wx0 => wx0, traffic); lastTraffic = traffic;
     vehView.update(traffic.filter(v => !trafficGone.has(v.id)).map(v => ({ ...v, pos: toRender(...v.pos) })).concat(vehicles.filter(v => !wrecks.get(v.id)?.hits?.length && !(wrecks.get(v.id)?.burnt > 0) && (!ride || v.id !== ride.v.id) && Math.abs(v.pos[0] - ctrl.pos[0]) < 400 && Math.abs(v.pos[2] - ctrl.pos[2]) < 400).map(v => ({ ...v, pos: toRender(...v.pos) }))
@@ -3176,7 +3290,7 @@ async function start(fresh) {
       if (flight && !docking && !paused && !ftl) hud.draw(flight, myCraft, war, camera, toRender, aimDir, dt); else hud.hide(); }
   }
   ftlPumpOff = true; requestAnimationFrame(safeFrame);
-  window.ORBIS = { toRender, fromRender, probe, damageBuildings, strikeBuilding, bState, bHoles, ringStructs, ringHouses, vesperStreets, b2w, rebuilding: false, rebuildN: 0, wreckAt: (model, x, z, yaw = 0.4) => { const hk = hulkOf({ ...restPose(model, x, z, yaw, landY, 0.5), t: clock.now() }); hulks.push(hk); return hk; }, get tiltIn() { return tiltIn; }, hulks, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, warTable, warZones, warMove, dreadBegin, dreadEnd, camp, get run() { return run; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, get battle() { return battle; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
+  window.ORBIS = { fleet, fleetClock, aboardOf, voyDests, placed, lighters: () => tenders, berthOf: (m, d = 0) => berthAt(U, m, fleetClock.now() + d), toRender, fromRender, probe, damageBuildings, strikeBuilding, bState, bHoles, ringStructs, ringHouses, vesperStreets, b2w, rebuilding: false, rebuildN: 0, wreckAt: (model, x, z, yaw = 0.4) => { const hk = hulkOf({ ...restPose(model, x, z, yaw, landY, 0.5), t: clock.now() }); hulks.push(hk); return hk; }, get tiltIn() { return tiltIn; }, hulks, shipDamage, shipView, shipDamageState: id => shipDamage.state(id), takeOffForTest: id => takeOff(allShips(clock.now()).find(x => x.id === id)), get terrain() { return terrain; }, vesperStreets, thrustView, crowd, dockTarget, startDock, getDocking: () => docking, capitalView, ringView, vesperB, vesperLift, ringStructs, ringHere, ringStop, meridianLift, get fleet() { return fleet; }, globeView, crossCut, roadView, towns, homeTown, get currentTown() { return currentTown; }, homeS, homeCtx, enterTown, riverFeed, camera, Flight, setFlightForTest: f => { flight = f; }, setRideForTest: r => { ride = r; ctrl.mode = 'ride'; }, vehView, shipView, rocks, prints, flora, wrecks, wreckView, fx, trafficGone, crashRec, get fauna() { return { clear: () => fauna.clear(), spawnTest: (...a) => fauna.spawnTest(...a), sim: fauna, view: faunaView }; }, peopleNearTest: (...a) => peopleNear(...a), get avatar() { return avatar; }, sites: () => siteRooms, get ladders() { return ladders; }, store, planet, get s() { return s; }, ctrl, cam, clock, world, get town() { return town; }, get doorView() { return doorView; }, scene, renderer, ready: false, save, get pop() { return pop; }, get residents() { return residents; }, crowd, getAgents: () => agents, get ctx() { return ctx; }, get polity() { return polity; }, showWork, getPursuit: () => pursuit, startPursuit, cell: holdingCell(planet, s, polity), ui, get propView() { return propView; }, use: { usableAhead, useThing, statusOf, labelOf }, showInventory, getRide: () => ride, getVehicles: () => vehicles, getFlight: () => flight, war, getRaid: () => raid, raidTick, startRaid: () => raidTick(clock.now(), true), fleetWar, front, deploy: () => deployFlow(), deployFoot: () => deployFlow(true), infantry, combat: { aim: v => { aimHeld = v; }, fire: v => { trigger = v; }, throwGrenade: () => throwGrenade(), launcher: () => fireLauncher(), board: () => tankToggle(), get tank() { return tankV; }, get scoped() { return scoped(); }, crouch: v => { crouched = v; }, get state() { return { crouchK, shield, nades, rockets, aimK, bloom, hp: player.hp, zoom: zoomNow(), breath }; } }, armor, holo: () => holoFlow(), ftlJump: to => ftlJump(to), get inSpace() { return inSpace; }, endDeployment: () => endDeployment(), gangs: () => gangsOf(planet, s, pop), townSociety: () => townSociety(planet, s), weatherView, attack, getBodies: () => bodies, cityView, cityTraffic, liftNear, outposts, getMayhem: () => mayhem, takeCar, getRide2: () => ride,  getCityRooms: () => cityRooms, city: getCity(planet), cityPlace, hurtPlayer, setCockpitView: v => { cockpitView = v; }, getShips: () => ships, syncShips, memorials, syncStones, people: { acting, get brawl() { return brawl; }, get scrap() { return scrap; }, brawlNow() { nextBrawl = 0; } }, get proned() { return proned; }, setProne: v => { proned = v; }, bodyContact, planetWar, hulks, get strikeView() { return strikeView; }, get sortie() { return sortie; }, warTable, warZones, warMove, dreadBegin, dreadEnd, camp, get run() { return run; }, skyBegin, sortieEnd, get groundRun() { return groundRun; }, get battle() { return battle; }, groundBegin, groundEnd, get myCraft() { return myCraft; } };
   // let a few frames settle (shadows, env map) before declaring ready for screenshots
   if (params.get('auto') === 'arrive') arrival();
   if (params.get('auto') === 'line') lineStart();

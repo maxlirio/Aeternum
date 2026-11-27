@@ -63,6 +63,13 @@ export class FtlTunnel {
     this.L = { W: L.W, D: L.D, H: (L.ceiling ?? 3) + 1 };
     this.drive.position.set(0, 0, -L.D / 2 - 2);
   }
+  // One of the great ships in the tunnel (render/capital.js: its hull as it's drawn, taken at a size the tunnel holds), for when it's the ship you're aboard that jumps
+  shipBig(mesh, length) {
+    this.shipG.clear(); const k = 64 / length, g = new THREE.Group(); g.scale.setScalar(k);
+    for (const o of mesh.children) { if (o.isMesh) { const m = new THREE.Mesh(o.geometry, o.material); m.frustumCulled = false; g.add(m); } else if (o.children.every(q => q.isMesh) && o.children.length) { const r = new THREE.Group(); r.rotation.copy(o.rotation); for (const q of o.children) { const m = new THREE.Mesh(q.geometry, q.material); m.frustumCulled = false; r.add(m); } g.add(r); } }
+    this.shipG.add(g); const box = new THREE.Box3().setFromObject(g), sz = box.getSize(new THREE.Vector3());
+    this.L = { W: Math.max(8, sz.x), D: Math.max(20, sz.z), H: Math.max(6, sz.y) }; this.drive.position.set(0, 0, -this.L.D / 2 - 2);
+  }
   // Coming out: drawn over the world as it now is (nothing of the tunnel but its streaks, which slow and shorten to points among the real stars and go)
   leave() { this.over = true; this.target = 0; this.scene.background = null; this.scene.fog = null; this.shipG.visible = false; this.wall.visible = false; this.eye.visible = false; this.rods.material.fog = false; this.rods.material.needsUpdate = true; }
   // A picture of this moment to carry across the page's reload (main.js ftlJump): the whole view, and the ship alone cut out of it with where it sits

@@ -202,6 +202,7 @@ export class CapitalView {
   update(fleet, toRender, cam, t = 0) {
     for (const C of fleet) {
       if (!this.models[C.model]) continue;
+      if (C.off) { if (C.mesh) C.mesh.visible = false; if (C.decks) C.decks.visible = false; continue; }      // (over another world, or between: gen/voyages.js)
       if (!C.mesh && C.wreck) this.wreckOf(C);
       if (!C.mesh) {
         C.mesh = new THREE.Group(); const part = (g, slot, to) => { const m = new THREE.Mesh(g, this.partMaterial(slot, C)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; to.add(m); };
@@ -211,7 +212,10 @@ export class CapitalView {
         this.group.add(C.mesh); C.mesh.rotation.y = C.yaw; this.onMesh?.(C);
       }
       if (C.rings) C.rings.forEach((r, i) => { if (RINGS[i]) r.rotation.z = ringTurn(RINGS[i], t); });
-      C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.set(C.pitch || 0, C.yaw, C.roll || 0, 'YXZ');      // (a ship can leave its station: sim/fleetwar.js)
+      C.mesh.visible = true; C.mesh.position.set(...toRender(C.x, C.y, C.z)); C.mesh.rotation.set(C.pitch || 0, C.yaw, C.roll || 0, 'YXZ');
+      // going into FTL it draws out along its length and is gone; coming out, it's a streak from astern that shortens into the ship, there
+      { const j = Math.max(0, ((C.jump || 0) - 0.93) / 0.07), d = (C.drop || 0) ** 3, k = 60 * j * j + 45 * d, off = (j * j * 0.5 - d * 0.5) * 45 * C.length; C.mesh.scale.set(1, 1, 1 + k);
+        if (off) { C.mesh.position.x += Math.sin(C.yaw) * off; C.mesh.position.z += Math.cos(C.yaw) * off; } }      // (a ship can leave its station: sim/fleetwar.js)
       // a wreck's decks: in the part of the hull they were built into, lying as it lies, everything that glowed gone dark
       if (C.wreck) { if (C.dk) { const rp = C.mesh.position, far = Math.hypot(rp.x - cam.x, rp.y - cam.y, rp.z - cam.z), dk = this.models[C.deckModel], base = C.model;
           if (far < 6000 && !(this.deckLoads ||= new Set()).has(base)) { this.deckLoads.add(base); this.fetch('./assets/decks-' + base + '.glb'); }
@@ -225,7 +229,7 @@ export class CapitalView {
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if ((far < 5000 || C.enemy) && !(this.deckLoads ||= new Set()).has(C.model)) { this.deckLoads.add(C.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
       if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : g.attributes.color ? bakedLit(b) : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
-      if (C.decks) { C.decks.visible = far < 1100; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
+      if (C.decks) { C.decks.visible = far < 1100; C.decks.rotation.y = at.facing; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
     }
   }
 }

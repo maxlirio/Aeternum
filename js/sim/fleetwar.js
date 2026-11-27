@@ -31,7 +31,7 @@ export class FleetWar {
   step(dt, raid = null) {
     this.t += dt;
     for (const C of this.fleet) {
-      const R = ROLES[C.model]; if (!R) continue; const S = this.state.get(C.model);
+      const R = ROLES[C.model]; if (!R || C.off) continue; const S = this.state.get(C.model);
       if (R.role === 'bomber') { this.bomber(C, S, dt, raid); continue; }
       const H = this.hostiles(C, R.range);
       // lasers: a turret with a raider in reach burns it for a moment, then it comes apart
