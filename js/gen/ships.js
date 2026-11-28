@@ -65,7 +65,7 @@ export function shipPlan(model = 'shuttle') {
 // stand, on however many levels, not derived from a row of rooms.
 function customPlan(model, L) {
   const walls = L.walls.map(w => { const along = w.z0 === w.z1; return { x0: w.x0, z0: w.z0, x1: w.x1, z1: w.z1, t: w.rail ? 0.08 : 0.2, y0: w.y0, y1: w.y1, k: 0, exterior: false, side: w.rail ? 'rail' : 'inner',
-    openings: (w.doors || []).map(id => { const d = L.doors[id], c = along ? d.x : d.z; return { kind: 'door', door: id, a: c - d.width / 2, b: c + d.width / 2, y0: L.deck, y1: L.deck + d.height }; }) }; });
+    openings: (w.doors || []).map(id => { const d = L.doors[id], c = along ? d.x : d.z; return { kind: 'door', door: id, a: c - d.width / 2, b: c + d.width / 2, y0: d.y ?? L.deck, y1: (d.y ?? L.deck) + d.height }; }) }; });
   const rooms = L.rooms.map(r => ({ i: r.i, k: 0, purpose: r.purpose, label: r.label, rect: r.rect.slice(), doors: L.doors.filter(d => d.rooms.includes(r.i)).map(d => d.id) }));
   const props = L.props.map(p => ({ kind: p.kind, k: 0, x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1, y: p.y ?? L.deck, h: p.h, face: p.face, room: p.room, ...(p.soft ? { soft: true } : {}) }));
   return { key: 'ship:' + model, type: 'ship', w: L.W, d: L.D, F: 1, H: L.H, walls, windows: [], units: [], slabs: L.slabs.map(s => ({ k: 0, y: s.y, rects: s.rects, ...(s.roof ? { roof: true } : {}) })),

@@ -2292,6 +2292,42 @@ suites.fleetdecks = async () => {
     check(existsSync(new URL('../assets/decks-' + C.model + '.glb', import.meta.url)), `${C.model}: no decks-${C.model}.glb`);
   }
   console.log(`  ${F.length} ships, ${seen.size} different interiors`);
+  // each is laid out for that ship alone (tools/gen-capital.mjs): a hangar the width of its block with craft standing in it and people working them,
+  // stairs from the hangar floor that the collision world really climbs to the upper deck, and a bridge of its own with its watch at their stations
+  const { shipPlan, LAYOUTS } = await import('../js/gen/ships.js'), SH = await import('../js/world/ships.js'), { CollisionWorld } = await import('../js/player/collision.js'), { bayOf, fleetContact, HULLS } = await import('../js/gen/capital.js');
+  const world = new CollisionWorld(p, s, () => true), styles = new Set(); let stairs = 0, crew = 0, craft = 0;
+  for (const C of F) { const lay = L[C.ship.model], tag = C.model, B = bayOf(C.model), bay = lay.rooms[0];
+    check(lay.custom && lay.hangar && bay.purpose === 'hold', `${tag}: no hangar of its own`);
+    check(bay.rect[2] - bay.rect[0] >= 100 && lay.hangar.depth >= 60 && lay.hangar.height >= 18 && lay.hangar.mouthW >= 96, `${tag}: a small hangar (${bay.rect[2] - bay.rect[0]} x ${lay.hangar.depth} x ${lay.hangar.height}, mouth ${lay.hangar.mouthW})`);
+    check(lay.berths.length >= 2 && lay.berths.every(q => LAYOUTS[q.model] && q.x > bay.rect[0] + 8 && q.x < bay.rect[2] - 8 && q.z > 10 && q.z < bay.rect[3] - 10), `${tag}: craft stand in its hangar`); craft += lay.berths.length;
+    // nothing stands in the lane a ship flies in down, or on another's stand
+    const xc = lay.W / 2, lane = Math.min(...lay.berths.map(q => Math.abs(q.x - xc))) - 9; check(lane >= 9 && !lay.props.some(q => q.room === 0 && q.x0 < xc + lane && q.x1 > xc - lane && q.z0 < bay.rect[3] - 4), `${tag}: the lane in is clear (${lane.toFixed(0)} m either side)`);
+    for (const [i, a] of lay.berths.entries()) for (const b of lay.berths.slice(i + 1)) check(Math.abs(a.x - b.x) > 13 || Math.abs(a.z - b.z) > 19, `${tag}: two craft on one stand`);
+    // people: in the hangar, and a watch on the bridge, every one of them on a floor inside a space and not inside the furniture
+    const br = lay.rooms.find(r => r.bridge); if (!check(br, `${tag}: no bridge`)) continue; styles.add(br.bridge);
+    const at = m => m.pts ? m.pts : [[m.x, m.y, m.z]], inRoom = (R, q) => q[0] >= R.rect[0] && q[0] <= R.rect[2] && q[2] >= R.rect[1] && q[2] <= R.rect[3];
+    const watch = lay.crew.filter(m => m.room === br.i), hands = lay.crew.filter(m => m.room === 0); crew += lay.crew.length;
+    check(watch.length >= 5 && watch.some(m => m.pose === 'sit') && hands.length >= 4 && hands.some(m => m.pts), `${tag}: ${watch.length} on the bridge, ${hands.length} in the hangar`);
+    let out = 0, inProp = 0; for (const m of lay.crew) for (const q of at(m)) { if (!inRoom(lay.rooms[m.room], q)) out++; if (m.pose !== 'sit' && lay.props.some(pr => pr.room === m.room && q[0] > pr.x0 + 0.05 && q[0] < pr.x1 - 0.05 && q[2] > pr.z0 + 0.05 && q[2] < pr.z1 - 0.05 && q[1] < pr.y + pr.h && q[1] + 1.7 > pr.y)) inProp++; }
+    check(out === 0 && inProp === 0, `${tag}: ${out} of the crew outside their space, ${inProp} standing in the furniture`);
+    // doors are in the walls of both the spaces they join
+    for (const d of lay.doors) for (const r of d.rooms) { if (r === 'outside') continue; const R = lay.rooms[r].rect, on = d.axis === 'x' ? (Math.abs(d.z - R[1]) < 0.02 || Math.abs(d.z - R[3]) < 0.02) && d.x > R[0] && d.x < R[2] : (Math.abs(d.x - R[0]) < 0.02 || Math.abs(d.x - R[2]) < 0.02) && d.z > R[1] && d.z < R[3]; check(on, `${tag}: door ${d.id} isn't in the wall of ${lay.rooms[r].label}`); }
+    // the stairs, walked: from the deck they stand on to the deck they lead to, your feet on them all the way, and there's floor to step off onto
+    const b = SH.structureOf(s, C.ship, () => true, p); world.addStructure(b); const fromB = (x, z) => { const u = b.O[0] + b.ex[0] * x + b.ez[0] * z, v = b.O[1] + b.ex[1] * x + b.ez[1] * z; return s.toWorld(u, v); };
+    check(lay.ramps.length >= 2, `${tag}: no stairs`);
+    for (const R of lay.ramps) { stairs++; const xm = (R.x0 + R.x1) / 2, lo = R.y0 < R.y1 ? R.z0 : R.z1, hi = R.y0 < R.y1 ? R.z1 : R.z0, dir = Math.sign(hi - lo), y0 = Math.min(R.y0, R.y1), y1 = Math.max(R.y0, R.y1); let y = b.base + y0, worst = 0, okAll = true;
+      for (let z = lo - dir * 0.6; (hi + dir * 1.2 - z) * dir > 0; z += dir * 0.2) { const [wx, wz] = fromB(xm, z), g = world.groundAt(wx, wz, y); if (g.h === -Infinity || Math.abs(g.h - y) > 0.5) { okAll = false; break; } y = g.h; const t = (z - R.z0) / (R.z1 - R.z0); if (t > 0 && t < 1) worst = Math.max(worst, Math.abs(y - b.base - (R.y0 + (R.y1 - R.y0) * t))); }
+      check(okAll && Math.abs(y - b.base - y1) < 0.05 && worst < 0.02 && y1 - y0 >= 5, `${tag}: a stair from ${y0} to ${y1} can't be walked (got to ${(y - b.base).toFixed(2)}, ${worst.toFixed(2)} m off its treads)`); }
+    world.removeStructure(b);
+    // flying: the mouth and the hangar are open air, the decks behind and the block round them are not
+    const toShip = (x, y, z) => [HULLS[C.model].dock[0] - z, HULLS[C.model].dock[1] + y, HULLS[C.model].dock[2] + x - lay.W / 2], Cz = { model: C.model, x: 0, y: 0, z: 0, yaw: 0 }, solid = (x, y, z, r = 2) => !!fleetContact([Cz], ...toShip(x, y, z), r);
+    check(!solid(xc, 6, -60) && !solid(xc, 6, 1) && !solid(xc, 6, lay.hangar.depth / 2) && !solid(xc - B.bw + 8, 8, 30), `${tag}: the way in and the hangar aren't open to fly in`);
+    check(solid(xc, 6, lay.hangar.depth + 12) && solid(xc, lay.hangar.height + 1.6, 30) && solid(xc - lay.hangar.mouthW / 2 - 6, 6, 0.5), `${tag}: a ship can fly through the hangar's back wall, its roof or the piers of its mouth`);
+  }
+  check(styles.size === F.length, `${styles.size} kinds of bridge among ${F.length} ships`);
+  { const M = L.meridian_decks, T = M.rooms.find(r => r.label === 'ring terminal'), d = M.doors.find(q => q.rooms.includes(0) && q.rooms.includes(T?.i));
+    check(T && d && d.width >= 12 && Math.abs(d.x - M.W / 2) < 0.01 && M.gates.length === 3 && M.gates.every(g => g.x > T.rect[0] && g.x < T.rect[2] && g.z > T.rect[3]) && T.y1 - T.y0 >= 12, 'the Meridian: straight ahead from its bay, through a wide portal, the ring terminal with its three lifts at the far end'); }
+  console.log(`  ${stairs} stairs walked, ${craft} craft standing, ${crew} crew`);
 };
 suites.vesper = async () => {
   const { vesperCity, DY } = await import('../js/gen/vesper.js'), { vesperStructure } = await import('../js/world/vesper.js'), { fleetOf, fleetContact } = await import('../js/gen/capital.js'), { CollisionWorld } = await import('../js/player/collision.js'), { Controller } = await import('../js/player/controller.js');

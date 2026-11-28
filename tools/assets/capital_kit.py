@@ -36,6 +36,19 @@ def _hangar_block(p, lay, cx, cy, cz, side):
         add_box(p, x_m - 0.6, y0 - 0.4, z - 1.2, x_m + 0.6, y0 + 0.5, z + 1.2, 'hazard', 0)
         add_box(p, x_m - 0.6, y1 - 0.5, z - 1.2, x_m + 0.6, y1 + 0.4, z + 1.2, 'lampwarm', 0)
     for s in (-1, 1): add_box(p, x_m - 0.5, y0, cz + s * (W / 2 + 1) - 0.5, x_m + 0.5, y1, cz + s * (W / 2 + 1) + 0.5, 'lampcold' if False else 'glow', 0)
+    if lay.get('custom'):      # the mouth is narrower than the block: a pier each side of it and a brow over it, plated, the mouth's own edge lit
+        d0 = lay['doors'][0]; hw = d0['width'] / 2; top = cy + deck + d0['height']; xa, xb = sorted((x_m - side * 1.2, x_m + side * 0.4))
+        add_box(p, xa, y0, z0, xb, y1, cz - hw, 'tint', 0); add_box(p, xa, y0, cz + hw, xb, y1, z1, 'tint', 0); add_box(p, xa, top, cz - hw, xb, y1, cz + hw, 'tint', 0)
+        xo = x_m + side * 0.4
+        for (za, zb_) in ((cz - hw - 0.8, cz - hw), (cz + hw, cz + hw + 0.8)): add_box(p, min(xo, xo + side * 0.3), cy + deck, za, max(xo, xo + side * 0.3), top + 0.8, zb_, 'hazard', 0)
+        add_box(p, min(xo, xo + side * 0.3), top, cz - hw, max(xo, xo + side * 0.3), top + 0.8, cz + hw, 'hazard', 0)
+        k = cz - hw + 4
+        while k < cz + hw - 3: add_box(p, min(xo, xo + side * 0.35), top + 0.15, k, max(xo, xo + side * 0.35), top + 0.65, k + 3, 'lampwarm', 0); k += 9
+        nz = int((z1 - z0) / 12)
+        for i in range(nz + 1):      # the block's own frames, standing out of its plating
+            z = z0 + (z1 - z0) * i / nz
+            if abs(z - cz) < hw + 1: add_box(p, min(xo, xo + side * 0.5), top + 0.8, z - 0.4, max(xo, xo + side * 0.5), y1, z + 0.4, 'metal', 0)
+            else: add_box(p, min(xo, xo + side * 0.5), y0, z - 0.4, max(xo, xo + side * 0.5), y1, z + 0.4, 'metal', 0)
 
 def _taper(p, x0, x1, z0, z1, y0, y1, ix, iz, mat):
     """A block whose walls lean in as they rise: nothing on a real superstructure stands dead plumb."""
@@ -122,19 +135,20 @@ def _island(p, r):
         add_cyl(p, fx, fz, 86, 90, 1.4, 'paint', 16); _beam(p, (fx, 90, fz), (fx, 91, fz + 1.5), 2.2, 'paint')
 
 def _clear_decks(p, lay, cx, cy, cz, side):
-    """Nothing outside may stand in the rooms. Anything that runs through where the decks go is cut away, big hull panels cut finely first so only what's inside the docking block goes (the block closes the hole from outside)."""
+    """Nothing outside may stand in the rooms. The hull is cut along the six sides of where the decks go and what's inside is taken out (the docking block closes the hole from outside)."""
     W, D = lay['W'], lay['D']; a, b = sorted((cx, cx - side * D)); z0, z1 = cz - W / 2 + 0.05, cz + W / 2 - 0.05; y0, y1 = cy + lay['deck'] - 0.3, cy + lay['ceiling'] + 0.25
-    def hit(f):
-        xs = [v.co.x for v in f.verts]; ys = [v.co.z for v in f.verts]; zs = [-v.co.y for v in f.verts]
-        return not (max(xs) < a or min(xs) > b or max(ys) < y0 or min(ys) > y1 or max(zs) < z0 or min(zs) > z1), max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
-    for _ in range(7):
-        big = [f for f in p.bm.faces if hit(f)[0] and hit(f)[1] > 3]
-        if not big: break
-        edges = list({e_ for f in big for e_ in f.edges if e_.calc_length() > 2.5})
-        if not edges: break
-        bmesh.ops.subdivide_edges(p.bm, edges=edges, cuts=1, use_grid_fill=True)
-        bmesh.ops.triangulate(p.bm, faces=[f for f in p.bm.faces if len(f.verts) > 4]) if False else None
-    gone = [f for f in p.bm.faces if hit(f)[0]]
+    def box(f):
+        xs = [v.co.x for v in f.verts]; ys = [v.co.z for v in f.verts]; zs = [-v.co.y for v in f.verts]; return (min(xs), max(xs), min(ys), max(ys), min(zs), max(zs))
+    def near(f, pad=0.5):
+        q = box(f); return not (q[1] < a - pad or q[0] > b + pad or q[3] < y0 - pad or q[2] > y1 + pad or q[5] < z0 - pad or q[4] > z1 + pad)
+    for (co, no) in ((P(a, 0, 0), P(1, 0, 0)), (P(b, 0, 0), P(1, 0, 0)), (P(0, y0, 0), P(0, 1, 0)), (P(0, y1, 0), P(0, 1, 0)), (P(0, 0, z0), P(0, 0, 1)), (P(0, 0, z1), P(0, 0, 1))):
+        fs = [f for f in p.bm.faces if near(f)]
+        if not fs: break
+        geom = list({v for f in fs for v in f.verts}) + list({e for f in fs for e in f.edges}) + fs
+        bmesh.ops.bisect_plane(p.bm, geom=geom, dist=1e-4, plane_co=co, plane_no=no, clear_inner=False, clear_outer=False)
+    def inside(f):
+        c = f.calc_center_median(); x, y, z = c.x, c.z, -c.y; return a < x < b and y0 < y < y1 and z0 < z < z1
+    gone = [f for f in p.bm.faces if inside(f)]
     bmesh.ops.delete(p.bm, geom=gone, context='FACES'); print('cleared', len(gone), 'faces from the decks')
 
 def bastion(p, lay, r):
@@ -235,7 +249,7 @@ def halcyon(p, lay, r):
     bm = bmesh.new(); pts = [(0, 38, -330), (0, 42, -120), (0, 150, -360), (0, 156, -410)]; bm.faces.new([bm.verts.new(P(*q)) for q in pts]); bmesh.ops.solidify(bm, geom=list(bm.faces), thickness=2.2); merge(p, bm, 'tint')
     _bell(p, 0, 2, -420, -383, 21, 20)
     add_box(p, -0.8, 156, -412, 0.8, 158, -404, 'navwhite', 0)
-    return (73, -8, -60, 1)
+    return (73, -8, 10, 1)
 
 def _torus(p, R, r_, z, mat, n=72):
     """A ring about the z axis."""
@@ -312,7 +326,7 @@ def meridian(p, lay, r):
     for (x, y) in ((0, 34), (29, -17), (-29, -17)):
         _engine(p, x, y, -660, -600, 26)
     _plates(p, r, 180, -28, 28, 39, 41, -420, 340, 1.4)
-    return (112, -20, -300, 1)
+    return (112, -9, -55, 1)
 
 def longshore(p, lay, r):
     """A bulk hauler: nothing but a truss, its cargo, and the engines to shove it. Cab at the bow; containers by the hundred."""
@@ -825,7 +839,7 @@ def sable(p, lay, r):
     _canopy_like = [(420, 40), (620, 26)]
     bm_rows = 9; st = [(330 + 300 * k / bm_rows, 44 - 22 * (k / bm_rows) ** 2, max(0.3, 16 * math.sin(math.pi * k / bm_rows)), 0, max(0.3, 44 * math.sin(math.pi * k / bm_rows)), 2) for k in range(bm_rows + 1)]
     add_loft(p, smooth_secs(st, 3), 'visor', 48, axis='z')
-    return (204, -6, -60, 1)
+    return (58, -108, -60, 1)
 
 def _ibeam(p, a, b, h, w, mat='metal'):
     """A beam as it's rolled: a web between two flanges."""
@@ -1251,17 +1265,23 @@ def build_capital():
     for name, fn in CAPITALS.items():
         if ONLY and name not in ONLY: continue
         lay = decks[name + '_decks']
-        if DO:
-            p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces'); continue
+        def inside():
+            p = Part(); (fleet_decks if lay.get('custom') else dress_decks)(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]
+            if lay.get('custom'): _fl_bake(ob.data, lay)
+            rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
+        if DO: inside(); continue
         p = Part(); r = random.Random(name); mouth = fn(p, lay, r); DRESS[name](p, r); _clear_decks(p, lay, *mouth); _hangar_block(p, lay, *mouth); docks[name] = {'x': mouth[0], 'y': mouth[1], 'z': mouth[2], 'side': mouth[3]}
         ob = finish(p, name); ob['kind'] = name; ob['dims'] = [1, 1, 1]; hulls.append(ob); print('capital', name, len(ob.data.polygons), 'faces')
         for i, q in enumerate(RING_PARTS.pop(name, [])): o2 = finish(q, f'{name}_ring{i}'); o2['kind'] = f'{name}_ring{i}'; o2['dims'] = [1, 1, 1]; hulls.append(o2); print('ring part', o2.name, len(o2.data.polygons), 'faces')
-        p = Part(); dress_decks(p, lay, name); ob = finish(p, name + '_decks'); ob['kind'] = name + '_decks'; ob['dims'] = [1, 1, 1]; rooms.append(ob); print('decks', name, len(ob.data.polygons), 'faces')
-    if ONLY: _look(hulls + rooms); return
-    if not DO: json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
-    for fname, group in ([] if DO else [('capital.glb', hulls)]) + [('decks-' + ob['kind'][:-6] + '.glb', [ob]) for ob in rooms]:      # (each ship's insides its own file: fetched when you come near that ship)
+        if not os.environ.get('HULLS_ONLY'): inside()
+    if ONLY and not os.environ.get('WRITE'): _look(hulls + rooms); return
+    if not DO and not ONLY: json.dump(docks, open(os.path.join(ROOT, 'assets', 'ships', 'capital-docks.json'), 'w'), indent=1)
+    for fname, group in ([] if DO or ONLY else [('capital.glb', hulls)]) + [('decks-' + ob['kind'][:-6] + '.glb', [ob]) for ob in rooms]:      # (each ship's insides its own file: fetched when you come near that ship)
         bpy.ops.object.select_all(action='DESELECT')
         for ob in group: ob.select_set(True)
         out = os.path.join(ROOT, 'assets', fname)
-        bpy.ops.export_scene.gltf(filepath=out, export_format='GLB', use_selection=True, export_materials='EXPORT', export_extras=True, export_apply=True, export_yup=True, export_normals=True, export_texcoords=True)
+        kw = dict(filepath=out, export_format='GLB', use_selection=True, export_materials='EXPORT', export_extras=True, export_apply=True, export_yup=True, export_normals=True, export_texcoords=True)
+        if fname != 'capital.glb': kw['export_vertex_color'] = 'ACTIVE'; kw['export_active_vertex_color_when_no_material'] = True
+        try: bpy.ops.export_scene.gltf(**kw)
+        except TypeError as e_: print('export options:', e_); kw.pop('export_active_vertex_color_when_no_material', None); bpy.ops.export_scene.gltf(**kw)
         print('wrote', out, os.path.getsize(out) // 1024, 'KB')

@@ -51,7 +51,7 @@ export function structureOf(s, sh, doorPassable, planet = null) {
   if (planet) {
     const R = plan.layout.ramp, lx = (R.x0 + R.x1) / 2, lz = R.z0, u = fr.O[0] + fr.ex[0] * lx + fr.ez[0] * lz, v = fr.O[1] + fr.ex[1] * lx + fr.ez[1] * lz;
     const [x, z] = s.toWorld(u, v), drop = Math.min(3, Math.max(0, fr.base - surfaceHeight(planet, x, z)));
-    if (drop > 0.05) plan = { ...plan, ramps: plan.ramps.map(r => ({ ...r, y0: -drop })) };
+    if (drop > 0.05) plan = { ...plan, ramps: plan.ramps.map((r, i) => i === 0 ? { ...r, y0: -drop } : r) };      // (the boarding ramp only: the stairs inside it stand where they stand)
   }
   const cs = [[0, 0], [W, 0], [0, D], [W, D]].map(([x, z]) => [fr.O[0] + fr.ex[0] * x + fr.ez[0] * z, fr.O[1] + fr.ex[1] * x + fr.ez[1] * z]);
   const rect = [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))];

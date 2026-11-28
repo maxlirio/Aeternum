@@ -88,7 +88,8 @@ export function tendersAt(model, pose, pad, since, len, mode) {
   const mouth = [pose.x + mx * c + mz * s, pose.y + my + 4.6, pose.z - mx * s + mz * c];
   for (let i = 0; i < D.n; i++) {
     const row = (i - (D.n - 1) / 2) * 26, P0 = [pad[0] + oz * row, pad[1] + 4.3, pad[2] - ox * row], P1 = [P0[0], P0[1] + 90, P0[2]];
-    const P2 = [mouth[0] + ox * 320, mouth[1] + 14, mouth[2] + oz * 320], P3 = [mouth[0] + ox * 30, mouth[1], mouth[2] + oz * 30], deep = 26 + 15 * (i % 3), P4 = [mouth[0] - ox * deep, mouth[1], mouth[2] - oz * deep];
+    // (in down one side of the lane or the other, not over the box in the middle of it where a ship sets down)
+    const lat = (i % 2 ? 1 : -1) * 13, lx = s * lat, lz = c * lat, P2 = [mouth[0] + ox * 320, mouth[1] + 14, mouth[2] + oz * 320], P3 = [mouth[0] + ox * 30 + lx, mouth[1], mouth[2] + oz * 30 + lz], deep = 26 + 15 * (i % 3), P4 = [mouth[0] - ox * deep + lx, mouth[1], mouth[2] - oz * deep + lz];
     const cruise = Math.max(20, Math.hypot(P2[0] - P1[0], P2[1] - P1[1], P2[2] - P1[2]) / 75), legs = [[P0, P1, 7], [P1, P2, cruise], [P2, P3, 9], [P3, P4, 6], [P4, P4, 16], [P4, P3, 6], [P3, P2, 9], [P2, P1, cruise], [P1, P0, 7], [P0, P0, 20]];
     const cycle = legs.reduce((n, L) => n + L[2], 0), delay = i * cycle / D.n, j = Math.floor((since - delay) / cycle); if (since < delay || delay + (j + 1) * cycle > len) continue;      // (not flying: on the field, or stowed in the bay)
     let w = since - delay - j * cycle, li = 0; while (li < legs.length - 1 && w >= legs[li][2]) w -= legs[li++][2];

@@ -2396,7 +2396,9 @@ if 'foliage' in argv:
 elif DO_TEX: build_textures()
 if DO_CAPITAL or DO_RINGS or DO_HARROW:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'capital_kit.py')).read())
-if DO_CAPITAL: build_capital()
+if DO_CAPITAL:
+    for _k in ('harrow_kit.py', 'fleet_kit.py'): exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), _k)).read())
+    build_capital()
 if DO_HARROW:
     exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'harrow_kit.py')).read())
     build_harrow()

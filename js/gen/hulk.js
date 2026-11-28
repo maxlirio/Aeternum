@@ -92,7 +92,9 @@ export function hulkDecks(H, layout) {
 // the ground it has taken: level with the dock's floor out in front of the mouth (a metre over the sill: every deck plan's `deck`), and gone from
 // under its decks (they run in D metres from the mouth; the lowest of them hangs 10 m under the dock's floor) → what gen/surface.js lays over the land
 export function bedsOf(H, D = 100, W = 34) {
-  const F = FLEET[H.model], R = rot(H.yaw, H.pitch || 0, H.roll || 0), m = F.dock, w = app(R, m), at = dx => { const o = app(R, [m[0] + dx, m[1], m[2]]); return [H.x + o[0], H.z + o[2]]; };
-  const [ax, az] = at(46), [p0x, p0z] = at(-(W / 2 + 5) / Math.cos(H.roll || 0) - 2.5), [p1x, p1z] = at(-D + W / 2)      /* (its hold on the ground ends a metre and a half inside the mouth) */, floor = H.y + w[1] + 1.0;
-  return [{ x: ax, z: az, r: 46, e: 60, h: floor }, { x: p0x, z: p0z, x2: p1x, z2: p1z, r: W / 2 + 2, e: 3, h: floor - 14, low: 1 }];
+  const F = FLEET[H.model], R = rot(H.yaw, H.pitch || 0, H.roll || 0), m = F.dock, w = app(R, m), at = (dx, dz = 0) => { const o = app(R, [m[0] + dx, m[1], m[2] + dz]); return [H.x + o[0], H.z + o[2]]; };
+  // (the ground dug out under the decks: along them where they run deep, across them where they're wider than deep; its hold on the ground ends a metre and a half inside the mouth)
+  const deep = D >= W, r = (deep ? W : D) / 2 + 2, d0 = -(r + 3) / Math.cos(H.roll || 0) - 2.5, [ax, az] = at(46), [p0x, p0z] = deep ? at(d0) : at(d0, -(W - D) / 2), [p1x, p1z] = deep ? at(Math.min(d0 - 1, -D + W / 2)) : at(d0, (W - D) / 2), floor = H.y + w[1] + 1.0;
+  return [{ x: ax, z: az, r: Math.max(46, Math.min(W, 160) / 2 + 12), e: 60, h: floor }, { x: p0x, z: p0z, x2: p1x, z2: p1z, r, e: 3, h: floor - 14, low: 1 }];
 }
+

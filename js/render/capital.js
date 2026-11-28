@@ -176,6 +176,7 @@ export class CapitalView {
     if (slot === 'fabric') return plain(CARPET[C.model] || [0.3, 0.12, 0.1], 0.95, 0);
     if (slot === 'ceramic') return plain([0.82, 0.84, 0.82], 0.25, 0.05);
     if (slot === 'mirror') return skyview(this.day);
+    if (slot === 'glass') return new THREE.MeshPhysicalMaterial({ color: 0xd6e8f2, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide, envMapIntensity: 0.8 });      // (a bridge's windows, a lift's shaft: looked through)
     return this.lib.surface(slot);
   }
   // A ship brought down (gen/hulk.js): the same hull, its back broken (torn through at the break, the fore part thrown round from the aft), burnt out:
@@ -228,7 +229,7 @@ export class CapitalView {
       // the decks inside, once you're near enough to see in
       const dk = this.models[C.ship.model], at = C.ship.at, r = toRender(at.c[0], at.c[1], at.c[2]), far = Math.hypot(r[0] - cam.x, r[1] - cam.y, r[2] - cam.z);      // (from the eye: the render origin only follows you across the ground)
       if ((far < 5000 || C.enemy) && !(this.deckLoads ||= new Set()).has(C.model)) { this.deckLoads.add(C.model); this.fetch('./assets/decks-' + C.model + '.glb'); }      // (each ship's insides are their own file)
-      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror)/.test(slot), m = new THREE.Mesh(g, glows ? b : g.attributes.color ? bakedLit(b) : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
+      if (dk && !C.decks && far < 900) { C.decks = new THREE.Group(); for (const { g, slot } of dk) { const b = this.deckSurface(slot, C), glows = /^(glow|lamp|neon|nav|screen|mirror|glass)/.test(slot), m = new THREE.Mesh(g, glows ? b : g.attributes.color ? bakedLit(b) : roomLit(b, 1, C.ship.layout?.rooms?.[0]?.rect?.[3] ?? C.hangarEnd ?? 47)); m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; if (slot === 'glass') m.renderOrder = 3; C.decks.add(m); } C.decks.rotation.y = at.facing; this.group.add(C.decks); }
       if (C.decks) { C.decks.visible = far < 1100; C.decks.rotation.y = at.facing; const L = C.deckW / 2, D = C.deckD / 2, c = Math.cos(at.facing), s = Math.sin(at.facing); C.decks.position.set(r[0] - (L * c + D * s), r[1], r[2] - (-L * s + D * c)); }
     }
   }
